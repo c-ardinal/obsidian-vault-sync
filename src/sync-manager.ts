@@ -32,6 +32,7 @@ export class SyncManager {
 
         private settings: SyncManagerSettings,
         private pluginDir: string,
+        private t: (key: string) => string,
     ) {
         this.logFolder = `${this.pluginDir}/logs`;
         this.adapter.setLogger((msg) => this.log(msg));
@@ -84,6 +85,7 @@ export class SyncManager {
                     await this.app.vault.createFolder(currentPath);
                 } catch (e) {
                     // Ignore race conditions
+                    console.debug("VaultSync: Race condition in mkdir ignored", e);
                 }
             }
         }
@@ -188,9 +190,14 @@ export class SyncManager {
 
         try {
             await this.log("=== AUTO-SYNC (INDEX RECONCILIATION) STARTED ===");
+            if (!isSilent) new Notice(this.t("syncing"));
+
+            if (!isSilent) new Notice(this.t("fetchingRemoteList"));
             const remoteFiles = await this.adapter.listFiles();
             const remoteIndexFile = remoteFiles.find((f) => f.path === this.pluginDataPath);
             const localIndexEntry = this.index[this.pluginDataPath];
+
+            if (!isSilent) new Notice(this.t("reconcilingChanges"));
 
             const remoteHash = remoteIndexFile?.hash;
             const localHash = localIndexEntry?.hash;
@@ -216,7 +223,7 @@ export class SyncManager {
 
     async push(isSilent: boolean = false) {
         if (this.isSyncing) {
-            if (!isSilent) new Notice("Sync in progress...");
+            if (!isSilent) new Notice(this.t("syncInProgress"));
             return;
         }
         this.isSyncing = true;
@@ -230,19 +237,96 @@ export class SyncManager {
     private async internalPush(isSilent: boolean = false, preFetchedRemoteFiles?: any[]) {
         try {
             await this.log("--- PUSH START ---");
-            if (!isSilent) new Notice("⬆️ Syncing to Cloud...");
+            if (!isSilent) new Notice(`⬆️ ${this.t("syncing")}`);
 
+            if (!isSilent) new Notice(this.t("scanningLocalFiles"));
             const localFiles = await this.getLocalFiles();
+
+            if (!isSilent) new Notice(this.t("fetchingRemoteList"));
             const remoteFiles = preFetchedRemoteFiles || (await this.adapter.listFiles());
             const remotePathsMap = new Map(remoteFiles.map((f: any) => [f.path, f]));
 
+            if (!isSilent) new Notice(this.t("reconcilingChanges"));
+
             // 0. Pre-calculate work
             const uploadQueue: any[] = [];
+            const MTIME_GRACE_MS = 2000; // 2s grace for filesystem precision issues
+
             for (const localFile of localFiles) {
                 if (this.shouldIgnore(localFile.path)) continue;
                 const remoteFile = remotePathsMap.get(localFile.path);
                 const indexEntry = this.index[localFile.path];
-                if (!remoteFile || localFile.mtime > (indexEntry?.mtime || 0)) {
+
+                let reason = "";
+                if (!remoteFile) {
+                    reason = "New file (not on remote)";
+                } else if (!indexEntry) {
+                    // Try to adopt remote file if hash matches
+                    if (remoteFile && remoteFile.hash) {
+                        try {
+                            const content = await this.app.vault.adapter.readBinary(localFile.path);
+                            const localHash = md5(content);
+                            if (localHash === remoteFile.hash.toLowerCase()) {
+                                await this.log(
+                                    `  [Push Check] ${localFile.path} -> Adoption: Local matches remote hash. Skipping upload.`,
+                                );
+                                this.index[localFile.path] = {
+                                    fileId: remoteFile.id,
+                                    mtime: localFile.mtime,
+                                    size: localFile.size,
+                                    hash: remoteFile.hash,
+                                };
+                                continue;
+                            }
+                        } catch (e) {
+                            /* ignore */
+                        }
+                    }
+                    reason = "Missing local index (need to re-upload)";
+                } else {
+                    // indexEntry exists - check if content actually changed
+                    // First: if size differs, it's definitely modified
+                    // But skip size check if either size is 0 (indicates incomplete cache/index on Android)
+                    if (
+                        localFile.size !== indexEntry.size &&
+                        localFile.size !== 0 &&
+                        indexEntry.size !== 0
+                    ) {
+                        reason = `Size changed (${localFile.size} vs ${indexEntry.size})`;
+                    } else if (indexEntry.hash) {
+                        // Size is same, compare hash (most reliable check for Android mtime issues)
+                        try {
+                            const content = await this.app.vault.adapter.readBinary(localFile.path);
+                            const localHash = md5(content);
+                            if (localHash === indexEntry.hash.toLowerCase()) {
+                                // Hash matches - content is identical, skip upload
+                                // Update mtime in index if changed to prevent future false positives
+                                if (localFile.mtime !== indexEntry.mtime) {
+                                    await this.log(
+                                        `  [Push Check] ${localFile.path} -> Smart Skip: Hash matches, updating mtime in index.`,
+                                    );
+                                    this.index[localFile.path].mtime = localFile.mtime;
+                                }
+                                continue;
+                            } else {
+                                reason = `Content modified (hash mismatch)`;
+                            }
+                        } catch (e) {
+                            // Hash calculation failed, fall back to mtime check
+                            if (localFile.mtime > indexEntry.mtime + MTIME_GRACE_MS) {
+                                reason = `Modified locally (mtime, hash calc failed)`;
+                            }
+                        }
+                    } else {
+                        // No hash in index (e.g., Google Docs), fall back to mtime check
+                        if (localFile.mtime > indexEntry.mtime + MTIME_GRACE_MS) {
+                            reason = `Modified locally (${localFile.mtime} > ${indexEntry.mtime})`;
+                        }
+                    }
+                }
+
+                if (reason) {
+                    await this.log(`  [Push Check] ${localFile.path} -> ${reason}`);
                     uploadQueue.push(localFile);
                 }
             }
@@ -276,10 +360,10 @@ export class SyncManager {
 
             if (totalOps === 0) {
                 await this.log("  No changes to push.");
-                if (!isSilent) new Notice("✅ Cloud is already up to date.");
+                if (!isSilent) new Notice(this.t("nothingToPush"));
             } else {
                 // Always show changes detected, even in silent mode
-                new Notice(`🔍 ${totalOps} changes to push...`);
+                new Notice(`🔍 ${totalOps} ${this.t("changesToPush")}`);
 
                 // 1. Ensure folders exist on remote using proper hierarchy
                 const foldersToCreate = new Set<string>();
@@ -297,7 +381,7 @@ export class SyncManager {
                     await this.log(`  Creating ${sortedFolders.length} folders on remote...`);
                     await this.adapter.ensureFoldersExist(sortedFolders, (current, total, name) => {
                         if (this.settings.showDetailedNotifications) {
-                            new Notice(`📁 [${current}/${total}] Created folder: ${name}`);
+                            new Notice(`${this.t("folderCreated")}: ${name}`);
                         }
                     });
                     // Update map
@@ -332,7 +416,7 @@ export class SyncManager {
                             // Respect verbosity setting
                             if (this.settings.showDetailedNotifications) {
                                 new Notice(
-                                    `[${currentOp}/${totalOps}] 📤 Pushed: ${localFile.name}`,
+                                    `[${currentOp}/${totalOps}] ${this.t("filePushed")}: ${localFile.name}`,
                                 );
                             }
                         } catch (e) {
@@ -354,7 +438,7 @@ export class SyncManager {
                             // Respect verbosity setting
                             if (this.settings.showDetailedNotifications) {
                                 new Notice(
-                                    `[${currentOp}/${totalOps}] 🗑️ Trashed: ${remoteFile.path.split("/").pop()}`,
+                                    `[${currentOp}/${totalOps}] ${this.t("fileTrashed")}: ${remoteFile.path.split("/").pop()}`,
                                 );
                             }
                         } catch (e) {
@@ -390,7 +474,7 @@ export class SyncManager {
             }
 
             await this.log("--- PUSH COMPLETED ---");
-            if (currentOp > 0) new Notice("✅ Push completed.");
+            if (currentOp > 0) new Notice(this.t("pushCompleted"));
         } catch (e) {
             await this.log(`Push execution failed: ${e}`);
         }
@@ -398,7 +482,7 @@ export class SyncManager {
 
     async pull(isSilent: boolean = false) {
         if (this.isSyncing) {
-            if (!isSilent) new Notice("Sync in progress...");
+            if (!isSilent) new Notice(this.t("syncInProgress"));
             return;
         }
         this.isSyncing = true;
@@ -412,8 +496,9 @@ export class SyncManager {
     private async internalPull(isSilent: boolean = false, preFetchedRemoteFiles?: any[]) {
         try {
             await this.log("--- PULL START ---");
-            if (!isSilent) new Notice("⬇️ Syncing from Cloud...");
+            if (!isSilent) new Notice(`⬇️ ${this.t("syncing")}`);
 
+            if (!isSilent) new Notice(this.t("fetchingRemoteList"));
             const remoteFiles = preFetchedRemoteFiles || (await this.adapter.listFiles());
             const remoteFilesMap = new Map(remoteFiles.map((f) => [f.path, f]));
             await this.log(`Remote file list: ${remoteFiles.length} items found.`);
@@ -432,7 +517,7 @@ export class SyncManager {
                     await this.log(
                         "  Remote Index hash matches local. No changes detected from other clients.",
                     );
-                    if (!isSilent) new Notice("✅ Vault is up to date (Index verified).");
+                    if (!isSilent) new Notice(this.t("vaultUpToDate"));
 
                     // Update index metadata just in case (e.g. mtime change but hash same)
                     this.index[this.pluginDataPath] = {
@@ -458,7 +543,6 @@ export class SyncManager {
             let masterIndex: LocalFileIndex = {};
             if (cloudIndexFile) {
                 try {
-                    await this.log("  Downloading master (remote) index for reconciliation...");
                     const indexContent = await this.adapter.downloadFile(cloudIndexFile.id);
                     const parsed = JSON.parse(new TextDecoder().decode(indexContent));
                     masterIndex = parsed.index || {};
@@ -472,9 +556,12 @@ export class SyncManager {
                 }
             }
 
+            if (!isSilent) new Notice(this.t("scanningLocalFiles"));
             const localFiles = await this.getLocalFiles();
             const localFileMap = new Map(localFiles.map((f) => [f.path, f]));
             const remotePaths = new Set(remoteFiles.map((f) => f.path));
+
+            if (!isSilent) new Notice(this.t("reconcilingChanges"));
 
             // 0.5 Pre-calculate work
             const downloadQueue: any[] = [];
@@ -494,62 +581,49 @@ export class SyncManager {
 
                     // CASE 1: Local file exists, but index is missing (e.g. first sync or lost index)
                     // We must verify content before assuming it's the same, to avoid data corruption.
-                    // CASE 1: Local file exists, but index is missing OR index hash is missing
-                    // We must verify content before assuming it's the same, to avoid data corruption.
-                    if (!localIndexEntry || !localIndexEntry.hash) {
-                        // Only log if we are actually checking something (to avoid spam if it's just a new file)
-                        // If !localIndexEntry, we alrady logged "New remote file" or passed through if localFile exists
-                        if (localFile) {
-                            // await this.log(`  [Diff] Verifying existing local file: ${cloudFile.path}`);
-                        }
-
+                    if (localFile && (!localIndexEntry || !localIndexEntry.hash)) {
                         try {
-                            if (localFile instanceof TFile) {
-                                // Optimize: If sizes differ significantly, don't bother hashing
-                                if (localFile.stat.size !== cloudFile.size) {
-                                    // Only strict download if we really have no record.
-                                    // If we have record but size changed, might be normal modification.
+                            // Optimize: If sizes differ, don't bother hashing
+                            if (localFile.size !== cloudFile.size) {
+                                if (!localIndexEntry) {
+                                    await this.log(
+                                        `  [Diff] Local file exists but size differs (L: ${localFile.size}, R: ${cloudFile.size}). Downloading remote.`,
+                                    );
+                                    downloadQueue.push(cloudFile);
+                                    continue;
+                                }
+                            } else {
+                                const content = await this.app.vault.adapter.readBinary(
+                                    cloudFile.path,
+                                );
+                                const localHash = md5(content);
+
+                                // Force lowercase
+                                const remoteHash = cloudFile.hash
+                                    ? cloudFile.hash.toLowerCase()
+                                    : "";
+
+                                if (remoteHash && localHash === remoteHash) {
                                     if (!localIndexEntry) {
                                         await this.log(
-                                            `  [Diff] Local file exists but size differs (L: ${localFile.stat.size}, R: ${cloudFile.size}). Downloading remote.`,
+                                            `  [Diff] Local file matches remote hash (${localHash}). Adopting into index.`,
                                         );
-                                        downloadQueue.push(cloudFile);
-                                        continue;
                                     }
-                                    // If index exists (but no hash) and size mismatch -> Let standard modification check fail it
+                                    const stat = await this.app.vault.adapter.stat(cloudFile.path);
+                                    this.index[cloudFile.path] = {
+                                        fileId: cloudFile.id,
+                                        mtime: stat ? stat.mtime : cloudFile.mtime,
+                                        size: stat?.size || localFile.size || cloudFile.size,
+                                        hash: cloudFile.hash,
+                                    };
+                                    continue; // Skip download
                                 } else {
-                                    const content = await this.app.vault.readBinary(localFile);
-                                    const localHash = md5(content);
-
-                                    // Force lowercase
-                                    const remoteHash = cloudFile.hash
-                                        ? cloudFile.hash.toLowerCase()
-                                        : "";
-
-                                    if (remoteHash && localHash === remoteHash) {
-                                        if (!localIndexEntry) {
-                                            await this.log(
-                                                `  [Diff] Local file matches remote hash (${localHash}). Adopting into index.`,
-                                            );
-                                        } else {
-                                            // await this.log(`  [Diff] Correcting missing hash in index for matches (${localHash}).`);
-                                        }
-                                        this.index[cloudFile.path] = {
-                                            fileId: cloudFile.id,
-                                            mtime: cloudFile.mtime,
-                                            size: cloudFile.size,
-                                            hash: cloudFile.hash,
-                                        };
-                                        continue; // Skip download
-                                    } else {
-                                        if (!localIndexEntry) {
-                                            await this.log(
-                                                `  [Diff] Local file hash mismatch (L: ${localHash}, R: ${
-                                                    remoteHash || "undefined"
-                                                }). Downloading remote.`,
-                                            );
-                                        }
-                                        // If index exists but hash mismatch -> Let standard check handle it
+                                    if (!localIndexEntry) {
+                                        await this.log(
+                                            `  [Diff] Local file hash mismatch (L: ${localHash}, R: ${
+                                                remoteHash || "undefined"
+                                            }). Downloading remote.`,
+                                        );
                                     }
                                 }
                             }
@@ -558,7 +632,6 @@ export class SyncManager {
                                 `  [Diff] Failed to calculate local hash for ${cloudFile.path}: ${e}`,
                             );
                         }
-                        // Fallthrough to download if hash verification failed or didn't run
                     }
 
                     // Check content modification (Hash is truth)
@@ -578,7 +651,7 @@ export class SyncManager {
                             this.index[cloudFile.path] = {
                                 fileId: cloudFile.id,
                                 mtime: cloudFile.mtime,
-                                size: cloudFile.size,
+                                size: cloudFile.size || localFile.size || localIndexEntry.size,
                                 hash: cloudFile.hash,
                             };
                         }
@@ -620,9 +693,9 @@ export class SyncManager {
 
             if (totalOps === 0) {
                 await this.log("  No changes to pull.");
-                if (!isSilent) new Notice("✅ Local vault is already up to date.");
+                if (!isSilent) new Notice(this.t("nothingToPull"));
             } else {
-                if (!isSilent) new Notice(`🔍 ${totalOps} changes detected. Syncing...`);
+                if (!isSilent) new Notice(`🔍 ${totalOps} ${this.t("changesToPull")}`);
                 // 1. Folders first (Parallel Batch)
                 const foldersToCreate = new Set<string>();
                 for (const cloudFile of remoteFiles) {
@@ -640,7 +713,8 @@ export class SyncManager {
                             try {
                                 await this.app.vault.createFolder(folderPath);
                                 await this.log(`  Batch created local folder: ${folderPath}`);
-                                if (!isSilent) new Notice(`📁 Created folder: ${folderPath}`);
+                                if (!isSilent)
+                                    new Notice(`${this.t("folderCreated")}: ${folderPath}`);
                             } catch (e) {}
                         });
                     }
@@ -670,19 +744,23 @@ export class SyncManager {
 
                             const content = await this.adapter.downloadFile(cloudFile.id);
                             await this.app.vault.adapter.writeBinary(cloudFile.path, content);
+
+                            // Get actual local mtime/size after write to prevent false modification detection
+                            const stat = await this.app.vault.adapter.stat(cloudFile.path);
+
                             this.index[cloudFile.path] = {
                                 fileId: cloudFile.id,
-                                mtime: cloudFile.mtime,
-                                size: cloudFile.size,
+                                mtime: stat ? stat.mtime : cloudFile.mtime,
+                                size: stat?.size || content.byteLength || cloudFile.size,
                                 hash: cloudFile.hash,
                             };
                             currentOp++;
                             await this.log(
-                                `  [${currentOp}/${totalOps}] Pulled: ${cloudFile.path}`,
+                                `  [${currentOp}/${totalOps}] Pulled: ${cloudFile.path} (Local mtime: ${stat?.mtime})`,
                             );
                             if (this.settings.showDetailedNotifications)
                                 new Notice(
-                                    `[${currentOp}/${totalOps}] 📥 Pulled: ${cloudFile.path.split("/").pop()}`,
+                                    `[${currentOp}/${totalOps}] ${this.t("filePulled")}: ${cloudFile.path.split("/").pop()}`,
                                 );
                         } catch (e) {
                             await this.log(`  Pull FAILED: ${cloudFile.path} - ${e}`);
@@ -702,7 +780,7 @@ export class SyncManager {
                             );
                             if (this.settings.showDetailedNotifications)
                                 new Notice(
-                                    `[${currentOp}/${totalOps}] 🗑️ Removed: ${localFile.name}`,
+                                    `[${currentOp}/${totalOps}] ${this.t("fileRemoved")}: ${localFile.name}`,
                                 );
                         } catch (e) {
                             await this.log(`  Delete FAILED: ${localFile.path} - ${e}`);
@@ -726,13 +804,19 @@ export class SyncManager {
                     masterIndexEntry &&
                     cloudFile.hash === masterIndexEntry.hash
                 ) {
-                    this.index[cloudFile.path] = masterIndexEntry;
+                    const stat = await this.app.vault.adapter.stat(cloudFile.path);
+                    this.index[cloudFile.path] = {
+                        fileId: cloudFile.id,
+                        mtime: stat ? stat.mtime : cloudFile.mtime,
+                        size: stat?.size || localFile.stat.size || cloudFile.size,
+                        hash: cloudFile.hash,
+                    };
                 }
             }
 
             await this.saveIndex();
             await this.log("--- PULL COMPLETED ---");
-            if (!isSilent || currentOp > 0) new Notice("Pull completed.");
+            if (!isSilent || currentOp > 0) new Notice(this.t("pullCompleted"));
         } catch (e) {
             await this.log(`Pull execution failed: ${e}`);
         }
@@ -787,7 +871,7 @@ export class SyncManager {
 
     private async cleanupOrphans() {
         await this.log("=== ORPHAN CLEANUP STARTED ===");
-        new Notice("🔍 Scanning for orphan files...");
+        new Notice(this.t("scanningOrphans"));
         const remoteFiles = await this.adapter.listFiles();
         const remotePaths = new Set(remoteFiles.map((f) => f.path));
         const localFiles = this.app.vault.getFiles();
@@ -799,7 +883,7 @@ export class SyncManager {
         if (remoteFiles.length === 0) {
             await this.log("ERROR: Remote file list is empty. Aborting orphan cleanup.");
             console.warn("VaultSync: listFiles returned 0 files. Skipping orphan cleanup.");
-            new Notice("⚠️ Remote file list empty. Orphan cleanup skipped.");
+            new Notice(this.t("errRemoteEmpty"));
             return;
         }
 
@@ -853,9 +937,7 @@ export class SyncManager {
                 `VaultSync: Orphan ratio ${(orphanRatio * 100).toFixed(1)}% is too high. ` +
                     `${potentialOrphanCount}/${nonSystemLocalFiles.length} files would be moved. Aborting.`,
             );
-            new Notice(
-                `⚠️ Orphan cleanup aborted: ${potentialOrphanCount} files (${(orphanRatio * 100).toFixed(0)}%) would be affected. This seems like a bug.`,
-            );
+            new Notice(this.t("errOrphanAborted"));
             console.log("VaultSync Debug: Orphan candidates:", orphanCandidates.slice(0, 10));
             return;
         }
@@ -871,7 +953,7 @@ export class SyncManager {
                 delete this.index[localFile.path];
                 orphanCount++;
                 if (orphanCount <= 3) {
-                    new Notice(`🧹 Orphan moved: ${localFile.path}`);
+                    new Notice(`${this.t("orphanMoved")}: ${localFile.path}`);
                 }
             } catch (e) {
                 console.error(`Failed to move orphan ${localFile.path}:`, e);
@@ -879,11 +961,11 @@ export class SyncManager {
         }
 
         if (orphanCount > 3) {
-            new Notice(`🧹 ... and ${orphanCount - 3} more orphans moved.`);
+            new Notice(`🧹 ... ${orphanCount - 3} ${this.t("orphansMore")}`);
         }
         if (orphanCount > 0) {
             await this.saveIndex();
-            new Notice(`✅ ${orphanCount} orphan files moved to ${orphanFolderName}/`);
+            new Notice(`✅ ${orphanCount} ${this.t("orphansDone")} ${orphanFolderName}/`);
         }
     }
 }

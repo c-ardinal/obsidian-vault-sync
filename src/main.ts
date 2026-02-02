@@ -7,6 +7,7 @@ import {
     TFile,
     setIcon,
     requestUrl,
+    Platform,
 } from "obsidian";
 import { GoogleDriveAdapter } from "./adapters/google-drive";
 import { SyncManager } from "./sync-manager";
@@ -25,6 +26,11 @@ const i18n: Record<string, Record<string, string>> = {
         clientSecretDesc: "Enter your Google Cloud Project Client Secret",
         login: "Login",
         loginDesc: "Authorize with Google Drive",
+        manualAuthSection: "Manual Authentication (Mobile)",
+        manualAuthDesc:
+            "If automatic redirect fails (localhost error), copy the browser URL and paste it below:",
+        manualAuthPlaceholder: "Enter the resulting URL or code",
+        manualAuthVerify: "Verify and Login",
         authorize: "Authorize",
         authSuccess: "Successfully authenticated!",
         triggerSection: "Sync Triggers",
@@ -57,6 +63,34 @@ const i18n: Record<string, Record<string, string>> = {
         exclusionPatterns: "Exclude Files/Folders",
         exclusionPatternsDesc:
             "Glob patterns (one per line). Use * for any chars, ** for recursive dirs. Example: *.tmp, temp/**",
+        fetchingRemoteList: "Fetching remote file list...",
+        reconcilingChanges: "Analyzing changes (MD5)...",
+        scanningLocalFiles: "Scanning local files...",
+        syncInProgress: "Sync in progress...",
+        syncing: "Syncing...",
+        authFailed: "Auth failed",
+        pushCompleted: "✅ Push completed.",
+        pullCompleted: "✅ Pull completed.",
+        nothingToPush: "✅ Cloud is already up to date.",
+        nothingToPull: "✅ Local vault is already up to date.",
+        vaultUpToDate: "✅ Vault is up to date (Index verified).",
+        changesToPush: "changes to push...",
+        changesToPull: "changes detected. Syncing...",
+        folderCreated: "📁 Created folder",
+        filePushed: "📤 Pushed",
+        filePulled: "📥 Pulled",
+        fileTrashed: "🗑️ Trashed",
+        fileRemoved: "🗑️ Removed",
+        scanningOrphans: "🔍 Scanning for orphan files...",
+        errRemoteEmpty: "⚠️ Remote file list empty. Orphan cleanup skipped.",
+        errOrphanAborted: "⚠️ Orphan cleanup aborted: too many files affected.",
+        orphanMoved: "🧹 Orphan moved",
+        orphansMore: "and more orphans moved.",
+        orphansDone: "orphan files moved to",
+        pushTooltip: "Push to Cloud",
+        pullTooltip: "Pull from Cloud",
+        pushCommand: "Push Changes to Cloud",
+        pullCommand: "Pull Changes from Cloud",
     },
     ja: {
         settingsTitle: "VaultSync 設定",
@@ -69,6 +103,11 @@ const i18n: Record<string, Record<string, string>> = {
         clientSecretDesc: "Google Cloud Project の Client Secret を入力してください",
         login: "ログイン",
         loginDesc: "Google Drive と連携します",
+        manualAuthSection: "手動認証 (モバイル用)",
+        manualAuthDesc:
+            "自動リダイレクトに失敗する場合（localhostエラー）、ブラウザのURLをコピーして以下に貼り付けてください：",
+        manualAuthPlaceholder: "リダイレクト先のURLまたはコードを入力",
+        manualAuthVerify: "検証してログイン",
         authorize: "認証",
         authSuccess: "認証に成功しました！",
         triggerSection: "同期トリガー",
@@ -101,6 +140,34 @@ const i18n: Record<string, Record<string, string>> = {
         exclusionPatterns: "除外ファイル/フォルダ",
         exclusionPatternsDesc:
             "globパターン (1行1パターン)。* は任意の文字、** は再帰ディレクトリ。例: *.tmp, temp/**",
+        fetchingRemoteList: "リモートからファイル一覧を取得中...",
+        reconcilingChanges: "変更内容を分析中 (MD5照合)...",
+        scanningLocalFiles: "ローカルファイルを走査中...",
+        syncInProgress: "現在同期中です...",
+        syncing: "同期中...",
+        authFailed: "認証に失敗しました",
+        pushCompleted: "✅ アップロード完了",
+        pullCompleted: "✅ ダウンロード完了",
+        nothingToPush: "✅ クラウドは最新の状態です",
+        nothingToPull: "✅ ローカルは最新の状態です",
+        vaultUpToDate: "✅ Vaultは最新です (インデックス照合済み)",
+        changesToPush: "件の変更をアップロード中...",
+        changesToPull: "件の変更を検出しました。同期中...",
+        folderCreated: "📁 フォルダを作成しました",
+        filePushed: "📤 アップロード完了",
+        filePulled: "📥 ダウンロード完了",
+        fileTrashed: "🗑️ 削除しました（リモート）",
+        fileRemoved: "🗑️ 削除しました（ローカル）",
+        scanningOrphans: "🔍 未管理ファイルの走査中...",
+        errRemoteEmpty: "⚠️ リモート一覧が空のため、クリーンアップを中止しました",
+        errOrphanAborted: "⚠️ 安全のためクリーンアップを中止しました（対象ファイルが多すぎます）",
+        orphanMoved: "🧹 未管理ファイルを移動しました",
+        orphansMore: "件の未管理ファイルを移動しました",
+        orphansDone: "件のファイルを移動しました：",
+        pushTooltip: "クラウドへプッシュ",
+        pullTooltip: "クラウドからプル",
+        pushCommand: "クラウドへ変更をプッシュ",
+        pullCommand: "クラウドから変更をプル",
     },
 };
 
@@ -135,6 +202,9 @@ interface VaultSyncSettings {
 
     // Exclusion
     exclusionPatterns: string;
+
+    // Security
+    encryptionSecret: string;
 }
 
 const DEFAULT_SETTINGS: VaultSyncSettings = {
@@ -150,8 +220,8 @@ const DEFAULT_SETTINGS: VaultSyncSettings = {
     showDetailedNotifications: true,
     enableLogging: false,
     cloudRootFolder: "ObsidianVaultSync",
-    exclusionPatterns:
-        ".obsidian/plugins/obsidian-vault-sync/logs\n.obsidian/plugins/obsidian-vault-sync/.sync-state\n.git",
+    exclusionPatterns: ".obsidian/plugins/obsidian-vault-sync/logs\n.git",
+    encryptionSecret: "",
 };
 
 export default class VaultSync extends Plugin {
@@ -160,7 +230,8 @@ export default class VaultSync extends Plugin {
     syncManager!: SyncManager;
     secureStorage!: SecureStorage;
     private isReady = false;
-    private ribbonIconEl: HTMLElement | null = null;
+    private pushRibbonIconEl: HTMLElement | null = null;
+    private pullRibbonIconEl: HTMLElement | null = null;
 
     async onload() {
         // Initialize adapter first with defaults
@@ -170,8 +241,6 @@ export default class VaultSync extends Plugin {
             this.app.vault.getName(),
             DEFAULT_SETTINGS.cloudRootFolder, // temp default
         );
-
-        this.secureStorage = new SecureStorage(this.app, this.manifest.dir || "");
 
         await this.loadSettings();
 
@@ -192,6 +261,7 @@ export default class VaultSync extends Plugin {
             `${this.manifest.dir}/sync-index.json`,
             this.settings,
             this.manifest.dir || "",
+            t,
         );
 
         await this.syncManager.loadIndex();
@@ -212,38 +282,50 @@ export default class VaultSync extends Plugin {
             }
         });
 
-        this.ribbonIconEl = this.addRibbonIcon("upload-cloud", "Push to Cloud", async () => {
-            if (this.ribbonIconEl) {
-                await this.performSyncOperation(this.ribbonIconEl, () => this.syncManager.push());
+        this.pushRibbonIconEl = this.addRibbonIcon("upload-cloud", t("pushTooltip"), async () => {
+            if (this.pushRibbonIconEl) {
+                await this.performSyncOperation(
+                    [{ element: this.pushRibbonIconEl, originalIcon: "upload-cloud" }],
+                    () => this.syncManager.push(),
+                );
+            }
+        });
+
+        this.pullRibbonIconEl = this.addRibbonIcon("download-cloud", t("pullTooltip"), async () => {
+            if (this.pullRibbonIconEl) {
+                await this.performSyncOperation(
+                    [{ element: this.pullRibbonIconEl, originalIcon: "download-cloud" }],
+                    () => this.syncManager.pull(),
+                );
             }
         });
 
         this.addCommand({
             id: "push-vault",
-            name: "Push Changes to Cloud",
+            name: t("pushCommand"),
             callback: () => {
-                if (this.ribbonIconEl) {
-                    this.performSyncOperation(this.ribbonIconEl, () => this.syncManager.push());
+                if (this.pushRibbonIconEl) {
+                    this.performSyncOperation(
+                        [{ element: this.pushRibbonIconEl, originalIcon: "upload-cloud" }],
+                        () => this.syncManager.push(),
+                    );
                 }
             },
         });
 
         this.addCommand({
             id: "pull-vault",
-            name: "Pull Changes from Cloud",
+            name: t("pullCommand"),
             callback: () => {
-                if (this.ribbonIconEl) {
-                    this.performSyncOperation(this.ribbonIconEl, () => this.syncManager.pull());
+                if (this.pullRibbonIconEl) {
+                    this.performSyncOperation(
+                        [{ element: this.pullRibbonIconEl, originalIcon: "download-cloud" }],
+                        () => this.syncManager.pull(),
+                    );
                 } else {
                     this.syncManager.pull();
                 }
             },
-        });
-
-        this.addCommand({
-            id: "gdrive-login",
-            name: "Google Drive: Login",
-            callback: () => this.adapter.login(),
         });
 
         this.addSettingTab(new VaultSyncSettingTab(this.app, this));
@@ -272,9 +354,17 @@ export default class VaultSync extends Plugin {
 
     private async triggerAutoSync() {
         if (!this.isReady) return;
-        if (this.ribbonIconEl) {
+        const targets: { element: HTMLElement; originalIcon: string }[] = [];
+        if (this.pushRibbonIconEl) {
+            targets.push({ element: this.pushRibbonIconEl, originalIcon: "upload-cloud" });
+        }
+        if (this.pullRibbonIconEl) {
+            targets.push({ element: this.pullRibbonIconEl, originalIcon: "download-cloud" });
+        }
+
+        if (targets.length > 0) {
             // Auto-sync does a full Sync (Pull -> Push)
-            await this.performSyncOperation(this.ribbonIconEl, () => this.syncManager.sync(true));
+            await this.performSyncOperation(targets, () => this.syncManager.sync(true));
         } else {
             await this.syncManager.sync(true);
         }
@@ -316,6 +406,23 @@ export default class VaultSync extends Plugin {
 
     async loadSettings() {
         this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+
+        // SEC-001: Ensure encryption secret exists
+        if (!this.settings.encryptionSecret) {
+            const array = new Uint8Array(32);
+            window.crypto.getRandomValues(array);
+            this.settings.encryptionSecret = Array.from(array, (b) =>
+                b.toString(16).padStart(2, "0"),
+            ).join("");
+            await this.saveData(this.settings);
+        }
+
+        // Initialize SecureStorage with the secret
+        this.secureStorage = new SecureStorage(
+            this.app,
+            this.manifest.dir || "",
+            this.settings.encryptionSecret,
+        );
 
         // Load credentials from Secure Storage
         const credentials = await this.secureStorage.loadCredentials();
@@ -369,19 +476,27 @@ export default class VaultSync extends Plugin {
         });
     }
 
-    async performSyncOperation(iconEl: HTMLElement, operation: () => Promise<void>) {
-        if (iconEl.classList.contains("vault-sync-spinning")) return; // Prevent concurrent clicks
+    async performSyncOperation(
+        targets: { element: HTMLElement; originalIcon: string }[],
+        operation: () => Promise<void>,
+    ) {
+        // Prevent concurrent clicks if any icon is already spinning
+        if (targets.some((t) => t.element.classList.contains("vault-sync-spinning"))) return;
 
-        // Change to sync icon (circle arrow) and animate
-        setIcon(iconEl, "sync");
-        iconEl.addClass("vault-sync-spinning");
+        // Change to sync icon (circle arrow) and animate all targets
+        for (const target of targets) {
+            setIcon(target.element, "sync");
+            target.element.addClass("vault-sync-spinning");
+        }
 
         try {
             await operation();
         } finally {
-            iconEl.removeClass("vault-sync-spinning");
-            // Revert to cloud icon
-            setIcon(iconEl, "upload-cloud");
+            for (const target of targets) {
+                target.element.removeClass("vault-sync-spinning");
+                // Revert to original icon
+                setIcon(target.element, target.originalIcon);
+            }
         }
     }
 }
@@ -461,17 +576,66 @@ class VaultSyncSettingTab extends PluginSettingTab {
             .addButton((button) =>
                 button.setButtonText(t("authorize")).onClick(async () => {
                     await this.plugin.adapter.login();
-                    const tokens = this.plugin.adapter.getTokens();
-                    await this.plugin.saveCredentials(
-                        this.plugin.adapter.clientId,
-                        this.plugin.adapter.clientSecret,
-                        tokens.accessToken,
-                        tokens.refreshToken,
-                    );
-                    new Notice(t("authSuccess"));
-                    this.display();
+                    if (!Platform.isMobile) {
+                        const tokens = this.plugin.adapter.getTokens();
+                        await this.plugin.saveCredentials(
+                            this.plugin.adapter.clientId,
+                            this.plugin.adapter.clientSecret,
+                            tokens.accessToken,
+                            tokens.refreshToken,
+                        );
+                        new Notice(t("authSuccess"));
+                        this.display();
+                    }
                 }),
             );
+
+        // Manual Auth (Mobile Fallback)
+        containerEl.createEl("h4", { text: t("manualAuthSection") });
+        containerEl.createEl("p", {
+            text: t("manualAuthDesc"),
+            cls: "setting-item-description",
+        });
+        let textComponent: any;
+        new Setting(containerEl)
+            .addText((text) => {
+                textComponent = text;
+                text.setPlaceholder(t("manualAuthPlaceholder")).inputEl.style.width = "100%";
+            })
+            .addButton((btn) => {
+                btn.setButtonText(t("manualAuthVerify")).onClick(async () => {
+                    const val = textComponent.getValue().trim();
+                    if (!val) return;
+
+                    let code = val;
+                    if (val.includes("code=")) {
+                        try {
+                            const url = new window.URL(val);
+                            code = url.searchParams.get("code") || val;
+                        } catch (e) {
+                            // ignore
+                        }
+                    }
+
+                    try {
+                        await this.plugin.adapter.exchangeCodeForToken(code);
+                        const tokens = this.plugin.adapter.getTokens();
+                        await this.plugin.saveCredentials(
+                            this.plugin.adapter.clientId,
+                            this.plugin.adapter.clientSecret,
+                            tokens.accessToken,
+                            tokens.refreshToken,
+                        );
+                        new Notice(t("authSuccess"));
+                        this.display();
+                    } catch (e) {
+                        new Notice(
+                            `${t("authFailed")}: ${e instanceof Error ? e.message : String(e)}`,
+                        );
+                    }
+                });
+            })
+            .setClass("auth-manual-input");
 
         // 2. Sync Triggers
         containerEl.createEl("h3", { text: t("triggerSection") });
