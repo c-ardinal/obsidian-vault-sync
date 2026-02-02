@@ -91,7 +91,6 @@ const i18n: Record<string, Record<string, string>> = {
         pullTooltip: "Pull from Cloud",
         pushCommand: "Push Changes to Cloud",
         pullCommand: "Pull Changes from Cloud",
-        loginCommand: "Google Drive: Login",
     },
     ja: {
         settingsTitle: "VaultSync 設定",
@@ -169,7 +168,6 @@ const i18n: Record<string, Record<string, string>> = {
         pullTooltip: "クラウドからプル",
         pushCommand: "クラウドへ変更をプッシュ",
         pullCommand: "クラウドから変更をプル",
-        loginCommand: "Google Drive: ログイン",
     },
 };
 
@@ -328,12 +326,6 @@ export default class VaultSync extends Plugin {
                     this.syncManager.pull();
                 }
             },
-        });
-
-        this.addCommand({
-            id: "gdrive-login",
-            name: t("loginCommand"),
-            callback: () => this.adapter.login(),
         });
 
         this.addSettingTab(new VaultSyncSettingTab(this.app, this));
