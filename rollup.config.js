@@ -20,8 +20,8 @@ export default {
         format: "cjs",
         exports: "default",
         banner,
+        inlineDynamicImports: true,
     },
-    inlineDynamicImports: true,
     external: ["obsidian"],
     plugins: [
         typescript(),
