@@ -113,6 +113,13 @@ export class GoogleDriveAdapter implements CloudAdapter {
         return "Not authenticated";
     }
 
+    private getRedirectUri(): string {
+        // Use loopback even on mobile to satisfy Google's "Desktop App" / "Web App" validation.
+        // On mobile, Obsidian doesn't run a server, so the browser will fail to redirect,
+        // but the user can then manually copy the code from the address bar.
+        return "http://localhost:42813";
+    }
+
     async getAuthUrl(): Promise<string> {
         this.codeVerifier = await generateCodeVerifier();
         const challenge = await generateCodeChallenge(this.codeVerifier);
@@ -120,9 +127,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
 
         const params = new URLSearchParams({
             client_id: this.clientId,
-            redirect_uri: Platform.isMobile
-                ? `obsidian://vaultsync-auth`
-                : "http://localhost:42813",
+            redirect_uri: this.getRedirectUri(),
             response_type: "code",
             scope: "https://www.googleapis.com/auth/drive",
             code_challenge: challenge,
@@ -151,16 +156,14 @@ export class GoogleDriveAdapter implements CloudAdapter {
         }
     }
 
-    private async exchangeCodeForToken(code: string): Promise<void> {
+    async exchangeCodeForToken(code: string): Promise<void> {
         const body = new URLSearchParams({
             client_id: this.clientId,
             client_secret: this.clientSecret,
             code: code,
             code_verifier: this.codeVerifier!,
             grant_type: "authorization_code",
-            redirect_uri: Platform.isMobile
-                ? `obsidian://vaultsync-auth`
-                : "http://localhost:42813",
+            redirect_uri: this.getRedirectUri(),
         });
 
         const response = await fetch("https://oauth2.googleapis.com/token", {

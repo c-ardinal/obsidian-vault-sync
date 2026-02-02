@@ -7,6 +7,7 @@ import {
     TFile,
     setIcon,
     requestUrl,
+    Platform,
 } from "obsidian";
 import { GoogleDriveAdapter } from "./adapters/google-drive";
 import { SyncManager } from "./sync-manager";
@@ -25,6 +26,11 @@ const i18n: Record<string, Record<string, string>> = {
         clientSecretDesc: "Enter your Google Cloud Project Client Secret",
         login: "Login",
         loginDesc: "Authorize with Google Drive",
+        manualAuthSection: "Manual Authentication (Mobile)",
+        manualAuthDesc:
+            "If automatic redirect fails (localhost error), copy the browser URL and paste it below:",
+        manualAuthPlaceholder: "Enter the resulting URL or code",
+        manualAuthVerify: "Verify and Login",
         authorize: "Authorize",
         authSuccess: "Successfully authenticated!",
         triggerSection: "Sync Triggers",
@@ -69,6 +75,11 @@ const i18n: Record<string, Record<string, string>> = {
         clientSecretDesc: "Google Cloud Project の Client Secret を入力してください",
         login: "ログイン",
         loginDesc: "Google Drive と連携します",
+        manualAuthSection: "手動認証 (モバイル用)",
+        manualAuthDesc:
+            "自動リダイレクトに失敗する場合（localhostエラー）、ブラウザのURLをコピーして以下に貼り付けてください：",
+        manualAuthPlaceholder: "リダイレクト先のURLまたはコードを入力",
+        manualAuthVerify: "検証してログイン",
         authorize: "認証",
         authSuccess: "認証に成功しました！",
         triggerSection: "同期トリガー",
@@ -150,8 +161,7 @@ const DEFAULT_SETTINGS: VaultSyncSettings = {
     showDetailedNotifications: true,
     enableLogging: false,
     cloudRootFolder: "ObsidianVaultSync",
-    exclusionPatterns:
-        ".obsidian/plugins/obsidian-vault-sync/logs\n.obsidian/plugins/obsidian-vault-sync/.sync-state\n.git",
+    exclusionPatterns: ".obsidian/plugins/obsidian-vault-sync/logs\n.git",
 };
 
 export default class VaultSync extends Plugin {
@@ -461,17 +471,64 @@ class VaultSyncSettingTab extends PluginSettingTab {
             .addButton((button) =>
                 button.setButtonText(t("authorize")).onClick(async () => {
                     await this.plugin.adapter.login();
-                    const tokens = this.plugin.adapter.getTokens();
-                    await this.plugin.saveCredentials(
-                        this.plugin.adapter.clientId,
-                        this.plugin.adapter.clientSecret,
-                        tokens.accessToken,
-                        tokens.refreshToken,
-                    );
-                    new Notice(t("authSuccess"));
-                    this.display();
+                    if (!Platform.isMobile) {
+                        const tokens = this.plugin.adapter.getTokens();
+                        await this.plugin.saveCredentials(
+                            this.plugin.adapter.clientId,
+                            this.plugin.adapter.clientSecret,
+                            tokens.accessToken,
+                            tokens.refreshToken,
+                        );
+                        new Notice(t("authSuccess"));
+                        this.display();
+                    }
                 }),
             );
+
+        // Manual Auth (Mobile Fallback)
+        containerEl.createEl("h4", { text: t("manualAuthSection") });
+        containerEl.createEl("p", {
+            text: t("manualAuthDesc"),
+            cls: "setting-item-description",
+        });
+        let textComponent: any;
+        new Setting(containerEl)
+            .addText((text) => {
+                textComponent = text;
+                text.setPlaceholder(t("manualAuthPlaceholder")).inputEl.style.width = "100%";
+            })
+            .addButton((btn) => {
+                btn.setButtonText(t("manualAuthVerify")).onClick(async () => {
+                    const val = textComponent.getValue().trim();
+                    if (!val) return;
+
+                    let code = val;
+                    if (val.includes("code=")) {
+                        try {
+                            const url = new window.URL(val);
+                            code = url.searchParams.get("code") || val;
+                        } catch (e) {
+                            // ignore
+                        }
+                    }
+
+                    try {
+                        await this.plugin.adapter.exchangeCodeForToken(code);
+                        const tokens = this.plugin.adapter.getTokens();
+                        await this.plugin.saveCredentials(
+                            this.plugin.adapter.clientId,
+                            this.plugin.adapter.clientSecret,
+                            tokens.accessToken,
+                            tokens.refreshToken,
+                        );
+                        new Notice(t("authSuccess"));
+                        this.display();
+                    } catch (e) {
+                        new Notice("Auth failed: " + (e instanceof Error ? e.message : String(e)));
+                    }
+                });
+            })
+            .setClass("auth-manual-input");
 
         // 2. Sync Triggers
         containerEl.createEl("h3", { text: t("triggerSection") });

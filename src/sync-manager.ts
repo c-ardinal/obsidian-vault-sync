@@ -238,11 +238,79 @@ export class SyncManager {
 
             // 0. Pre-calculate work
             const uploadQueue: any[] = [];
+            const MTIME_GRACE_MS = 2000; // 2s grace for filesystem precision issues
+
             for (const localFile of localFiles) {
                 if (this.shouldIgnore(localFile.path)) continue;
                 const remoteFile = remotePathsMap.get(localFile.path);
                 const indexEntry = this.index[localFile.path];
-                if (!remoteFile || localFile.mtime > (indexEntry?.mtime || 0)) {
+
+                let reason = "";
+                if (!remoteFile) {
+                    reason = "New file (not on remote)";
+                } else if (!indexEntry) {
+                    // Try to adopt remote file if hash matches
+                    if (remoteFile && remoteFile.hash) {
+                        try {
+                            const content = await this.app.vault.adapter.readBinary(localFile.path);
+                            const localHash = md5(content);
+                            if (localHash === remoteFile.hash.toLowerCase()) {
+                                await this.log(
+                                    `  [Push Check] ${localFile.path} -> Adoption: Local matches remote hash. Skipping upload.`,
+                                );
+                                this.index[localFile.path] = {
+                                    fileId: remoteFile.id,
+                                    mtime: localFile.mtime,
+                                    size: localFile.size,
+                                    hash: remoteFile.hash,
+                                };
+                                continue;
+                            }
+                        } catch (e) {
+                            /* ignore */
+                        }
+                    }
+                    reason = "Missing local index (need to re-upload)";
+                } else {
+                    // indexEntry exists - check if content actually changed
+                    // First: if size differs, it's definitely modified
+                    // But skip size check if either size is 0 (indicates incomplete cache/index on Android)
+                    if (localFile.size !== indexEntry.size && localFile.size !== 0 && indexEntry.size !== 0) {
+                        reason = `Size changed (${localFile.size} vs ${indexEntry.size})`;
+                    } else if (indexEntry.hash) {
+                        // Size is same, compare hash (most reliable check for Android mtime issues)
+                        try {
+                            const content = await this.app.vault.adapter.readBinary(localFile.path);
+                            const localHash = md5(content);
+                            if (localHash === indexEntry.hash.toLowerCase()) {
+                                // Hash matches - content is identical, skip upload
+                                // Update mtime in index if changed to prevent future false positives
+                                if (localFile.mtime !== indexEntry.mtime) {
+                                    await this.log(
+                                        `  [Push Check] ${localFile.path} -> Smart Skip: Hash matches, updating mtime in index.`,
+                                    );
+                                    this.index[localFile.path].mtime = localFile.mtime;
+                                }
+                                continue;
+                            } else {
+                                reason = `Content modified (hash mismatch)`;
+                            }
+                        } catch (e) {
+                            // Hash calculation failed, fall back to mtime check
+                            if (localFile.mtime > indexEntry.mtime + MTIME_GRACE_MS) {
+                                reason = `Modified locally (mtime, hash calc failed)`;
+                            }
+                        }
+                    } else {
+                        // No hash in index (e.g., Google Docs), fall back to mtime check
+                        if (localFile.mtime > indexEntry.mtime + MTIME_GRACE_MS) {
+                            reason = `Modified locally (${localFile.mtime} > ${indexEntry.mtime})`;
+                        }
+                    }
+                }
+
+                if (reason) {
+                    await this.log(`  [Push Check] ${localFile.path} -> ${reason}`);
                     uploadQueue.push(localFile);
                 }
             }
@@ -458,7 +526,6 @@ export class SyncManager {
             let masterIndex: LocalFileIndex = {};
             if (cloudIndexFile) {
                 try {
-                    await this.log("  Downloading master (remote) index for reconciliation...");
                     const indexContent = await this.adapter.downloadFile(cloudIndexFile.id);
                     const parsed = JSON.parse(new TextDecoder().decode(indexContent));
                     masterIndex = parsed.index || {};
@@ -494,62 +561,49 @@ export class SyncManager {
 
                     // CASE 1: Local file exists, but index is missing (e.g. first sync or lost index)
                     // We must verify content before assuming it's the same, to avoid data corruption.
-                    // CASE 1: Local file exists, but index is missing OR index hash is missing
-                    // We must verify content before assuming it's the same, to avoid data corruption.
-                    if (!localIndexEntry || !localIndexEntry.hash) {
-                        // Only log if we are actually checking something (to avoid spam if it's just a new file)
-                        // If !localIndexEntry, we alrady logged "New remote file" or passed through if localFile exists
-                        if (localFile) {
-                            // await this.log(`  [Diff] Verifying existing local file: ${cloudFile.path}`);
-                        }
-
+                    if (localFile && (!localIndexEntry || !localIndexEntry.hash)) {
                         try {
-                            if (localFile instanceof TFile) {
-                                // Optimize: If sizes differ significantly, don't bother hashing
-                                if (localFile.stat.size !== cloudFile.size) {
-                                    // Only strict download if we really have no record.
-                                    // If we have record but size changed, might be normal modification.
+                            // Optimize: If sizes differ, don't bother hashing
+                            if (localFile.size !== cloudFile.size) {
+                                if (!localIndexEntry) {
+                                    await this.log(
+                                        `  [Diff] Local file exists but size differs (L: ${localFile.size}, R: ${cloudFile.size}). Downloading remote.`,
+                                    );
+                                    downloadQueue.push(cloudFile);
+                                    continue;
+                                }
+                            } else {
+                                const content = await this.app.vault.adapter.readBinary(
+                                    cloudFile.path,
+                                );
+                                const localHash = md5(content);
+
+                                // Force lowercase
+                                const remoteHash = cloudFile.hash
+                                    ? cloudFile.hash.toLowerCase()
+                                    : "";
+
+                                if (remoteHash && localHash === remoteHash) {
                                     if (!localIndexEntry) {
                                         await this.log(
-                                            `  [Diff] Local file exists but size differs (L: ${localFile.stat.size}, R: ${cloudFile.size}). Downloading remote.`,
+                                            `  [Diff] Local file matches remote hash (${localHash}). Adopting into index.`,
                                         );
-                                        downloadQueue.push(cloudFile);
-                                        continue;
                                     }
-                                    // If index exists (but no hash) and size mismatch -> Let standard modification check fail it
+                                    const stat = await this.app.vault.adapter.stat(cloudFile.path);
+                                    this.index[cloudFile.path] = {
+                                        fileId: cloudFile.id,
+                                        mtime: stat ? stat.mtime : cloudFile.mtime,
+                                        size: stat?.size || localFile.size || cloudFile.size,
+                                        hash: cloudFile.hash,
+                                    };
+                                    continue; // Skip download
                                 } else {
-                                    const content = await this.app.vault.readBinary(localFile);
-                                    const localHash = md5(content);
-
-                                    // Force lowercase
-                                    const remoteHash = cloudFile.hash
-                                        ? cloudFile.hash.toLowerCase()
-                                        : "";
-
-                                    if (remoteHash && localHash === remoteHash) {
-                                        if (!localIndexEntry) {
-                                            await this.log(
-                                                `  [Diff] Local file matches remote hash (${localHash}). Adopting into index.`,
-                                            );
-                                        } else {
-                                            // await this.log(`  [Diff] Correcting missing hash in index for matches (${localHash}).`);
-                                        }
-                                        this.index[cloudFile.path] = {
-                                            fileId: cloudFile.id,
-                                            mtime: cloudFile.mtime,
-                                            size: cloudFile.size,
-                                            hash: cloudFile.hash,
-                                        };
-                                        continue; // Skip download
-                                    } else {
-                                        if (!localIndexEntry) {
-                                            await this.log(
-                                                `  [Diff] Local file hash mismatch (L: ${localHash}, R: ${
-                                                    remoteHash || "undefined"
-                                                }). Downloading remote.`,
-                                            );
-                                        }
-                                        // If index exists but hash mismatch -> Let standard check handle it
+                                    if (!localIndexEntry) {
+                                        await this.log(
+                                            `  [Diff] Local file hash mismatch (L: ${localHash}, R: ${
+                                                remoteHash || "undefined"
+                                            }). Downloading remote.`,
+                                        );
                                     }
                                 }
                             }
@@ -558,7 +612,6 @@ export class SyncManager {
                                 `  [Diff] Failed to calculate local hash for ${cloudFile.path}: ${e}`,
                             );
                         }
-                        // Fallthrough to download if hash verification failed or didn't run
                     }
 
                     // Check content modification (Hash is truth)
@@ -578,7 +631,7 @@ export class SyncManager {
                             this.index[cloudFile.path] = {
                                 fileId: cloudFile.id,
                                 mtime: cloudFile.mtime,
-                                size: cloudFile.size,
+                                size: cloudFile.size || localFile.size || localIndexEntry.size,
                                 hash: cloudFile.hash,
                             };
                         }
@@ -670,15 +723,19 @@ export class SyncManager {
 
                             const content = await this.adapter.downloadFile(cloudFile.id);
                             await this.app.vault.adapter.writeBinary(cloudFile.path, content);
+
+                            // Get actual local mtime/size after write to prevent false modification detection
+                            const stat = await this.app.vault.adapter.stat(cloudFile.path);
+
                             this.index[cloudFile.path] = {
                                 fileId: cloudFile.id,
-                                mtime: cloudFile.mtime,
-                                size: cloudFile.size,
+                                mtime: stat ? stat.mtime : cloudFile.mtime,
+                                size: stat?.size || content.byteLength || cloudFile.size,
                                 hash: cloudFile.hash,
                             };
                             currentOp++;
                             await this.log(
-                                `  [${currentOp}/${totalOps}] Pulled: ${cloudFile.path}`,
+                                `  [${currentOp}/${totalOps}] Pulled: ${cloudFile.path} (Local mtime: ${stat?.mtime})`,
                             );
                             if (this.settings.showDetailedNotifications)
                                 new Notice(
@@ -726,7 +783,13 @@ export class SyncManager {
                     masterIndexEntry &&
                     cloudFile.hash === masterIndexEntry.hash
                 ) {
-                    this.index[cloudFile.path] = masterIndexEntry;
+                    const stat = await this.app.vault.adapter.stat(cloudFile.path);
+                    this.index[cloudFile.path] = {
+                        fileId: cloudFile.id,
+                        mtime: stat ? stat.mtime : cloudFile.mtime,
+                        size: stat?.size || localFile.stat.size || cloudFile.size,
+                        hash: cloudFile.hash,
+                    };
                 }
             }
 
