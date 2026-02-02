@@ -232,7 +232,8 @@ export default class VaultSync extends Plugin {
     syncManager!: SyncManager;
     secureStorage!: SecureStorage;
     private isReady = false;
-    private ribbonIconEl: HTMLElement | null = null;
+    private pushRibbonIconEl: HTMLElement | null = null;
+    private pullRibbonIconEl: HTMLElement | null = null;
 
     async onload() {
         // Initialize adapter first with defaults
@@ -283,9 +284,21 @@ export default class VaultSync extends Plugin {
             }
         });
 
-        this.ribbonIconEl = this.addRibbonIcon("upload-cloud", t("pushTooltip"), async () => {
-            if (this.ribbonIconEl) {
-                await this.performSyncOperation(this.ribbonIconEl, () => this.syncManager.push());
+        this.pushRibbonIconEl = this.addRibbonIcon("upload-cloud", t("pushTooltip"), async () => {
+            if (this.pushRibbonIconEl) {
+                await this.performSyncOperation(
+                    [{ element: this.pushRibbonIconEl, originalIcon: "upload-cloud" }],
+                    () => this.syncManager.push(),
+                );
+            }
+        });
+
+        this.pullRibbonIconEl = this.addRibbonIcon("download-cloud", t("pullTooltip"), async () => {
+            if (this.pullRibbonIconEl) {
+                await this.performSyncOperation(
+                    [{ element: this.pullRibbonIconEl, originalIcon: "download-cloud" }],
+                    () => this.syncManager.pull(),
+                );
             }
         });
 
@@ -293,8 +306,11 @@ export default class VaultSync extends Plugin {
             id: "push-vault",
             name: t("pushCommand"),
             callback: () => {
-                if (this.ribbonIconEl) {
-                    this.performSyncOperation(this.ribbonIconEl, () => this.syncManager.push());
+                if (this.pushRibbonIconEl) {
+                    this.performSyncOperation(
+                        [{ element: this.pushRibbonIconEl, originalIcon: "upload-cloud" }],
+                        () => this.syncManager.push(),
+                    );
                 }
             },
         });
@@ -303,8 +319,11 @@ export default class VaultSync extends Plugin {
             id: "pull-vault",
             name: t("pullCommand"),
             callback: () => {
-                if (this.ribbonIconEl) {
-                    this.performSyncOperation(this.ribbonIconEl, () => this.syncManager.pull());
+                if (this.pullRibbonIconEl) {
+                    this.performSyncOperation(
+                        [{ element: this.pullRibbonIconEl, originalIcon: "download-cloud" }],
+                        () => this.syncManager.pull(),
+                    );
                 } else {
                     this.syncManager.pull();
                 }
@@ -343,9 +362,17 @@ export default class VaultSync extends Plugin {
 
     private async triggerAutoSync() {
         if (!this.isReady) return;
-        if (this.ribbonIconEl) {
+        const targets: { element: HTMLElement; originalIcon: string }[] = [];
+        if (this.pushRibbonIconEl) {
+            targets.push({ element: this.pushRibbonIconEl, originalIcon: "upload-cloud" });
+        }
+        if (this.pullRibbonIconEl) {
+            targets.push({ element: this.pullRibbonIconEl, originalIcon: "download-cloud" });
+        }
+
+        if (targets.length > 0) {
             // Auto-sync does a full Sync (Pull -> Push)
-            await this.performSyncOperation(this.ribbonIconEl, () => this.syncManager.sync(true));
+            await this.performSyncOperation(targets, () => this.syncManager.sync(true));
         } else {
             await this.syncManager.sync(true);
         }
@@ -457,19 +484,27 @@ export default class VaultSync extends Plugin {
         });
     }
 
-    async performSyncOperation(iconEl: HTMLElement, operation: () => Promise<void>) {
-        if (iconEl.classList.contains("vault-sync-spinning")) return; // Prevent concurrent clicks
+    async performSyncOperation(
+        targets: { element: HTMLElement; originalIcon: string }[],
+        operation: () => Promise<void>,
+    ) {
+        // Prevent concurrent clicks if any icon is already spinning
+        if (targets.some((t) => t.element.classList.contains("vault-sync-spinning"))) return;
 
-        // Change to sync icon (circle arrow) and animate
-        setIcon(iconEl, "sync");
-        iconEl.addClass("vault-sync-spinning");
+        // Change to sync icon (circle arrow) and animate all targets
+        for (const target of targets) {
+            setIcon(target.element, "sync");
+            target.element.addClass("vault-sync-spinning");
+        }
 
         try {
             await operation();
         } finally {
-            iconEl.removeClass("vault-sync-spinning");
-            // Revert to cloud icon
-            setIcon(iconEl, "upload-cloud");
+            for (const target of targets) {
+                target.element.removeClass("vault-sync-spinning");
+                // Revert to original icon
+                setIcon(target.element, target.originalIcon);
+            }
         }
     }
 }
