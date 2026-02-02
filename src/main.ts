@@ -204,6 +204,9 @@ interface VaultSyncSettings {
 
     // Exclusion
     exclusionPatterns: string;
+
+    // Security
+    encryptionSecret: string;
 }
 
 const DEFAULT_SETTINGS: VaultSyncSettings = {
@@ -220,6 +223,7 @@ const DEFAULT_SETTINGS: VaultSyncSettings = {
     enableLogging: false,
     cloudRootFolder: "ObsidianVaultSync",
     exclusionPatterns: ".obsidian/plugins/obsidian-vault-sync/logs\n.git",
+    encryptionSecret: "",
 };
 
 export default class VaultSync extends Plugin {
@@ -238,8 +242,6 @@ export default class VaultSync extends Plugin {
             this.app.vault.getName(),
             DEFAULT_SETTINGS.cloudRootFolder, // temp default
         );
-
-        this.secureStorage = new SecureStorage(this.app, this.manifest.dir || "");
 
         await this.loadSettings();
 
@@ -385,6 +387,23 @@ export default class VaultSync extends Plugin {
 
     async loadSettings() {
         this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+
+        // SEC-001: Ensure encryption secret exists
+        if (!this.settings.encryptionSecret) {
+            const array = new Uint8Array(32);
+            window.crypto.getRandomValues(array);
+            this.settings.encryptionSecret = Array.from(array, (b) =>
+                b.toString(16).padStart(2, "0"),
+            ).join("");
+            await this.saveData(this.settings);
+        }
+
+        // Initialize SecureStorage with the secret
+        this.secureStorage = new SecureStorage(
+            this.app,
+            this.manifest.dir || "",
+            this.settings.encryptionSecret,
+        );
 
         // Load credentials from Secure Storage
         const credentials = await this.secureStorage.loadCredentials();

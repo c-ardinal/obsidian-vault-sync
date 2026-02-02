@@ -28,11 +28,13 @@ export async function startReceiverServer(port: number, state: string): Promise<
                 reject(new Error("No code found"));
             }
 
-            // Close server after receiving the first request
-            setTimeout(() => server.close(), 1000);
+            // Close server immediately after receiving the first request
+            res.on("finish", () => {
+                server.close();
+            });
         });
 
-        server.listen(port, () => {
+        server.listen(port, "127.0.0.1", () => {
             console.log(`Auth receiver listening on port ${port}`);
         });
 
@@ -40,13 +42,10 @@ export async function startReceiverServer(port: number, state: string): Promise<
             reject(err);
         });
 
-        // Timeout after 5 minutes
-        setTimeout(
-            () => {
-                server.close();
-                reject(new Error("Authentication timed out"));
-            },
-            5 * 60 * 1000,
-        );
+        // Timeout after 60 seconds
+        setTimeout(() => {
+            server.close();
+            reject(new Error("Authentication timed out"));
+        }, 60 * 1000);
     });
 }

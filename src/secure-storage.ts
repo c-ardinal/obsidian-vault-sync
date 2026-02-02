@@ -1,39 +1,37 @@
-import { App, Platform } from "obsidian";
+import { App } from "obsidian";
 
 const IV_LENGTH = 12;
 const SALT_LENGTH = 16;
 const ALGORITHM = "AES-GCM";
 
 export class SecureStorage {
-    private key: CryptoKey | null = null;
+    private keyCache: Map<string, CryptoKey> = new Map(); // Cache keys by salt
     private filePath: string;
     private legacyFilePath = ".sync-state";
 
     constructor(
         private app: App,
         pluginDir: string,
+        private secret: string,
     ) {
         this.filePath = `${pluginDir}/.sync-state`;
     }
 
-    private async getKey(): Promise<CryptoKey> {
-        if (this.key) return this.key;
+    private async getKey(salt: Uint8Array): Promise<CryptoKey> {
+        const saltHex = Array.from(salt, (b) => b.toString(16).padStart(2, "0")).join("");
+        if (this.keyCache.has(saltHex)) return this.keyCache.get(saltHex)!;
 
-        // Use a fixed salt (derived from app ID or similar constant if possible,
-        // but for now we'll use a hardcoded salt to ensure persistence across reloads)
-        // In a real scenario, we might want to store the salt alongside the data,
-        // but to keep the file purely binary and obscure, we'll use a fixed app-specific salt.
         const enc = new TextEncoder();
-        const rawKey = enc.encode("obsidian-vault-sync-secure-key-v1");
+        const rawKey = enc.encode(this.secret);
 
         const importedKey = await window.crypto.subtle.importKey("raw", rawKey, "PBKDF2", false, [
             "deriveKey",
         ]);
 
-        this.key = await window.crypto.subtle.deriveKey(
+        const key = await window.crypto.subtle.deriveKey(
             {
                 name: "PBKDF2",
-                salt: enc.encode("salty-obsidian-vault-sync"), // Fixed salt
+                salt: salt,
                 iterations: 100000,
                 hash: "SHA-256",
             },
@@ -43,11 +41,13 @@ export class SecureStorage {
             ["encrypt", "decrypt"],
         );
 
-        return this.key;
+        this.keyCache.set(saltHex, key);
+        return key;
     }
 
     async saveCredentials(data: Record<string, any>): Promise<void> {
-        const key = await this.getKey();
+        const salt = window.crypto.getRandomValues(new Uint8Array(SALT_LENGTH));
+        const key = await this.getKey(salt);
         const encoded = new TextEncoder().encode(JSON.stringify(data));
         const iv = window.crypto.getRandomValues(new Uint8Array(IV_LENGTH));
 
@@ -60,10 +60,11 @@ export class SecureStorage {
             encoded,
         );
 
-        // Concatenate IV + Encrypted Data
-        const buffer = new Uint8Array(iv.byteLength + encryptedContent.byteLength);
-        buffer.set(iv, 0);
-        buffer.set(new Uint8Array(encryptedContent), iv.byteLength);
+        // Format: [SALT (16)] + [IV (12)] + [Encrypted Content]
+        const buffer = new Uint8Array(SALT_LENGTH + IV_LENGTH + encryptedContent.byteLength);
+        buffer.set(salt, 0);
+        buffer.set(iv, SALT_LENGTH);
+        buffer.set(new Uint8Array(encryptedContent), SALT_LENGTH + IV_LENGTH);
 
         // Write as binary
         await this.app.vault.adapter.writeBinary(this.filePath, buffer.buffer);
@@ -90,14 +91,17 @@ export class SecureStorage {
             const buffer = await this.app.vault.adapter.readBinary(this.filePath);
             const data = new Uint8Array(buffer);
 
-            if (data.byteLength < IV_LENGTH) {
+            // Minimum length check (Salt + IV)
+            if (data.byteLength < SALT_LENGTH + IV_LENGTH) {
                 console.error("SecureStorage: Data too short");
                 return null;
             }
 
-            const iv = data.slice(0, IV_LENGTH);
-            const encryptedContent = data.slice(IV_LENGTH);
-            const key = await this.getKey();
+            const salt = data.slice(0, SALT_LENGTH);
+            const iv = data.slice(SALT_LENGTH, SALT_LENGTH + IV_LENGTH);
+            const encryptedContent = data.slice(SALT_LENGTH + IV_LENGTH);
+
+            const key = await this.getKey(salt);
 
             const decrypted = await window.crypto.subtle.decrypt(
                 {
@@ -111,7 +115,7 @@ export class SecureStorage {
             const decoded = new TextDecoder().decode(decrypted);
             return JSON.parse(decoded);
         } catch (e) {
-            console.error("SecureStorage: Failed to decrypt or load credentials", e);
+            console.error("SecureStorage: Failed to decrypt. Key changed or file corrupted.", e);
             return null;
         }
     }

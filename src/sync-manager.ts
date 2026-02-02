@@ -85,6 +85,7 @@ export class SyncManager {
                     await this.app.vault.createFolder(currentPath);
                 } catch (e) {
                     // Ignore race conditions
+                    console.debug("VaultSync: Race condition in mkdir ignored", e);
                 }
             }
         }

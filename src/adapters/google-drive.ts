@@ -123,13 +123,17 @@ export class GoogleDriveAdapter implements CloudAdapter {
     async getAuthUrl(): Promise<string> {
         this.codeVerifier = await generateCodeVerifier();
         const challenge = await generateCodeChallenge(this.codeVerifier);
-        this.currentAuthState = Math.random().toString(36).substring(2);
+
+        // SEC-003: Secure Random State
+        const array = new Uint8Array(32);
+        window.crypto.getRandomValues(array);
+        this.currentAuthState = Array.from(array, (b) => b.toString(16).padStart(2, "0")).join("");
 
         const params = new URLSearchParams({
             client_id: this.clientId,
             redirect_uri: this.getRedirectUri(),
             response_type: "code",
-            scope: "https://www.googleapis.com/auth/drive",
+            scope: "https://www.googleapis.com/auth/drive.file",
             code_challenge: challenge,
             code_challenge_method: "S256",
             state: this.currentAuthState,
@@ -192,7 +196,11 @@ export class GoogleDriveAdapter implements CloudAdapter {
     async logout(): Promise<void> {
         // TODO: Implement logout
     }
-    private async fetchWithAuth(url: string, options: RequestInit = {}): Promise<Response> {
+    private async fetchWithAuth(
+        url: string,
+        options: RequestInit = {},
+        retryCount: number = 0,
+    ): Promise<Response> {
         if (!this.accessToken) throw new Error("Not authenticated");
 
         const headers = new Headers(options.headers || {});
@@ -200,9 +208,10 @@ export class GoogleDriveAdapter implements CloudAdapter {
 
         const response = await fetch(url, { ...options, headers });
 
-        if (response.status === 401 && this.refreshToken) {
+        // SEC-004: Limit retries
+        if (response.status === 401 && this.refreshToken && retryCount < 2) {
             await this.refreshTokens();
-            return this.fetchWithAuth(url, options);
+            return this.fetchWithAuth(url, options, retryCount + 1);
         }
 
         if (!response.ok) {
@@ -212,10 +221,19 @@ export class GoogleDriveAdapter implements CloudAdapter {
             } catch (e) {
                 body = "Could not read error body";
             }
-            throw new Error(`API Error ${response.status}: ${body}`);
+            // SEC-007: Sanitize error messages (log real one, throw safe one)
+            console.error(`VaultSync: API Error ${response.status}: ${body}`);
+            throw new Error(
+                `API Error ${response.status}: Request failed (See console for details)`,
+            );
         }
 
         return response;
+    }
+
+    // SEC-005: Common escaping helper
+    private escapeQueryValue(value: string): string {
+        return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
     }
 
     private async refreshTokens() {
@@ -251,7 +269,9 @@ export class GoogleDriveAdapter implements CloudAdapter {
 
             // 1. Ensure app root folder exists
             if (!this.appRootId) {
-                const query = `name = '${this.cloudRootFolder}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+                const query = `name = '${this.escapeQueryValue(
+                    this.cloudRootFolder,
+                )}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
                 const response = await this.fetchWithAuth(
                     `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,parents)`,
                 );
@@ -272,7 +292,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
             if (!this.appRootId) throw new Error("Failed to resolve App Root ID");
 
             // 2. Ensure vault root "ObsidianVaultSync/<VaultName>" exists
-            const escapedVaultName = this.vaultName.replace(/'/g, "\\'");
+            const escapedVaultName = this.escapeQueryValue(this.vaultName);
             const query = `name = '${escapedVaultName}' and '${this.appRootId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
             const response = await this.fetchWithAuth(
                 `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,modifiedTime)`,
@@ -371,7 +391,9 @@ export class GoogleDriveAdapter implements CloudAdapter {
                     continue;
                 }
 
-                const query = `name = '${part}' and '${currentParentId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+                const query = `name = '${this.escapeQueryValue(
+                    part,
+                )}' and '${currentParentId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
                 const response = await this.fetchWithAuth(
                     `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}`,
                 );
@@ -394,7 +416,9 @@ export class GoogleDriveAdapter implements CloudAdapter {
     async getFileMetadata(path: string): Promise<CloudFile | null> {
         const parentId = await this.resolveParentId(path);
         const name = path.split("/").pop();
-        const query = `name = '${name}' and '${parentId}' in parents and trashed = false`;
+        const query = `name = '${this.escapeQueryValue(
+            name || "",
+        )}' and '${parentId}' in parents and trashed = false`;
         const response = await this.fetchWithAuth(
             `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,mimeType,modifiedTime,size,md5Checksum)`,
         );
@@ -544,7 +568,9 @@ export class GoogleDriveAdapter implements CloudAdapter {
                                 currentParentId = this.folderCache.get(pathAccumulator)!;
                             } else {
                                 // Double check on remote to avoid duplicates
-                                const query = `name = '${part.replace(/'/g, "\\'")}' and '${currentParentId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+                                const query = `name = '${this.escapeQueryValue(
+                                    part,
+                                )}' and '${currentParentId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
                                 const response = await this.fetchWithAuth(
                                     `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name)`,
                                 );
@@ -682,6 +708,10 @@ export class GoogleDriveAdapter implements CloudAdapter {
         // Clear cached vaultRootId to force fresh lookup (fixes stale pointer bug)
         this.vaultRootId = null;
         this.initPromise = null;
+
+        // QA-003: Memory Leak Fix - Clear caches at start of valid sync session
+        this.folderCache.clear();
+        this.resolveCache.clear();
 
         await this.ensureRootFolders();
         const rootId = folderId || this.vaultRootId;
