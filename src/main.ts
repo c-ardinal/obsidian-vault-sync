@@ -63,6 +63,35 @@ const i18n: Record<string, Record<string, string>> = {
         exclusionPatterns: "Exclude Files/Folders",
         exclusionPatternsDesc:
             "Glob patterns (one per line). Use * for any chars, ** for recursive dirs. Example: *.tmp, temp/**",
+        fetchingRemoteList: "Fetching remote file list...",
+        reconcilingChanges: "Analyzing changes (MD5)...",
+        scanningLocalFiles: "Scanning local files...",
+        syncInProgress: "Sync in progress...",
+        syncing: "Syncing...",
+        authFailed: "Auth failed",
+        pushCompleted: "✅ Push completed.",
+        pullCompleted: "✅ Pull completed.",
+        nothingToPush: "✅ Cloud is already up to date.",
+        nothingToPull: "✅ Local vault is already up to date.",
+        vaultUpToDate: "✅ Vault is up to date (Index verified).",
+        changesToPush: "changes to push...",
+        changesToPull: "changes detected. Syncing...",
+        folderCreated: "📁 Created folder",
+        filePushed: "📤 Pushed",
+        filePulled: "📥 Pulled",
+        fileTrashed: "🗑️ Trashed",
+        fileRemoved: "🗑️ Removed",
+        scanningOrphans: "🔍 Scanning for orphan files...",
+        errRemoteEmpty: "⚠️ Remote file list empty. Orphan cleanup skipped.",
+        errOrphanAborted: "⚠️ Orphan cleanup aborted: too many files affected.",
+        orphanMoved: "🧹 Orphan moved",
+        orphansMore: "and more orphans moved.",
+        orphansDone: "orphan files moved to",
+        pushTooltip: "Push to Cloud",
+        pullTooltip: "Pull from Cloud",
+        pushCommand: "Push Changes to Cloud",
+        pullCommand: "Pull Changes from Cloud",
+        loginCommand: "Google Drive: Login",
     },
     ja: {
         settingsTitle: "VaultSync 設定",
@@ -112,6 +141,35 @@ const i18n: Record<string, Record<string, string>> = {
         exclusionPatterns: "除外ファイル/フォルダ",
         exclusionPatternsDesc:
             "globパターン (1行1パターン)。* は任意の文字、** は再帰ディレクトリ。例: *.tmp, temp/**",
+        fetchingRemoteList: "リモートからファイル一覧を取得中...",
+        reconcilingChanges: "変更内容を分析中 (MD5照合)...",
+        scanningLocalFiles: "ローカルファイルを走査中...",
+        syncInProgress: "現在同期中です...",
+        syncing: "同期中...",
+        authFailed: "認証に失敗しました",
+        pushCompleted: "✅ アップロード完了",
+        pullCompleted: "✅ ダウンロード完了",
+        nothingToPush: "✅ クラウドは最新の状態です",
+        nothingToPull: "✅ ローカルは最新の状態です",
+        vaultUpToDate: "✅ Vaultは最新です (インデックス照合済み)",
+        changesToPush: "件の変更をアップロード中...",
+        changesToPull: "件の変更を検出しました。同期中...",
+        folderCreated: "📁 フォルダを作成しました",
+        filePushed: "📤 アップロード完了",
+        filePulled: "📥 ダウンロード完了",
+        fileTrashed: "🗑️ 削除しました（リモート）",
+        fileRemoved: "🗑️ 削除しました（ローカル）",
+        scanningOrphans: "🔍 未管理ファイルの走査中...",
+        errRemoteEmpty: "⚠️ リモート一覧が空のため、クリーンアップを中止しました",
+        errOrphanAborted: "⚠️ 安全のためクリーンアップを中止しました（対象ファイルが多すぎます）",
+        orphanMoved: "🧹 未管理ファイルを移動しました",
+        orphansMore: "件の未管理ファイルを移動しました",
+        orphansDone: "件のファイルを移動しました：",
+        pushTooltip: "クラウドへプッシュ",
+        pullTooltip: "クラウドからプル",
+        pushCommand: "クラウドへ変更をプッシュ",
+        pullCommand: "クラウドから変更をプル",
+        loginCommand: "Google Drive: ログイン",
     },
 };
 
@@ -202,6 +260,7 @@ export default class VaultSync extends Plugin {
             `${this.manifest.dir}/sync-index.json`,
             this.settings,
             this.manifest.dir || "",
+            t,
         );
 
         await this.syncManager.loadIndex();
@@ -222,7 +281,7 @@ export default class VaultSync extends Plugin {
             }
         });
 
-        this.ribbonIconEl = this.addRibbonIcon("upload-cloud", "Push to Cloud", async () => {
+        this.ribbonIconEl = this.addRibbonIcon("upload-cloud", t("pushTooltip"), async () => {
             if (this.ribbonIconEl) {
                 await this.performSyncOperation(this.ribbonIconEl, () => this.syncManager.push());
             }
@@ -230,7 +289,7 @@ export default class VaultSync extends Plugin {
 
         this.addCommand({
             id: "push-vault",
-            name: "Push Changes to Cloud",
+            name: t("pushCommand"),
             callback: () => {
                 if (this.ribbonIconEl) {
                     this.performSyncOperation(this.ribbonIconEl, () => this.syncManager.push());
@@ -240,7 +299,7 @@ export default class VaultSync extends Plugin {
 
         this.addCommand({
             id: "pull-vault",
-            name: "Pull Changes from Cloud",
+            name: t("pullCommand"),
             callback: () => {
                 if (this.ribbonIconEl) {
                     this.performSyncOperation(this.ribbonIconEl, () => this.syncManager.pull());
@@ -252,7 +311,7 @@ export default class VaultSync extends Plugin {
 
         this.addCommand({
             id: "gdrive-login",
-            name: "Google Drive: Login",
+            name: t("loginCommand"),
             callback: () => this.adapter.login(),
         });
 
@@ -524,7 +583,9 @@ class VaultSyncSettingTab extends PluginSettingTab {
                         new Notice(t("authSuccess"));
                         this.display();
                     } catch (e) {
-                        new Notice("Auth failed: " + (e instanceof Error ? e.message : String(e)));
+                        new Notice(
+                            `${t("authFailed")}: ${e instanceof Error ? e.message : String(e)}`,
+                        );
                     }
                 });
             })

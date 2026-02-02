@@ -32,6 +32,7 @@ export class SyncManager {
 
         private settings: SyncManagerSettings,
         private pluginDir: string,
+        private t: (key: string) => string,
     ) {
         this.logFolder = `${this.pluginDir}/logs`;
         this.adapter.setLogger((msg) => this.log(msg));
@@ -188,9 +189,14 @@ export class SyncManager {
 
         try {
             await this.log("=== AUTO-SYNC (INDEX RECONCILIATION) STARTED ===");
+            if (!isSilent) new Notice(this.t("syncing"));
+
+            if (!isSilent) new Notice(this.t("fetchingRemoteList"));
             const remoteFiles = await this.adapter.listFiles();
             const remoteIndexFile = remoteFiles.find((f) => f.path === this.pluginDataPath);
             const localIndexEntry = this.index[this.pluginDataPath];
+
+            if (!isSilent) new Notice(this.t("reconcilingChanges"));
 
             const remoteHash = remoteIndexFile?.hash;
             const localHash = localIndexEntry?.hash;
@@ -216,7 +222,7 @@ export class SyncManager {
 
     async push(isSilent: boolean = false) {
         if (this.isSyncing) {
-            if (!isSilent) new Notice("Sync in progress...");
+            if (!isSilent) new Notice(this.t("syncInProgress"));
             return;
         }
         this.isSyncing = true;
@@ -230,11 +236,16 @@ export class SyncManager {
     private async internalPush(isSilent: boolean = false, preFetchedRemoteFiles?: any[]) {
         try {
             await this.log("--- PUSH START ---");
-            if (!isSilent) new Notice("⬆️ Syncing to Cloud...");
+            if (!isSilent) new Notice(`⬆️ ${this.t("syncing")}`);
 
+            if (!isSilent) new Notice(this.t("scanningLocalFiles"));
             const localFiles = await this.getLocalFiles();
+
+            if (!isSilent) new Notice(this.t("fetchingRemoteList"));
             const remoteFiles = preFetchedRemoteFiles || (await this.adapter.listFiles());
             const remotePathsMap = new Map(remoteFiles.map((f: any) => [f.path, f]));
+
+            if (!isSilent) new Notice(this.t("reconcilingChanges"));
 
             // 0. Pre-calculate work
             const uploadQueue: any[] = [];
@@ -275,7 +286,11 @@ export class SyncManager {
                     // indexEntry exists - check if content actually changed
                     // First: if size differs, it's definitely modified
                     // But skip size check if either size is 0 (indicates incomplete cache/index on Android)
-                    if (localFile.size !== indexEntry.size && localFile.size !== 0 && indexEntry.size !== 0) {
+                    if (
+                        localFile.size !== indexEntry.size &&
+                        localFile.size !== 0 &&
+                        indexEntry.size !== 0
+                    ) {
                         reason = `Size changed (${localFile.size} vs ${indexEntry.size})`;
                     } else if (indexEntry.hash) {
                         // Size is same, compare hash (most reliable check for Android mtime issues)
@@ -344,10 +359,10 @@ export class SyncManager {
 
             if (totalOps === 0) {
                 await this.log("  No changes to push.");
-                if (!isSilent) new Notice("✅ Cloud is already up to date.");
+                if (!isSilent) new Notice(this.t("nothingToPush"));
             } else {
                 // Always show changes detected, even in silent mode
-                new Notice(`🔍 ${totalOps} changes to push...`);
+                new Notice(`🔍 ${totalOps} ${this.t("changesToPush")}`);
 
                 // 1. Ensure folders exist on remote using proper hierarchy
                 const foldersToCreate = new Set<string>();
@@ -365,7 +380,7 @@ export class SyncManager {
                     await this.log(`  Creating ${sortedFolders.length} folders on remote...`);
                     await this.adapter.ensureFoldersExist(sortedFolders, (current, total, name) => {
                         if (this.settings.showDetailedNotifications) {
-                            new Notice(`📁 [${current}/${total}] Created folder: ${name}`);
+                            new Notice(`${this.t("folderCreated")}: ${name}`);
                         }
                     });
                     // Update map
@@ -400,7 +415,7 @@ export class SyncManager {
                             // Respect verbosity setting
                             if (this.settings.showDetailedNotifications) {
                                 new Notice(
-                                    `[${currentOp}/${totalOps}] 📤 Pushed: ${localFile.name}`,
+                                    `[${currentOp}/${totalOps}] ${this.t("filePushed")}: ${localFile.name}`,
                                 );
                             }
                         } catch (e) {
@@ -422,7 +437,7 @@ export class SyncManager {
                             // Respect verbosity setting
                             if (this.settings.showDetailedNotifications) {
                                 new Notice(
-                                    `[${currentOp}/${totalOps}] 🗑️ Trashed: ${remoteFile.path.split("/").pop()}`,
+                                    `[${currentOp}/${totalOps}] ${this.t("fileTrashed")}: ${remoteFile.path.split("/").pop()}`,
                                 );
                             }
                         } catch (e) {
@@ -458,7 +473,7 @@ export class SyncManager {
             }
 
             await this.log("--- PUSH COMPLETED ---");
-            if (currentOp > 0) new Notice("✅ Push completed.");
+            if (currentOp > 0) new Notice(this.t("pushCompleted"));
         } catch (e) {
             await this.log(`Push execution failed: ${e}`);
         }
@@ -466,7 +481,7 @@ export class SyncManager {
 
     async pull(isSilent: boolean = false) {
         if (this.isSyncing) {
-            if (!isSilent) new Notice("Sync in progress...");
+            if (!isSilent) new Notice(this.t("syncInProgress"));
             return;
         }
         this.isSyncing = true;
@@ -480,8 +495,9 @@ export class SyncManager {
     private async internalPull(isSilent: boolean = false, preFetchedRemoteFiles?: any[]) {
         try {
             await this.log("--- PULL START ---");
-            if (!isSilent) new Notice("⬇️ Syncing from Cloud...");
+            if (!isSilent) new Notice(`⬇️ ${this.t("syncing")}`);
 
+            if (!isSilent) new Notice(this.t("fetchingRemoteList"));
             const remoteFiles = preFetchedRemoteFiles || (await this.adapter.listFiles());
             const remoteFilesMap = new Map(remoteFiles.map((f) => [f.path, f]));
             await this.log(`Remote file list: ${remoteFiles.length} items found.`);
@@ -500,7 +516,7 @@ export class SyncManager {
                     await this.log(
                         "  Remote Index hash matches local. No changes detected from other clients.",
                     );
-                    if (!isSilent) new Notice("✅ Vault is up to date (Index verified).");
+                    if (!isSilent) new Notice(this.t("vaultUpToDate"));
 
                     // Update index metadata just in case (e.g. mtime change but hash same)
                     this.index[this.pluginDataPath] = {
@@ -539,9 +555,12 @@ export class SyncManager {
                 }
             }
 
+            if (!isSilent) new Notice(this.t("scanningLocalFiles"));
             const localFiles = await this.getLocalFiles();
             const localFileMap = new Map(localFiles.map((f) => [f.path, f]));
             const remotePaths = new Set(remoteFiles.map((f) => f.path));
+
+            if (!isSilent) new Notice(this.t("reconcilingChanges"));
 
             // 0.5 Pre-calculate work
             const downloadQueue: any[] = [];
@@ -673,9 +692,9 @@ export class SyncManager {
 
             if (totalOps === 0) {
                 await this.log("  No changes to pull.");
-                if (!isSilent) new Notice("✅ Local vault is already up to date.");
+                if (!isSilent) new Notice(this.t("nothingToPull"));
             } else {
-                if (!isSilent) new Notice(`🔍 ${totalOps} changes detected. Syncing...`);
+                if (!isSilent) new Notice(`🔍 ${totalOps} ${this.t("changesToPull")}`);
                 // 1. Folders first (Parallel Batch)
                 const foldersToCreate = new Set<string>();
                 for (const cloudFile of remoteFiles) {
@@ -693,7 +712,8 @@ export class SyncManager {
                             try {
                                 await this.app.vault.createFolder(folderPath);
                                 await this.log(`  Batch created local folder: ${folderPath}`);
-                                if (!isSilent) new Notice(`📁 Created folder: ${folderPath}`);
+                                if (!isSilent)
+                                    new Notice(`${this.t("folderCreated")}: ${folderPath}`);
                             } catch (e) {}
                         });
                     }
@@ -739,7 +759,7 @@ export class SyncManager {
                             );
                             if (this.settings.showDetailedNotifications)
                                 new Notice(
-                                    `[${currentOp}/${totalOps}] 📥 Pulled: ${cloudFile.path.split("/").pop()}`,
+                                    `[${currentOp}/${totalOps}] ${this.t("filePulled")}: ${cloudFile.path.split("/").pop()}`,
                                 );
                         } catch (e) {
                             await this.log(`  Pull FAILED: ${cloudFile.path} - ${e}`);
@@ -759,7 +779,7 @@ export class SyncManager {
                             );
                             if (this.settings.showDetailedNotifications)
                                 new Notice(
-                                    `[${currentOp}/${totalOps}] 🗑️ Removed: ${localFile.name}`,
+                                    `[${currentOp}/${totalOps}] ${this.t("fileRemoved")}: ${localFile.name}`,
                                 );
                         } catch (e) {
                             await this.log(`  Delete FAILED: ${localFile.path} - ${e}`);
@@ -795,7 +815,7 @@ export class SyncManager {
 
             await this.saveIndex();
             await this.log("--- PULL COMPLETED ---");
-            if (!isSilent || currentOp > 0) new Notice("Pull completed.");
+            if (!isSilent || currentOp > 0) new Notice(this.t("pullCompleted"));
         } catch (e) {
             await this.log(`Pull execution failed: ${e}`);
         }
@@ -850,7 +870,7 @@ export class SyncManager {
 
     private async cleanupOrphans() {
         await this.log("=== ORPHAN CLEANUP STARTED ===");
-        new Notice("🔍 Scanning for orphan files...");
+        new Notice(this.t("scanningOrphans"));
         const remoteFiles = await this.adapter.listFiles();
         const remotePaths = new Set(remoteFiles.map((f) => f.path));
         const localFiles = this.app.vault.getFiles();
@@ -862,7 +882,7 @@ export class SyncManager {
         if (remoteFiles.length === 0) {
             await this.log("ERROR: Remote file list is empty. Aborting orphan cleanup.");
             console.warn("VaultSync: listFiles returned 0 files. Skipping orphan cleanup.");
-            new Notice("⚠️ Remote file list empty. Orphan cleanup skipped.");
+            new Notice(this.t("errRemoteEmpty"));
             return;
         }
 
@@ -916,9 +936,7 @@ export class SyncManager {
                 `VaultSync: Orphan ratio ${(orphanRatio * 100).toFixed(1)}% is too high. ` +
                     `${potentialOrphanCount}/${nonSystemLocalFiles.length} files would be moved. Aborting.`,
             );
-            new Notice(
-                `⚠️ Orphan cleanup aborted: ${potentialOrphanCount} files (${(orphanRatio * 100).toFixed(0)}%) would be affected. This seems like a bug.`,
-            );
+            new Notice(this.t("errOrphanAborted"));
             console.log("VaultSync Debug: Orphan candidates:", orphanCandidates.slice(0, 10));
             return;
         }
@@ -934,7 +952,7 @@ export class SyncManager {
                 delete this.index[localFile.path];
                 orphanCount++;
                 if (orphanCount <= 3) {
-                    new Notice(`🧹 Orphan moved: ${localFile.path}`);
+                    new Notice(`${this.t("orphanMoved")}: ${localFile.path}`);
                 }
             } catch (e) {
                 console.error(`Failed to move orphan ${localFile.path}:`, e);
@@ -942,11 +960,11 @@ export class SyncManager {
         }
 
         if (orphanCount > 3) {
-            new Notice(`🧹 ... and ${orphanCount - 3} more orphans moved.`);
+            new Notice(`🧹 ... ${orphanCount - 3} ${this.t("orphansMore")}`);
         }
         if (orphanCount > 0) {
             await this.saveIndex();
-            new Notice(`✅ ${orphanCount} orphan files moved to ${orphanFolderName}/`);
+            new Notice(`✅ ${orphanCount} ${this.t("orphansDone")} ${orphanFolderName}/`);
         }
     }
 }
