@@ -442,11 +442,9 @@ export default class VaultSync extends Plugin {
                 if (!this.isReady) return;
 
                 if (file instanceof TFile) {
-                    // File renamed/moved
-                    this.syncManager.markDeleted(oldPath);
-                    if (!this.syncManager.shouldIgnore(file.path)) {
-                        this.syncManager.markDirty(file.path);
-                    }
+                    // File renamed/moved - use markRenamed to handle both
+                    // normal renames and "create then rename" cases
+                    this.syncManager.markRenamed(oldPath, file.path);
                 } else {
                     // Folder renamed/moved - mark all indexed files for update
                     this.syncManager.markFolderRenamed(oldPath, file.path);

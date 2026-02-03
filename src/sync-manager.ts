@@ -1135,6 +1135,30 @@ export class SyncManager {
     }
 
     /**
+     * Mark a file as renamed (handles both regular renames and "create then rename" cases)
+     * Called from main.ts on file rename events
+     */
+    markRenamed(oldPath: string, newPath: string) {
+        // Case 1: oldPath is in dirtyPaths but NOT in index
+        // This means the file was created and renamed before being synced
+        // We should just remove oldPath from dirtyPaths (no remote deletion needed)
+        if (this.dirtyPaths.has(oldPath) && !this.index[oldPath]) {
+            this.dirtyPaths.delete(oldPath);
+            this.log(`[Dirty] Removed (renamed before sync): ${oldPath}`);
+        } else {
+            // Case 2: Normal rename - file was already synced
+            // Mark old path for deletion from remote
+            this.markDeleted(oldPath);
+        }
+
+        // Always mark new path as dirty (for upload)
+        if (!this.shouldIgnore(newPath) && !this.syncingPaths.has(newPath)) {
+            this.dirtyPaths.add(newPath);
+            this.log(`[Dirty] Marked (renamed): ${newPath}`);
+        }
+    }
+
+    /**
      * Mark all files in a renamed folder for update
      * Called from main.ts on folder rename events
      */
@@ -1538,17 +1562,6 @@ export class SyncManager {
 
         await this.log(`[Smart Push] Pushing ${this.dirtyPaths.size} dirty files...`);
 
-        // Only fetch remote file list if we need to create folders
-        // This is lazy - we'll fetch it only when needed
-        let remotePathsMap: Map<string, any> | null = null;
-        const getRemotePathsMap = async () => {
-            if (!remotePathsMap) {
-                const remoteFiles = await this.adapter.listFiles();
-                remotePathsMap = new Map(remoteFiles.map((f) => [f.path, f]));
-            }
-            return remotePathsMap;
-        };
-
         // Prepare upload queue from dirty paths
         const uploadQueue: Array<{ path: string; mtime: number; size: number }> = [];
         const deleteQueue: string[] = [];
@@ -1578,7 +1591,9 @@ export class SyncManager {
 
         this.onActivityStart();
         try {
-            // Ensure folders exist (only fetch remote list if needed)
+            // Ensure folders exist on remote
+            // OPTIMIZATION: Removed listFiles() call here. We just pass the folders we need.
+            // The adapter's ensureFoldersExist is smart enough to check existence efficiently (O(depth) vs O(total_files))
             const foldersToCreate = new Set<string>();
             for (const file of uploadQueue) {
                 const parts = file.path.split("/");
@@ -1588,15 +1603,10 @@ export class SyncManager {
             }
 
             if (foldersToCreate.size > 0) {
-                // Lazy load remote paths only when we need to check folders
-                const pathsMap = await getRemotePathsMap();
-                const sortedFolders = Array.from(foldersToCreate)
-                    .filter((folder) => !pathsMap.has(folder))
-                    .sort((a, b) => a.length - b.length);
-
-                if (sortedFolders.length > 0) {
-                    await this.adapter.ensureFoldersExist(sortedFolders);
-                }
+                const sortedFolders = Array.from(foldersToCreate).sort(
+                    (a, b) => a.length - b.length,
+                );
+                await this.adapter.ensureFoldersExist(sortedFolders);
             }
 
             // Execute uploads and deletions
