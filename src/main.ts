@@ -90,6 +90,7 @@ const i18n: Record<string, Record<string, string>> = {
         orphansDone: "orphan files moved to",
         syncTooltip: "Sync with Cloud",
         syncCommand: "Sync with Cloud",
+        fullAudit: "Audit & Fix Consistency (Full Scan)",
         viewHistory: "View History in Cloud (VaultSync)",
     },
     ja: {
@@ -166,6 +167,7 @@ const i18n: Record<string, Record<string, string>> = {
         orphansDone: "件のファイルを移動しました：",
         syncTooltip: "クラウドと同期",
         syncCommand: "クラウドと同期",
+        fullAudit: "完全スキャンと整合性チェック (Full Audit)",
         viewHistory: "クラウドの変更履歴を表示 (VaultSync)",
     },
 };
@@ -293,8 +295,6 @@ export default class VaultSync extends Plugin {
                     );
                     // Use Smart Sync for faster startup (O(1) check), but enable vault scan (O(N)) for startup
                     await this.syncManager.requestSmartSync(true, true);
-                    // Schedule background full scan after startup sync
-                    this.scheduleBackgroundScan();
                 }, this.settings.startupDelaySec * 1000);
             } else {
                 this.isReady = true;
@@ -327,6 +327,15 @@ export default class VaultSync extends Plugin {
             },
         });
 
+        this.addCommand({
+            id: "force-full-scan",
+            name: t("fullAudit"),
+            callback: async () => {
+                new Notice(t("scanningLocalFiles")); // Reuse existing message or add new one
+                await this.syncManager.requestBackgroundScan(false);
+            },
+        });
+
         this.addSettingTab(new VaultSyncSettingTab(this.app, this));
 
         this.setupAutoSyncInterval();
@@ -351,7 +360,6 @@ export default class VaultSync extends Plugin {
     }
 
     private autoSyncInterval: number | null = null;
-    private backgroundScanTimeout: number | null = null;
 
     setupAutoSyncInterval() {
         // Clear existing
@@ -367,22 +375,6 @@ export default class VaultSync extends Plugin {
             }, this.settings.autoSyncIntervalSec * 1000);
             this.registerInterval(this.autoSyncInterval);
         }
-    }
-
-    /**
-     * Schedule a background full scan after a delay
-     * This runs at low priority and can be interrupted by Smart Sync
-     */
-    private scheduleBackgroundScan(delayMs: number = 60000) {
-        if (this.backgroundScanTimeout) {
-            window.clearTimeout(this.backgroundScanTimeout);
-        }
-
-        this.backgroundScanTimeout = window.setTimeout(async () => {
-            if (!this.isReady) return;
-            this.syncManager.log("Starting scheduled background full scan...");
-            await this.syncManager.requestBackgroundScan(true); // Resume if possible
-        }, delayMs);
     }
 
     /**
