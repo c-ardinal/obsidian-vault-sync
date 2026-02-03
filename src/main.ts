@@ -363,13 +363,6 @@ export default class VaultSync extends Plugin {
         }, delayMs);
     }
 
-    private async triggerAutoSync() {
-        if (!this.isReady) return;
-        // Auto-sync does a full Sync (Pull -> Push) without UI locking
-        // Animation is handled via Activity Callbacks
-        await this.syncManager.sync(true);
-    }
-
     /**
      * Trigger Smart Sync - high priority, O(1) check via sync-index.json
      * Used for user-initiated actions (save, modify, layout change)
