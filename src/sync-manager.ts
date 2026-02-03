@@ -19,11 +19,46 @@ export interface LocalFileIndex {
     };
 }
 
+// === Hybrid Sync Types ===
+
+/** Sync engine states for preemption control */
+export type SyncState = "IDLE" | "SMART_SYNCING" | "FULL_SCANNING" | "PAUSED";
+
+/** Progress state for resumable full scan */
+export interface FullScanProgress {
+    /** Current index in the file list being processed */
+    currentIndex: number;
+    /** Total files to process */
+    totalFiles: number;
+    /** Cached local file list (for resume) */
+    localFiles: Array<{ path: string; mtime: number; size: number }>;
+    /** Cached remote file list (for resume) */
+    remoteFiles: Array<{ id: string; path: string; mtime: number; size: number; hash?: string }>;
+    /** Timestamp when the scan started (for staleness check) */
+    startedAt: number;
+}
+
 export class SyncManager {
     private index: LocalFileIndex = {};
     private startPageToken: string | null = null;
     private isSyncing = false;
     private logFolder: string;
+
+    // === Hybrid Sync State ===
+    /** Current sync state for preemption control */
+    private syncState: SyncState = "IDLE";
+    /** Dirty paths that need to be pushed (modified locally) */
+    private dirtyPaths: Set<string> = new Set();
+    /** Paths currently being synced (to prevent re-marking as dirty) */
+    private syncingPaths: Set<string> = new Set();
+    /** Flag to interrupt running full scan */
+    private isInterrupted = false;
+    /** Progress for resumable full scan */
+    private fullScanProgress: FullScanProgress | null = null;
+    /** Promise for current running sync operation (for awaiting) */
+    private currentSyncPromise: Promise<void> | null = null;
+    /** Maximum age for full scan progress before reset (5 minutes) */
+    private readonly FULL_SCAN_MAX_AGE_MS = 5 * 60 * 1000;
 
     constructor(
         private app: App,
@@ -730,6 +765,9 @@ export class SyncManager {
                 for (const cloudFile of downloadQueue) {
                     tasks.push(async () => {
                         try {
+                            // Mark as syncing to prevent dirty marking from modify event
+                            this.syncingPaths.add(cloudFile.path);
+
                             const localFile = this.app.vault.getAbstractFileByPath(cloudFile.path);
                             const localIndexEntry = this.index[cloudFile.path];
 
@@ -764,6 +802,8 @@ export class SyncManager {
                                 );
                         } catch (e) {
                             await this.log(`  Pull FAILED: ${cloudFile.path} - ${e}`);
+                        } finally {
+                            this.syncingPaths.delete(cloudFile.path);
                         }
                     });
                 }
@@ -966,6 +1006,759 @@ export class SyncManager {
         if (orphanCount > 0) {
             await this.saveIndex();
             new Notice(`✅ ${orphanCount} ${this.t("orphansDone")} ${orphanFolderName}/`);
+        }
+    }
+
+    // ==========================================================================
+    // Hybrid Sync Implementation (Smart Sync + Interruptible Background Scan)
+    // ==========================================================================
+
+    /**
+     * Mark a file as dirty (modified locally, needs push)
+     * Called from main.ts on file modify/create events
+     */
+    markDirty(path: string) {
+        if (!this.shouldIgnore(path) && !this.syncingPaths.has(path)) {
+            this.dirtyPaths.add(path);
+            this.log(`[Dirty] Marked: ${path}`);
+        }
+    }
+
+    /**
+     * Scan .obsidian directory for changes
+     * Vault events don't fire for .obsidian files, so we need to scan manually
+     */
+    private async scanObsidianChanges(): Promise<void> {
+        try {
+            const obsidianFiles = await this.listFilesRecursive(".obsidian");
+
+            for (const filePath of obsidianFiles) {
+                if (this.shouldIgnore(filePath)) continue;
+                if (this.syncingPaths.has(filePath)) continue;
+
+                const stat = await this.app.vault.adapter.stat(filePath);
+                if (!stat) continue;
+
+                const indexEntry = this.index[filePath];
+
+                // New file (not in index)
+                if (!indexEntry) {
+                    this.dirtyPaths.add(filePath);
+                    await this.log(`[Obsidian Scan] New: ${filePath}`);
+                    continue;
+                }
+
+                // Check if modified (mtime changed)
+                if (stat.mtime > indexEntry.mtime) {
+                    // Verify with hash if available
+                    if (indexEntry.hash) {
+                        try {
+                            const content = await this.app.vault.adapter.readBinary(filePath);
+                            const localHash = md5(content);
+                            if (localHash !== indexEntry.hash.toLowerCase()) {
+                                this.dirtyPaths.add(filePath);
+                                await this.log(`[Obsidian Scan] Modified: ${filePath}`);
+                            } else {
+                                // Hash matches, just update mtime in index
+                                this.index[filePath].mtime = stat.mtime;
+                            }
+                        } catch {
+                            // Hash calc failed, mark as dirty to be safe
+                            this.dirtyPaths.add(filePath);
+                        }
+                    } else {
+                        // No hash, rely on mtime
+                        this.dirtyPaths.add(filePath);
+                        await this.log(`[Obsidian Scan] Modified (mtime): ${filePath}`);
+                    }
+                }
+            }
+        } catch (e) {
+            await this.log(`[Obsidian Scan] Error: ${e}`);
+        }
+    }
+
+    /**
+     * Mark a file as deleted locally (needs remote deletion)
+     * Called from main.ts on file delete events
+     */
+    markDeleted(path: string) {
+        // Keep in dirtyPaths so smartPush can detect and delete from remote
+        // (smartPush checks if file exists, and if not + in index, adds to deleteQueue)
+        if (!this.shouldIgnore(path) && this.index[path]) {
+            this.dirtyPaths.add(path);
+            this.log(`[Dirty] Marked for deletion: ${path}`);
+        }
+    }
+
+    /**
+     * Mark all files in a folder as deleted locally
+     * Called from main.ts on folder delete events
+     */
+    markFolderDeleted(folderPath: string) {
+        const prefix = folderPath + "/";
+        for (const path of Object.keys(this.index)) {
+            if (path.startsWith(prefix) && !this.shouldIgnore(path)) {
+                this.dirtyPaths.add(path);
+                this.log(`[Dirty] Marked for deletion (folder): ${path}`);
+            }
+        }
+    }
+
+    /**
+     * Mark all files in a renamed folder for update
+     * Called from main.ts on folder rename events
+     */
+    markFolderRenamed(oldFolderPath: string, newFolderPath: string) {
+        const oldPrefix = oldFolderPath + "/";
+        const newPrefix = newFolderPath + "/";
+
+        for (const oldPath of Object.keys(this.index)) {
+            if (oldPath.startsWith(oldPrefix)) {
+                // Mark old path for deletion
+                this.dirtyPaths.add(oldPath);
+                this.log(`[Dirty] Marked for deletion (folder rename): ${oldPath}`);
+
+                // Mark new path for upload
+                const newPath = newPrefix + oldPath.slice(oldPrefix.length);
+                if (!this.shouldIgnore(newPath)) {
+                    this.dirtyPaths.add(newPath);
+                    this.log(`[Dirty] Marked for upload (folder rename): ${newPath}`);
+                }
+            }
+        }
+    }
+
+    /**
+     * Get current sync state
+     */
+    getSyncState(): SyncState {
+        return this.syncState;
+    }
+
+    /**
+     * Check if there are pending dirty files
+     */
+    hasDirtyFiles(): boolean {
+        return this.dirtyPaths.size > 0;
+    }
+
+    /**
+     * Request Smart Sync - high priority, interrupts full scan
+     * This is the main entry point for user-triggered syncs
+     */
+    async requestSmartSync(isSilent: boolean = true): Promise<void> {
+        // If already smart syncing, just wait for it
+        if (this.syncState === "SMART_SYNCING") {
+            if (this.currentSyncPromise) {
+                await this.currentSyncPromise;
+            }
+            return;
+        }
+
+        // Interrupt running full scan
+        if (this.syncState === "FULL_SCANNING") {
+            await this.log("[Smart Sync] Interrupting full scan...");
+            this.isInterrupted = true;
+            // Wait for full scan to pause
+            if (this.currentSyncPromise) {
+                await this.currentSyncPromise;
+            }
+        }
+
+        // Execute smart sync
+        this.syncState = "SMART_SYNCING";
+        this.currentSyncPromise = this.executeSmartSync(isSilent);
+
+        try {
+            await this.currentSyncPromise;
+        } finally {
+            this.syncState = "IDLE";
+            this.currentSyncPromise = null;
+        }
+    }
+
+    /**
+     * Execute Smart Sync logic
+     * - Pull: Check remote changes via sync-index.json hash comparison (or Changes API)
+     * - Push: Upload dirty files
+     */
+    private async executeSmartSync(isSilent: boolean): Promise<void> {
+        try {
+            await this.log("=== SMART SYNC START ===");
+            if (!isSilent) new Notice(`⚡ ${this.t("syncing")}`);
+
+            // Pre-warm adapter (ensure root folders exist) to avoid delay in push phase
+            if (this.adapter.initialize) {
+                await this.adapter.initialize();
+            }
+
+            // === PULL PHASE ===
+            await this.smartPull(isSilent);
+
+            // === PUSH PHASE ===
+            await this.smartPush(isSilent);
+
+            await this.log("=== SMART SYNC COMPLETED ===");
+        } catch (e) {
+            await this.log(`Smart Sync failed: ${e}`);
+            throw e;
+        }
+    }
+
+    /**
+     * Smart Pull - O(1) check for remote changes using sync-index.json hash
+     */
+    private async smartPull(isSilent: boolean): Promise<void> {
+        await this.log("[Smart Pull] Checking for remote changes...");
+
+        // Check if adapter supports Changes API for faster detection
+        if (this.adapter.supportsChangesAPI && this.startPageToken) {
+            await this.log("[Smart Pull] Using Changes API (fast path)");
+            await this.pullViaChangesAPI(isSilent);
+            return;
+        }
+
+        // Core path: sync-index.json hash comparison
+        await this.log("[Smart Pull] Using sync-index.json hash comparison (core path)");
+
+        // Get remote index metadata (O(1) operation)
+        const remoteIndexMeta = await this.adapter.getFileMetadata(this.pluginDataPath);
+
+        if (!remoteIndexMeta) {
+            await this.log("[Smart Pull] No remote index found. Skipping pull.");
+            return;
+        }
+
+        // Compare hashes - use stored hash (from last push) instead of calculating
+        // because local file includes self-reference which differs from uploaded content
+        const localIndexHash = this.index[this.pluginDataPath]?.hash?.toLowerCase() || "";
+        const remoteIndexHash = remoteIndexMeta.hash?.toLowerCase() || "";
+
+        if (localIndexHash && remoteIndexHash && localIndexHash === remoteIndexHash) {
+            await this.log("[Smart Pull] Index hash matches. No remote changes detected.");
+            if (!isSilent) new Notice(this.t("vaultUpToDate"));
+            return;
+        }
+
+        // Hashes differ - download remote index and compare
+        await this.log(`[Smart Pull] Index hash differs (local: ${localIndexHash}, remote: ${remoteIndexHash}). Fetching remote index...`);
+
+        const remoteIndexContent = await this.adapter.downloadFile(remoteIndexMeta.id);
+        const remoteIndexData = JSON.parse(new TextDecoder().decode(remoteIndexContent));
+        const remoteIndex: LocalFileIndex = remoteIndexData.index || {};
+
+        // Compare indexes to find changes
+        const toDownload: Array<{ path: string; fileId: string; hash?: string }> = [];
+        const toDeleteLocal: string[] = [];
+
+        // Find files to download (new or modified on remote)
+        for (const [path, remoteEntry] of Object.entries(remoteIndex)) {
+            if (path === this.pluginDataPath) continue;
+            if (this.shouldIgnore(path)) continue;
+
+            const localEntry = this.index[path];
+
+            if (!localEntry) {
+                // New file on remote
+                toDownload.push({ path, fileId: remoteEntry.fileId, hash: remoteEntry.hash });
+            } else if (
+                remoteEntry.hash &&
+                localEntry.hash &&
+                remoteEntry.hash.toLowerCase() !== localEntry.hash.toLowerCase()
+            ) {
+                // Modified on remote (hash differs)
+                toDownload.push({ path, fileId: remoteEntry.fileId, hash: remoteEntry.hash });
+            }
+        }
+
+        // Find files to delete locally (removed on remote)
+        for (const path of Object.keys(this.index)) {
+            if (path === this.pluginDataPath) continue;
+            if (this.shouldIgnore(path)) continue;
+
+            if (!remoteIndex[path]) {
+                toDeleteLocal.push(path);
+            }
+        }
+
+        await this.log(`[Smart Pull] Changes: ${toDownload.length} to download, ${toDeleteLocal.length} to delete`);
+
+        if (toDownload.length === 0 && toDeleteLocal.length === 0) {
+            await this.log("[Smart Pull] No file changes detected.");
+            // Update index metadata
+            this.index[this.pluginDataPath] = {
+                fileId: remoteIndexMeta.id,
+                mtime: remoteIndexMeta.mtime,
+                size: remoteIndexMeta.size,
+                hash: remoteIndexMeta.hash,
+            };
+            await this.saveIndex();
+            return;
+        }
+
+        // Download changed files
+        const tasks: (() => Promise<void>)[] = [];
+        let completed = 0;
+        const total = toDownload.length + toDeleteLocal.length;
+
+        for (const item of toDownload) {
+            tasks.push(async () => {
+                try {
+                    // Mark as syncing to prevent dirty marking from modify event
+                    this.syncingPaths.add(item.path);
+
+                    // Ensure parent folder exists
+                    await this.ensureLocalFolder(item.path);
+
+                    const content = await this.adapter.downloadFile(item.fileId);
+                    await this.app.vault.adapter.writeBinary(item.path, content);
+
+                    const stat = await this.app.vault.adapter.stat(item.path);
+                    this.index[item.path] = {
+                        fileId: item.fileId,
+                        mtime: stat?.mtime || Date.now(),
+                        size: stat?.size || content.byteLength,
+                        hash: item.hash,
+                    };
+
+                    completed++;
+                    await this.log(`[Smart Pull] [${completed}/${total}] Downloaded: ${item.path}`);
+                    if (this.settings.showDetailedNotifications) {
+                        new Notice(`⬇️ ${item.path.split("/").pop()}`);
+                    }
+                } catch (e) {
+                    await this.log(`[Smart Pull] Download failed: ${item.path} - ${e}`);
+                } finally {
+                    this.syncingPaths.delete(item.path);
+                }
+            });
+        }
+
+        // Delete local files that were removed on remote
+        for (const path of toDeleteLocal) {
+            tasks.push(async () => {
+                try {
+                    const file = this.app.vault.getAbstractFileByPath(path);
+                    if (file) {
+                        await this.app.vault.trash(file, true);
+                    }
+                    delete this.index[path];
+
+                    completed++;
+                    await this.log(`[Smart Pull] [${completed}/${total}] Deleted locally: ${path}`);
+                    if (this.settings.showDetailedNotifications) {
+                        new Notice(`🗑️ ${path.split("/").pop()}`);
+                    }
+                } catch (e) {
+                    await this.log(`[Smart Pull] Delete failed: ${path} - ${e}`);
+                }
+            });
+        }
+
+        await this.runParallel(tasks);
+
+        // Update index with remote index metadata
+        this.index[this.pluginDataPath] = {
+            fileId: remoteIndexMeta.id,
+            mtime: remoteIndexMeta.mtime,
+            size: remoteIndexMeta.size,
+            hash: remoteIndexMeta.hash,
+        };
+        await this.saveIndex();
+
+        if (!isSilent && total > 0) {
+            new Notice(`⬇️ ${this.t("pullCompleted")} (${total} files)`);
+        }
+    }
+
+    /**
+     * Pull via Changes API (for adapters that support it)
+     */
+    private async pullViaChangesAPI(isSilent: boolean): Promise<void> {
+        if (!this.startPageToken) {
+            this.startPageToken = await this.adapter.getStartPageToken();
+            await this.saveIndex();
+        }
+
+        const changes = await this.adapter.getChanges(this.startPageToken);
+
+        if (changes.changes.length === 0) {
+            await this.log("[Smart Pull] No changes from Changes API");
+            if (changes.newStartPageToken) {
+                this.startPageToken = changes.newStartPageToken;
+                await this.saveIndex();
+            }
+            return;
+        }
+
+        await this.log(`[Smart Pull] Changes API returned ${changes.changes.length} changes`);
+
+        const tasks: (() => Promise<void>)[] = [];
+        let completed = 0;
+
+        for (const change of changes.changes) {
+            if (change.removed) {
+                // File was deleted on remote
+                const pathToDelete = Object.entries(this.index).find(
+                    ([, entry]) => entry.fileId === change.fileId
+                )?.[0];
+
+                if (pathToDelete && pathToDelete !== this.pluginDataPath) {
+                    tasks.push(async () => {
+                        try {
+                            const file = this.app.vault.getAbstractFileByPath(pathToDelete);
+                            if (file) {
+                                await this.app.vault.trash(file, true);
+                            }
+                            delete this.index[pathToDelete];
+                            completed++;
+                            await this.log(`[Smart Pull] Deleted: ${pathToDelete}`);
+                        } catch (e) {
+                            await this.log(`[Smart Pull] Delete failed: ${pathToDelete} - ${e}`);
+                        }
+                    });
+                }
+            } else if (change.file && change.file.kind === "file") {
+                // File was added or modified
+                const cloudFile = change.file;
+                if (cloudFile.path === this.pluginDataPath) continue;
+                if (this.shouldIgnore(cloudFile.path)) continue;
+
+                // Skip if local index hash matches (already synced by this client)
+                const localEntry = this.index[cloudFile.path];
+                if (
+                    localEntry?.hash &&
+                    cloudFile.hash &&
+                    localEntry.hash.toLowerCase() === cloudFile.hash.toLowerCase()
+                ) {
+                    await this.log(`[Smart Pull] Skipping (hash match): ${cloudFile.path}`);
+                    continue;
+                }
+
+                tasks.push(async () => {
+                    try {
+                        // Mark as syncing to prevent dirty marking from modify event
+                        this.syncingPaths.add(cloudFile.path);
+
+                        await this.ensureLocalFolder(cloudFile.path);
+                        const content = await this.adapter.downloadFile(cloudFile.id);
+                        await this.app.vault.adapter.writeBinary(cloudFile.path, content);
+
+                        const stat = await this.app.vault.adapter.stat(cloudFile.path);
+                        this.index[cloudFile.path] = {
+                            fileId: cloudFile.id,
+                            mtime: stat?.mtime || cloudFile.mtime,
+                            size: stat?.size || cloudFile.size,
+                            hash: cloudFile.hash,
+                        };
+
+                        completed++;
+                        await this.log(`[Smart Pull] Downloaded: ${cloudFile.path}`);
+                    } catch (e) {
+                        await this.log(`[Smart Pull] Download failed: ${cloudFile.path} - ${e}`);
+                    } finally {
+                        this.syncingPaths.delete(cloudFile.path);
+                    }
+                });
+            }
+        }
+
+        await this.runParallel(tasks);
+
+        if (changes.newStartPageToken) {
+            this.startPageToken = changes.newStartPageToken;
+        }
+        await this.saveIndex();
+
+        if (!isSilent && tasks.length > 0) {
+            new Notice(`⬇️ ${this.t("pullCompleted")} (${tasks.length} changes)`);
+        }
+    }
+
+    /**
+     * Smart Push - upload only dirty files
+     * O(1) when no dirty files, O(dirty count + .obsidian scan) otherwise
+     */
+    private async smartPush(isSilent: boolean): Promise<void> {
+        // Scan .obsidian files for changes (vault events don't fire for these)
+        await this.scanObsidianChanges();
+
+        if (this.dirtyPaths.size === 0) {
+            await this.log("[Smart Push] No dirty files to push. Skipping.");
+            return;
+        }
+
+        await this.log(`[Smart Push] Pushing ${this.dirtyPaths.size} dirty files...`);
+
+        // Only fetch remote file list if we need to create folders
+        // This is lazy - we'll fetch it only when needed
+        let remotePathsMap: Map<string, any> | null = null;
+        const getRemotePathsMap = async () => {
+            if (!remotePathsMap) {
+                const remoteFiles = await this.adapter.listFiles();
+                remotePathsMap = new Map(remoteFiles.map((f) => [f.path, f]));
+            }
+            return remotePathsMap;
+        };
+
+        // Prepare upload queue from dirty paths
+        const uploadQueue: Array<{ path: string; mtime: number; size: number }> = [];
+        const deleteQueue: string[] = [];
+
+        for (const path of this.dirtyPaths) {
+            if (this.shouldIgnore(path)) continue;
+
+            const exists = await this.app.vault.adapter.exists(path);
+            if (exists) {
+                const stat = await this.app.vault.adapter.stat(path);
+                if (stat) {
+                    uploadQueue.push({ path, mtime: stat.mtime, size: stat.size });
+                }
+            } else {
+                // File was deleted locally
+                if (this.index[path]) {
+                    deleteQueue.push(path);
+                }
+            }
+        }
+
+        const totalOps = uploadQueue.length + deleteQueue.length;
+        if (totalOps === 0) {
+            await this.log("[Smart Push] No changes after filtering.");
+            this.dirtyPaths.clear();
+            return;
+        }
+
+        // Ensure folders exist (only fetch remote list if needed)
+        const foldersToCreate = new Set<string>();
+        for (const file of uploadQueue) {
+            const parts = file.path.split("/");
+            for (let i = 1; i < parts.length; i++) {
+                foldersToCreate.add(parts.slice(0, i).join("/"));
+            }
+        }
+
+        if (foldersToCreate.size > 0) {
+            // Lazy load remote paths only when we need to check folders
+            const pathsMap = await getRemotePathsMap();
+            const sortedFolders = Array.from(foldersToCreate)
+                .filter((folder) => !pathsMap.has(folder))
+                .sort((a, b) => a.length - b.length);
+
+            if (sortedFolders.length > 0) {
+                await this.adapter.ensureFoldersExist(sortedFolders);
+            }
+        }
+
+        // Execute uploads and deletions
+        const tasks: (() => Promise<void>)[] = [];
+        let completed = 0;
+
+        for (const file of uploadQueue) {
+            tasks.push(async () => {
+                try {
+                    const content = await this.app.vault.adapter.readBinary(file.path);
+                    const uploaded = await this.adapter.uploadFile(file.path, content, file.mtime);
+
+                    this.index[file.path] = {
+                        fileId: uploaded.id,
+                        mtime: file.mtime,
+                        size: uploaded.size,
+                        hash: uploaded.hash,
+                    };
+
+                    completed++;
+                    await this.log(`[Smart Push] [${completed}/${totalOps}] Pushed: ${file.path}`);
+                    if (this.settings.showDetailedNotifications) {
+                        new Notice(`⬆️ ${file.path.split("/").pop()}`);
+                    }
+                } catch (e) {
+                    await this.log(`[Smart Push] Upload failed: ${file.path} - ${e}`);
+                }
+            });
+        }
+
+        for (const path of deleteQueue) {
+            tasks.push(async () => {
+                try {
+                    const entry = this.index[path];
+                    if (entry) {
+                        await this.adapter.deleteFile(entry.fileId);
+                        delete this.index[path];
+
+                        completed++;
+                        await this.log(`[Smart Push] [${completed}/${totalOps}] Deleted remote: ${path}`);
+                    }
+                } catch (e) {
+                    await this.log(`[Smart Push] Delete failed: ${path} - ${e}`);
+                }
+            });
+        }
+
+        await this.runParallel(tasks);
+
+        // Clear dirty paths
+        this.dirtyPaths.clear();
+
+        // Upload updated index
+        await this.saveIndex();
+        try {
+            const indexContent = await this.app.vault.adapter.readBinary(this.pluginDataPath);
+            const uploadedIndex = await this.adapter.uploadFile(
+                this.pluginDataPath,
+                indexContent,
+                Date.now(),
+            );
+            this.index[this.pluginDataPath] = {
+                fileId: uploadedIndex.id,
+                mtime: Date.now(),
+                size: uploadedIndex.size,
+                hash: uploadedIndex.hash,
+            };
+            await this.saveIndex();
+            await this.log(`[Smart Push] Index uploaded. Hash: ${uploadedIndex.hash}`);
+        } catch (e) {
+            await this.log(`[Smart Push] Failed to upload index: ${e}`);
+        }
+
+        if (!isSilent && totalOps > 0) {
+            new Notice(`⬆️ ${this.t("pushCompleted")} (${totalOps} files)`);
+        }
+    }
+
+    /**
+     * Request Background Full Scan - low priority, can be interrupted
+     * @param resume If true, try to resume from previous progress
+     */
+    async requestBackgroundScan(resume: boolean = false): Promise<void> {
+        // Don't start if already syncing
+        if (this.syncState !== "IDLE") {
+            await this.log("[Full Scan] Skipped - sync already in progress");
+            return;
+        }
+
+        // Check if we should resume or start fresh
+        if (!resume || !this.fullScanProgress || this.isProgressStale()) {
+            this.fullScanProgress = null;
+        }
+
+        this.syncState = "FULL_SCANNING";
+        this.isInterrupted = false;
+        this.currentSyncPromise = this.executeFullScan();
+
+        try {
+            await this.currentSyncPromise;
+        } finally {
+            if (this.syncState === "FULL_SCANNING") {
+                this.syncState = "IDLE";
+            }
+            this.currentSyncPromise = null;
+        }
+    }
+
+    /**
+     * Check if stored progress is too old
+     */
+    private isProgressStale(): boolean {
+        if (!this.fullScanProgress) return true;
+        return Date.now() - this.fullScanProgress.startedAt > this.FULL_SCAN_MAX_AGE_MS;
+    }
+
+    /**
+     * Execute Full Scan with interrupt support
+     */
+    private async executeFullScan(): Promise<void> {
+        try {
+            await this.log("=== BACKGROUND FULL SCAN START ===");
+
+            // Initialize or resume progress
+            if (!this.fullScanProgress) {
+                await this.log("[Full Scan] Fetching file lists...");
+                const localFiles = await this.getLocalFiles();
+                const remoteFiles = await this.adapter.listFiles();
+
+                this.fullScanProgress = {
+                    currentIndex: 0,
+                    totalFiles: remoteFiles.length,
+                    localFiles: localFiles.map((f) => ({ path: f.path, mtime: f.mtime, size: f.size })),
+                    remoteFiles: remoteFiles.map((f) => ({
+                        id: f.id,
+                        path: f.path,
+                        mtime: f.mtime,
+                        size: f.size,
+                        hash: f.hash,
+                    })),
+                    startedAt: Date.now(),
+                };
+            } else {
+                await this.log(`[Full Scan] Resuming from index ${this.fullScanProgress.currentIndex}/${this.fullScanProgress.totalFiles}`);
+            }
+
+            const { localFiles, remoteFiles } = this.fullScanProgress;
+            const localPathsMap = new Map(localFiles.map((f) => [f.path, f]));
+            const CHUNK_SIZE = 10; // Process in chunks to allow interruption
+
+            // Process remote files in chunks
+            while (this.fullScanProgress.currentIndex < remoteFiles.length) {
+                // Check for interrupt
+                if (this.isInterrupted) {
+                    await this.log(`[Full Scan] Interrupted at index ${this.fullScanProgress.currentIndex}`);
+                    this.syncState = "PAUSED";
+                    return;
+                }
+
+                const chunk = remoteFiles.slice(
+                    this.fullScanProgress.currentIndex,
+                    this.fullScanProgress.currentIndex + CHUNK_SIZE
+                );
+
+                for (const remoteFile of chunk) {
+                    if (remoteFile.path === this.pluginDataPath) continue;
+                    if (this.shouldIgnore(remoteFile.path)) continue;
+
+                    const localFile = localPathsMap.get(remoteFile.path);
+                    const indexEntry = this.index[remoteFile.path];
+
+                    // Check for discrepancies
+                    if (!localFile && indexEntry) {
+                        // File exists in index but not locally - might have been deleted
+                        await this.log(`[Full Scan] Discrepancy: ${remoteFile.path} in index but not local`);
+                    } else if (localFile && !indexEntry && remoteFile.hash) {
+                        // File exists locally but not in index - check if it matches remote
+                        try {
+                            const content = await this.app.vault.adapter.readBinary(remoteFile.path);
+                            const localHash = md5(content);
+                            if (localHash === remoteFile.hash.toLowerCase()) {
+                                // Adopt into index
+                                this.index[remoteFile.path] = {
+                                    fileId: remoteFile.id,
+                                    mtime: localFile.mtime,
+                                    size: localFile.size,
+                                    hash: remoteFile.hash,
+                                };
+                                await this.log(`[Full Scan] Adopted: ${remoteFile.path}`);
+                            }
+                        } catch {
+                            // Ignore hash calculation errors
+                        }
+                    }
+                }
+
+                this.fullScanProgress.currentIndex += chunk.length;
+
+                // Yield to allow interrupt check
+                await new Promise((resolve) => setTimeout(resolve, 0));
+            }
+
+            // Scan completed
+            await this.log("=== BACKGROUND FULL SCAN COMPLETED ===");
+            this.fullScanProgress = null;
+            await this.saveIndex();
+
+        } catch (e) {
+            await this.log(`[Full Scan] Error: ${e}`);
+            this.fullScanProgress = null;
         }
     }
 }

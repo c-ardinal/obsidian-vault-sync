@@ -272,9 +272,12 @@ export default class VaultSync extends Plugin {
                 window.setTimeout(async () => {
                     this.isReady = true;
                     this.syncManager.log(
-                        "Startup grace period ended. Triggering initial auto-sync.",
+                        "Startup grace period ended. Triggering initial Smart Sync.",
                     );
-                    await this.syncManager.sync(true); // Silent startup sync
+                    // Use Smart Sync for faster startup (O(1) check)
+                    await this.syncManager.requestSmartSync(true);
+                    // Schedule background full scan after startup sync
+                    this.scheduleBackgroundScan();
                 }, this.settings.startupDelaySec * 1000);
             } else {
                 this.isReady = true;
@@ -282,11 +285,12 @@ export default class VaultSync extends Plugin {
             }
         });
 
+        // Ribbon buttons use Smart Sync for O(1) performance when no changes
         this.pushRibbonIconEl = this.addRibbonIcon("upload-cloud", t("pushTooltip"), async () => {
             if (this.pushRibbonIconEl) {
                 await this.performSyncOperation(
                     [{ element: this.pushRibbonIconEl, originalIcon: "upload-cloud" }],
-                    () => this.syncManager.push(),
+                    () => this.syncManager.requestSmartSync(false),
                 );
             }
         });
@@ -295,7 +299,7 @@ export default class VaultSync extends Plugin {
             if (this.pullRibbonIconEl) {
                 await this.performSyncOperation(
                     [{ element: this.pullRibbonIconEl, originalIcon: "download-cloud" }],
-                    () => this.syncManager.pull(),
+                    () => this.syncManager.requestSmartSync(false),
                 );
             }
         });
@@ -307,8 +311,10 @@ export default class VaultSync extends Plugin {
                 if (this.pushRibbonIconEl) {
                     this.performSyncOperation(
                         [{ element: this.pushRibbonIconEl, originalIcon: "upload-cloud" }],
-                        () => this.syncManager.push(),
+                        () => this.syncManager.requestSmartSync(false),
                     );
+                } else {
+                    this.syncManager.requestSmartSync(false);
                 }
             },
         });
@@ -320,10 +326,10 @@ export default class VaultSync extends Plugin {
                 if (this.pullRibbonIconEl) {
                     this.performSyncOperation(
                         [{ element: this.pullRibbonIconEl, originalIcon: "download-cloud" }],
-                        () => this.syncManager.pull(),
+                        () => this.syncManager.requestSmartSync(false),
                     );
                 } else {
-                    this.syncManager.pull();
+                    this.syncManager.requestSmartSync(false);
                 }
             },
         });
@@ -335,6 +341,7 @@ export default class VaultSync extends Plugin {
     }
 
     private autoSyncInterval: number | null = null;
+    private backgroundScanTimeout: number | null = null;
 
     setupAutoSyncInterval() {
         // Clear existing
@@ -343,13 +350,29 @@ export default class VaultSync extends Plugin {
             this.autoSyncInterval = null;
         }
 
-        // 1. Interval
+        // 1. Interval - use Smart Sync for regular intervals
         if (this.settings.enableAutoSyncInInterval && this.settings.autoSyncIntervalSec > 0) {
             this.autoSyncInterval = window.setInterval(() => {
-                this.triggerAutoSync();
+                this.triggerSmartSync();
             }, this.settings.autoSyncIntervalSec * 1000);
             this.registerInterval(this.autoSyncInterval);
         }
+    }
+
+    /**
+     * Schedule a background full scan after a delay
+     * This runs at low priority and can be interrupted by Smart Sync
+     */
+    private scheduleBackgroundScan(delayMs: number = 60000) {
+        if (this.backgroundScanTimeout) {
+            window.clearTimeout(this.backgroundScanTimeout);
+        }
+
+        this.backgroundScanTimeout = window.setTimeout(async () => {
+            if (!this.isReady) return;
+            this.syncManager.log("Starting scheduled background full scan...");
+            await this.syncManager.requestBackgroundScan(true); // Resume if possible
+        }, delayMs);
     }
 
     private async triggerAutoSync() {
@@ -370,27 +393,99 @@ export default class VaultSync extends Plugin {
         }
     }
 
+    /**
+     * Trigger Smart Sync - high priority, O(1) check via sync-index.json
+     * Used for user-initiated actions (save, modify, layout change)
+     */
+    private async triggerSmartSync() {
+        if (!this.isReady) return;
+        const targets: { element: HTMLElement; originalIcon: string }[] = [];
+        if (this.pushRibbonIconEl) {
+            targets.push({ element: this.pushRibbonIconEl, originalIcon: "upload-cloud" });
+        }
+        if (this.pullRibbonIconEl) {
+            targets.push({ element: this.pullRibbonIconEl, originalIcon: "download-cloud" });
+        }
+
+        if (targets.length > 0) {
+            await this.performSyncOperation(targets, () =>
+                this.syncManager.requestSmartSync(true),
+            );
+        } else {
+            await this.syncManager.requestSmartSync(true);
+        }
+    }
+
     private registerTriggers() {
         // 2. Save Trigger (Ctrl+S)
         this.registerDomEvent(document, "keydown", (evt: KeyboardEvent) => {
             if (!this.settings.enableOnSaveTrigger) return;
             if ((evt.ctrlKey || evt.metaKey) && evt.key === "s") {
-                this.triggerAutoSync();
+                this.triggerSmartSync();
             }
         });
 
-        // 3. Modify trigger with debounce
+        // 3. Modify trigger with debounce - marks dirty and triggers Smart Sync
         let modifyTimeout: number | null = null;
         this.registerEvent(
             this.app.vault.on("modify", (file) => {
-                if (!this.settings.enableOnModifyTrigger || !this.isReady) return;
+                if (!this.isReady) return;
                 if (!(file instanceof TFile)) return;
                 if (this.syncManager.shouldIgnore(file.path)) return;
 
+                // Mark file as dirty immediately
+                this.syncManager.markDirty(file.path);
+
+                // Debounce the actual sync
+                if (!this.settings.enableOnModifyTrigger) return;
                 if (modifyTimeout) window.clearTimeout(modifyTimeout);
                 modifyTimeout = window.setTimeout(() => {
-                    this.triggerAutoSync();
+                    this.triggerSmartSync();
                 }, this.settings.onModifyDelaySec * 1000);
+            }),
+        );
+
+        // 3b. Create trigger - mark new files as dirty
+        this.registerEvent(
+            this.app.vault.on("create", (file) => {
+                if (!this.isReady) return;
+                if (!(file instanceof TFile)) return;
+                if (this.syncManager.shouldIgnore(file.path)) return;
+
+                this.syncManager.markDirty(file.path);
+            }),
+        );
+
+        // 3c. Delete trigger - mark deleted files (both files and folders)
+        this.registerEvent(
+            this.app.vault.on("delete", (file) => {
+                if (!this.isReady) return;
+
+                // Handle both files and folders
+                if (file instanceof TFile) {
+                    this.syncManager.markDeleted(file.path);
+                } else {
+                    // Folder deleted - mark all indexed files in this folder for deletion
+                    this.syncManager.markFolderDeleted(file.path);
+                }
+            }),
+        );
+
+        // 3d. Rename trigger - mark both old and new paths (files and folders)
+        this.registerEvent(
+            this.app.vault.on("rename", (file, oldPath) => {
+                if (!this.isReady) return;
+
+                if (file instanceof TFile) {
+                    // File renamed/moved
+                    this.syncManager.markDeleted(oldPath);
+                    if (!this.syncManager.shouldIgnore(file.path)) {
+                        this.syncManager.markDirty(file.path);
+                    }
+                } else {
+                    // Folder renamed/moved - mark all indexed files for update
+                    this.syncManager.markFolderRenamed(oldPath, file.path);
+                }
             }),
         );
 
@@ -398,7 +493,7 @@ export default class VaultSync extends Plugin {
         this.registerEvent(
             this.app.workspace.on("layout-change", () => {
                 if (this.settings.enableOnLayoutChangeTrigger) {
-                    this.triggerAutoSync();
+                    this.triggerSmartSync();
                 }
             }),
         );

@@ -7,6 +7,10 @@ const DEFAULT_ROOT_FOLDER = "ObsidianVaultSync";
 export class GoogleDriveAdapter implements CloudAdapter {
     name = "Google Drive";
 
+    // Feature flags - Google Drive supports both
+    readonly supportsChangesAPI = true;
+    readonly supportsHash = true;  // MD5 checksum
+
     private appRootId: string | null = null;
     private vaultRootId: string | null = null;
     private folderCache: Map<string, string> = new Map();
@@ -111,6 +115,14 @@ export class GoogleDriveAdapter implements CloudAdapter {
         if (this.accessToken) return "Authenticated";
         if (this.refreshToken) return "Token available (Requires refresh)";
         return "Not authenticated";
+    }
+
+    /**
+     * Initialize the adapter (ensure root folders exist)
+     * Call this at the start of sync to avoid delays later
+     */
+    async initialize(): Promise<void> {
+        await this.ensureRootFolders();
     }
 
     private getRedirectUri(): string {

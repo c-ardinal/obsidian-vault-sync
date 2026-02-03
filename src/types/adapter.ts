@@ -19,6 +19,17 @@ export interface CloudChanges {
 export interface CloudAdapter {
     name: string;
 
+    // === Feature Flags ===
+    // Changes API support (Google Drive, OneDrive, Dropbox)
+    // When true, getChanges() can be used for faster pull detection
+    readonly supportsChangesAPI: boolean;
+
+    // Hash support for file content verification
+    readonly supportsHash: boolean;
+
+    // Initialization (optional - pre-warm root folder discovery)
+    initialize?(): Promise<void>;
+
     // Auth
     isAuthenticated(): boolean;
     getAuthUrl(): Promise<string>;
@@ -37,7 +48,7 @@ export interface CloudAdapter {
     ): Promise<void>;
     fileExistsById(fileId: string): Promise<boolean>;
 
-    // Fast Sync Support
+    // Fast Sync Support (optional - only if supportsChangesAPI is true)
     getStartPageToken(): Promise<string>;
     getChanges(pageToken: string): Promise<CloudChanges>;
     listFiles(folderId?: string): Promise<CloudFile[]>;
