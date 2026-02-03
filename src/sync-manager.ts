@@ -376,7 +376,7 @@ export class SyncManager {
      */
     private async scanVaultChanges(): Promise<void> {
         try {
-            await this.log("[Vault Scan] Starting full vault scan (O(N))...");
+            await this.log("[Vault Scan] Starting full vault scan...");
             const start = Date.now();
 
             const files = this.app.vault.getFiles();
