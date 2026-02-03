@@ -255,6 +255,10 @@ export class SyncManager {
                 );
                 // Use the already fetched remoteFiles to save an API call
                 await this.internalPull(isSilent, remoteFiles);
+            } else if (remoteIndexFile && !localHash) {
+                // Case where local index is missing hash but remote exists
+                await this.log(`  Local index missing hash. Prioritizing PULL to recover.`);
+                await this.internalPull(isSilent, remoteFiles);
             } else {
                 await this.log(`  Cloud index matches or missing. Proceeding with PUSH.`);
                 await this.internalPush(isSilent, remoteFiles);
@@ -262,6 +266,33 @@ export class SyncManager {
         } finally {
             this.isSyncing = false;
         }
+    }
+
+    // === Compression Helpers ===
+    private async compress(data: ArrayBuffer): Promise<ArrayBuffer> {
+        try {
+            const stream = new Blob([data]).stream().pipeThrough(new CompressionStream("gzip"));
+            return await new Response(stream).arrayBuffer();
+        } catch (e) {
+            console.error("Compression failed:", e);
+            return data;
+        }
+    }
+
+    private async tryDecompress(data: ArrayBuffer): Promise<ArrayBuffer> {
+        try {
+            const view = new Uint8Array(data);
+            // GZIP magic number: 1F 8B
+            if (view.length > 2 && view[0] === 0x1f && view[1] === 0x8b) {
+                const stream = new Blob([data])
+                    .stream()
+                    .pipeThrough(new DecompressionStream("gzip"));
+                return await new Response(stream).arrayBuffer();
+            }
+        } catch (e) {
+            // Not compressed or failed, return original
+        }
+        return data;
     }
 
     async push(isSilent: boolean = false) {
@@ -506,9 +537,11 @@ export class SyncManager {
                         const indexContent = await this.app.vault.adapter.readBinary(
                             this.pluginDataPath,
                         );
+                        // Compress index before upload
+                        const compressedIndex = await this.compress(indexContent);
                         const uploadedIndex = await this.adapter.uploadFile(
                             this.pluginDataPath,
-                            indexContent,
+                            compressedIndex,
                             Date.now(),
                         );
                         this.index[this.pluginDataPath] = {
@@ -601,7 +634,8 @@ export class SyncManager {
             if (cloudIndexFile) {
                 try {
                     const indexContent = await this.adapter.downloadFile(cloudIndexFile.id);
-                    const parsed = JSON.parse(new TextDecoder().decode(indexContent));
+                    const decompressed = await this.tryDecompress(indexContent);
+                    const parsed = JSON.parse(new TextDecoder().decode(decompressed));
                     masterIndex = parsed.index || {};
                     await this.log(
                         `  Master index loaded: ${Object.keys(masterIndex).length} entries.`,
@@ -1266,10 +1300,23 @@ export class SyncManager {
         await this.log("[Smart Pull] Checking for remote changes...");
 
         // Check if adapter supports Changes API for faster detection
-        if (this.adapter.supportsChangesAPI && this.startPageToken) {
-            await this.log("[Smart Pull] Using Changes API (fast path)");
-            await this.pullViaChangesAPI(isSilent);
-            return;
+        if (this.adapter.supportsChangesAPI) {
+            if (this.startPageToken) {
+                await this.log("[Smart Pull] Using Changes API (fast path)");
+                await this.pullViaChangesAPI(isSilent);
+                return;
+            } else {
+                await this.log(
+                    "[Smart Pull] Initializing Changes API token (will be used next time)",
+                );
+                try {
+                    this.startPageToken = await this.adapter.getStartPageToken();
+                    await this.saveIndex();
+                } catch (e) {
+                    await this.log(`[Smart Pull] Failed to init Changes API: ${e}`);
+                }
+                // Fall through to standard hash check for this run
+            }
         }
 
         // Core path: sync-index.json hash comparison
@@ -1300,7 +1347,8 @@ export class SyncManager {
         );
 
         const remoteIndexContent = await this.adapter.downloadFile(remoteIndexMeta.id);
-        const remoteIndexData = JSON.parse(new TextDecoder().decode(remoteIndexContent));
+        const decompressed = await this.tryDecompress(remoteIndexContent);
+        const remoteIndexData = JSON.parse(new TextDecoder().decode(decompressed));
         const remoteIndex: LocalFileIndex = remoteIndexData.index || {};
 
         // Compare indexes to find changes
@@ -1671,9 +1719,10 @@ export class SyncManager {
             await this.saveIndex();
             try {
                 const indexContent = await this.app.vault.adapter.readBinary(this.pluginDataPath);
+                const compressedIndex = await this.compress(indexContent);
                 const uploadedIndex = await this.adapter.uploadFile(
                     this.pluginDataPath,
-                    indexContent,
+                    compressedIndex,
                     Date.now(),
                 );
                 this.index[this.pluginDataPath] = {
