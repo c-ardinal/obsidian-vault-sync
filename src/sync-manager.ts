@@ -60,6 +60,9 @@ export class SyncManager {
     /** Maximum age for full scan progress before reset (5 minutes) */
     private readonly FULL_SCAN_MAX_AGE_MS = 5 * 60 * 1000;
 
+    private onActivityStart: () => void = () => {};
+    private onActivityEnd: () => void = () => {};
+
     constructor(
         private app: App,
         private adapter: CloudAdapter,
@@ -71,6 +74,11 @@ export class SyncManager {
     ) {
         this.logFolder = `${this.pluginDir}/logs`;
         this.adapter.setLogger((msg) => this.log(msg));
+    }
+
+    public setActivityCallbacks(onStart: () => void, onEnd: () => void) {
+        this.onActivityStart = onStart;
+        this.onActivityEnd = onEnd;
     }
 
     async log(message: string) {
@@ -397,119 +405,133 @@ export class SyncManager {
                 await this.log("  No changes to push.");
                 if (!isSilent) new Notice(this.t("nothingToPush"));
             } else {
-                // Always show changes detected, even in silent mode
-                new Notice(`🔍 ${totalOps} ${this.t("changesToPush")}`);
+                this.onActivityStart();
+                try {
+                    // Always show changes detected, even in silent mode
+                    new Notice(`🔍 ${totalOps} ${this.t("changesToPush")}`);
 
-                // 1. Ensure folders exist on remote using proper hierarchy
-                const foldersToCreate = new Set<string>();
-                for (const file of uploadQueue) {
-                    const parts = file.path.split("/");
-                    for (let i = 1; i < parts.length; i++) {
-                        foldersToCreate.add(parts.slice(0, i).join("/"));
+                    // 1. Ensure folders exist on remote using proper hierarchy
+                    const foldersToCreate = new Set<string>();
+                    for (const file of uploadQueue) {
+                        const parts = file.path.split("/");
+                        for (let i = 1; i < parts.length; i++) {
+                            foldersToCreate.add(parts.slice(0, i).join("/"));
+                        }
                     }
-                }
-                const sortedFolders = Array.from(foldersToCreate)
-                    .filter((folder) => !remotePathsMap.has(folder))
-                    .sort((a, b) => a.length - b.length);
+                    const sortedFolders = Array.from(foldersToCreate)
+                        .filter((folder) => !remotePathsMap.has(folder))
+                        .sort((a, b) => a.length - b.length);
 
-                if (sortedFolders.length > 0) {
-                    await this.log(`  Creating ${sortedFolders.length} folders on remote...`);
-                    await this.adapter.ensureFoldersExist(sortedFolders, (current, total, name) => {
-                        if (this.settings.showDetailedNotifications) {
-                            new Notice(`${this.t("folderCreated")}: ${name}`);
+                    if (sortedFolders.length > 0) {
+                        await this.log(`  Creating ${sortedFolders.length} folders on remote...`);
+                        await this.adapter.ensureFoldersExist(
+                            sortedFolders,
+                            (current, total, name) => {
+                                if (this.settings.showDetailedNotifications) {
+                                    new Notice(`${this.t("folderCreated")}: ${name}`);
+                                }
+                            },
+                        );
+                        // Update map
+                        for (const folder of sortedFolders) {
+                            remotePathsMap.set(folder, { path: folder, kind: "folder" } as any);
                         }
-                    });
-                    // Update map
-                    for (const folder of sortedFolders) {
-                        remotePathsMap.set(folder, { path: folder, kind: "folder" } as any);
                     }
-                }
 
-                // 2. Parallel Uploads & Deletions
-                const tasks: (() => Promise<void>)[] = [];
+                    // 2. Parallel Uploads & Deletions
+                    const tasks: (() => Promise<void>)[] = [];
 
-                // Upload tasks
-                for (const localFile of uploadQueue) {
-                    tasks.push(async () => {
-                        try {
-                            const content = await this.app.vault.adapter.readBinary(localFile.path);
-                            const uploaded = await this.adapter.uploadFile(
-                                localFile.path,
-                                content,
-                                localFile.mtime,
-                            );
-                            this.index[localFile.path] = {
-                                fileId: uploaded.id,
-                                mtime: localFile.mtime,
-                                size: uploaded.size,
-                                hash: uploaded.hash,
-                            };
-                            currentOp++;
-                            await this.log(
-                                `  [${currentOp}/${totalOps}] Pushed: ${localFile.path}`,
-                            );
-                            // Respect verbosity setting
-                            if (this.settings.showDetailedNotifications) {
-                                new Notice(
-                                    `[${currentOp}/${totalOps}] ${this.t("filePushed")}: ${localFile.name}`,
+                    // Upload tasks
+                    for (const localFile of uploadQueue) {
+                        tasks.push(async () => {
+                            try {
+                                const content = await this.app.vault.adapter.readBinary(
+                                    localFile.path,
                                 );
-                            }
-                        } catch (e) {
-                            await this.log(`  Push FAILED: ${localFile.path} - ${e}`);
-                        }
-                    });
-                }
-
-                // Delete tasks
-                for (const remoteFile of deleteQueue) {
-                    tasks.push(async () => {
-                        try {
-                            await this.adapter.deleteFile(remoteFile.id);
-                            delete this.index[remoteFile.path];
-                            currentOp++;
-                            await this.log(
-                                `  [${currentOp}/${totalOps}] Trashed remote: ${remoteFile.path}`,
-                            );
-                            // Respect verbosity setting
-                            if (this.settings.showDetailedNotifications) {
-                                new Notice(
-                                    `[${currentOp}/${totalOps}] ${this.t("fileTrashed")}: ${remoteFile.path.split("/").pop()}`,
+                                const uploaded = await this.adapter.uploadFile(
+                                    localFile.path,
+                                    content,
+                                    localFile.mtime,
                                 );
+                                this.index[localFile.path] = {
+                                    fileId: uploaded.id,
+                                    mtime: localFile.mtime,
+                                    size: uploaded.size,
+                                    hash: uploaded.hash,
+                                };
+                                currentOp++;
+                                await this.log(
+                                    `  [${currentOp}/${totalOps}] Pushed: ${localFile.path}`,
+                                );
+                                // Respect verbosity setting
+                                if (this.settings.showDetailedNotifications) {
+                                    new Notice(
+                                        `[${currentOp}/${totalOps}] ${this.t("filePushed")}: ${localFile.name}`,
+                                    );
+                                }
+                            } catch (e) {
+                                await this.log(`  Push FAILED: ${localFile.path} - ${e}`);
                             }
-                        } catch (e) {
-                            await this.log(`  Remote Trash FAILED: ${remoteFile.path} - ${e}`);
-                        }
-                    });
+                        });
+                    }
+
+                    // Delete tasks
+                    for (const remoteFile of deleteQueue) {
+                        tasks.push(async () => {
+                            try {
+                                await this.adapter.deleteFile(remoteFile.id);
+                                delete this.index[remoteFile.path];
+                                currentOp++;
+                                await this.log(
+                                    `  [${currentOp}/${totalOps}] Trashed remote: ${remoteFile.path}`,
+                                );
+                                // Respect verbosity setting
+                                if (this.settings.showDetailedNotifications) {
+                                    new Notice(
+                                        `[${currentOp}/${totalOps}] ${this.t("fileTrashed")}: ${remoteFile.path.split("/").pop()}`,
+                                    );
+                                }
+                            } catch (e) {
+                                await this.log(`  Remote Trash FAILED: ${remoteFile.path} - ${e}`);
+                            }
+                        });
+                    }
+
+                    await this.runParallel(tasks);
+
+                    await this.saveIndex();
+
+                    // 3. Final Step: Upload Index
+                    try {
+                        const indexContent = await this.app.vault.adapter.readBinary(
+                            this.pluginDataPath,
+                        );
+                        const uploadedIndex = await this.adapter.uploadFile(
+                            this.pluginDataPath,
+                            indexContent,
+                            Date.now(),
+                        );
+                        this.index[this.pluginDataPath] = {
+                            fileId: uploadedIndex.id,
+                            mtime: Date.now(),
+                            size: uploadedIndex.size,
+                            hash: uploadedIndex.hash,
+                        };
+                        await this.log(
+                            `  Master index uploaded to cloud. Hash: ${uploadedIndex.hash}`,
+                        );
+                        // CRITICAL: Save again to persist self-referential metadata
+                        await this.saveIndex();
+                    } catch (e) {
+                        await this.log(`  Failed to upload master index: ${e}`);
+                    }
+
+                    await this.log("--- PUSH COMPLETED ---");
+                    if (currentOp > 0) new Notice(this.t("pushCompleted"));
+                } finally {
+                    this.onActivityEnd();
                 }
-
-                await this.runParallel(tasks);
             }
-
-            await this.saveIndex();
-
-            // 3. Final Step: Upload Index
-            try {
-                const indexContent = await this.app.vault.adapter.readBinary(this.pluginDataPath);
-                const uploadedIndex = await this.adapter.uploadFile(
-                    this.pluginDataPath,
-                    indexContent,
-                    Date.now(),
-                );
-                this.index[this.pluginDataPath] = {
-                    fileId: uploadedIndex.id,
-                    mtime: Date.now(),
-                    size: uploadedIndex.size,
-                    hash: uploadedIndex.hash,
-                };
-                await this.log(`  Master index uploaded to cloud. Hash: ${uploadedIndex.hash}`);
-                // CRITICAL: Save again to persist self-referential metadata
-                await this.saveIndex();
-            } catch (e) {
-                await this.log(`  Failed to upload master index: ${e}`);
-            }
-
-            await this.log("--- PUSH COMPLETED ---");
-            if (currentOp > 0) new Notice(this.t("pushCompleted"));
         } catch (e) {
             await this.log(`Push execution failed: ${e}`);
         }
@@ -730,133 +752,140 @@ export class SyncManager {
                 await this.log("  No changes to pull.");
                 if (!isSilent) new Notice(this.t("nothingToPull"));
             } else {
-                if (!isSilent) new Notice(`🔍 ${totalOps} ${this.t("changesToPull")}`);
-                // 1. Folders first (Parallel Batch)
-                const foldersToCreate = new Set<string>();
-                for (const cloudFile of remoteFiles) {
-                    if (cloudFile.kind === "folder") {
-                        foldersToCreate.add(cloudFile.path);
+                this.onActivityStart();
+                try {
+                    if (!isSilent) new Notice(`🔍 ${totalOps} ${this.t("changesToPull")}`);
+                    // 1. Folders first (Parallel Batch)
+                    const foldersToCreate = new Set<string>();
+                    for (const cloudFile of remoteFiles) {
+                        if (cloudFile.kind === "folder") {
+                            foldersToCreate.add(cloudFile.path);
+                        }
                     }
-                }
-                const sortedFolders = Array.from(foldersToCreate).sort(
-                    (a, b) => a.length - b.length,
-                );
-                const folderTasks: (() => Promise<void>)[] = [];
-                for (const folderPath of sortedFolders) {
-                    if (!this.app.vault.getAbstractFileByPath(folderPath)) {
-                        folderTasks.push(async () => {
+                    const sortedFolders = Array.from(foldersToCreate).sort(
+                        (a, b) => a.length - b.length,
+                    );
+                    const folderTasks: (() => Promise<void>)[] = [];
+                    for (const folderPath of sortedFolders) {
+                        if (!this.app.vault.getAbstractFileByPath(folderPath)) {
+                            folderTasks.push(async () => {
+                                try {
+                                    await this.app.vault.createFolder(folderPath);
+                                    await this.log(`  Batch created local folder: ${folderPath}`);
+                                    if (!isSilent)
+                                        new Notice(`${this.t("folderCreated")}: ${folderPath}`);
+                                } catch (e) {}
+                            });
+                        }
+                    }
+                    if (folderTasks.length > 0) {
+                        await this.runParallel(folderTasks);
+                    }
+
+                    // 2. Parallel Downloads & Deletions
+                    const tasks: (() => Promise<void>)[] = [];
+
+                    // Download tasks
+                    for (const cloudFile of downloadQueue) {
+                        tasks.push(async () => {
                             try {
-                                await this.app.vault.createFolder(folderPath);
-                                await this.log(`  Batch created local folder: ${folderPath}`);
-                                if (!isSilent)
-                                    new Notice(`${this.t("folderCreated")}: ${folderPath}`);
-                            } catch (e) {}
+                                // Mark as syncing to prevent dirty marking from modify event
+                                this.syncingPaths.add(cloudFile.path);
+
+                                const localFile = this.app.vault.getAbstractFileByPath(
+                                    cloudFile.path,
+                                );
+                                const localIndexEntry = this.index[cloudFile.path];
+
+                                if (
+                                    localFile instanceof TFile &&
+                                    localFile.stat.mtime > (localIndexEntry?.mtime || 0)
+                                ) {
+                                    await this.log(`  Conflict: ${cloudFile.path}. Renaming.`);
+                                    const newName = `${localFile.basename} (Conflict ${new Date().toISOString().split("T")[0]}).${localFile.extension}`;
+                                    await this.app.vault.rename(localFile, newName);
+                                }
+
+                                const content = await this.adapter.downloadFile(cloudFile.id);
+                                await this.app.vault.adapter.writeBinary(cloudFile.path, content);
+
+                                // Get actual local mtime/size after write to prevent false modification detection
+                                const stat = await this.app.vault.adapter.stat(cloudFile.path);
+
+                                this.index[cloudFile.path] = {
+                                    fileId: cloudFile.id,
+                                    mtime: stat ? stat.mtime : cloudFile.mtime,
+                                    size: stat?.size || content.byteLength || cloudFile.size,
+                                    hash: cloudFile.hash,
+                                };
+                                currentOp++;
+                                await this.log(
+                                    `  [${currentOp}/${totalOps}] Pulled: ${cloudFile.path} (Local mtime: ${stat?.mtime})`,
+                                );
+                                if (this.settings.showDetailedNotifications)
+                                    new Notice(
+                                        `[${currentOp}/${totalOps}] ${this.t("filePulled")}: ${cloudFile.path.split("/").pop()}`,
+                                    );
+                            } catch (e) {
+                                await this.log(`  Pull FAILED: ${cloudFile.path} - ${e}`);
+                            } finally {
+                                this.syncingPaths.delete(cloudFile.path);
+                            }
                         });
                     }
-                }
-                if (folderTasks.length > 0) {
-                    await this.runParallel(folderTasks);
-                }
 
-                // 2. Parallel Downloads & Deletions
-                const tasks: (() => Promise<void>)[] = [];
-
-                // Download tasks
-                for (const cloudFile of downloadQueue) {
-                    tasks.push(async () => {
-                        try {
-                            // Mark as syncing to prevent dirty marking from modify event
-                            this.syncingPaths.add(cloudFile.path);
-
-                            const localFile = this.app.vault.getAbstractFileByPath(cloudFile.path);
-                            const localIndexEntry = this.index[cloudFile.path];
-
-                            if (
-                                localFile instanceof TFile &&
-                                localFile.stat.mtime > (localIndexEntry?.mtime || 0)
-                            ) {
-                                await this.log(`  Conflict: ${cloudFile.path}. Renaming.`);
-                                const newName = `${localFile.basename} (Conflict ${new Date().toISOString().split("T")[0]}).${localFile.extension}`;
-                                await this.app.vault.rename(localFile, newName);
+                    // Deletion tasks
+                    for (const localFile of orphanQueue) {
+                        tasks.push(async () => {
+                            try {
+                                await this.app.vault.trash(localFile, true);
+                                delete this.index[localFile.path];
+                                currentOp++;
+                                await this.log(
+                                    `  [${currentOp}/${totalOps}] Removed: ${localFile.path}`,
+                                );
+                                if (this.settings.showDetailedNotifications)
+                                    new Notice(
+                                        `[${currentOp}/${totalOps}] ${this.t("fileRemoved")}: ${localFile.name}`,
+                                    );
+                            } catch (e) {
+                                await this.log(`  Delete FAILED: ${localFile.path} - ${e}`);
                             }
+                        });
+                    }
 
-                            const content = await this.adapter.downloadFile(cloudFile.id);
-                            await this.app.vault.adapter.writeBinary(cloudFile.path, content);
+                    await this.runParallel(tasks, 5);
 
-                            // Get actual local mtime/size after write to prevent false modification detection
+                    // 3. Metadata updates (Post-processing)
+                    for (const cloudFile of remoteFiles) {
+                        if (cloudFile.kind === "folder") continue;
+                        if (cloudFile.path === this.pluginDataPath) continue;
+                        const localFile = this.app.vault.getAbstractFileByPath(cloudFile.path);
+                        const localIndexEntry = this.index[cloudFile.path];
+                        const masterIndexEntry = masterIndex[cloudFile.path];
+                        if (
+                            localFile instanceof TFile &&
+                            !localIndexEntry &&
+                            masterIndexEntry &&
+                            cloudFile.hash === masterIndexEntry.hash
+                        ) {
                             const stat = await this.app.vault.adapter.stat(cloudFile.path);
-
                             this.index[cloudFile.path] = {
                                 fileId: cloudFile.id,
                                 mtime: stat ? stat.mtime : cloudFile.mtime,
-                                size: stat?.size || content.byteLength || cloudFile.size,
+                                size: stat?.size || localFile.stat.size || cloudFile.size,
                                 hash: cloudFile.hash,
                             };
-                            currentOp++;
-                            await this.log(
-                                `  [${currentOp}/${totalOps}] Pulled: ${cloudFile.path} (Local mtime: ${stat?.mtime})`,
-                            );
-                            if (this.settings.showDetailedNotifications)
-                                new Notice(
-                                    `[${currentOp}/${totalOps}] ${this.t("filePulled")}: ${cloudFile.path.split("/").pop()}`,
-                                );
-                        } catch (e) {
-                            await this.log(`  Pull FAILED: ${cloudFile.path} - ${e}`);
-                        } finally {
-                            this.syncingPaths.delete(cloudFile.path);
                         }
-                    });
-                }
+                    }
 
-                // Deletion tasks
-                for (const localFile of orphanQueue) {
-                    tasks.push(async () => {
-                        try {
-                            await this.app.vault.trash(localFile, true);
-                            delete this.index[localFile.path];
-                            currentOp++;
-                            await this.log(
-                                `  [${currentOp}/${totalOps}] Removed: ${localFile.path}`,
-                            );
-                            if (this.settings.showDetailedNotifications)
-                                new Notice(
-                                    `[${currentOp}/${totalOps}] ${this.t("fileRemoved")}: ${localFile.name}`,
-                                );
-                        } catch (e) {
-                            await this.log(`  Delete FAILED: ${localFile.path} - ${e}`);
-                        }
-                    });
-                }
-
-                await this.runParallel(tasks, 5);
-            }
-
-            // 3. Metadata updates (Post-processing)
-            for (const cloudFile of remoteFiles) {
-                if (cloudFile.kind === "folder") continue;
-                if (cloudFile.path === this.pluginDataPath) continue;
-                const localFile = this.app.vault.getAbstractFileByPath(cloudFile.path);
-                const localIndexEntry = this.index[cloudFile.path];
-                const masterIndexEntry = masterIndex[cloudFile.path];
-                if (
-                    localFile instanceof TFile &&
-                    !localIndexEntry &&
-                    masterIndexEntry &&
-                    cloudFile.hash === masterIndexEntry.hash
-                ) {
-                    const stat = await this.app.vault.adapter.stat(cloudFile.path);
-                    this.index[cloudFile.path] = {
-                        fileId: cloudFile.id,
-                        mtime: stat ? stat.mtime : cloudFile.mtime,
-                        size: stat?.size || localFile.stat.size || cloudFile.size,
-                        hash: cloudFile.hash,
-                    };
+                    await this.saveIndex();
+                    await this.log("--- PULL COMPLETED ---");
+                    if (!isSilent || currentOp > 0) new Notice(this.t("pullCompleted"));
+                } finally {
+                    this.onActivityEnd();
                 }
             }
-
-            await this.saveIndex();
-            await this.log("--- PULL COMPLETED ---");
-            if (!isSilent || currentOp > 0) new Notice(this.t("pullCompleted"));
         } catch (e) {
             await this.log(`Pull execution failed: ${e}`);
         }
@@ -1242,7 +1271,9 @@ export class SyncManager {
         }
 
         // Hashes differ - download remote index and compare
-        await this.log(`[Smart Pull] Index hash differs (local: ${localIndexHash}, remote: ${remoteIndexHash}). Fetching remote index...`);
+        await this.log(
+            `[Smart Pull] Index hash differs (local: ${localIndexHash}, remote: ${remoteIndexHash}). Fetching remote index...`,
+        );
 
         const remoteIndexContent = await this.adapter.downloadFile(remoteIndexMeta.id);
         const remoteIndexData = JSON.parse(new TextDecoder().decode(remoteIndexContent));
@@ -1282,7 +1313,9 @@ export class SyncManager {
             }
         }
 
-        await this.log(`[Smart Pull] Changes: ${toDownload.length} to download, ${toDeleteLocal.length} to delete`);
+        await this.log(
+            `[Smart Pull] Changes: ${toDownload.length} to download, ${toDeleteLocal.length} to delete`,
+        );
 
         if (toDownload.length === 0 && toDeleteLocal.length === 0) {
             await this.log("[Smart Pull] No file changes detected.");
@@ -1356,7 +1389,14 @@ export class SyncManager {
             });
         }
 
-        await this.runParallel(tasks);
+        if (tasks.length > 0) {
+            this.onActivityStart();
+            try {
+                await this.runParallel(tasks);
+            } finally {
+                this.onActivityEnd();
+            }
+        }
 
         // Update index with remote index metadata
         this.index[this.pluginDataPath] = {
@@ -1401,7 +1441,7 @@ export class SyncManager {
             if (change.removed) {
                 // File was deleted on remote
                 const pathToDelete = Object.entries(this.index).find(
-                    ([, entry]) => entry.fileId === change.fileId
+                    ([, entry]) => entry.fileId === change.fileId,
                 )?.[0];
 
                 if (pathToDelete && pathToDelete !== this.pluginDataPath) {
@@ -1464,7 +1504,14 @@ export class SyncManager {
             }
         }
 
-        await this.runParallel(tasks);
+        if (tasks.length > 0) {
+            this.onActivityStart();
+            try {
+                await this.runParallel(tasks);
+            } finally {
+                this.onActivityEnd();
+            }
+        }
 
         if (changes.newStartPageToken) {
             this.startPageToken = changes.newStartPageToken;
@@ -1526,104 +1573,116 @@ export class SyncManager {
         const totalOps = uploadQueue.length + deleteQueue.length;
         if (totalOps === 0) {
             await this.log("[Smart Push] No changes after filtering.");
-            this.dirtyPaths.clear();
             return;
         }
 
-        // Ensure folders exist (only fetch remote list if needed)
-        const foldersToCreate = new Set<string>();
-        for (const file of uploadQueue) {
-            const parts = file.path.split("/");
-            for (let i = 1; i < parts.length; i++) {
-                foldersToCreate.add(parts.slice(0, i).join("/"));
-            }
-        }
-
-        if (foldersToCreate.size > 0) {
-            // Lazy load remote paths only when we need to check folders
-            const pathsMap = await getRemotePathsMap();
-            const sortedFolders = Array.from(foldersToCreate)
-                .filter((folder) => !pathsMap.has(folder))
-                .sort((a, b) => a.length - b.length);
-
-            if (sortedFolders.length > 0) {
-                await this.adapter.ensureFoldersExist(sortedFolders);
-            }
-        }
-
-        // Execute uploads and deletions
-        const tasks: (() => Promise<void>)[] = [];
-        let completed = 0;
-
-        for (const file of uploadQueue) {
-            tasks.push(async () => {
-                try {
-                    const content = await this.app.vault.adapter.readBinary(file.path);
-                    const uploaded = await this.adapter.uploadFile(file.path, content, file.mtime);
-
-                    this.index[file.path] = {
-                        fileId: uploaded.id,
-                        mtime: file.mtime,
-                        size: uploaded.size,
-                        hash: uploaded.hash,
-                    };
-
-                    completed++;
-                    await this.log(`[Smart Push] [${completed}/${totalOps}] Pushed: ${file.path}`);
-                    if (this.settings.showDetailedNotifications) {
-                        new Notice(`⬆️ ${file.path.split("/").pop()}`);
-                    }
-                } catch (e) {
-                    await this.log(`[Smart Push] Upload failed: ${file.path} - ${e}`);
+        this.onActivityStart();
+        try {
+            // Ensure folders exist (only fetch remote list if needed)
+            const foldersToCreate = new Set<string>();
+            for (const file of uploadQueue) {
+                const parts = file.path.split("/");
+                for (let i = 1; i < parts.length; i++) {
+                    foldersToCreate.add(parts.slice(0, i).join("/"));
                 }
-            });
-        }
+            }
 
-        for (const path of deleteQueue) {
-            tasks.push(async () => {
-                try {
-                    const entry = this.index[path];
-                    if (entry) {
-                        await this.adapter.deleteFile(entry.fileId);
-                        delete this.index[path];
+            if (foldersToCreate.size > 0) {
+                // Lazy load remote paths only when we need to check folders
+                const pathsMap = await getRemotePathsMap();
+                const sortedFolders = Array.from(foldersToCreate)
+                    .filter((folder) => !pathsMap.has(folder))
+                    .sort((a, b) => a.length - b.length);
+
+                if (sortedFolders.length > 0) {
+                    await this.adapter.ensureFoldersExist(sortedFolders);
+                }
+            }
+
+            // Execute uploads and deletions
+            const tasks: (() => Promise<void>)[] = [];
+            let completed = 0;
+
+            for (const file of uploadQueue) {
+                tasks.push(async () => {
+                    try {
+                        const content = await this.app.vault.adapter.readBinary(file.path);
+                        const uploaded = await this.adapter.uploadFile(
+                            file.path,
+                            content,
+                            file.mtime,
+                        );
+
+                        this.index[file.path] = {
+                            fileId: uploaded.id,
+                            mtime: file.mtime,
+                            size: uploaded.size,
+                            hash: uploaded.hash,
+                        };
 
                         completed++;
-                        await this.log(`[Smart Push] [${completed}/${totalOps}] Deleted remote: ${path}`);
+                        await this.log(
+                            `[Smart Push] [${completed}/${totalOps}] Pushed: ${file.path}`,
+                        );
+                        if (this.settings.showDetailedNotifications) {
+                            new Notice(`⬆️ ${file.path.split("/").pop()}`);
+                        }
+                    } catch (e) {
+                        await this.log(`[Smart Push] Upload failed: ${file.path} - ${e}`);
                     }
-                } catch (e) {
-                    await this.log(`[Smart Push] Delete failed: ${path} - ${e}`);
-                }
-            });
-        }
+                });
+            }
 
-        await this.runParallel(tasks);
+            for (const path of deleteQueue) {
+                tasks.push(async () => {
+                    try {
+                        const entry = this.index[path];
+                        if (entry) {
+                            await this.adapter.deleteFile(entry.fileId);
+                            delete this.index[path];
 
-        // Clear dirty paths
-        this.dirtyPaths.clear();
+                            completed++;
+                            await this.log(
+                                `[Smart Push] [${completed}/${totalOps}] Deleted remote: ${path}`,
+                            );
+                        }
+                    } catch (e) {
+                        await this.log(`[Smart Push] Delete failed: ${path} - ${e}`);
+                    }
+                });
+            }
 
-        // Upload updated index
-        await this.saveIndex();
-        try {
-            const indexContent = await this.app.vault.adapter.readBinary(this.pluginDataPath);
-            const uploadedIndex = await this.adapter.uploadFile(
-                this.pluginDataPath,
-                indexContent,
-                Date.now(),
-            );
-            this.index[this.pluginDataPath] = {
-                fileId: uploadedIndex.id,
-                mtime: Date.now(),
-                size: uploadedIndex.size,
-                hash: uploadedIndex.hash,
-            };
+            await this.runParallel(tasks);
+
+            // Clear dirty paths
+            this.dirtyPaths.clear();
+
+            // Upload updated index
             await this.saveIndex();
-            await this.log(`[Smart Push] Index uploaded. Hash: ${uploadedIndex.hash}`);
-        } catch (e) {
-            await this.log(`[Smart Push] Failed to upload index: ${e}`);
-        }
+            try {
+                const indexContent = await this.app.vault.adapter.readBinary(this.pluginDataPath);
+                const uploadedIndex = await this.adapter.uploadFile(
+                    this.pluginDataPath,
+                    indexContent,
+                    Date.now(),
+                );
+                this.index[this.pluginDataPath] = {
+                    fileId: uploadedIndex.id,
+                    mtime: Date.now(),
+                    size: uploadedIndex.size,
+                    hash: uploadedIndex.hash,
+                };
+                await this.saveIndex();
+                await this.log(`[Smart Push] Index uploaded. Hash: ${uploadedIndex.hash}`);
+            } catch (e) {
+                await this.log(`[Smart Push] Failed to upload index: ${e}`);
+            }
 
-        if (!isSilent && totalOps > 0) {
-            new Notice(`⬆️ ${this.t("pushCompleted")} (${totalOps} files)`);
+            if (!isSilent && totalOps > 0) {
+                new Notice(`⬆️ ${this.t("pushCompleted")} (${totalOps} files)`);
+            }
+        } finally {
+            this.onActivityEnd();
         }
     }
 
@@ -1681,7 +1740,11 @@ export class SyncManager {
                 this.fullScanProgress = {
                     currentIndex: 0,
                     totalFiles: remoteFiles.length,
-                    localFiles: localFiles.map((f) => ({ path: f.path, mtime: f.mtime, size: f.size })),
+                    localFiles: localFiles.map((f) => ({
+                        path: f.path,
+                        mtime: f.mtime,
+                        size: f.size,
+                    })),
                     remoteFiles: remoteFiles.map((f) => ({
                         id: f.id,
                         path: f.path,
@@ -1692,7 +1755,9 @@ export class SyncManager {
                     startedAt: Date.now(),
                 };
             } else {
-                await this.log(`[Full Scan] Resuming from index ${this.fullScanProgress.currentIndex}/${this.fullScanProgress.totalFiles}`);
+                await this.log(
+                    `[Full Scan] Resuming from index ${this.fullScanProgress.currentIndex}/${this.fullScanProgress.totalFiles}`,
+                );
             }
 
             const { localFiles, remoteFiles } = this.fullScanProgress;
@@ -1703,14 +1768,16 @@ export class SyncManager {
             while (this.fullScanProgress.currentIndex < remoteFiles.length) {
                 // Check for interrupt
                 if (this.isInterrupted) {
-                    await this.log(`[Full Scan] Interrupted at index ${this.fullScanProgress.currentIndex}`);
+                    await this.log(
+                        `[Full Scan] Interrupted at index ${this.fullScanProgress.currentIndex}`,
+                    );
                     this.syncState = "PAUSED";
                     return;
                 }
 
                 const chunk = remoteFiles.slice(
                     this.fullScanProgress.currentIndex,
-                    this.fullScanProgress.currentIndex + CHUNK_SIZE
+                    this.fullScanProgress.currentIndex + CHUNK_SIZE,
                 );
 
                 for (const remoteFile of chunk) {
@@ -1723,11 +1790,15 @@ export class SyncManager {
                     // Check for discrepancies
                     if (!localFile && indexEntry) {
                         // File exists in index but not locally - might have been deleted
-                        await this.log(`[Full Scan] Discrepancy: ${remoteFile.path} in index but not local`);
+                        await this.log(
+                            `[Full Scan] Discrepancy: ${remoteFile.path} in index but not local`,
+                        );
                     } else if (localFile && !indexEntry && remoteFile.hash) {
                         // File exists locally but not in index - check if it matches remote
                         try {
-                            const content = await this.app.vault.adapter.readBinary(remoteFile.path);
+                            const content = await this.app.vault.adapter.readBinary(
+                                remoteFile.path,
+                            );
                             const localHash = md5(content);
                             if (localHash === remoteFile.hash.toLowerCase()) {
                                 // Adopt into index
@@ -1755,7 +1826,6 @@ export class SyncManager {
             await this.log("=== BACKGROUND FULL SCAN COMPLETED ===");
             this.fullScanProgress = null;
             await this.saveIndex();
-
         } catch (e) {
             await this.log(`[Full Scan] Error: ${e}`);
             this.fullScanProgress = null;

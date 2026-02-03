@@ -87,10 +87,8 @@ const i18n: Record<string, Record<string, string>> = {
         orphanMoved: "🧹 Orphan moved",
         orphansMore: "and more orphans moved.",
         orphansDone: "orphan files moved to",
-        pushTooltip: "Push to Cloud",
-        pullTooltip: "Pull from Cloud",
-        pushCommand: "Push Changes to Cloud",
-        pullCommand: "Pull Changes from Cloud",
+        syncTooltip: "Sync with Cloud",
+        syncCommand: "Sync with Cloud",
     },
     ja: {
         settingsTitle: "VaultSync 設定",
@@ -164,10 +162,8 @@ const i18n: Record<string, Record<string, string>> = {
         orphanMoved: "🧹 未管理ファイルを移動しました",
         orphansMore: "件の未管理ファイルを移動しました",
         orphansDone: "件のファイルを移動しました：",
-        pushTooltip: "クラウドへプッシュ",
-        pullTooltip: "クラウドからプル",
-        pushCommand: "クラウドへ変更をプッシュ",
-        pullCommand: "クラウドから変更をプル",
+        syncTooltip: "クラウドと同期",
+        syncCommand: "クラウドと同期",
     },
 };
 
@@ -230,8 +226,8 @@ export default class VaultSync extends Plugin {
     syncManager!: SyncManager;
     secureStorage!: SecureStorage;
     private isReady = false;
-    private pushRibbonIconEl: HTMLElement | null = null;
-    private pullRibbonIconEl: HTMLElement | null = null;
+    private syncRibbonIconEl: HTMLElement | null = null;
+    private manualSyncInProgress = false;
 
     async onload() {
         // Initialize adapter first with defaults
@@ -266,6 +262,22 @@ export default class VaultSync extends Plugin {
 
         await this.syncManager.loadIndex();
 
+        // Register Activity Callbacks for Auto-Sync Animation
+        this.syncManager.setActivityCallbacks(
+            () => {
+                if (!this.manualSyncInProgress && this.syncRibbonIconEl) {
+                    setIcon(this.syncRibbonIconEl, "sync");
+                    this.syncRibbonIconEl.addClass("vault-sync-spinning");
+                }
+            },
+            () => {
+                if (!this.manualSyncInProgress && this.syncRibbonIconEl) {
+                    this.syncRibbonIconEl.removeClass("vault-sync-spinning");
+                    setIcon(this.syncRibbonIconEl, "sync");
+                }
+            },
+        );
+
         // 0. Startup Grace Period
         this.app.workspace.onLayoutReady(() => {
             if (this.settings.enableStartupSync) {
@@ -285,47 +297,23 @@ export default class VaultSync extends Plugin {
             }
         });
 
-        // Ribbon buttons use Smart Sync for O(1) performance when no changes
-        this.pushRibbonIconEl = this.addRibbonIcon("upload-cloud", t("pushTooltip"), async () => {
-            if (this.pushRibbonIconEl) {
+        // Ribbon button uses Smart Sync for O(1) performance when no changes
+        this.syncRibbonIconEl = this.addRibbonIcon("sync", t("syncTooltip"), async () => {
+            if (this.syncRibbonIconEl) {
                 await this.performSyncOperation(
-                    [{ element: this.pushRibbonIconEl, originalIcon: "upload-cloud" }],
-                    () => this.syncManager.requestSmartSync(false),
-                );
-            }
-        });
-
-        this.pullRibbonIconEl = this.addRibbonIcon("download-cloud", t("pullTooltip"), async () => {
-            if (this.pullRibbonIconEl) {
-                await this.performSyncOperation(
-                    [{ element: this.pullRibbonIconEl, originalIcon: "download-cloud" }],
+                    [{ element: this.syncRibbonIconEl, originalIcon: "sync" }],
                     () => this.syncManager.requestSmartSync(false),
                 );
             }
         });
 
         this.addCommand({
-            id: "push-vault",
-            name: t("pushCommand"),
+            id: "sync-vault",
+            name: t("syncCommand"),
             callback: () => {
-                if (this.pushRibbonIconEl) {
+                if (this.syncRibbonIconEl) {
                     this.performSyncOperation(
-                        [{ element: this.pushRibbonIconEl, originalIcon: "upload-cloud" }],
-                        () => this.syncManager.requestSmartSync(false),
-                    );
-                } else {
-                    this.syncManager.requestSmartSync(false);
-                }
-            },
-        });
-
-        this.addCommand({
-            id: "pull-vault",
-            name: t("pullCommand"),
-            callback: () => {
-                if (this.pullRibbonIconEl) {
-                    this.performSyncOperation(
-                        [{ element: this.pullRibbonIconEl, originalIcon: "download-cloud" }],
+                        [{ element: this.syncRibbonIconEl, originalIcon: "sync" }],
                         () => this.syncManager.requestSmartSync(false),
                     );
                 } else {
@@ -377,20 +365,9 @@ export default class VaultSync extends Plugin {
 
     private async triggerAutoSync() {
         if (!this.isReady) return;
-        const targets: { element: HTMLElement; originalIcon: string }[] = [];
-        if (this.pushRibbonIconEl) {
-            targets.push({ element: this.pushRibbonIconEl, originalIcon: "upload-cloud" });
-        }
-        if (this.pullRibbonIconEl) {
-            targets.push({ element: this.pullRibbonIconEl, originalIcon: "download-cloud" });
-        }
-
-        if (targets.length > 0) {
-            // Auto-sync does a full Sync (Pull -> Push)
-            await this.performSyncOperation(targets, () => this.syncManager.sync(true));
-        } else {
-            await this.syncManager.sync(true);
-        }
+        // Auto-sync does a full Sync (Pull -> Push) without UI locking
+        // Animation is handled via Activity Callbacks
+        await this.syncManager.sync(true);
     }
 
     /**
@@ -399,21 +376,9 @@ export default class VaultSync extends Plugin {
      */
     private async triggerSmartSync() {
         if (!this.isReady) return;
-        const targets: { element: HTMLElement; originalIcon: string }[] = [];
-        if (this.pushRibbonIconEl) {
-            targets.push({ element: this.pushRibbonIconEl, originalIcon: "upload-cloud" });
-        }
-        if (this.pullRibbonIconEl) {
-            targets.push({ element: this.pullRibbonIconEl, originalIcon: "download-cloud" });
-        }
-
-        if (targets.length > 0) {
-            await this.performSyncOperation(targets, () =>
-                this.syncManager.requestSmartSync(true),
-            );
-        } else {
-            await this.syncManager.requestSmartSync(true);
-        }
+        // Helper for user-initiated actions that shouldn't lock UI immediately (like save/modify)
+        // Animation is handled via Activity Callbacks if changes are found
+        await this.syncManager.requestSmartSync(true);
     }
 
     private registerTriggers() {
@@ -578,6 +543,8 @@ export default class VaultSync extends Plugin {
         // Prevent concurrent clicks if any icon is already spinning
         if (targets.some((t) => t.element.classList.contains("vault-sync-spinning"))) return;
 
+        this.manualSyncInProgress = true;
+
         // Change to sync icon (circle arrow) and animate all targets
         for (const target of targets) {
             setIcon(target.element, "sync");
@@ -592,6 +559,7 @@ export default class VaultSync extends Plugin {
                 // Revert to original icon
                 setIcon(target.element, target.originalIcon);
             }
+            this.manualSyncInProgress = false;
         }
     }
 }
