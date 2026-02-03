@@ -228,6 +228,7 @@ export default class VaultSync extends Plugin {
     private isReady = false;
     private syncRibbonIconEl: HTMLElement | null = null;
     private manualSyncInProgress = false;
+    private lastSaveRequestTime = 0;
 
     async onload() {
         // Initialize adapter first with defaults
@@ -379,6 +380,7 @@ export default class VaultSync extends Plugin {
         this.registerDomEvent(document, "keydown", (evt: KeyboardEvent) => {
             if (!this.settings.enableOnSaveTrigger) return;
             if ((evt.ctrlKey || evt.metaKey) && evt.key === "s") {
+                this.lastSaveRequestTime = Date.now();
                 this.triggerSmartSync();
             }
         });
@@ -393,6 +395,14 @@ export default class VaultSync extends Plugin {
 
                 // Mark file as dirty immediately
                 this.syncManager.markDirty(file.path);
+
+                // Check if this modify is result of explicit save (happened closely after Ctrl+S)
+                // If so, trigger immediately (bypass debounce)
+                if (Date.now() - this.lastSaveRequestTime < 2000) {
+                    if (modifyTimeout) window.clearTimeout(modifyTimeout);
+                    this.triggerSmartSync();
+                    return;
+                }
 
                 // Debounce the actual sync
                 if (!this.settings.enableOnModifyTrigger) return;

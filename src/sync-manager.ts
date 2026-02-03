@@ -544,6 +544,16 @@ export class SyncManager {
             if (this.currentSyncPromise) {
                 await this.currentSyncPromise;
             }
+
+            // RACE CONDITION FIX:
+            // After waiting, another request might have woken up first and started syncing.
+            // Re-check state to ensure we don't run parallel syncs.
+            if ((this.syncState as SyncState) === "SMART_SYNCING") {
+                if (this.currentSyncPromise) {
+                    await this.currentSyncPromise;
+                }
+                return;
+            }
         }
 
         // Execute smart sync
@@ -1094,6 +1104,14 @@ export class SyncManager {
                 await this.log("[Full Scan] Fetching file lists...");
                 const localFiles = await this.getLocalFiles();
                 const remoteFiles = await this.adapter.listFiles();
+
+                // Check for interrupt after heavy listing operation
+                if (this.isInterrupted) {
+                    this.syncState = "PAUSED"; // Or IDLE handled by finally/caller logic?
+                    // Actually requestSmartSync handles the state transition after this promise resolves.
+                    // But we should stop here.
+                    return;
+                }
 
                 this.fullScanProgress = {
                     currentIndex: 0,
