@@ -18,6 +18,7 @@ export class HistoryModal extends Modal {
     private selectedRevision: FileRevision | null = null;
     private baseRevision: FileRevision | null = null; // null means Local File
     private fileContent: string | null = null; // Current local content for diff
+    private listScrollLeft: number = 0; // Preserve horizontal scroll position
 
     constructor(
         app: App,
@@ -32,7 +33,16 @@ export class HistoryModal extends Modal {
         modalEl.addClass("mod-history-modal");
 
         contentEl.empty();
-        contentEl.createEl("h2", { text: `History: ${this.file.name}` });
+
+        // Header row with title and close button
+        const headerRow = contentEl.createDiv({ cls: "vault-sync-header-row" });
+        headerRow.createEl("h2", { text: `History: ${this.file.name}` });
+        const closeBtn = headerRow.createEl("button", {
+            cls: "vault-sync-close-btn",
+            attr: { "aria-label": "Close" },
+        });
+        setIcon(closeBtn, "x");
+        closeBtn.addEventListener("click", () => this.close());
 
         contentEl.createEl("div", { text: "Loading history from cloud..." });
 
@@ -57,9 +67,24 @@ export class HistoryModal extends Modal {
 
     render() {
         const { contentEl } = this;
+
+        // Save scroll position before clearing
+        const existingList = contentEl.querySelector(".vault-sync-revision-list");
+        if (existingList) {
+            this.listScrollLeft = existingList.scrollLeft;
+        }
+
         contentEl.empty();
 
-        contentEl.createEl("h2", { text: `History: ${this.file.name}` });
+        // Header row with title and close button
+        const headerRow = contentEl.createDiv({ cls: "vault-sync-header-row" });
+        headerRow.createEl("h2", { text: `History: ${this.file.name}` });
+        const closeBtn = headerRow.createEl("button", {
+            cls: "vault-sync-close-btn",
+            attr: { "aria-label": "Close" },
+        });
+        setIcon(closeBtn, "x");
+        closeBtn.addEventListener("click", () => this.close());
 
         const container = contentEl.createDiv({ cls: "vault-sync-history-container" });
 
@@ -112,6 +137,9 @@ export class HistoryModal extends Modal {
                 this.render(); // Re-render to show diff
             });
         }
+
+        // Restore scroll position after list is built
+        ul.scrollLeft = this.listScrollLeft;
 
         // Right: Diff / Actions
         const detailContainer = container.createDiv({ cls: "vault-sync-history-detail" });

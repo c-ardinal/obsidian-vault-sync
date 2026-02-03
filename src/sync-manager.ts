@@ -874,7 +874,7 @@ export class SyncManager {
         };
         await this.saveIndex();
 
-        if (!isSilent && total > 0) {
+        if (total > 0) {
             new Notice(`⬇️ ${this.t("pullCompleted")} (${total} files)`);
         }
     }
@@ -985,7 +985,7 @@ export class SyncManager {
         }
         await this.saveIndex();
 
-        if (!isSilent && tasks.length > 0) {
+        if (tasks.length > 0) {
             new Notice(`⬇️ ${this.t("pullCompleted")} (${tasks.length} changes)`);
         }
     }
@@ -1175,7 +1175,7 @@ export class SyncManager {
                 await this.log(`[Smart Push] Failed to upload index: ${e}`);
             }
 
-            if (!isSilent && totalOps > 0) {
+            if (totalOps > 0) {
                 new Notice(`⬆️ ${this.t("pushCompleted")} (${totalOps} files)`);
             }
         } finally {
