@@ -286,8 +286,8 @@ export default class VaultSync extends Plugin {
                     this.syncManager.log(
                         "Startup grace period ended. Triggering initial Smart Sync.",
                     );
-                    // Use Smart Sync for faster startup (O(1) check)
-                    await this.syncManager.requestSmartSync(true);
+                    // Use Smart Sync for faster startup (O(1) check), but enable vault scan (O(N)) for startup
+                    await this.syncManager.requestSmartSync(true, true);
                     // Schedule background full scan after startup sync
                     this.scheduleBackgroundScan();
                 }, this.settings.startupDelaySec * 1000);

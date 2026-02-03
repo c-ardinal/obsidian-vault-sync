@@ -371,6 +371,64 @@ export class SyncManager {
     }
 
     /**
+     * Scan all vault files for changes (missing events while app was closed)
+     * This is O(N) but fast because it uses Obsidian's cached file metadata
+     */
+    private async scanVaultChanges(): Promise<void> {
+        try {
+            await this.log("[Vault Scan] Starting full vault scan (O(N))...");
+            const start = Date.now();
+
+            const files = this.app.vault.getFiles();
+            const currentPaths = new Set<string>();
+
+            // 1. Check for New and Modified files
+            for (const file of files) {
+                if (this.shouldIgnore(file.path)) continue;
+
+                // Track existence for deletion check
+                currentPaths.add(file.path);
+
+                // .obsidian files are handled by scanObsidianChanges, so we skip them here
+                // (getFiles() usually doesn't return them anyway, but safety first)
+                if (file.path.startsWith(".obsidian/")) continue;
+
+                const indexEntry = this.index[file.path];
+
+                if (!indexEntry) {
+                    // New file (not in index)
+                    this.dirtyPaths.add(file.path);
+                    await this.log(`[Vault Scan] New: ${file.path}`);
+                } else if (file.stat.mtime > indexEntry.mtime) {
+                    // Modified (newer mtime)
+                    // We rely on mtime for speed. Hash check happens during upload if needed.
+                    this.dirtyPaths.add(file.path);
+                    await this.log(`[Vault Scan] Modified (mtime): ${file.path}`);
+                }
+            }
+
+            // 2. Check for Deleted files (in index but not in vault)
+            for (const path of Object.keys(this.index)) {
+                // Skip .obsidian files (handled by scanObsidianChanges) and ignored files
+                if (path.startsWith(".obsidian/")) continue;
+                if (path === this.pluginDataPath) continue;
+                if (this.shouldIgnore(path)) continue;
+
+                if (!currentPaths.has(path)) {
+                    // Path is in index but not in current vault files
+                    // Mark for deletion
+                    this.dirtyPaths.add(path);
+                    await this.log(`[Vault Scan] Detect Deleted: ${path}`);
+                }
+            }
+
+            await this.log(`[Vault Scan] Completed in ${Date.now() - start}ms`);
+        } catch (e) {
+            await this.log(`[Vault Scan] Error: ${e}`);
+        }
+    }
+
+    /**
      * Mark a file as deleted locally (needs remote deletion)
      * Called from main.ts on file delete events
      */
@@ -463,7 +521,13 @@ export class SyncManager {
      * Request Smart Sync - high priority, interrupts full scan
      * This is the main entry point for user-triggered syncs
      */
-    async requestSmartSync(isSilent: boolean = true): Promise<void> {
+    /**
+     * Request Smart Sync - high priority, interrupts full scan
+     * This is the main entry point for user-triggered syncs
+     * @param isSilent If true, suppress initial notifications (errors still shown)
+     * @param scanVault If true, perform a full vault scan for changes (O(N)) - useful for startup
+     */
+    async requestSmartSync(isSilent: boolean = true, scanVault: boolean = false): Promise<void> {
         // If already smart syncing, just wait for it
         if (this.syncState === "SMART_SYNCING") {
             if (this.currentSyncPromise) {
@@ -484,7 +548,7 @@ export class SyncManager {
 
         // Execute smart sync
         this.syncState = "SMART_SYNCING";
-        this.currentSyncPromise = this.executeSmartSync(isSilent);
+        this.currentSyncPromise = this.executeSmartSync(isSilent, scanVault);
 
         try {
             await this.currentSyncPromise;
@@ -499,7 +563,7 @@ export class SyncManager {
      * - Pull: Check remote changes via sync-index.json hash comparison (or Changes API)
      * - Push: Upload dirty files
      */
-    private async executeSmartSync(isSilent: boolean): Promise<void> {
+    private async executeSmartSync(isSilent: boolean, scanVault: boolean): Promise<void> {
         try {
             await this.log("=== SMART SYNC START ===");
             if (!isSilent) new Notice(`⚡ ${this.t("syncing")}`);
@@ -513,7 +577,7 @@ export class SyncManager {
             await this.smartPull(isSilent);
 
             // === PUSH PHASE ===
-            await this.smartPush(isSilent);
+            await this.smartPush(isSilent, scanVault);
 
             await this.log("=== SMART SYNC COMPLETED ===");
         } catch (e) {
@@ -827,8 +891,14 @@ export class SyncManager {
     /**
      * Smart Push - upload only dirty files
      * O(1) when no dirty files, O(dirty count + .obsidian scan) otherwise
+     * If scanVault is true, performs O(N) full vault scan before pushing
      */
-    private async smartPush(isSilent: boolean): Promise<void> {
+    private async smartPush(isSilent: boolean, scanVault: boolean): Promise<void> {
+        // Optional complete vault scan (for startup)
+        if (scanVault) {
+            await this.scanVaultChanges();
+        }
+
         // Scan .obsidian files for changes (vault events don't fire for these)
         await this.scanObsidianChanges();
 
