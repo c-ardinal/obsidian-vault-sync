@@ -656,10 +656,14 @@ export class SyncManager {
             }
 
             // === PULL PHASE ===
-            await this.smartPull(isSilent);
+            const pulled = await this.smartPull(isSilent);
 
             // === PUSH PHASE ===
-            await this.smartPush(isSilent, scanVault);
+            const pushed = await this.smartPush(isSilent, scanVault);
+
+            if (!pulled && !pushed && !isSilent) {
+                new Notice(this.t("vaultUpToDate"));
+            }
 
             await this.log("=== SMART SYNC COMPLETED ===");
         } catch (e) {
@@ -671,15 +675,14 @@ export class SyncManager {
     /**
      * Smart Pull - O(1) check for remote changes using sync-index.json hash
      */
-    private async smartPull(isSilent: boolean): Promise<void> {
+    private async smartPull(isSilent: boolean): Promise<boolean> {
         await this.log("[Smart Pull] Checking for remote changes...");
 
         // Check if adapter supports Changes API for faster detection
         if (this.adapter.supportsChangesAPI) {
             if (this.startPageToken) {
                 await this.log("[Smart Pull] Using Changes API (fast path)");
-                await this.pullViaChangesAPI(isSilent);
-                return;
+                return await this.pullViaChangesAPI(isSilent);
             } else {
                 await this.log(
                     "[Smart Pull] Initializing Changes API token (will be used next time)",
@@ -702,7 +705,7 @@ export class SyncManager {
 
         if (!remoteIndexMeta) {
             await this.log("[Smart Pull] No remote index found. Skipping pull.");
-            return;
+            return false;
         }
 
         // Compare hashes - use stored hash (from last push) instead of calculating
@@ -712,8 +715,7 @@ export class SyncManager {
 
         if (localIndexHash && remoteIndexHash && localIndexHash === remoteIndexHash) {
             await this.log("[Smart Pull] Index hash matches. No remote changes detected.");
-            if (!isSilent) new Notice(this.t("vaultUpToDate"));
-            return;
+            return false;
         }
 
         // Hashes differ - download remote index and compare
@@ -794,7 +796,7 @@ export class SyncManager {
                 hash: remoteIndexMeta.hash,
             };
             await this.saveIndex();
-            return;
+            return false;
         }
 
         // Download changed files
@@ -824,7 +826,7 @@ export class SyncManager {
 
                     completed++;
                     await this.log(`[Smart Pull] [${completed}/${total}] Downloaded: ${item.path}`);
-                    if (this.settings.showDetailedNotifications) {
+                    if (this.settings.showDetailedNotifications || !isSilent) {
                         new Notice(`⬇️ ${item.path.split("/").pop()}`);
                     }
                 } catch (e) {
@@ -847,7 +849,7 @@ export class SyncManager {
 
                     completed++;
                     await this.log(`[Smart Pull] [${completed}/${total}] Deleted locally: ${path}`);
-                    if (this.settings.showDetailedNotifications) {
+                    if (this.settings.showDetailedNotifications || !isSilent) {
                         new Notice(`🗑️ ${path.split("/").pop()}`);
                     }
                 } catch (e) {
@@ -876,13 +878,15 @@ export class SyncManager {
 
         if (total > 0) {
             new Notice(`⬇️ ${this.t("pullCompleted")} (${total} files)`);
+            return true;
         }
+        return false;
     }
 
     /**
      * Pull via Changes API (for adapters that support it)
      */
-    private async pullViaChangesAPI(isSilent: boolean): Promise<void> {
+    private async pullViaChangesAPI(isSilent: boolean): Promise<boolean> {
         if (!this.startPageToken) {
             this.startPageToken = await this.adapter.getStartPageToken();
             await this.saveIndex();
@@ -896,7 +900,7 @@ export class SyncManager {
                 this.startPageToken = changes.newStartPageToken;
                 await this.saveIndex();
             }
-            return;
+            return false;
         }
 
         await this.log(`[Smart Pull] Changes API returned ${changes.changes.length} changes`);
@@ -921,6 +925,9 @@ export class SyncManager {
                             delete this.index[pathToDelete];
                             completed++;
                             await this.log(`[Smart Pull] Deleted: ${pathToDelete}`);
+                            if (this.settings.showDetailedNotifications || !isSilent) {
+                                new Notice(`🗑️ ${pathToDelete.split("/").pop()}`);
+                            }
                         } catch (e) {
                             await this.log(`[Smart Pull] Delete failed: ${pathToDelete} - ${e}`);
                         }
@@ -962,6 +969,9 @@ export class SyncManager {
 
                         completed++;
                         await this.log(`[Smart Pull] Downloaded: ${cloudFile.path}`);
+                        if (this.settings.showDetailedNotifications || !isSilent) {
+                            new Notice(`⬇️ ${cloudFile.path.split("/").pop()}`);
+                        }
                     } catch (e) {
                         await this.log(`[Smart Pull] Download failed: ${cloudFile.path} - ${e}`);
                     } finally {
@@ -987,7 +997,9 @@ export class SyncManager {
 
         if (tasks.length > 0) {
             new Notice(`⬇️ ${this.t("pullCompleted")} (${tasks.length} changes)`);
+            return true;
         }
+        return false;
     }
 
     /**
@@ -995,7 +1007,7 @@ export class SyncManager {
      * O(1) when no dirty files, O(dirty count + .obsidian scan) otherwise
      * If scanVault is true, performs O(N) full vault scan before pushing
      */
-    private async smartPush(isSilent: boolean, scanVault: boolean): Promise<void> {
+    private async smartPush(isSilent: boolean, scanVault: boolean): Promise<boolean> {
         // Optional complete vault scan (for startup)
         if (scanVault) {
             await this.scanVaultChanges();
@@ -1006,7 +1018,7 @@ export class SyncManager {
 
         if (this.dirtyPaths.size === 0) {
             await this.log("[Smart Push] No dirty files to push. Skipping.");
-            return;
+            return false;
         }
 
         await this.log(`[Smart Push] Pushing ${this.dirtyPaths.size} dirty files...`);
@@ -1059,7 +1071,7 @@ export class SyncManager {
         const totalOps = uploadQueue.length + deleteQueue.length;
         if (totalOps === 0) {
             await this.log("[Smart Push] No changes after filtering.");
-            return;
+            return false;
         }
 
         this.onActivityStart();
@@ -1107,7 +1119,7 @@ export class SyncManager {
                         await this.log(
                             `[Smart Push] [${completed}/${totalOps}] Pushed: ${file.path}`,
                         );
-                        if (this.settings.showDetailedNotifications) {
+                        if (this.settings.showDetailedNotifications || !isSilent) {
                             new Notice(`⬆️ ${file.path.split("/").pop()}`);
                         }
                     } catch (e) {
@@ -1128,6 +1140,9 @@ export class SyncManager {
                             await this.log(
                                 `[Smart Push] [${completed}/${totalOps}] Deleted remote: ${path}`,
                             );
+                            if (this.settings.showDetailedNotifications || !isSilent) {
+                                new Notice(`🗑️ ${path.split("/").pop()} (Remote)`);
+                            }
                         }
                     } catch (e) {
                         await this.log(`[Smart Push] Delete failed: ${path} - ${e}`);
@@ -1178,6 +1193,7 @@ export class SyncManager {
             if (totalOps > 0) {
                 new Notice(`⬆️ ${this.t("pushCompleted")} (${totalOps} files)`);
             }
+            return true;
         } finally {
             this.onActivityEnd();
         }
