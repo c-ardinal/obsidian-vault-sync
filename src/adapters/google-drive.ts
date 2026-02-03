@@ -9,7 +9,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
 
     // Feature flags - Google Drive supports both
     readonly supportsChangesAPI = true;
-    readonly supportsHash = true;  // MD5 checksum
+    readonly supportsHash = true; // MD5 checksum
 
     private appRootId: string | null = null;
     private vaultRootId: string | null = null;
@@ -632,13 +632,26 @@ export class GoogleDriveAdapter implements CloudAdapter {
     }
 
     async getChanges(pageToken: string): Promise<CloudChanges> {
+        // Optimized fields request:
+        // - nextPageToken, newStartPageToken: for pagination/continuation
+        // - changes: the actual list
+        //   - fileId, removed: core change info
+        //   - file(...): file metadata needed for SyncManager (id, name, mimeType, parents, etc.)
+        const fields =
+            "nextPageToken,newStartPageToken,changes(fileId,removed,file(id,name,mimeType,modifiedTime,size,md5Checksum,parents))";
         const response = await this.fetchWithAuth(
-            `https://www.googleapis.com/drive/v3/changes?pageToken=${pageToken}&fields=*`,
+            `https://www.googleapis.com/drive/v3/changes?pageToken=${pageToken}&pageSize=500&fields=${fields}`,
         );
         const data = await response.json();
 
+        // FIX: Handle pagination.
+        // If there are more pages, 'nextPageToken' is present.
+        // If it's the last page, 'newStartPageToken' is present.
+        // We must use whichever is available to advance the cursor.
+        const nextToken = data.newStartPageToken || data.nextPageToken;
+
         return {
-            newStartPageToken: data.newStartPageToken,
+            newStartPageToken: nextToken,
             changes: await Promise.all(
                 data.changes.map(async (c: any) => {
                     let fullPath = c.file ? c.file.name : "";

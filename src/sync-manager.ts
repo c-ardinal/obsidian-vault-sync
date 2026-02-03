@@ -136,11 +136,45 @@ export class SyncManager {
 
     async loadIndex() {
         try {
-            const data = await this.app.vault.adapter.read(this.pluginDataPath);
-            const parsed = JSON.parse(data);
+            // Read as binary to support potential Gzip content (e.g. manual restore from cloud)
+            const data = await this.app.vault.adapter.readBinary(this.pluginDataPath);
+            const decompressed = await this.tryDecompress(data);
+            const text = new TextDecoder().decode(decompressed);
+            const parsed = JSON.parse(text);
             this.index = parsed.index || {};
             this.startPageToken = parsed.startPageToken || null;
+
+            // If we successfully loaded a compressed file, rewrite it as plain text immediately
+            // to normalize the state
+            if (data.byteLength !== decompressed.byteLength) {
+                await this.log(
+                    "[Index] Detected compressed local index. Normalizing to plain text...",
+                );
+                await this.saveIndex();
+            }
         } catch (e) {
+            // FALLBACK TO RAW INDEX
+            const rawPath = this.pluginDataPath.replace(".json", "_raw.json");
+            try {
+                await this.log(
+                    `[Index] Main load failed (${e}). Attempting fallback to raw index: ${rawPath}`,
+                );
+                if (await this.app.vault.adapter.exists(rawPath)) {
+                    const data = await this.app.vault.adapter.read(rawPath);
+                    const parsed = JSON.parse(data);
+                    this.index = parsed.index || {};
+                    this.startPageToken = parsed.startPageToken || null;
+                    await this.log("[Index] Successfully recovered from raw index.");
+
+                    // Save back to main file to restore normalcy
+                    await this.saveIndex();
+                    return;
+                }
+            } catch (rawErr) {
+                await this.log(`[Index] Raw fallback also failed: ${rawErr}`);
+            }
+
+            await this.log(`[Index] Fatal load failure. Starting fresh.`);
             this.index = {};
             this.startPageToken = null;
         }
@@ -151,7 +185,17 @@ export class SyncManager {
             index: this.index,
             startPageToken: this.startPageToken,
         });
+
+        // Save main file
         await this.app.vault.adapter.write(this.pluginDataPath, data);
+
+        // Save raw backup (local only, for recovery)
+        const rawPath = this.pluginDataPath.replace(".json", "_raw.json");
+        try {
+            await this.app.vault.adapter.write(rawPath, data);
+        } catch (e) {
+            console.error("VaultSync: Failed to save raw index backup", e);
+        }
     }
 
     async resetIndex() {
@@ -249,7 +293,14 @@ export class SyncManager {
                 return await new Response(stream).arrayBuffer();
             }
         } catch (e) {
-            // Not compressed or failed, return original
+            // If it looked like GZIP but failed, we MUST throw, otherwise we pass binary to JSON.parse
+            if (e instanceof Error) {
+                // Check if it was definitely GZIP
+                const view = new Uint8Array(data);
+                if (view.length > 2 && view[0] === 0x1f && view[1] === 0x8b) {
+                    throw new Error(`Gzip decompression failed: ${e.message}`);
+                }
+            }
         }
         return data;
     }
@@ -281,6 +332,7 @@ export class SyncManager {
                 "indexedDB/",
                 "backups/",
                 "obsidian-vault-sync/sync-index.json", // Don't sync the index ITSELF as a normal file to avoid recursive loops?
+                "obsidian-vault-sync/sync-index_raw.json", // Don't sync the index ITSELF as a normal file to avoid recursive loops?
                 // Actually, we WANT to sync it, but maybe manually or via specialized logic.
                 // For now, let's allow the index but ignore transient UI state.
             ];
@@ -342,26 +394,25 @@ export class SyncManager {
 
                 // Check if modified (mtime changed)
                 if (stat.mtime > indexEntry.mtime) {
-                    // Verify with hash if available
-                    if (indexEntry.hash) {
-                        try {
-                            const content = await this.app.vault.adapter.readBinary(filePath);
-                            const localHash = md5(content);
-                            if (localHash !== indexEntry.hash.toLowerCase()) {
-                                this.dirtyPaths.add(filePath);
-                                await this.log(`[Obsidian Scan] Modified: ${filePath}`);
-                            } else {
-                                // Hash matches, just update mtime in index
-                                this.index[filePath].mtime = stat.mtime;
-                            }
-                        } catch {
-                            // Hash calc failed, mark as dirty to be safe
+                    // Mtime changed: verify content hash to confirm actual modification
+                    try {
+                        const content = await this.app.vault.adapter.readBinary(filePath);
+                        const localHash = md5(content);
+                        if (indexEntry.hash && localHash !== indexEntry.hash.toLowerCase()) {
                             this.dirtyPaths.add(filePath);
+                            await this.log(`[Obsidian Scan] Modified (hash mismatch): ${filePath}`);
+                        } else if (!indexEntry.hash) {
+                            // No previous hash, but mtime changed. Assume dirty to be safe and update hash.
+                            this.dirtyPaths.add(filePath);
+                            await this.log(`[Obsidian Scan] Modified (no prev hash): ${filePath}`);
+                        } else {
+                            // Hash matches, just update mtime in index to avoid future re-hashing
+                            this.index[filePath].mtime = stat.mtime;
+                            // await this.log(`[Obsidian Scan] Skipped (hash match): ${filePath}`);
                         }
-                    } else {
-                        // No hash, rely on mtime
+                    } catch {
+                        // Read failed, assume dirty
                         this.dirtyPaths.add(filePath);
-                        await this.log(`[Obsidian Scan] Modified (mtime): ${filePath}`);
                     }
                 }
             }
@@ -400,10 +451,25 @@ export class SyncManager {
                     this.dirtyPaths.add(file.path);
                     await this.log(`[Vault Scan] New: ${file.path}`);
                 } else if (file.stat.mtime > indexEntry.mtime) {
-                    // Modified (newer mtime)
-                    // We rely on mtime for speed. Hash check happens during upload if needed.
-                    this.dirtyPaths.add(file.path);
-                    await this.log(`[Vault Scan] Modified (mtime): ${file.path}`);
+                    // Mtime changed: verify content hash
+                    try {
+                        const content = await this.app.vault.adapter.readBinary(file.path);
+                        const localHash = md5(content);
+
+                        if (indexEntry.hash && localHash !== indexEntry.hash.toLowerCase()) {
+                            this.dirtyPaths.add(file.path);
+                            await this.log(`[Vault Scan] Modified (hash mismatch): ${file.path}`);
+                        } else if (!indexEntry.hash) {
+                            this.dirtyPaths.add(file.path);
+                            await this.log(`[Vault Scan] Modified (no prev hash): ${file.path}`);
+                        } else {
+                            // Hash matches, update index mtime
+                            this.index[file.path].mtime = file.stat.mtime;
+                        }
+                    } catch (e) {
+                        // Read failed
+                        await this.log(`[Vault Scan] Hash check failed for ${file.path}: ${e}`);
+                    }
                 }
             }
 
@@ -653,6 +719,26 @@ export class SyncManager {
         const decompressed = await this.tryDecompress(remoteIndexContent);
         const remoteIndexData = JSON.parse(new TextDecoder().decode(decompressed));
         const remoteIndex: LocalFileIndex = remoteIndexData.index || {};
+
+        // === CORRUPTION CHECK ===
+        // If index is empty but file is large (>200 bytes), assume corruption.
+        // Also if index is empty but we have > 20 local files, be very suspicious
+        const remoteKeys = Object.keys(remoteIndex);
+        const localKeys = Object.keys(this.index);
+
+        if (remoteKeys.length === 0) {
+            if (remoteIndexMeta.size > 200) {
+                throw new Error(
+                    `Remote index corruption detected: File size is ${remoteIndexMeta.size} bytes but parsed 0 files.`,
+                );
+            }
+            if (localKeys.length > 20) {
+                // Prevent accidental wipe of large local vault if remote index appears empty
+                throw new Error(
+                    `Safety Halt: Remote index is empty but local has ${localKeys.length} files. This looks like data corruption. Aborting to prevent data loss.`,
+                );
+            }
+        }
 
         // Compare indexes to find changes
         const toDownload: Array<{ path: string; fileId: string; hash?: string }> = [];
@@ -930,7 +1016,31 @@ export class SyncManager {
             if (exists) {
                 const stat = await this.app.vault.adapter.stat(path);
                 if (stat) {
-                    uploadQueue.push({ path, mtime: stat.mtime, size: stat.size });
+                    // OPTIONAL: Double check hash one last time before upload queue?
+                    // But scan already did it. If markDirty came from event, we might want to check here.
+                    // For now, let's calculate hash to store in queue so we don't have to read file twice if possible,
+                    // OR just queue it and let uploadFile handle it.
+                    // The user wants to avoid PUSH if hash is same.
+                    // Since dirtyPaths can come from `markDirty` (events) which didn't check hash,
+                    // we MUST check hash here to filter out "false alarms" from events.
+                    try {
+                        const content = await this.app.vault.adapter.readBinary(path);
+                        const currentHash = md5(content);
+                        const indexEntry = this.index[path];
+
+                        // If index has hash and it matches current, SKIP upload
+                        if (indexEntry?.hash && indexEntry.hash.toLowerCase() === currentHash) {
+                            // match! update mtime and skip
+                            this.index[path].mtime = stat.mtime;
+                            await this.log(`[Smart Push] Skipped (hash match): ${path}`);
+                            continue;
+                        }
+
+                        // Hash differs or new file -> Queue for upload
+                        uploadQueue.push({ path, mtime: stat.mtime, size: stat.size });
+                    } catch (e) {
+                        await this.log(`[Smart Push] Failed to read ${path} for hash check: ${e}`);
+                    }
                 }
             } else {
                 // File was deleted locally
@@ -1040,6 +1150,19 @@ export class SyncManager {
                     size: uploadedIndex.size,
                     hash: uploadedIndex.hash,
                 };
+
+                // Upload raw index backup (best effort, uncompressed)
+                const rawPath = this.pluginDataPath.replace(".json", "_raw.json");
+                try {
+                    if (await this.app.vault.adapter.exists(rawPath)) {
+                        const rawContent = await this.app.vault.adapter.readBinary(rawPath);
+                        await this.adapter.uploadFile(rawPath, rawContent, Date.now());
+                        await this.log(`[Smart Push] Raw index backup uploaded.`);
+                    }
+                } catch (rawErr) {
+                    await this.log(`[Smart Push] Failed to upload raw index: ${rawErr}`);
+                }
+
                 await this.saveIndex();
                 await this.log(`[Smart Push] Index uploaded. Hash: ${uploadedIndex.hash}`);
             } catch (e) {
