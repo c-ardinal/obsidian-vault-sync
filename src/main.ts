@@ -235,6 +235,7 @@ export default class VaultSync extends Plugin {
     private syncRibbonIconEl: HTMLElement | null = null;
     private manualSyncInProgress = false;
     private lastSaveRequestTime = 0;
+    private lastModifyTime = 0;
 
     async onload() {
         // Initialize adapter first with defaults
@@ -371,7 +372,7 @@ export default class VaultSync extends Plugin {
         // 1. Interval - use Smart Sync for regular intervals
         if (this.settings.enableAutoSyncInInterval && this.settings.autoSyncIntervalSec > 0) {
             this.autoSyncInterval = window.setInterval(() => {
-                this.triggerSmartSync();
+                this.triggerSmartSync("interval");
             }, this.settings.autoSyncIntervalSec * 1000);
             this.registerInterval(this.autoSyncInterval);
         }
@@ -380,9 +381,25 @@ export default class VaultSync extends Plugin {
     /**
      * Trigger Smart Sync - high priority, O(1) check via sync-index.json
      * Used for user-initiated actions (save, modify, layout change)
+     * @param source The source of the trigger for debugging and priority handling
      */
-    private async triggerSmartSync() {
+    private async triggerSmartSync(source: string = "unknown") {
         if (!this.isReady) return;
+
+        // Respect debounce: If user is actively editing, suppressed triggers (layout, interval)
+        // should NOT interrupt. The 'modify' trigger (debounced) will handle it eventually.
+        if (source === "layout" || source === "interval") {
+            const timeSinceModify = Date.now() - this.lastModifyTime;
+            if (timeSinceModify < this.settings.onModifyDelaySec * 1000) {
+                await this.syncManager.log(
+                    `[Trigger] Skipped ${source} trigger (active editing detected: ${timeSinceModify}ms ago)`,
+                );
+                return;
+            }
+        }
+
+        await this.syncManager.log(`[Trigger] Activated via ${source}`);
+
         // Helper for user-initiated actions that shouldn't lock UI immediately (like save/modify)
         // Animation is handled via Activity Callbacks if changes are found
         await this.syncManager.requestSmartSync(true);
@@ -394,7 +411,7 @@ export default class VaultSync extends Plugin {
             if (!this.settings.enableOnSaveTrigger) return;
             if ((evt.ctrlKey || evt.metaKey) && evt.key === "s") {
                 this.lastSaveRequestTime = Date.now();
-                this.triggerSmartSync();
+                this.triggerSmartSync("save");
             }
         });
 
@@ -406,6 +423,9 @@ export default class VaultSync extends Plugin {
                 if (!(file instanceof TFile)) return;
                 if (this.syncManager.shouldIgnore(file.path)) return;
 
+                // Track modification time for debounce protection
+                this.lastModifyTime = Date.now();
+
                 // Mark file as dirty immediately
                 this.syncManager.markDirty(file.path);
 
@@ -413,7 +433,7 @@ export default class VaultSync extends Plugin {
                 // If so, trigger immediately (bypass debounce)
                 if (Date.now() - this.lastSaveRequestTime < 2000) {
                     if (modifyTimeout) window.clearTimeout(modifyTimeout);
-                    this.triggerSmartSync();
+                    this.triggerSmartSync("save");
                     return;
                 }
 
@@ -421,7 +441,7 @@ export default class VaultSync extends Plugin {
                 if (!this.settings.enableOnModifyTrigger) return;
                 if (modifyTimeout) window.clearTimeout(modifyTimeout);
                 modifyTimeout = window.setTimeout(() => {
-                    this.triggerSmartSync();
+                    this.triggerSmartSync("modify");
                 }, this.settings.onModifyDelaySec * 1000);
             }),
         );
@@ -472,7 +492,7 @@ export default class VaultSync extends Plugin {
         this.registerEvent(
             this.app.workspace.on("layout-change", () => {
                 if (this.settings.enableOnLayoutChangeTrigger) {
-                    this.triggerSmartSync();
+                    this.triggerSmartSync("layout");
                 }
             }),
         );

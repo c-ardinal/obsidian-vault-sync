@@ -1024,7 +1024,13 @@ export class SyncManager {
         await this.log(`[Smart Push] Pushing ${this.dirtyPaths.size} dirty files...`);
 
         // Prepare upload queue from dirty paths
-        const uploadQueue: Array<{ path: string; mtime: number; size: number }> = [];
+        // Store content buffer to avoid re-reading (prevents data loss during active editing)
+        const uploadQueue: Array<{
+            path: string;
+            mtime: number;
+            size: number;
+            content: ArrayBuffer;
+        }> = [];
         const deleteQueue: string[] = [];
 
         for (const path of this.dirtyPaths) {
@@ -1043,19 +1049,28 @@ export class SyncManager {
                     // we MUST check hash here to filter out "false alarms" from events.
                     try {
                         const content = await this.app.vault.adapter.readBinary(path);
+                        // Get mtime AFTER reading content to ensure consistency
+                        const statAfterRead = await this.app.vault.adapter.stat(path);
+                        const mtimeAfterRead = statAfterRead?.mtime ?? stat.mtime;
+
                         const currentHash = md5(content);
                         const indexEntry = this.index[path];
 
                         // If index has hash and it matches current, SKIP upload
                         if (indexEntry?.hash && indexEntry.hash.toLowerCase() === currentHash) {
                             // match! update mtime and skip
-                            this.index[path].mtime = stat.mtime;
+                            this.index[path].mtime = mtimeAfterRead;
                             await this.log(`[Smart Push] Skipped (hash match): ${path}`);
                             continue;
                         }
 
-                        // Hash differs or new file -> Queue for upload
-                        uploadQueue.push({ path, mtime: stat.mtime, size: stat.size });
+                        // Hash differs or new file -> Queue for upload with buffered content
+                        uploadQueue.push({
+                            path,
+                            mtime: mtimeAfterRead,
+                            size: content.byteLength,
+                            content,
+                        });
                     } catch (e) {
                         await this.log(`[Smart Push] Failed to read ${path} for hash check: ${e}`);
                     }
@@ -1101,10 +1116,21 @@ export class SyncManager {
             for (const file of uploadQueue) {
                 tasks.push(async () => {
                     try {
-                        const content = await this.app.vault.adapter.readBinary(file.path);
+                        // Check if file was modified after queue creation (user still typing)
+                        const currentStat = await this.app.vault.adapter.stat(file.path);
+                        if (currentStat && currentStat.mtime !== file.mtime) {
+                            // File was modified after queue creation - re-mark as dirty and skip
+                            this.dirtyPaths.add(file.path);
+                            await this.log(
+                                `[Smart Push] Skipped (modified during sync): ${file.path}`,
+                            );
+                            return;
+                        }
+
+                        // Use buffered content from queue creation (no re-read)
                         const uploaded = await this.adapter.uploadFile(
                             file.path,
-                            content,
+                            file.content,
                             file.mtime,
                         );
 
@@ -1114,6 +1140,9 @@ export class SyncManager {
                             size: uploaded.size,
                             hash: uploaded.hash,
                         };
+
+                        // Success: Remove from dirtyPaths
+                        this.dirtyPaths.delete(file.path);
 
                         completed++;
                         await this.log(
@@ -1136,6 +1165,9 @@ export class SyncManager {
                             await this.adapter.deleteFile(entry.fileId);
                             delete this.index[path];
 
+                            // Success: Remove from dirtyPaths
+                            this.dirtyPaths.delete(path);
+
                             completed++;
                             await this.log(
                                 `[Smart Push] [${completed}/${totalOps}] Deleted remote: ${path}`,
@@ -1152,8 +1184,9 @@ export class SyncManager {
 
             await this.runParallel(tasks);
 
-            // Clear dirty paths
-            this.dirtyPaths.clear();
+            // Do NOT clear all dirty paths here.
+            // Items are removed from dirtyPaths individually upon success in the tasks above.
+            // This ensures that failed items remain dirty and will be retried.
 
             // Upload updated index
             await this.saveIndex();
