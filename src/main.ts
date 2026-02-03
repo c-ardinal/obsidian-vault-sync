@@ -12,6 +12,7 @@ import {
 import { GoogleDriveAdapter } from "./adapters/google-drive";
 import { SyncManager } from "./sync-manager";
 import { SecureStorage } from "./secure-storage";
+import { HistoryModal } from "./ui/history-modal";
 
 // i18n Localization
 const i18n: Record<string, Record<string, string>> = {
@@ -89,6 +90,7 @@ const i18n: Record<string, Record<string, string>> = {
         orphansDone: "orphan files moved to",
         syncTooltip: "Sync with Cloud",
         syncCommand: "Sync with Cloud",
+        viewHistory: "View History in Cloud (VaultSync)",
     },
     ja: {
         settingsTitle: "VaultSync 設定",
@@ -164,6 +166,7 @@ const i18n: Record<string, Record<string, string>> = {
         orphansDone: "件のファイルを移動しました：",
         syncTooltip: "クラウドと同期",
         syncCommand: "クラウドと同期",
+        viewHistory: "クラウドの変更履歴を表示 (VaultSync)",
     },
 };
 
@@ -216,7 +219,8 @@ const DEFAULT_SETTINGS: VaultSyncSettings = {
     showDetailedNotifications: true,
     enableLogging: false,
     cloudRootFolder: "ObsidianVaultSync",
-    exclusionPatterns: ".obsidian/plugins/obsidian-vault-sync/logs\n.git",
+    exclusionPatterns:
+        ".obsidian/plugins/obsidian-vault-sync/logs\n.obsidian/plugins/obsidian-vault-sync/cache\n.git",
     encryptionSecret: "",
 };
 
@@ -327,6 +331,23 @@ export default class VaultSync extends Plugin {
 
         this.setupAutoSyncInterval();
         this.registerTriggers();
+
+        // 5. History Menu
+        this.registerEvent(
+            this.app.workspace.on("file-menu", (menu, file) => {
+                if (this.syncManager && this.syncManager.supportsHistory) {
+                    if (file instanceof TFile) {
+                        menu.addItem((item) => {
+                            item.setTitle(t("viewHistory"))
+                                .setIcon("history")
+                                .onClick(() => {
+                                    new HistoryModal(this.app, this.syncManager, file).open();
+                                });
+                        });
+                    }
+                }
+            }),
+        );
     }
 
     private autoSyncInterval: number | null = null;

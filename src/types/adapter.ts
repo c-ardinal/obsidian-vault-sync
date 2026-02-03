@@ -53,4 +53,19 @@ export interface CloudAdapter {
     getChanges(pageToken: string): Promise<CloudChanges>;
     listFiles(folderId?: string): Promise<CloudFile[]>;
     setLogger(logger: (msg: string) => void): void;
+
+    // === History Support (optional) ===
+    readonly supportsHistory: boolean;
+    listRevisions?(path: string): Promise<FileRevision[]>;
+    getRevisionContent?(path: string, revisionId: string): Promise<ArrayBuffer>;
+    setRevisionKeepForever?(path: string, revisionId: string, keepForever: boolean): Promise<void>;
+}
+
+export interface FileRevision {
+    id: string;
+    modifiedTime: number; // Unix timestamp
+    size: number;
+    author?: string; // 更新者名（取得可能な場合）
+    keepForever?: boolean;
+    hash?: string; // [Sec] コンテンツ整合性検証用 (MD5等)
 }

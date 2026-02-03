@@ -22,3 +22,114 @@
 .auth-manual-input input[type="text"] {
     flex: 1 1 200px;
 }
+
+/* History Modal */
+.modal.mod-history-modal {
+    width: 80vw;
+    height: 80vh;
+    max-width: 90vw;
+    max-height: 90vh;
+}
+
+/* Target the inner content div of the modal to handle layout */
+.modal.mod-history-modal .modal-content {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden; /* Disable scroll on the main container */
+    padding: 20px;
+}
+
+.vault-sync-history-container {
+    display: flex;
+    flex: 1; /* Take remaining space */
+    min-height: 0; /* Important for nested scroll */
+    gap: 16px;
+    margin-top: 10px;
+    height: auto;
+}
+.vault-sync-history-list {
+    flex: 0.8;
+    border-right: 1px solid var(--background-modifier-border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden; /* Header stays fixed, list scrolls */
+    max-width: 250px;
+    min-width: 150px;
+}
+.vault-sync-revision-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    overflow-y: auto;
+    flex: 1; /* Take remaining height */
+}
+.vault-sync-revision-item {
+    padding: 8px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+.vault-sync-revision-item:hover {
+    background-color: var(--background-modifier-hover);
+}
+.vault-sync-revision-item.is-selected {
+    background-color: var(--background-modifier-active-hover);
+}
+.revision-meta {
+    font-size: 0.85em;
+    color: var(--text-muted);
+    display: flex;
+    flex-direction: column;
+}
+.revision-pin {
+    color: var(--text-accent);
+}
+.vault-sync-history-detail {
+    flex: 3;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.revision-actions-header {
+    border-bottom: 1px solid var(--background-modifier-border);
+    padding-bottom: 8px;
+    margin-bottom: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.revision-actions-buttons {
+    display: flex;
+    gap: 8px;
+    margin-top: 4px;
+}
+.keep-forever-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.revision-diff-view {
+    flex: 1;
+    overflow-y: auto;
+    background-color: var(--background-primary);
+    padding: 12px;
+    border: 1px solid var(--background-modifier-border);
+    font-family: var(--font-monospace);
+    white-space: pre-wrap;
+    font-size: 0.9em;
+    line-height: 1.4;
+}
+.diff-added {
+    background-color: rgba(0, 255, 0, 0.1);
+    color: var(--text-success);
+    display: inline;
+}
+.diff-removed {
+    background-color: rgba(255, 0, 0, 0.1);
+    color: var(--text-error);
+    text-decoration: line-through;
+    display: inline;
+}
+.diff-neutral {
+    color: var(--text-normal);
+}

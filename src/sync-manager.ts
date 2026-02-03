@@ -2,6 +2,7 @@ import { CloudAdapter } from "./types/adapter";
 import { App, TFile, TFolder, TAbstractFile, Notice } from "obsidian";
 import { matchWildcard } from "./utils/wildcard";
 import { md5 } from "./utils/md5";
+import { RevisionCache } from "./revision-cache";
 
 export interface SyncManagerSettings {
     concurrency: number;
@@ -43,6 +44,7 @@ export class SyncManager {
     private startPageToken: string | null = null;
 
     private logFolder: string;
+    private revisionCache: RevisionCache;
 
     // === Hybrid Sync State ===
     /** Current sync state for preemption control */
@@ -74,6 +76,7 @@ export class SyncManager {
     ) {
         this.logFolder = `${this.pluginDir}/logs`;
         this.adapter.setLogger((msg) => this.log(msg));
+        this.revisionCache = new RevisionCache(this.app, this.pluginDir);
     }
 
     public setActivityCallbacks(onStart: () => void, onEnd: () => void) {
@@ -152,6 +155,9 @@ export class SyncManager {
                 );
                 await this.saveIndex();
             }
+
+            // Init & Cleanup revision cache
+            await this.revisionCache.init();
         } catch (e) {
             // FALLBACK TO RAW INDEX
             const rawPath = this.pluginDataPath.replace(".json", "_raw.json");
@@ -1328,6 +1334,91 @@ export class SyncManager {
         } catch (e) {
             await this.log(`[Full Scan] Error: ${e}`);
             this.fullScanProgress = null;
+        }
+    }
+
+    // =========================================================================================
+    // History Management
+    // =========================================================================================
+
+    get supportsHistory(): boolean {
+        return this.adapter.supportsHistory ?? false;
+    }
+
+    async listRevisions(path: string): Promise<import("./types/adapter").FileRevision[]> {
+        if (!this.adapter.supportsHistory || !this.adapter.listRevisions) {
+            throw new Error(
+                this.t("historyNotSupported") || "Cloud adapter does not support history.",
+            );
+        }
+        return await this.adapter.listRevisions(path);
+    }
+
+    async getRevisionContent(path: string, revisionId: string): Promise<ArrayBuffer> {
+        if (!this.adapter.supportsHistory || !this.adapter.getRevisionContent) {
+            throw new Error(
+                this.t("historyNotSupported") || "Cloud adapter does not support history.",
+            );
+        }
+
+        // Try cache first
+        const cached = await this.revisionCache.get(path, revisionId);
+        if (cached) {
+            return cached;
+        }
+
+        const content = await this.adapter.getRevisionContent(path, revisionId);
+
+        // Save to cache
+        await this.revisionCache.set(path, revisionId, content);
+
+        return content;
+    }
+
+    async setRevisionKeepForever(
+        path: string,
+        revisionId: string,
+        keepForever: boolean,
+    ): Promise<void> {
+        if (!this.adapter.supportsHistory || !this.adapter.setRevisionKeepForever) {
+            throw new Error(
+                this.t("historyNotSupported") || "Cloud adapter does not support history.",
+            );
+        }
+        await this.adapter.setRevisionKeepForever(path, revisionId, keepForever);
+        await this.log(`[History] Set keepForever=${keepForever} for ${path} (rev: ${revisionId})`);
+    }
+
+    async restoreRevision(
+        path: string,
+        revision: import("./types/adapter").FileRevision,
+    ): Promise<void> {
+        await this.log(`[History] Starting rollback for ${path} to revision ${revision.id}`);
+        try {
+            const content = await this.getRevisionContent(path, revision.id);
+
+            // Overwrite local file
+            // TFileを取得してmodifyBinaryを使うのがObsidianのお作法
+            const file = this.app.vault.getAbstractFileByPath(path);
+            if (file instanceof TFile) {
+                await this.app.vault.modifyBinary(file, content);
+            } else {
+                // ファイルが存在しない（削除された）場合は再作成
+                await this.app.vault.createBinary(path, content);
+            }
+
+            // Logging (Audit)
+            const timestamp = new Date().toISOString();
+            await this.log(
+                `[History] Rollback executed: File=${path}, Revision=${revision.id}, Time=${timestamp}`,
+            );
+
+            // Note: modifyBinary triggers 'modify' event, which calls markDirty via main.ts listener.
+            // So we don't need to manually call markDirty.
+            new Notice("File restored. Syncing changes...");
+        } catch (e) {
+            await this.log(`[History] Rollback failed: ${e}`);
+            throw e;
         }
     }
 }

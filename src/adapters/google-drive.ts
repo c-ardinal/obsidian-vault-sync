@@ -788,4 +788,100 @@ export class GoogleDriveAdapter implements CloudAdapter {
         await walk(rootId, "");
         return files;
     }
+
+    // =========================================================================================
+    // History & Revisions Support
+    // =========================================================================================
+
+    readonly supportsHistory = true;
+
+    private validatePath(path: string) {
+        // Prevent path traversal and enforce valid chars
+        // Vault paths are relative, so starting with / is technically invalid but often normalized.
+        // We mainly check for ".." components.
+        if (path.includes("..") || path.includes("\\") || /[<>:"|?*]/.test(path)) {
+            throw new Error(`Invalid path: ${path}`);
+        }
+    }
+
+    async listRevisions(path: string): Promise<import("../types/adapter").FileRevision[]> {
+        this.validatePath(path);
+        const meta = await this.getFileMetadata(path);
+        if (!meta) throw new Error(`File not found: ${path}`);
+
+        const response = await this.fetchWithAuth(
+            `https://www.googleapis.com/drive/v3/files/${meta.id}/revisions?fields=revisions(id,modifiedTime,size,lastModifyingUser,keepForever,md5Checksum)`,
+        );
+        const data = await response.json();
+
+        return (data.revisions || []).map((rev: any) => ({
+            id: rev.id,
+            modifiedTime: new Date(rev.modifiedTime).getTime(),
+            size: parseInt(rev.size || "0"),
+            author: rev.lastModifyingUser?.displayName,
+            keepForever: rev.keepForever,
+            hash: rev.md5Checksum,
+        }));
+    }
+
+    async getRevisionContent(path: string, revisionId: string): Promise<ArrayBuffer> {
+        this.validatePath(path);
+        // We need fileId first
+        const meta = await this.getFileMetadata(path);
+        if (!meta) throw new Error(`File not found: ${path}`);
+
+        // 1. Get revision metadata for hash verification (if available in list)
+        // Or get it from the get call if header allows?
+        // Revisions.get supports fields.
+        const metaResponse = await this.fetchWithAuth(
+            `https://www.googleapis.com/drive/v3/files/${meta.id}/revisions/${revisionId}?fields=md5Checksum`,
+        );
+        const metaData = await metaResponse.json();
+        const expectedHash = metaData.md5Checksum;
+
+        // 2. Download content
+        const response = await this.fetchWithAuth(
+            `https://www.googleapis.com/drive/v3/files/${meta.id}/revisions/${revisionId}?alt=media`,
+        );
+        const buffer = await response.arrayBuffer();
+
+        // 3. Security Integrity Check
+        if (expectedHash) {
+            // Need MD5 impl. Assuming md5 is imported or available.
+            // Since we need to import it, we should do that at top of file.
+            // For now, let's assume util usage or implement minimal check if md5 util not imported.
+            // WAIT - I need to import md5 at the top of the file!
+            // I will add the import in a separate tool call if needed or use dynamic import?
+            // Dynamic import for utility is cleaner to avoid messing with top imports in this chunk replace.
+
+            const { md5 } = await import("../utils/md5");
+            const actualHash = md5(buffer);
+            if (actualHash.toLowerCase() !== expectedHash.toLowerCase()) {
+                throw new Error(
+                    `[Security] Integrity check failed! Expected ${expectedHash}, got ${actualHash}. Possible data corruption or tampering.`,
+                );
+            }
+        }
+
+        return buffer;
+    }
+
+    async setRevisionKeepForever(
+        path: string,
+        revisionId: string,
+        keepForever: boolean,
+    ): Promise<void> {
+        this.validatePath(path);
+        const meta = await this.getFileMetadata(path);
+        if (!meta) throw new Error(`File not found: ${path}`);
+
+        await this.fetchWithAuth(
+            `https://www.googleapis.com/drive/v3/files/${meta.id}/revisions/${revisionId}`,
+            {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ keepForever: keepForever }),
+            },
+        );
+    }
 }
