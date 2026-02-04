@@ -73,7 +73,7 @@ export class SyncManager {
 
         private settings: SyncManagerSettings,
         private pluginDir: string,
-        private t: (key: string) => string,
+        public t: (key: string) => string,
     ) {
         this.logFolder = `${this.pluginDir}/logs`;
         this.adapter.setLogger((msg) => this.log(msg));
@@ -649,7 +649,7 @@ export class SyncManager {
     private async executeSmartSync(isSilent: boolean, scanVault: boolean): Promise<void> {
         try {
             await this.log("=== SMART SYNC START ===");
-            if (!isSilent) new Notice(`⚡ ${this.t("syncing")}`);
+            if (!isSilent) new Notice(`⚡ ${this.t("statusSyncing")}`);
 
             // Pre-warm adapter (ensure root folders exist) to avoid delay in push phase
             if (this.adapter.initialize) {
@@ -663,7 +663,7 @@ export class SyncManager {
             const pushed = await this.smartPush(isSilent, scanVault);
 
             if (!pulled && !pushed && !isSilent) {
-                new Notice(this.t("vaultUpToDate"));
+                new Notice(this.t("noticeVaultUpToDate"));
             }
 
             await this.log("=== SMART SYNC COMPLETED ===");
@@ -872,7 +872,7 @@ export class SyncManager {
                                         await this.log(`[Smart Pull] Auto-merged: ${item.path}`);
                                         if (this.settings.showDetailedNotifications || !isSilent) {
                                             new Notice(
-                                                `✅ Auto-merged: ${item.path.split("/").pop()}`,
+                                                `${this.t("noticeFileMerged")}: ${item.path.split("/").pop()}`,
                                             );
                                         }
                                         return;
@@ -900,7 +900,7 @@ export class SyncManager {
                                 );
                                 if (this.settings.showDetailedNotifications || !isSilent) {
                                     new Notice(
-                                        `⚠️ Conflict: Remote saved as ${conflictPath
+                                        `${this.t("noticeConflictSaved")}: ${conflictPath
                                             .split("/")
                                             .pop()}`,
                                     );
@@ -943,7 +943,7 @@ export class SyncManager {
                     completed++;
                     await this.log(`[Smart Pull] [${completed}/${total}] Downloaded: ${item.path}`);
                     if (this.settings.showDetailedNotifications || !isSilent) {
-                        new Notice(`⬇️ ${item.path.split("/").pop()}`);
+                        new Notice(`${this.t("filePulled")}: ${item.path.split("/").pop()}`);
                     }
                 } catch (e) {
                     await this.log(`[Smart Pull] Download failed: ${item.path} - ${e}`);
@@ -1042,7 +1042,9 @@ export class SyncManager {
                             completed++;
                             await this.log(`[Smart Pull] Deleted: ${pathToDelete}`);
                             if (this.settings.showDetailedNotifications || !isSilent) {
-                                new Notice(`🗑️ ${pathToDelete.split("/").pop()}`);
+                                new Notice(
+                                    `${this.t("fileRemoved")}: ${pathToDelete.split("/").pop()}`,
+                                );
                             }
                         } catch (e) {
                             await this.log(`[Smart Pull] Delete failed: ${pathToDelete} - ${e}`);
@@ -1086,7 +1088,9 @@ export class SyncManager {
                         completed++;
                         await this.log(`[Smart Pull] Downloaded: ${cloudFile.path}`);
                         if (this.settings.showDetailedNotifications || !isSilent) {
-                            new Notice(`⬇️ ${cloudFile.path.split("/").pop()}`);
+                            new Notice(
+                                `${this.t("filePulled")}: ${cloudFile.path.split("/").pop()}`,
+                            );
                         }
                     } catch (e) {
                         await this.log(`[Smart Pull] Download failed: ${cloudFile.path} - ${e}`);
@@ -1112,7 +1116,7 @@ export class SyncManager {
         await this.saveIndex();
 
         if (tasks.length > 0) {
-            new Notice(`⬇️ ${this.t("pullCompleted")} (${tasks.length} changes)`);
+            new Notice(`⬇️ ${this.t("noticePullCompleted")} (${tasks.length} changes)`);
             return true;
         }
         return false;
@@ -1265,7 +1269,9 @@ export class SyncManager {
                             `[Smart Push] [${completed}/${totalOps}] Pushed: ${file.path}`,
                         );
                         if (this.settings.showDetailedNotifications || !isSilent) {
-                            new Notice(`⬆️ ${file.path.split("/").pop()}`);
+                            new Notice(
+                                `${this.t("noticeFilePushed")}: ${file.path.split("/").pop()}`,
+                            );
                         }
                     } catch (e) {
                         await this.log(`[Smart Push] Upload failed: ${file.path} - ${e}`);
@@ -1289,7 +1295,9 @@ export class SyncManager {
                                 `[Smart Push] [${completed}/${totalOps}] Deleted remote: ${path}`,
                             );
                             if (this.settings.showDetailedNotifications || !isSilent) {
-                                new Notice(`🗑️ ${path.split("/").pop()} (Remote)`);
+                                new Notice(
+                                    `${this.t("noticeFileTrashed")}: ${path.split("/").pop()}`,
+                                );
                             }
                         }
                     } catch (e) {
@@ -1340,7 +1348,7 @@ export class SyncManager {
             }
 
             if (totalOps > 0) {
-                new Notice(`⬆️ ${this.t("pushCompleted")} (${totalOps} files)`);
+                new Notice(`⬆️ ${this.t("noticePushCompleted")} (${totalOps} files)`);
             }
             return true;
         } finally {
@@ -1628,7 +1636,7 @@ export class SyncManager {
 
             // Note: modifyBinary triggers 'modify' event, which calls markDirty via main.ts listener.
             // So we don't need to manually call markDirty.
-            new Notice("File restored. Syncing changes...");
+            new Notice(this.t("noticeFileRestored"));
         } catch (e) {
             await this.log(`[History] Rollback failed: ${e}`);
             throw e;

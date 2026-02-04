@@ -36,7 +36,9 @@ export class HistoryModal extends Modal {
 
         // Header row with title and close button
         const headerRow = contentEl.createDiv({ cls: "vault-sync-header-row" });
-        headerRow.createEl("h2", { text: `History: ${this.file.name}` });
+        headerRow.createEl("h2", {
+            text: `${this.syncManager.t("historyTitle")}: ${this.file.name}`,
+        });
         const closeBtn = headerRow.createEl("button", {
             cls: "vault-sync-close-btn",
             attr: { "aria-label": "Close" },
@@ -58,9 +60,11 @@ export class HistoryModal extends Modal {
             this.render();
         } catch (e) {
             contentEl.empty();
-            contentEl.createEl("h2", { text: "Error" });
+            contentEl.createEl("h2", { text: this.syncManager.t("historyError") });
             const errDiv = contentEl.createEl("div", { cls: "error-text" });
-            errDiv.setText(`Failed to load history: ${e instanceof Error ? e.message : String(e)}`);
+            errDiv.setText(
+                `${this.syncManager.t("historyFailedToLoadHistory")}: ${e instanceof Error ? e.message : String(e)}`,
+            );
             console.error(e);
         }
     }
@@ -78,7 +82,9 @@ export class HistoryModal extends Modal {
 
         // Header row with title and close button
         const headerRow = contentEl.createDiv({ cls: "vault-sync-header-row" });
-        headerRow.createEl("h2", { text: `History: ${this.file.name}` });
+        headerRow.createEl("h2", {
+            text: `${this.syncManager.t("historyTitle")}: ${this.file.name}`,
+        });
         const closeBtn = headerRow.createEl("button", {
             cls: "vault-sync-close-btn",
             attr: { "aria-label": "Close" },
@@ -90,10 +96,10 @@ export class HistoryModal extends Modal {
 
         // Left: Revision List
         const listContainer = container.createDiv({ cls: "vault-sync-history-list" });
-        listContainer.createEl("h3", { text: "Revisions" });
+        listContainer.createEl("h3", { text: this.syncManager.t("historyRevisions") });
 
         if (this.revisions.length === 0) {
-            listContainer.createDiv({ text: "No history found." });
+            listContainer.createDiv({ text: this.syncManager.t("historyNoHistoryFound") });
         }
 
         const ul = listContainer.createEl("ul", { cls: "vault-sync-revision-list" });
@@ -114,11 +120,14 @@ export class HistoryModal extends Modal {
 
             if (rev.keepForever) {
                 const pin = metaDiv.createSpan({ cls: "revision-pin", text: " 📌" });
-                pin.title = "Protected from auto-deletion";
+                pin.title = this.syncManager.t("historyProtectedFromDeletion");
             }
 
             if (rev.author) {
-                metaDiv.createDiv({ text: `by ${rev.author}`, cls: "revision-author" });
+                metaDiv.createDiv({
+                    text: `${this.syncManager.t("historyByAuthor")} ${rev.author}`,
+                    cls: "revision-author",
+                });
             }
             metaDiv.createDiv({ text: this.formatSize(rev.size), cls: "revision-size" });
 
@@ -146,7 +155,7 @@ export class HistoryModal extends Modal {
 
         if (!this.selectedRevision) {
             detailContainer.createDiv({
-                text: "Select a revision to view details.",
+                text: this.syncManager.t("historySelectRevision"),
                 cls: "placeholder-text",
             });
             return;
@@ -163,20 +172,20 @@ export class HistoryModal extends Modal {
 
         const detailsTitle = titleRow.createEl("h3");
         detailsTitle.setText(
-            `Revision: ${new Date(this.selectedRevision.modifiedTime).toLocaleString()}`,
+            `${this.syncManager.t("historyRevisionLabel")}: ${new Date(this.selectedRevision.modifiedTime).toLocaleString()}`,
         );
         detailsTitle.style.margin = "0";
 
         // Menu Button
         const menuBtn = new ExtraButtonComponent(titleRow)
             .setIcon("vertical-three-dots")
-            .setTooltip("Actions")
+            .setTooltip(this.syncManager.t("historyActions"))
             .onClick(() => {
                 const menu = new Menu();
 
                 // Keep Forever Toggle
                 menu.addItem((item) => {
-                    item.setTitle("Keep Forever (Protect)")
+                    item.setTitle(this.syncManager.t("historyKeepForever"))
                         .setIcon(this.selectedRevision!.keepForever ? "check-square" : "square")
                         .onClick(async () => {
                             const newVal = !this.selectedRevision!.keepForever;
@@ -187,10 +196,12 @@ export class HistoryModal extends Modal {
                                     this.selectedRevision!.id,
                                     newVal,
                                 );
-                                new Notice(`Saved: Keep Forever = ${newVal}`);
+                                new Notice(
+                                    `${this.syncManager.t("noticeSavedKeepForever")}: ${newVal}`,
+                                );
                                 this.render();
                             } catch (err) {
-                                new Notice(`Failed to save: ${err}`);
+                                new Notice(`${this.syncManager.t("noticeFailedToSave")}: ${err}`);
                                 this.selectedRevision!.keepForever = !newVal; // Revert
                                 this.render();
                             }
@@ -201,12 +212,15 @@ export class HistoryModal extends Modal {
 
                 // Restore
                 menu.addItem((item) => {
-                    item.setTitle("Restore this version")
+                    item.setTitle(this.syncManager.t("historyRestoreVersion"))
                         .setIcon("rotate-ccw")
                         .setWarning(true)
                         .onClick(async () => {
+                            const dateStr = new Date(
+                                this.selectedRevision!.modifiedTime,
+                            ).toLocaleString();
                             const confirmed = window.confirm(
-                                `Are you sure you want to restore this version (${new Date(this.selectedRevision!.modifiedTime).toLocaleString()})?\n\nCurrent local changes will be replaced.`,
+                                this.syncManager.t("historyRestoreConfirm").replace("{0}", dateStr),
                             );
                             if (confirmed) {
                                 this.close();
@@ -244,12 +258,12 @@ export class HistoryModal extends Modal {
         controlRow.style.gap = "8px";
         controlRow.style.marginTop = "8px";
 
-        controlRow.createSpan({ text: "Compare with: " });
+        controlRow.createSpan({ text: this.syncManager.t("historyCompareWith") });
 
         const dropdown = new DropdownComponent(controlRow);
 
         // Option: Local File
-        dropdown.addOption("local", "Current Local File");
+        dropdown.addOption("local", this.syncManager.t("historyCurrentLocalFile"));
 
         // Option: Previous Revision (if exists)
         const currentIdx = this.revisions.indexOf(this.selectedRevision);
@@ -257,10 +271,13 @@ export class HistoryModal extends Modal {
             const prev = this.revisions[currentIdx + 1];
             dropdown.addOption(
                 prev.id,
-                `Previous (${new Date(prev.modifiedTime).toLocaleString()})`,
+                `${this.syncManager.t("historyPreviousVersion")} (${new Date(prev.modifiedTime).toLocaleString()})`,
             );
         } else {
-            dropdown.addOption("empty", "Previous (Initial / Empty)");
+            dropdown.addOption(
+                "empty",
+                `${this.syncManager.t("historyPreviousVersion")} (${this.syncManager.t("historyInitialEmptyVersion")})`,
+            );
         }
 
         // Separator logic is hard in standard dropdown, just list others
@@ -277,7 +294,7 @@ export class HistoryModal extends Modal {
 
             dropdown.addOption(
                 r.id,
-                `${new Date(r.modifiedTime).toLocaleString()} (${r.author || "Unknown"})`,
+                `${new Date(r.modifiedTime).toLocaleString()} (${r.author || this.syncManager.t("historyAuthorUnknown")})`,
             );
         });
 

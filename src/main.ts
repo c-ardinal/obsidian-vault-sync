@@ -17,158 +17,226 @@ import { HistoryModal } from "./ui/history-modal";
 // i18n Localization
 const i18n: Record<string, Record<string, string>> = {
     en: {
-        settingsTitle: "VaultSync Settings",
-        authSection: "Authentication",
-        authStatus: "Authentication Status",
-        checkStatus: "Check Status",
-        clientId: "Google Client ID",
-        clientIdDesc: "Enter your Google Cloud Project Client ID",
-        clientSecret: "Google Client Secret",
-        clientSecretDesc: "Enter your Google Cloud Project Client Secret",
-        login: "Login",
-        loginDesc: "Authorize with Google Drive",
-        manualAuthSection: "Manual Authentication (Mobile)",
-        manualAuthDesc:
+        // Settings UI
+        settingSettingsTitle: "VaultSync Settings",
+        settingAuthSection: "Authentication",
+        settingAuthStatus: "Authentication Status",
+        settingCheckStatus: "Check Status",
+        settingClientId: "Google Client ID",
+        settingClientIdDesc: "Enter your Google Cloud Project Client ID",
+        settingClientSecret: "Google Client Secret",
+        settingClientSecretDesc: "Enter your Google Cloud Project Client Secret",
+        settingLogin: "Login",
+        settingLoginDesc: "Authorize with Google Drive",
+        settingManualAuthSection: "Manual Authentication (Mobile)",
+        settingManualAuthDesc:
             "If automatic redirect fails (localhost error), copy the browser URL and paste it below:",
-        manualAuthPlaceholder: "Enter the resulting URL or code",
-        manualAuthVerify: "Verify and Login",
-        authorize: "Authorize",
-        authSuccess: "Successfully authenticated!",
-        triggerSection: "Sync Triggers",
-        startupSync: "Enable Startup Sync",
-        startupSyncDesc: "Sync with cloud automatically upon starting Obsidian",
-        startupDelay: "Startup Delay (seconds)",
-        startupDelayDesc: "Wait for Obsidian to index files before syncing (0-600s)",
-        autoSyncInterval: "Auto-sync Interval (seconds)",
-        autoSyncIntervalDesc:
+        settingManualAuthPlaceholder: "Enter the resulting URL or code",
+        settingManualAuthVerify: "Verify and Login",
+        settingAuthorize: "Authorize",
+        settingTriggerSection: "Sync Triggers",
+        settingStartupSync: "Enable Startup Sync",
+        settingStartupSyncDesc: "Sync with cloud automatically upon starting Obsidian",
+        settingStartupDelay: "Startup Delay (seconds)",
+        settingStartupDelayDesc: "Wait for Obsidian to index files before syncing (0-600s)",
+        settingAutoSyncInterval: "Auto-sync Interval (seconds)",
+        settingAutoSyncIntervalDesc:
             "Sync periodically in the background (30-86400s). Set to 0 to disable.",
-        triggerSave: "Trigger: Save (Ctrl+S)",
-        triggerSaveDesc: "Sync when you explicitly save a file",
-        triggerModify: "Trigger: On Modify (Mobile/Debounce)",
-        triggerModifyDesc: "Sync after a period of inactivity while editing",
-        modifyDelay: "Modify Delay (seconds)",
-        modifyDelayDesc: "Seconds of inactivity before syncing (1-60s)",
-        triggerLayout: "Trigger: Layout Change",
-        triggerLayoutDesc: "Sync when switching between files or closing tabs",
-        perfSection: "Performance",
-        concurrency: "Concurrency",
-        concurrencyDesc: "Number of parallel file Push/Pull during sync (1-10)",
-        advancedSection: "Advanced",
-        detailedNotifications: "Show Detailed Notifications",
-        detailedNotificationsDesc: "Show progress notifications for each file pushed/pulled",
-        enableLogging: "Enable Logging",
-        enableLoggingDesc: "Developer: Write daily logs to obsidian-vault-sync/logs folder",
-        cloudRootFolder: "Cloud Root Folder",
-        cloudRootFolderDesc: "Root folder name on Google Drive (default: ObsidianVaultSync)",
-        exclusionSection: "Exclusion Patterns",
-        exclusionPatterns: "Exclude Files/Folders",
-        exclusionPatternsDesc:
+        settingTriggerSave: "Trigger: Save (Ctrl+S)",
+        settingTriggerSaveDesc: "Sync when you explicitly save a file",
+        settingTriggerModify: "Trigger: On Modify (Mobile/Debounce)",
+        settingTriggerModifyDesc: "Sync after a period of inactivity while editing",
+        settingModifyDelay: "Modify Delay (seconds)",
+        settingModifyDelayDesc: "Seconds of inactivity before syncing (1-60s)",
+        settingTriggerLayout: "Trigger: Layout Change",
+        settingTriggerLayoutDesc: "Sync when switching between files or closing tabs",
+        settingPerfSection: "Performance",
+        settingConcurrency: "Concurrency",
+        settingConcurrencyDesc: "Number of parallel file Push/Pull during sync (1-10)",
+        settingAdvancedSection: "Advanced",
+        settingDetailedNotifications: "Show Detailed Notifications",
+        settingDetailedNotificationsDesc: "Show progress notifications for each file pushed/pulled",
+        settingEnableLogging: "Enable Logging",
+        settingEnableLoggingDesc: "Developer: Write daily logs to obsidian-vault-sync/logs folder",
+        settingCloudRootFolder: "Cloud Root Folder",
+        settingCloudRootFolderDesc: "Root folder name on Google Drive (default: ObsidianVaultSync)",
+        settingExclusionSection: "Exclusion Patterns",
+        settingExclusionPatterns: "Exclude Files/Folders",
+        settingExclusionPatternsDesc:
             "Glob patterns (one per line). Use * for any chars, ** for recursive dirs. Example: *.tmp, temp/**",
-        fetchingRemoteList: "Fetching remote file list...",
-        reconcilingChanges: "Analyzing changes (MD5)...",
-        scanningLocalFiles: "Scanning local files...",
-        syncInProgress: "Sync in progress...",
-        syncing: "Syncing...",
-        authFailed: "Auth failed",
-        pushCompleted: "✅ Push completed.",
-        pullCompleted: "✅ Pull completed.",
-        nothingToPush: "✅ Cloud is already up to date.",
-        nothingToPull: "✅ Local vault is already up to date.",
-        vaultUpToDate: "✅ Vault is up to date (Index verified).",
-        changesToPush: "changes to push...",
-        changesToPull: "changes detected. Syncing...",
-        folderCreated: "📁 Created folder",
-        filePushed: "📤 Pushed",
-        filePulled: "📥 Pulled",
-        fileTrashed: "🗑️ Trashed",
-        fileRemoved: "🗑️ Removed",
-        scanningOrphans: "🔍 Scanning for orphan files...",
-        errRemoteEmpty: "⚠️ Remote file list empty. Orphan cleanup skipped.",
-        errOrphanAborted: "⚠️ Orphan cleanup aborted: too many files affected.",
-        orphanMoved: "🧹 Orphan moved",
-        orphansMore: "and more orphans moved.",
-        orphansDone: "orphan files moved to",
-        syncTooltip: "Sync with Cloud",
-        syncCommand: "Sync with Cloud",
-        fullAudit: "Audit & Fix Consistency (Full Scan)",
-        viewHistory: "View History in Cloud (VaultSync)",
+
+        // Sync Status (Log/UI)
+        statusFetchingRemoteList: "Fetching remote file list...",
+        statusReconcilingChanges: "Analyzing changes (MD5)...",
+        statusScanningLocalFiles: "Scanning local files...",
+        statusSyncInProgress: "Sync in progress...",
+        statusSyncing: "Syncing...",
+        statusChangesToPush: "changes to push...",
+        statusChangesToPull: "changes detected. Syncing...",
+        statusScanningOrphans: "🔍 Scanning for orphan files...",
+
+        // Notifications (Notice)
+        noticeAuthSuccess: "Successfully authenticated!",
+        noticeAuthFailed: "Auth failed",
+        noticePushCompleted: "✅ Push completed.",
+        noticePullCompleted: "✅ Pull completed.",
+        noticeNothingToPush: "✅ Cloud is already up to date.",
+        noticeNothingToPull: "✅ Local vault is already up to date.",
+        noticeVaultUpToDate: "✅ Vault is up to date (Index verified).",
+        noticeFolderCreated: "📁 Created folder",
+        noticeFilePushed: "📤 Pushed",
+        noticeFilePulled: "📥 Pulled",
+        noticeFileTrashed: "🗑️ Trashed",
+        noticeFileRemoved: "🗑️ Removed",
+        noticeErrRemoteEmpty: "⚠️ Remote file list empty. Orphan cleanup skipped.",
+        noticeErrOrphanAborted: "⚠️ Orphan cleanup aborted: too many files affected.",
+        noticeOrphanMoved: "🧹 Orphan moved",
+        noticeOrphansMore: "and more orphans moved.",
+        noticeOrphansDone: "orphan files moved to",
+        noticeFileMerged: "✅ Auto-merged",
+        noticeConflictSaved: "⚠️ Conflict: Remote saved",
+        noticeSavedKeepForever: "📌 Saved: Keep Forever",
+        noticeFailedToSave: "❌ Failed to save",
+        noticeFileRestored: "✅ File restored. Syncing changes...",
+
+        // History Modal & Browser UI
+        historyTitle: "History",
+        historyActions: "Actions",
+        historyKeepForever: "Keep Forever (Protect)",
+        historyRevisions: "Revisions",
+        historyNoHistoryFound: "No history found.",
+        historyProtectedFromDeletion: "Protected from auto-deletion",
+        historyByAuthor: "by",
+        historySelectRevision: "Select a revision to view details.",
+        historyRevisionLabel: "Revision",
+        historyRestoreVersion: "Restore this version",
+        historyRestoreConfirm:
+            "Are you sure you want to restore this version ({0})?\n\nCurrent local changes will be replaced.",
+        historyCompareWith: "Compare with: ",
+        historyCurrentLocalFile: "Current Local File",
+        historyPreviousVersion: "Previous",
+        historyInitialEmptyVersion: "Initial / Empty",
+        historyAuthorUnknown: "Unknown",
+        historyError: "Error",
+        historyFailedToLoadHistory: "Failed to load history",
+
+        // Global Command/Tooltips
+        labelSyncTooltip: "Sync with Cloud",
+        labelSyncCommand: "Sync with Cloud",
+        labelFullAudit: "Audit & Fix Consistency (Full Scan)",
+        labelViewHistory: "View History in Cloud (VaultSync)",
     },
     ja: {
-        settingsTitle: "VaultSync 設定",
-        authSection: "認証",
-        authStatus: "認証ステータス",
-        checkStatus: "確認",
-        clientId: "Google Client ID",
-        clientIdDesc: "Google Cloud Project の Client ID を入力してください",
-        clientSecret: "Google Client Secret",
-        clientSecretDesc: "Google Cloud Project の Client Secret を入力してください",
-        login: "ログイン",
-        loginDesc: "Google Drive と連携します",
-        manualAuthSection: "手動認証 (モバイル用)",
-        manualAuthDesc:
+        // Settings UI
+        settingSettingsTitle: "VaultSync 設定",
+        settingAuthSection: "認証",
+        settingAuthStatus: "認証ステータス",
+        settingCheckStatus: "確認",
+        settingClientId: "Google Client ID",
+        settingClientIdDesc: "Google Cloud Project の Client ID を入力してください",
+        settingClientSecret: "Google Client Secret",
+        settingClientSecretDesc: "Google Cloud Project の Client Secret を入力してください",
+        settingLogin: "ログイン",
+        settingLoginDesc: "Google Drive と連携します",
+        settingManualAuthSection: "手動認証 (モバイル用)",
+        settingManualAuthDesc:
             "自動リダイレクトに失敗する場合（localhostエラー）、ブラウザのURLをコピーして以下に貼り付けてください：",
-        manualAuthPlaceholder: "リダイレクト先のURLまたはコードを入力",
-        manualAuthVerify: "検証してログイン",
-        authorize: "認証",
-        authSuccess: "認証に成功しました！",
-        triggerSection: "同期トリガー",
-        startupSync: "起動時に同期",
-        startupSyncDesc: "Obsidian 起動時に自動でクラウドと同期します",
-        startupDelay: "起動時の遅延 (秒)",
-        startupDelayDesc: "同期開始前に待機する時間 (0-600秒)",
-        autoSyncInterval: "自動同期の間隔 (秒)",
-        autoSyncIntervalDesc: "バックグラウンドで定期的に同期 (30-86400秒, 0で無効)",
-        triggerSave: "トリガー: 保存時 (Ctrl+S)",
-        triggerSaveDesc: "明示的にファイルを保存した際に同期を実行",
-        triggerModify: "トリガー: 編集時 (モバイル/デバウンス)",
-        triggerModifyDesc: "編集後、一定時間操作がなければ同期を実行",
-        modifyDelay: "編集後の遅延 (秒)",
-        modifyDelayDesc: "同期を実行するまでの待機時間 (1-60秒)",
-        triggerLayout: "トリガー: レイアウト変更時",
-        triggerLayoutDesc: "ファイルを切り替えたり、タブを閉じたときに同期",
-        perfSection: "パフォーマンス",
-        concurrency: "並列実行数",
-        concurrencyDesc: "同期時に並列で実行するファイルのプッシュ/プル数 (1-10)",
-        advancedSection: "高度な設定",
-        detailedNotifications: "詳細な通知を表示",
-        detailedNotificationsDesc: "プッシュ/プルごとに進捗通知を表示します",
-        enableLogging: "ログ出力を有効化",
-        enableLoggingDesc: "開発者向け: obsidian-vault-sync/logs フォルダに日別ログを出力します",
-        cloudRootFolder: "クラウドルートフォルダ",
-        cloudRootFolderDesc:
+        settingManualAuthPlaceholder: "リダイレクト先のURLまたはコードを入力",
+        settingManualAuthVerify: "検証してログイン",
+        settingAuthorize: "認証",
+        settingTriggerSection: "同期トリガー",
+        settingStartupSync: "起動時に同期",
+        settingStartupSyncDesc: "Obsidian 起動時に自動でクラウドと同期します",
+        settingStartupDelay: "起動時の遅延 (秒)",
+        settingStartupDelayDesc: "同期開始前に待機する時間 (0-600秒)",
+        settingAutoSyncInterval: "自動同期の間隔 (秒)",
+        settingAutoSyncIntervalDesc: "バックグラウンドで定期的に同期 (30-86400秒, 0で無効)",
+        settingTriggerSave: "トリガー: 保存時 (Ctrl+S)",
+        settingTriggerSaveDesc: "明示的にファイルを保存した際に同期を実行",
+        settingTriggerModify: "トリガー: 編集時 (モバイル/デバウンス)",
+        settingTriggerModifyDesc: "編集後、一定時間操作がなければ同期を実行",
+        settingModifyDelay: "編集後の遅延 (秒)",
+        settingModifyDelayDesc: "同期を実行するまでの待機時間 (1-60秒)",
+        settingTriggerLayout: "トリガー: レイアウト変更時",
+        settingTriggerLayoutDesc: "ファイルを切り替えたり、タブを閉じたときに同期",
+        settingPerfSection: "パフォーマンス",
+        settingConcurrency: "並列実行数",
+        settingConcurrencyDesc: "同期時に並列で実行するファイルのプッシュ/プル数 (1-10)",
+        settingAdvancedSection: "高度な設定",
+        settingDetailedNotifications: "詳細な通知を表示",
+        settingDetailedNotificationsDesc: "プッシュ/プルごとに進捗通知を表示します",
+        settingEnableLogging: "ログ出力を有効化",
+        settingEnableLoggingDesc:
+            "開発者向け: obsidian-vault-sync/logs フォルダに日別ログを出力します",
+        settingCloudRootFolder: "クラウドルートフォルダ",
+        settingCloudRootFolderDesc:
             "Google Drive 上の同期先ルートフォルダ名 (デフォルト: ObsidianVaultSync)",
-        exclusionSection: "除外パターン",
-        exclusionPatterns: "除外ファイル/フォルダ",
-        exclusionPatternsDesc:
+        settingExclusionSection: "除外パターン",
+        settingExclusionPatterns: "除外ファイル/フォルダ",
+        settingExclusionPatternsDesc:
             "globパターン (1行1パターン)。* は任意の文字、** は再帰ディレクトリ。例: *.tmp, temp/**",
-        fetchingRemoteList: "リモートからファイル一覧を取得中...",
-        reconcilingChanges: "変更内容を分析中 (MD5照合)...",
-        scanningLocalFiles: "ローカルファイルを走査中...",
-        syncInProgress: "現在同期中です...",
-        syncing: "同期中...",
-        authFailed: "認証に失敗しました",
-        pushCompleted: "✅ アップロード完了",
-        pullCompleted: "✅ ダウンロード完了",
-        nothingToPush: "✅ クラウドは最新の状態です",
-        nothingToPull: "✅ ローカルは最新の状態です",
-        vaultUpToDate: "✅ Vaultは最新です (インデックス照合済み)",
-        changesToPush: "件の変更をアップロード中...",
-        changesToPull: "件の変更を検出しました。同期中...",
-        folderCreated: "📁 フォルダを作成しました",
-        filePushed: "📤 アップロード完了",
-        filePulled: "📥 ダウンロード完了",
-        fileTrashed: "🗑️ 削除しました（リモート）",
-        fileRemoved: "🗑️ 削除しました（ローカル）",
-        scanningOrphans: "🔍 未管理ファイルの走査中...",
-        errRemoteEmpty: "⚠️ リモート一覧が空のため、クリーンアップを中止しました",
-        errOrphanAborted: "⚠️ 安全のためクリーンアップを中止しました（対象ファイルが多すぎます）",
-        orphanMoved: "🧹 未管理ファイルを移動しました",
-        orphansMore: "件の未管理ファイルを移動しました",
-        orphansDone: "件のファイルを移動しました：",
-        syncTooltip: "クラウドと同期",
-        syncCommand: "クラウドと同期",
-        fullAudit: "完全スキャンと整合性チェック (Full Audit)",
-        viewHistory: "クラウドの変更履歴を表示 (VaultSync)",
+
+        // Sync Status (Log/UI)
+        statusFetchingRemoteList: "リモートからファイル一覧を取得中...",
+        statusReconcilingChanges: "変更内容を分析中 (MD5照合)...",
+        statusScanningLocalFiles: "ローカルファイルを走査中...",
+        statusSyncInProgress: "現在同期中です...",
+        statusSyncing: "同期中...",
+        statusChangesToPush: "件の変更をアップロード中...",
+        statusChangesToPull: "件の変更を検出しました。同期中...",
+        statusScanningOrphans: "🔍 未管理ファイルの走査中...",
+
+        // Notifications (Notice)
+        noticeAuthSuccess: "認証に成功しました！",
+        noticeAuthFailed: "認証に失敗しました",
+        noticePushCompleted: "✅ アップロード完了",
+        noticePullCompleted: "✅ ダウンロード完了",
+        noticeNothingToPush: "✅ クラウドは最新の状態です",
+        noticeNothingToPull: "✅ ローカルは最新の状態です",
+        noticeVaultUpToDate: "✅ すべて最新の状態です",
+        noticeFolderCreated: "📁 フォルダを作成しました",
+        noticeFilePushed: "📤 アップロード",
+        noticeFilePulled: "📥 ダウンロード",
+        noticeFileTrashed: "🗑️ 削除 (リモート)",
+        noticeFileRemoved: "🗑️ 削除 (ローカル)",
+        noticeErrRemoteEmpty: "⚠️ リモート一覧が空のため、クリーンアップを中止しました",
+        noticeErrOrphanAborted:
+            "⚠️ 安全のためクリーンアップを中止しました（対象ファイルが多すぎます）",
+        noticeOrphanMoved: "🧹 未管理ファイルを移動しました",
+        noticeOrphansMore: "件の未管理ファイルを移動しました",
+        noticeOrphansDone: "件のファイルを移動しました：",
+        noticeFileMerged: "✅ 自動マージ",
+        noticeConflictSaved: "⚠️ 競合保存: リモート版を保存",
+        noticeSavedKeepForever: "📌 保存完了: 無期限",
+        noticeFailedToSave: "❌ 保存に失敗しました",
+        noticeFileRestored: "✅ ファイルを復元しました。同期を開始します...",
+
+        // History Modal & Browser UI
+        historyTitle: "履歴",
+        historyActions: "操作",
+        historyKeepForever: "無期限保存 (保護)",
+        historyRevisions: "リビジョン一覧",
+        historyNoHistoryFound: "履歴が見つかりません",
+        historyProtectedFromDeletion: "自動削除から保護されています",
+        historyByAuthor: "更新者:",
+        historySelectRevision: "リビジョンを選択すると詳細が表示されます",
+        historyRevisionLabel: "リビジョン",
+        historyRestoreVersion: "このバージョンを復元",
+        historyRestoreConfirm:
+            "このバージョン ({0}) を復元してもよろしいですか？\n\n現在のローカルファイルの内容は上書きされます。",
+        historyCompareWith: "比較対象: ",
+        historyCurrentLocalFile: "現在のローカルファイル",
+        historyPreviousVersion: "前のバージョン",
+        historyInitialEmptyVersion: "最初（空）の状態",
+        historyAuthorUnknown: "不明",
+        historyError: "エラー",
+        historyFailedToLoadHistory: "履歴の読み込みに失敗しました",
+
+        // Global Command/Tooltips
+        labelSyncTooltip: "クラウドと同期",
+        labelSyncCommand: "クラウドと同期",
+        labelFullAudit: "完全スキャンと整合性チェック (Full Audit)",
+        labelViewHistory: "クラウドの変更履歴を表示 (VaultSync)",
     },
 };
 
@@ -304,7 +372,7 @@ export default class VaultSync extends Plugin {
         });
 
         // Ribbon button uses Smart Sync for O(1) performance when no changes
-        this.syncRibbonIconEl = this.addRibbonIcon("sync", t("syncTooltip"), async () => {
+        this.syncRibbonIconEl = this.addRibbonIcon("sync", t("labelSyncTooltip"), async () => {
             if (this.syncRibbonIconEl) {
                 await this.performSyncOperation(
                     [{ element: this.syncRibbonIconEl, originalIcon: "sync" }],
@@ -315,7 +383,7 @@ export default class VaultSync extends Plugin {
 
         this.addCommand({
             id: "sync-vault",
-            name: t("syncCommand"),
+            name: t("labelSyncCommand"),
             callback: () => {
                 if (this.syncRibbonIconEl) {
                     this.performSyncOperation(
@@ -330,9 +398,9 @@ export default class VaultSync extends Plugin {
 
         this.addCommand({
             id: "force-full-scan",
-            name: t("fullAudit"),
+            name: t("labelFullAudit"),
             callback: async () => {
-                new Notice(t("scanningLocalFiles")); // Reuse existing message or add new one
+                new Notice(t("statusScanningLocalFiles")); // Reuse existing message or add new one
                 await this.syncManager.requestBackgroundScan(false);
             },
         });
@@ -348,7 +416,7 @@ export default class VaultSync extends Plugin {
                 if (this.syncManager && this.syncManager.supportsHistory) {
                     if (file instanceof TFile) {
                         menu.addItem((item) => {
-                            item.setTitle(t("viewHistory"))
+                            item.setTitle(t("labelViewHistory"))
                                 .setIcon("history")
                                 .onClick(() => {
                                     new HistoryModal(this.app, this.syncManager, file).open();
@@ -609,23 +677,23 @@ class VaultSyncSettingTab extends PluginSettingTab {
     display(): void {
         const { containerEl } = this;
         containerEl.empty();
-        containerEl.createEl("h2", { text: t("settingsTitle") });
+        containerEl.createEl("h2", { text: t("settingSettingsTitle") });
 
         // 1. Authentication
-        containerEl.createEl("h3", { text: t("authSection") });
+        containerEl.createEl("h3", { text: t("settingAuthSection") });
 
         new Setting(containerEl)
-            .setName(t("authStatus"))
+            .setName(t("settingAuthStatus"))
             .setDesc(this.plugin.adapter.getAuthStatus())
             .addButton((button) =>
-                button.setButtonText(t("checkStatus")).onClick(() => {
+                button.setButtonText(t("settingCheckStatus")).onClick(() => {
                     this.display();
                 }),
             );
 
         new Setting(containerEl)
-            .setName(t("clientId"))
-            .setDesc(t("clientIdDesc"))
+            .setName(t("settingClientId"))
+            .setDesc(t("settingClientIdDesc"))
             .addText((text) =>
                 text.setValue(this.plugin.adapter.clientId).onChange(async (value) => {
                     // Update adapter temporarily so config is live
@@ -646,8 +714,8 @@ class VaultSyncSettingTab extends PluginSettingTab {
             );
 
         new Setting(containerEl)
-            .setName(t("clientSecret"))
-            .setDesc(t("clientSecretDesc"))
+            .setName(t("settingClientSecret"))
+            .setDesc(t("settingClientSecretDesc"))
             .addText((text) =>
                 text.setValue(this.plugin.adapter.clientSecret).onChange(async (value) => {
                     // Update adapter temporarily
@@ -668,10 +736,10 @@ class VaultSyncSettingTab extends PluginSettingTab {
             );
 
         new Setting(containerEl)
-            .setName(t("login"))
-            .setDesc(t("loginDesc"))
+            .setName(t("settingLogin"))
+            .setDesc(t("settingLoginDesc"))
             .addButton((button) =>
-                button.setButtonText(t("authorize")).onClick(async () => {
+                button.setButtonText(t("settingAuthorize")).onClick(async () => {
                     await this.plugin.adapter.login();
                     if (!Platform.isMobile) {
                         const tokens = this.plugin.adapter.getTokens();
@@ -681,26 +749,26 @@ class VaultSyncSettingTab extends PluginSettingTab {
                             tokens.accessToken,
                             tokens.refreshToken,
                         );
-                        new Notice(t("authSuccess"));
+                        new Notice(t("noticeAuthSuccess"));
                         this.display();
                     }
                 }),
             );
 
         // Manual Auth (Mobile Fallback)
-        containerEl.createEl("h4", { text: t("manualAuthSection") });
+        containerEl.createEl("h4", { text: t("settingManualAuthSection") });
         containerEl.createEl("p", {
-            text: t("manualAuthDesc"),
+            text: t("settingManualAuthDesc"),
             cls: "setting-item-description",
         });
         let textComponent: any;
         new Setting(containerEl)
             .addText((text) => {
                 textComponent = text;
-                text.setPlaceholder(t("manualAuthPlaceholder")).inputEl.style.width = "100%";
+                text.setPlaceholder(t("settingManualAuthPlaceholder")).inputEl.style.width = "100%";
             })
             .addButton((btn) => {
-                btn.setButtonText(t("manualAuthVerify")).onClick(async () => {
+                btn.setButtonText(t("settingManualAuthVerify")).onClick(async () => {
                     const val = textComponent.getValue().trim();
                     if (!val) return;
 
@@ -723,11 +791,11 @@ class VaultSyncSettingTab extends PluginSettingTab {
                             tokens.accessToken,
                             tokens.refreshToken,
                         );
-                        new Notice(t("authSuccess"));
+                        new Notice(t("noticeAuthSuccess"));
                         this.display();
                     } catch (e) {
                         new Notice(
-                            `${t("authFailed")}: ${e instanceof Error ? e.message : String(e)}`,
+                            `${t("noticeAuthFailed")}: ${e instanceof Error ? e.message : String(e)}`,
                         );
                     }
                 });
@@ -735,11 +803,11 @@ class VaultSyncSettingTab extends PluginSettingTab {
             .setClass("auth-manual-input");
 
         // 2. Sync Triggers
-        containerEl.createEl("h3", { text: t("triggerSection") });
+        containerEl.createEl("h3", { text: t("settingTriggerSection") });
 
         new Setting(containerEl)
-            .setName(t("startupSync"))
-            .setDesc(t("startupSyncDesc"))
+            .setName(t("settingStartupSync"))
+            .setDesc(t("settingStartupSyncDesc"))
             .addToggle((toggle) =>
                 toggle.setValue(this.plugin.settings.enableStartupSync).onChange(async (value) => {
                     this.plugin.settings.enableStartupSync = value;
@@ -750,8 +818,8 @@ class VaultSyncSettingTab extends PluginSettingTab {
 
         if (this.plugin.settings.enableStartupSync) {
             new Setting(containerEl)
-                .setName(t("startupDelay"))
-                .setDesc(t("startupDelayDesc"))
+                .setName(t("settingStartupDelay"))
+                .setDesc(t("settingStartupDelayDesc"))
                 .addText((text) =>
                     text
                         .setValue(String(this.plugin.settings.startupDelaySec))
@@ -768,8 +836,8 @@ class VaultSyncSettingTab extends PluginSettingTab {
         }
 
         new Setting(containerEl)
-            .setName(t("autoSyncInterval"))
-            .setDesc(t("autoSyncIntervalDesc"))
+            .setName(t("settingAutoSyncInterval"))
+            .setDesc(t("settingAutoSyncIntervalDesc"))
             .addText((text) =>
                 text
                     .setValue(String(this.plugin.settings.autoSyncIntervalSec))
@@ -783,8 +851,8 @@ class VaultSyncSettingTab extends PluginSettingTab {
             );
 
         new Setting(containerEl)
-            .setName(t("triggerSave"))
-            .setDesc(t("triggerSaveDesc"))
+            .setName(t("settingTriggerSave"))
+            .setDesc(t("settingTriggerSaveDesc"))
             .addToggle((toggle) =>
                 toggle
                     .setValue(this.plugin.settings.enableOnSaveTrigger)
@@ -795,8 +863,8 @@ class VaultSyncSettingTab extends PluginSettingTab {
             );
 
         new Setting(containerEl)
-            .setName(t("triggerModify"))
-            .setDesc(t("triggerModifyDesc"))
+            .setName(t("settingTriggerModify"))
+            .setDesc(t("settingTriggerModifyDesc"))
             .addToggle((toggle) =>
                 toggle
                     .setValue(this.plugin.settings.enableOnModifyTrigger)
@@ -809,8 +877,8 @@ class VaultSyncSettingTab extends PluginSettingTab {
 
         if (this.plugin.settings.enableOnModifyTrigger) {
             new Setting(containerEl)
-                .setName(t("modifyDelay"))
-                .setDesc(t("modifyDelayDesc"))
+                .setName(t("settingModifyDelay"))
+                .setDesc(t("settingModifyDelayDesc"))
                 .addText((text) =>
                     text
                         .setValue(String(this.plugin.settings.onModifyDelaySec))
@@ -827,8 +895,8 @@ class VaultSyncSettingTab extends PluginSettingTab {
         }
 
         new Setting(containerEl)
-            .setName(t("triggerLayout"))
-            .setDesc(t("triggerLayoutDesc"))
+            .setName(t("settingTriggerLayout"))
+            .setDesc(t("settingTriggerLayoutDesc"))
             .addToggle((toggle) =>
                 toggle
                     .setValue(this.plugin.settings.enableOnLayoutChangeTrigger)
@@ -839,11 +907,11 @@ class VaultSyncSettingTab extends PluginSettingTab {
             );
 
         // 3. Performance
-        containerEl.createEl("h3", { text: t("perfSection") });
+        containerEl.createEl("h3", { text: t("settingPerfSection") });
 
         new Setting(containerEl)
-            .setName(t("concurrency"))
-            .setDesc(t("concurrencyDesc"))
+            .setName(t("settingConcurrency"))
+            .setDesc(t("settingConcurrencyDesc"))
             .addText((text) =>
                 text.setValue(String(this.plugin.settings.concurrency)).onChange(async (value) => {
                     this.plugin.settings.concurrency = this.validateNumber(value, 1, 10, 5);
@@ -852,11 +920,11 @@ class VaultSyncSettingTab extends PluginSettingTab {
             );
 
         // 4. Advanced
-        containerEl.createEl("h3", { text: t("advancedSection") });
+        containerEl.createEl("h3", { text: t("settingAdvancedSection") });
 
         new Setting(containerEl)
-            .setName(t("detailedNotifications"))
-            .setDesc(t("detailedNotificationsDesc"))
+            .setName(t("settingDetailedNotifications"))
+            .setDesc(t("settingDetailedNotificationsDesc"))
             .addToggle((toggle) =>
                 toggle
                     .setValue(this.plugin.settings.showDetailedNotifications)
@@ -867,8 +935,8 @@ class VaultSyncSettingTab extends PluginSettingTab {
             );
 
         new Setting(containerEl)
-            .setName(t("enableLogging"))
-            .setDesc(t("enableLoggingDesc"))
+            .setName(t("settingEnableLogging"))
+            .setDesc(t("settingEnableLoggingDesc"))
             .addToggle((toggle) =>
                 toggle.setValue(this.plugin.settings.enableLogging).onChange(async (value) => {
                     this.plugin.settings.enableLogging = value;
@@ -877,8 +945,8 @@ class VaultSyncSettingTab extends PluginSettingTab {
             );
 
         new Setting(containerEl)
-            .setName(t("cloudRootFolder"))
-            .setDesc(t("cloudRootFolderDesc"))
+            .setName(t("settingCloudRootFolder"))
+            .setDesc(t("settingCloudRootFolderDesc"))
             .addText((text) =>
                 text
                     .setPlaceholder("ObsidianVaultSync")
@@ -907,11 +975,11 @@ class VaultSyncSettingTab extends PluginSettingTab {
             );
 
         // 5. Exclusion Patterns
-        containerEl.createEl("h3", { text: t("exclusionSection") });
+        containerEl.createEl("h3", { text: t("settingExclusionSection") });
 
         new Setting(containerEl)
-            .setName(t("exclusionPatterns"))
-            .setDesc(t("exclusionPatternsDesc"))
+            .setName(t("settingExclusionPatterns"))
+            .setDesc(t("settingExclusionPatternsDesc"))
             .addTextArea((textarea) =>
                 textarea
                     .setPlaceholder("*.tmp\ntemp/**\n.git/**")
