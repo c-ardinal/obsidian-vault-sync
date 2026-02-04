@@ -11,7 +11,7 @@ import {
 } from "obsidian";
 import { SyncManager } from "../sync-manager";
 import { FileRevision } from "../types/adapter";
-import * as Diff from "diff";
+import { diff_match_patch } from "diff-match-patch";
 
 export class HistoryModal extends Modal {
     private revisions: FileRevision[] = [];
@@ -383,17 +383,19 @@ export class HistoryModal extends Modal {
             // Diff: Base -> Target
             // Added (Green): In Target, not in Base
             // Removed (Red): In Base, not in Target
-            const diff = Diff.diffLines(baseContent, targetContent);
+            const dmp = new diff_match_patch();
+            const diffs = dmp.diff_main(baseContent, targetContent);
+            dmp.diff_cleanupSemantic(diffs);
 
-            diff.forEach((part) => {
-                const colorClass = part.added
-                    ? "diff-added"
-                    : part.removed
-                      ? "diff-removed"
-                      : "diff-neutral";
+            diffs.forEach((part) => {
+                const op = part[0]; // 0: equal, 1: insert, -1: delete
+                const text = part[1];
+
+                const colorClass =
+                    op === 1 ? "diff-added" : op === -1 ? "diff-removed" : "diff-neutral";
 
                 const span = container.createEl("span", { cls: colorClass });
-                span.setText(part.value);
+                span.setText(text);
             });
         } catch (e) {
             container.empty();

@@ -694,9 +694,9 @@ export class GoogleDriveAdapter implements CloudAdapter {
         // - nextPageToken, newStartPageToken: for pagination/continuation
         // - changes: the actual list
         //   - fileId, removed: core change info
-        //   - file(...): file metadata needed for SyncManager (id, name, mimeType, parents, etc.)
+        //   - file(...): file metadata needed for SyncManager (id, name, mimeType, parents, trashed, etc.)
         const fields =
-            "nextPageToken,newStartPageToken,changes(fileId,removed,file(id,name,mimeType,modifiedTime,size,md5Checksum,parents))";
+            "nextPageToken,newStartPageToken,changes(fileId,removed,file(id,name,mimeType,modifiedTime,size,md5Checksum,parents,trashed))";
         const response = await this.fetchWithAuth(
             `https://www.googleapis.com/drive/v3/changes?pageToken=${pageToken}&pageSize=500&fields=${fields}`,
         );
@@ -723,10 +723,13 @@ export class GoogleDriveAdapter implements CloudAdapter {
                         }
                     }
 
+                    // Treat trashed files as removed
+                    const isRemoved = c.removed || (c.file && c.file.trashed);
+
                     return {
                         fileId: c.fileId,
-                        removed: c.removed,
-                        file: c.file
+                        removed: isRemoved,
+                        file: c.file && !isRemoved
                             ? {
                                   id: c.file.id,
                                   path: fullPath,

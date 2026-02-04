@@ -94,7 +94,7 @@ const i18n: Record<string, Record<string, string>> = {
         noticeOrphansMore: "and more orphans moved.",
         noticeOrphansDone: "orphan files moved to",
         noticeFileMerged: "✅ Auto-merged",
-        noticeConflictSaved: "⚠️ Conflict: Remote saved",
+        noticeConflictSaved: "⚠️ Conflict: Local preserved as conflict file, Remote pulled",
         noticeSavedKeepForever: "📌 Saved: Keep Forever",
         noticeFailedToSave: "❌ Failed to save",
         noticeFileRestored: "✅ File restored. Syncing changes...",
@@ -206,7 +206,7 @@ const i18n: Record<string, Record<string, string>> = {
         noticeOrphansMore: "件の未管理ファイルを移動しました",
         noticeOrphansDone: "件のファイルを移動しました：",
         noticeFileMerged: "✅ 自動マージ",
-        noticeConflictSaved: "⚠️ 競合保存: リモート版を保存",
+        noticeConflictSaved: "⚠️ 競合: ローカル版を保護し、リモート版を導入しました",
         noticeSavedKeepForever: "📌 保存完了: 無期限",
         noticeFailedToSave: "❌ 保存に失敗しました",
         noticeFileRestored: "✅ ファイルを復元しました。同期を開始します...",
@@ -289,8 +289,7 @@ const DEFAULT_SETTINGS: VaultSyncSettings = {
     showDetailedNotifications: true,
     enableLogging: false,
     cloudRootFolder: "ObsidianVaultSync",
-    exclusionPatterns:
-        ".obsidian/plugins/obsidian-vault-sync/logs\n.obsidian/plugins/obsidian-vault-sync/cache\n.git",
+    exclusionPatterns: ".git\n.svn\n.hg\n.bzr",
     encryptionSecret: "",
 };
 
@@ -987,6 +986,7 @@ class VaultSyncSettingTab extends PluginSettingTab {
                     .onChange(async (value) => {
                         this.plugin.settings.exclusionPatterns = value;
                         await this.plugin.saveSettings();
+                        this.plugin.syncManager.triggerFullCleanup();
                     }),
             );
     }
