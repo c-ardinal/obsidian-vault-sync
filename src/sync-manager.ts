@@ -3,6 +3,7 @@ import { App, TFile, TFolder, TAbstractFile, Notice } from "obsidian";
 import { matchWildcard } from "./utils/wildcard";
 import { md5 } from "./utils/md5";
 import { RevisionCache } from "./revision-cache";
+import * as Diff from "diff";
 
 export interface SyncManagerSettings {
     concurrency: number;
@@ -807,6 +808,121 @@ export class SyncManager {
         for (const item of toDownload) {
             tasks.push(async () => {
                 try {
+                    // CONFLICT DETECTION
+                    const exists = await this.app.vault.adapter.exists(item.path);
+                    if (exists) {
+                        try {
+                            const localContent = await this.app.vault.adapter.readBinary(item.path);
+                            const currentHash = md5(localContent);
+                            const localEntry = this.index[item.path];
+
+                            // Check if modified locally (New Local OR Modified Local)
+                            const isModifiedLocally =
+                                !localEntry ||
+                                (localEntry.hash && localEntry.hash.toLowerCase() !== currentHash);
+
+                            if (isModifiedLocally) {
+                                // Content match check (False alarm)
+                                if (item.hash && currentHash === item.hash.toLowerCase()) {
+                                    const stat = await this.app.vault.adapter.stat(item.path);
+                                    this.index[item.path] = {
+                                        fileId: item.fileId,
+                                        mtime: stat?.mtime || Date.now(),
+                                        size: stat?.size || localContent.byteLength,
+                                        hash: item.hash,
+                                    };
+                                    await this.log(
+                                        `[Smart Pull] Skipped (content match): ${item.path}`,
+                                    );
+                                    return;
+                                }
+
+                                // TRUE CONFLICT: Attempt 3-way merge if text file
+                                const remoteContent = await this.adapter.downloadFile(item.fileId);
+                                const isText =
+                                    item.path.endsWith(".md") || item.path.endsWith(".txt");
+
+                                if (isText && localEntry?.hash) {
+                                    const localContentStr = new TextDecoder().decode(localContent);
+                                    const remoteContentStr = new TextDecoder().decode(
+                                        remoteContent,
+                                    );
+
+                                    const merged = await this.tryThreeWayMerge(
+                                        item.path,
+                                        localContentStr,
+                                        localEntry.hash,
+                                        remoteContentStr,
+                                    );
+
+                                    if (merged) {
+                                        // SUCCESS: Overwrite original with merged content
+                                        await this.app.vault.adapter.writeBinary(item.path, merged);
+
+                                        // Update index and mark as dirty so merged version is pushed
+                                        const stat = await this.app.vault.adapter.stat(item.path);
+                                        this.index[item.path] = {
+                                            fileId: item.fileId,
+                                            mtime: stat?.mtime || Date.now(),
+                                            size: merged.byteLength,
+                                            hash: item.hash, // Record server hash to satisfy pull logic
+                                        };
+                                        this.dirtyPaths.add(item.path);
+
+                                        await this.log(`[Smart Pull] Auto-merged: ${item.path}`);
+                                        if (this.settings.showDetailedNotifications || !isSilent) {
+                                            new Notice(
+                                                `✅ Auto-merged: ${item.path.split("/").pop()}`,
+                                            );
+                                        }
+                                        return;
+                                    }
+                                }
+
+                                // Merge failed or binary file -> Save remote version as conflict file
+                                const timestamp = new Date()
+                                    .toISOString()
+                                    .replace(/[:.]/g, "-")
+                                    .slice(0, 19);
+                                const ext = item.path.split(".").pop();
+                                const baseName = item.path.substring(0, item.path.lastIndexOf("."));
+                                const conflictPath = `${baseName} (Conflict ${timestamp}).${ext}`;
+
+                                await this.ensureLocalFolder(conflictPath);
+                                // Use the already downloaded remoteContent
+                                await this.app.vault.adapter.writeBinary(
+                                    conflictPath,
+                                    remoteContent,
+                                );
+
+                                await this.log(
+                                    `[Smart Pull] CONFLICT: Saved remote version to ${conflictPath}`,
+                                );
+                                if (this.settings.showDetailedNotifications || !isSilent) {
+                                    new Notice(
+                                        `⚠️ Conflict: Remote saved as ${conflictPath
+                                            .split("/")
+                                            .pop()}`,
+                                    );
+                                }
+
+                                // Resolve conflict by treating LOCAL (current) as winner in index
+                                const stat = await this.app.vault.adapter.stat(item.path);
+                                this.index[item.path] = {
+                                    fileId: item.fileId,
+                                    mtime: stat?.mtime || Date.now(),
+                                    size: stat?.size || localContent.byteLength,
+                                    hash: currentHash, // Matches current local side
+                                };
+                                return;
+                            }
+                        } catch (err) {
+                            await this.log(
+                                `[Smart Pull] Conflict check error for ${item.path}: ${err}`,
+                            );
+                        }
+                    }
+
                     // Mark as syncing to prevent dirty marking from modify event
                     this.syncingPaths.add(item.path);
 
@@ -1436,6 +1552,54 @@ export class SyncManager {
         }
         await this.adapter.setRevisionKeepForever(path, revisionId, keepForever);
         await this.log(`[History] Set keepForever=${keepForever} for ${path} (rev: ${revisionId})`);
+    }
+
+    /**
+     * Try to perform a 3-way merge
+     * @returns Merged content as ArrayBuffer if successful, null if conflict persists
+     */
+    private async tryThreeWayMerge(
+        path: string,
+        localContentStr: string,
+        baseHash: string,
+        remoteContentStr: string,
+    ): Promise<ArrayBuffer | null> {
+        try {
+            await this.log(`[Merge] Attempting 3-way merge for ${path}...`);
+
+            // 1. Find Base Revision from Cloud History
+            const revisions = await this.listRevisions(path);
+            const baseRev = revisions.find(
+                (r) => r.hash && r.hash.toLowerCase() === baseHash.toLowerCase(),
+            );
+
+            if (!baseRev) {
+                await this.log(`[Merge] No base revision found matching hash ${baseHash}.`);
+                return null;
+            }
+
+            // 2. Get Base Content
+            const baseBuffer = await this.getRevisionContent(path, baseRev.id);
+            const baseContentStr = new TextDecoder().decode(baseBuffer);
+
+            // 3. Perform Merge using Patching logic
+            // Create patch representing changes: Base -> Remote
+            const patch = Diff.createPatch(path, baseContentStr, remoteContentStr);
+
+            // Apply those changes to Local: Local + (Remote - Base)
+            const result = Diff.applyPatch(localContentStr, patch);
+
+            if (typeof result === "string") {
+                await this.log(`[Merge] SUCCESS: Auto-merged ${path}`);
+                return new TextEncoder().encode(result).buffer;
+            }
+
+            await this.log(`[Merge] FAILED: Overlapping changes in ${path}`);
+            return null;
+        } catch (e) {
+            await this.log(`[Merge] Error: ${e}`);
+            return null;
+        }
     }
 
     async restoreRevision(

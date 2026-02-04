@@ -218,29 +218,87 @@ export class GoogleDriveAdapter implements CloudAdapter {
         const headers = new Headers(options.headers || {});
         headers.set("Authorization", `Bearer ${this.accessToken}`);
 
-        const response = await fetch(url, { ...options, headers });
+        try {
+            const response = await fetch(url, { ...options, headers });
 
-        // SEC-004: Limit retries
-        if (response.status === 401 && this.refreshToken && retryCount < 2) {
-            await this.refreshTokens();
-            return this.fetchWithAuth(url, options, retryCount + 1);
-        }
+            // SEC-004: Limit retries
+            const MAX_RETRIES = 3;
 
-        if (!response.ok) {
-            let body = "";
-            try {
-                body = await response.text();
-            } catch (e) {
-                body = "Could not read error body";
+            // Handle 401 Unauthorized (Refresh Token)
+            if (response.status === 401 && this.refreshToken && retryCount < 2) {
+                await this.refreshTokens();
+                return this.fetchWithAuth(url, options, retryCount + 1);
             }
-            // SEC-007: Sanitize error messages (log real one, throw safe one)
-            console.error(`VaultSync: API Error ${response.status}: ${body}`);
-            throw new Error(
-                `API Error ${response.status}: Request failed (See console for details)`,
-            );
-        }
 
-        return response;
+            // Handle 429 (Too Many Requests) and 5xx (Server Errors) with Exponential Backoff
+            if ((response.status === 429 || response.status >= 500) && retryCount < MAX_RETRIES) {
+                // Check connectivity
+                if (!window.navigator.onLine) {
+                    await this.log("Network offline. Waiting for connection...");
+                    await this.waitForOnline();
+                }
+
+                const backoffDelay = Math.pow(2, retryCount) * 1000 + Math.random() * 500;
+                await this.log(
+                    `API Error ${response.status}. Retrying in ${Math.round(backoffDelay)}ms (Attempt ${retryCount + 1}/${MAX_RETRIES})...`,
+                );
+                await new Promise((resolve) => setTimeout(resolve, backoffDelay));
+                return this.fetchWithAuth(url, options, retryCount + 1);
+            }
+
+            if (!response.ok) {
+                let body = "";
+                try {
+                    body = await response.text();
+                } catch (e) {
+                    body = "Could not read error body";
+                }
+                // SEC-007: Sanitize error messages
+                console.error(`VaultSync: API Error ${response.status}: ${body}`);
+                throw new Error(
+                    `API Error ${response.status}: Request failed (See console for details)`,
+                );
+            }
+
+            return response;
+        } catch (e) {
+            // Handle network timeouts / offline status
+            const isNetworkError = e instanceof TypeError && e.message === "Failed to fetch";
+            if (isNetworkError && retryCount < 3) {
+                if (!window.navigator.onLine) {
+                    await this.log("Network offline during fetch. Waiting for connection...");
+                    await this.waitForOnline();
+                }
+
+                const backoffDelay = Math.pow(2, retryCount) * 2000;
+                await this.log(`Network error. Retrying in ${backoffDelay}ms...`);
+                await new Promise((resolve) => setTimeout(resolve, backoffDelay));
+                return this.fetchWithAuth(url, options, retryCount + 1);
+            }
+            throw e;
+        }
+    }
+
+    private async waitForOnline(): Promise<void> {
+        if (window.navigator.onLine) return;
+        return new Promise((resolve) => {
+            const onOnline = () => {
+                window.removeEventListener("online", onOnline);
+                window.removeEventListener("focus", onOnline);
+                resolve();
+            };
+            window.addEventListener("online", onOnline);
+            window.addEventListener("focus", onOnline);
+            // Fallback: Check every 5 seconds just in case (for mobile webview quirks)
+            const interval = setInterval(() => {
+                if (window.navigator.onLine) {
+                    window.removeEventListener("online", onOnline);
+                    window.removeEventListener("focus", onOnline);
+                    clearInterval(interval);
+                    resolve();
+                }
+            }, 5000);
+        });
     }
 
     // SEC-005: Common escaping helper
