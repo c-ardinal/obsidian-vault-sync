@@ -508,6 +508,31 @@ export class GoogleDriveAdapter implements CloudAdapter {
         return null;
     }
 
+    async getFileMetadataById(fileId: string, knownPath?: string): Promise<CloudFile | null> {
+        try {
+            // Direct ID lookup provides stronger consistency than query search
+            const response = await this.fetchWithAuth(
+                `https://www.googleapis.com/drive/v3/files/${fileId}?fields=id,name,mimeType,modifiedTime,size,md5Checksum,trashed`,
+            );
+            const file = await response.json();
+
+            // Handle deleted/trashed files as null
+            if (!file.id || file.trashed) return null;
+
+            return {
+                id: file.id,
+                path: knownPath || file.name, // Partial path (name only) if knownPath not provided, but sufficient for hash check
+                mtime: new Date(file.modifiedTime).getTime(),
+                size: parseInt(file.size || "0"),
+                kind: file.mimeType === "application/vnd.google-apps.folder" ? "folder" : "file",
+                hash: file.md5Checksum,
+            };
+        } catch (e) {
+            // 404 or other errors -> treat as not found
+            return null;
+        }
+    }
+
     async downloadFile(fileId: string): Promise<ArrayBuffer> {
         const response = await this.fetchWithAuth(
             `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
@@ -729,19 +754,20 @@ export class GoogleDriveAdapter implements CloudAdapter {
                     return {
                         fileId: c.fileId,
                         removed: isRemoved,
-                        file: c.file && !isRemoved
-                            ? {
-                                  id: c.file.id,
-                                  path: fullPath,
-                                  mtime: new Date(c.file.modifiedTime).getTime(),
-                                  size: parseInt(c.file.size || "0"),
-                                  kind:
-                                      c.file.mimeType === "application/vnd.google-apps.folder"
-                                          ? "folder"
-                                          : "file",
-                                  hash: c.file.md5Checksum,
-                              }
-                            : undefined,
+                        file:
+                            c.file && !isRemoved
+                                ? {
+                                      id: c.file.id,
+                                      path: fullPath,
+                                      mtime: new Date(c.file.modifiedTime).getTime(),
+                                      size: parseInt(c.file.size || "0"),
+                                      kind:
+                                          c.file.mimeType === "application/vnd.google-apps.folder"
+                                              ? "folder"
+                                              : "file",
+                                      hash: c.file.md5Checksum,
+                                  }
+                                : undefined,
                     };
                 }),
             ),

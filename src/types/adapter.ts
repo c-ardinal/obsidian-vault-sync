@@ -38,6 +38,13 @@ export interface CloudAdapter {
 
     // File Operations
     getFileMetadata(path: string): Promise<CloudFile | null>;
+    /**
+     * Get metadata by File ID (Strong Consistency preferred).
+     * Used for conflict detection where path-based lookup (SearchResults) might be stale.
+     * @param fileId The cloud file ID
+     * @param knownPath Optional known path to populate the result (avoids expensive path resolution)
+     */
+    getFileMetadataById(fileId: string, knownPath?: string): Promise<CloudFile | null>;
     downloadFile(fileId: string): Promise<ArrayBuffer>;
     uploadFile(path: string, content: ArrayBuffer, mtime: number): Promise<CloudFile>;
     deleteFile(fileId: string): Promise<void>;
