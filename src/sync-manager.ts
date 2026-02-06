@@ -2401,9 +2401,10 @@ export class SyncManager {
             const dmp = new diff_match_patch();
 
             // RELAXED MATCHING WITH STRICT PROTECTION (Reverted):
-            dmp.Match_Threshold = 0.5;
+            dmp.Match_Threshold = 0.5; // Slightly stricter to prevent misplacement
+            dmp.Match_Distance = 250; // Prefer closer matches (reasonable for Obsidian notes)
             dmp.Patch_DeleteThreshold = 0.5;
-            dmp.Patch_Margin = 4;
+            dmp.Patch_Margin = 1; // Reduce context margin to prevent overlapping at head/tail
 
             // Custom encoding that accounts for ALL lines in Base, Local, AND Remote.
             const {
