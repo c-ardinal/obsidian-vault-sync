@@ -141,3 +141,4 @@ vite.config.ts.timestamp-*
 # AI
 .claude/
 CLAUDE.md
+.grepai/

@@ -23,6 +23,10 @@ export interface LocalFileIndex {
         /** Hash of the common ancestor (last known synced state between devices).
          *  Set on pull, preserved on push. Used as base for 3-way merge. */
         ancestorHash?: string;
+        /** @deprecated Merge locks are now stored in communication.json, not sync-index.json */
+        mergeLock?: { holder: string; expiresAt: number };
+        /** True when this device detected a conflict and is waiting for another device to resolve it */
+        pendingConflict?: boolean;
     };
 }
 
@@ -45,6 +49,23 @@ export interface FullScanProgress {
     startedAt: number;
 }
 
+// === Device Communication Types ===
+
+/** Merge lock entry for a specific file */
+interface MergeLockEntry {
+    holder: string;
+    expiresAt: number;
+}
+
+/** Communication data for real-time device-to-device messaging */
+export interface CommunicationData {
+    /** Active merge locks by file path */
+    mergeLocks: { [path: string]: MergeLockEntry };
+    /** Last update timestamp */
+    lastUpdated: number;
+    // Future extensions: messages, deviceStatus, etc.
+}
+
 export class SyncManager {
     // === System-level internal files (Local only or Custom management) ===
     private static readonly PLUGIN_DIR = ".obsidian/plugins/obsidian-vault-sync/";
@@ -58,7 +79,11 @@ export class SyncManager {
     ];
 
     /** Files managed by custom logic (e.g. saveIndex), skipped by generic sync loop */
-    private static readonly INTERNAL_REMOTE_MANAGED = ["sync-index.json", "sync-index_raw.json"];
+    private static readonly INTERNAL_REMOTE_MANAGED = [
+        "sync-index.json",
+        "sync-index_raw.json",
+        "communication.json",
+    ];
 
     /** General system-level files that should be ignored and cleaned up from remote if found */
     private static readonly SYSTEM_IGNORES = [
@@ -82,6 +107,10 @@ export class SyncManager {
     private localIndex: LocalFileIndex = {};
     private localIndexPath: string;
     private startPageToken: string | null = null;
+    private deviceId: string = "";
+
+    /** Remote path for communication.json (merge locks, device messaging) */
+    private communicationPath: string = "";
 
     private logFolder: string;
     private revisionCache: RevisionCache;
@@ -120,6 +149,11 @@ export class SyncManager {
     ) {
         this.logFolder = `${this.pluginDir}/logs`;
         this.localIndexPath = `${this.pluginDir}/local-index.json`;
+        // communication.json is in the same directory as sync-index.json
+        this.communicationPath = this.pluginDataPath.replace(
+            "sync-index.json",
+            "communication.json",
+        );
         this.adapter.setLogger((msg) => this.log(msg));
         this.revisionCache = new RevisionCache(this.app, this.pluginDir);
     }
@@ -190,6 +224,150 @@ export class SyncManager {
         }
     }
 
+    /**
+     * Clear pending push/merge states since sync is confirmed.
+     * This prevents Safety Guard from triggering on subsequent remote updates.
+     */
+    private clearPendingPushStates(): void {
+        for (const path of Object.keys(this.localIndex)) {
+            const entry = this.localIndex[path];
+            if (entry.lastAction === "push" || entry.lastAction === "merge") {
+                entry.lastAction = "pull";
+            }
+        }
+    }
+
+    // === Communication.json Management ===
+
+    /**
+     * Load communication data from remote.
+     * Returns empty structure if file doesn't exist or can't be read.
+     */
+    private async loadCommunication(): Promise<CommunicationData> {
+        try {
+            const meta = await this.adapter.getFileMetadata(this.communicationPath);
+            if (!meta) {
+                return { mergeLocks: {}, lastUpdated: 0 };
+            }
+            const content = await this.adapter.downloadFile(meta.id);
+            const text = new TextDecoder().decode(content);
+            const data = JSON.parse(text) as CommunicationData;
+            // Clean up expired locks
+            const now = Date.now();
+            for (const [path, lock] of Object.entries(data.mergeLocks)) {
+                if (lock.expiresAt < now) {
+                    delete data.mergeLocks[path];
+                }
+            }
+            return data;
+        } catch (e) {
+            await this.log(`[Communication] Failed to load: ${e}`);
+            return { mergeLocks: {}, lastUpdated: 0 };
+        }
+    }
+
+    /**
+     * Save communication data to remote.
+     * uploadFile handles both create and update (PATCH for existing files).
+     */
+    private async saveCommunication(data: CommunicationData): Promise<void> {
+        try {
+            data.lastUpdated = Date.now();
+            const content = new TextEncoder().encode(JSON.stringify(data, null, 2));
+            await this.adapter.uploadFile(
+                this.communicationPath,
+                content.buffer as ArrayBuffer,
+                Date.now(),
+            );
+        } catch (e) {
+            await this.log(`[Communication] Failed to save: ${e}`);
+            throw e;
+        }
+    }
+
+    /**
+     * Acquire a merge lock for a file path.
+     * Returns true if lock acquired, false if another device holds the lock.
+     */
+    private async acquireMergeLock(
+        path: string,
+    ): Promise<{ acquired: boolean; holder?: string; expiresIn?: number }> {
+        const comm = await this.loadCommunication();
+        const existing = comm.mergeLocks[path];
+        const now = Date.now();
+
+        // Check if another device holds a valid lock
+        if (existing && existing.expiresAt > now && existing.holder !== this.deviceId) {
+            return {
+                acquired: false,
+                holder: existing.holder,
+                expiresIn: Math.floor((existing.expiresAt - now) / 1000),
+            };
+        }
+
+        // Acquire or refresh lock
+        comm.mergeLocks[path] = {
+            holder: this.deviceId,
+            expiresAt: now + 60000, // 60 seconds
+        };
+        await this.saveCommunication(comm);
+
+        // Verify lock was acquired (re-read to check for race)
+        const verify = await this.loadCommunication();
+        const verifyLock = verify.mergeLocks[path];
+        if (verifyLock && verifyLock.holder === this.deviceId) {
+            return { acquired: true };
+        } else {
+            return {
+                acquired: false,
+                holder: verifyLock?.holder,
+                expiresIn: verifyLock ? Math.floor((verifyLock.expiresAt - now) / 1000) : 0,
+            };
+        }
+    }
+
+    /**
+     * Release a merge lock for a file path.
+     */
+    private async releaseMergeLock(path: string, logPrefix?: string): Promise<void> {
+        try {
+            const comm = await this.loadCommunication();
+            const existing = comm.mergeLocks[path];
+            // Only release if we own the lock
+            if (existing && existing.holder === this.deviceId) {
+                delete comm.mergeLocks[path];
+                await this.saveCommunication(comm);
+                await this.log(
+                    `[${logPrefix || "Communication"}] Merge lock released for ${path}.`,
+                );
+            }
+        } catch (e) {
+            await this.log(
+                `[${logPrefix || "Communication"}] Failed to release lock for ${path}: ${e}`,
+            );
+        }
+    }
+
+    /**
+     * Check if a file has an active merge lock from another device.
+     */
+    private async checkMergeLock(
+        path: string,
+    ): Promise<{ locked: boolean; holder?: string; expiresIn?: number }> {
+        const comm = await this.loadCommunication();
+        const existing = comm.mergeLocks[path];
+        const now = Date.now();
+
+        if (existing && existing.expiresAt > now && existing.holder !== this.deviceId) {
+            return {
+                locked: true,
+                holder: existing.holder,
+                expiresIn: Math.floor((existing.expiresAt - now) / 1000),
+            };
+        }
+        return { locked: false };
+    }
+
     async loadIndex() {
         try {
             // Read as binary to support potential Gzip content (e.g. manual restore from cloud)
@@ -249,19 +427,47 @@ export class SyncManager {
                 const data = await this.app.vault.adapter.read(this.localIndexPath);
                 const parsed = JSON.parse(data);
                 this.localIndex = parsed.index || {};
-                await this.log("[Local Index] Loaded successfully.");
+                this.deviceId = parsed.deviceId || "";
+
+                if (!this.deviceId) {
+                    const randomArray = new Uint8Array(4);
+                    if (typeof crypto !== "undefined") crypto.getRandomValues(randomArray);
+                    const suffix = Array.from(randomArray)
+                        .map((b) => b.toString(16).padStart(2, "0"))
+                        .join("");
+                    this.deviceId = md5(
+                        new TextEncoder().encode(Date.now().toString() + suffix).buffer,
+                    ).substring(0, 8);
+                    await this.log(`[Local Index] Generated new device ID: ${this.deviceId}`);
+                    await this.saveLocalIndex();
+                } else {
+                    await this.log(
+                        `[Local Index] Loaded successfully. Device ID: ${this.deviceId}`,
+                    );
+                }
             } else {
                 // If local-index.json doesn't exist, we might be migrating.
                 // In migration, current 'index' is our best guess for local base.
                 this.localIndex = { ...this.index };
+                const randomArray = new Uint8Array(4);
+                if (typeof crypto !== "undefined") crypto.getRandomValues(randomArray);
+                const suffix = Array.from(randomArray)
+                    .map((b) => b.toString(16).padStart(2, "0"))
+                    .join("");
+                this.deviceId = md5(
+                    new TextEncoder().encode(Date.now().toString() + suffix).buffer,
+                ).substring(0, 8);
                 await this.log(
-                    "[Local Index] Not found. Initialized from shared index (Migration).",
+                    `[Local Index] Not found. Initialized from shared index (Migration). Device ID: ${this.deviceId}`,
                 );
                 await this.saveLocalIndex();
             }
         } catch (e) {
             await this.log(`[Local Index] Load failed: ${e}`);
             this.localIndex = {};
+            this.deviceId = md5(
+                new TextEncoder().encode(Date.now().toString() + Math.random().toString()).buffer,
+            ).substring(0, 8);
         }
     }
 
@@ -290,6 +496,7 @@ export class SyncManager {
         try {
             const data = JSON.stringify({
                 index: this.localIndex,
+                deviceId: this.deviceId,
             });
             await this.app.vault.adapter.write(this.localIndexPath, data);
         } catch (e) {
@@ -919,6 +1126,18 @@ export class SyncManager {
     private async smartPull(isSilent: boolean): Promise<boolean> {
         await this.log("[Smart Pull] Checking for remote changes...");
 
+        // Check for active merge locks from other devices FIRST
+        // This prevents race conditions where Changes API hasn't caught up yet
+        const commData = await this.loadCommunication();
+        const now = Date.now();
+        for (const [path, lock] of Object.entries(commData.mergeLocks)) {
+            if (lock.holder !== this.deviceId && lock.expiresAt > now) {
+                await this.log(
+                    `[Smart Pull] Active merge lock detected: ${path} by ${lock.holder} (expires in ${Math.round((lock.expiresAt - now) / 1000)}s)`,
+                );
+            }
+        }
+
         // --- FORCED CLEANUP: Wipe forbidden system directories ---
         // We only do this if a full cleanup is requested (e.g., startup).
         if (this.forceCleanupNextSync) {
@@ -977,6 +1196,9 @@ export class SyncManager {
 
         if (localIndexHash && remoteIndexHash && localIndexHash === remoteIndexHash) {
             await this.log("[Smart Pull] Index hash matches. No remote changes detected.");
+            // Sync confirmed - clear pending push/merge states
+            this.clearPendingPushStates();
+            await this.saveIndex();
             return false;
         }
 
@@ -1011,7 +1233,12 @@ export class SyncManager {
         }
 
         // Compare indexes to find changes
-        const toDownload: Array<{ path: string; fileId: string; hash?: string }> = [];
+        const toDownload: Array<{
+            path: string;
+            fileId: string;
+            hash?: string;
+            mergeLock?: { holder: string; expiresAt: number };
+        }> = [];
         const toDeleteLocal: string[] = [];
 
         // Find files to download or cleanup
@@ -1031,14 +1258,24 @@ export class SyncManager {
 
             if (!localBaseEntry) {
                 // New file on remote (we don't even have a base for it)
-                toDownload.push({ path, fileId: remoteEntry.fileId, hash: remoteEntry.hash });
+                toDownload.push({
+                    path,
+                    fileId: remoteEntry.fileId,
+                    hash: remoteEntry.hash,
+                    mergeLock: remoteEntry.mergeLock,
+                });
             } else if (
                 remoteEntry.hash &&
                 localBaseEntry.hash &&
                 remoteEntry.hash.toLowerCase() !== localBaseEntry.hash.toLowerCase()
             ) {
                 // Modified on remote (remote differs from our local base)
-                toDownload.push({ path, fileId: remoteEntry.fileId, hash: remoteEntry.hash });
+                toDownload.push({
+                    path,
+                    fileId: remoteEntry.fileId,
+                    hash: remoteEntry.hash,
+                    mergeLock: remoteEntry.mergeLock,
+                });
             }
         }
 
@@ -1058,6 +1295,8 @@ export class SyncManager {
 
         if (toDownload.length === 0 && toDeleteLocal.length === 0) {
             await this.log("[Smart Pull] No file changes detected.");
+            // Sync confirmed - clear pending push/merge states
+            this.clearPendingPushStates();
             // Update index metadata
             this.index[this.pluginDataPath] = {
                 fileId: remoteIndexMeta.id,
@@ -1079,7 +1318,7 @@ export class SyncManager {
                 const success = await this.pullFileSafely(item, isSilent, "Smart Pull");
                 if (success) {
                     completed++;
-                    await this.log(`[Smart Pull] [${completed}/${total}] Downloaded: ${item.path}`);
+                    await this.log(`[Smart Pull] [${completed}/${total}] Synced: ${item.path}`);
                 }
             });
         }
@@ -1222,6 +1461,9 @@ export class SyncManager {
 
         await this.log(`[Smart Pull] Changes API returned ${changes.changes.length} changes`);
 
+        // Load communication data for mergeLock checks
+        const commData = await this.loadCommunication();
+
         const tasks: (() => Promise<void>)[] = [];
         let completed = 0;
 
@@ -1280,6 +1522,27 @@ export class SyncManager {
                     continue;
                 }
 
+                // Check if another device is merging this file
+                // mergeLock is stored in communication.json for faster access
+                const mergeLock = commData.mergeLocks[cloudFile.path];
+                const now = Date.now();
+                if (mergeLock && mergeLock.holder !== this.deviceId && mergeLock.expiresAt > now) {
+                    await this.log(
+                        `[Smart Pull] Waiting: ${cloudFile.path} is being merged by ${mergeLock.holder} (expires in ${Math.round((mergeLock.expiresAt - now) / 1000)}s)`,
+                    );
+                    if (this.settings.showDetailedNotifications || !isSilent) {
+                        new Notice(
+                            `⏳ ${cloudFile.path.split("/").pop()}: ${this.t("noticeWaitOtherDeviceMerge") || "Waiting for other device to resolve merge..."}`,
+                        );
+                    }
+                    // Mark as pending conflict so next sync shows "merge result applied"
+                    if (this.localIndex[cloudFile.path]) {
+                        this.localIndex[cloudFile.path].pendingConflict = true;
+                        await this.saveLocalIndex();
+                    }
+                    continue; // Skip this file, wait for merge to complete
+                }
+
                 // Skip if local index hash matches (already synced by this client)
                 const localEntry = this.index[cloudFile.path];
                 if (
@@ -1287,6 +1550,22 @@ export class SyncManager {
                     cloudFile.hash &&
                     localEntry.hash.toLowerCase() === cloudFile.hash.toLowerCase()
                 ) {
+                    // Update lastAction to 'pull' to indicate sync is confirmed
+                    // This clears 'push' state so future remote updates won't trigger Safety Guard
+                    // ALSO update ancestorHash here - this is the ONLY safe place to confirm
+                    // that both Local and Remote agree on this hash.
+                    if (
+                        this.localIndex[cloudFile.path]?.lastAction === "push" ||
+                        this.localIndex[cloudFile.path]?.lastAction === "merge"
+                    ) {
+                        this.localIndex[cloudFile.path].lastAction = "pull";
+                        // NOW we can safely set ancestorHash - both sides confirmed to have this content
+                        this.localIndex[cloudFile.path].ancestorHash = cloudFile.hash;
+                        this.index[cloudFile.path].ancestorHash = cloudFile.hash;
+                        await this.log(
+                            `[Smart Pull] Sync confirmed for ${cloudFile.path}. ancestorHash updated to ${cloudFile.hash?.substring(0, 8)}`,
+                        );
+                    }
                     await this.log(`[Smart Pull] Skipping (hash match): ${cloudFile.path}`);
                     continue;
                 }
@@ -1295,7 +1574,7 @@ export class SyncManager {
                     const success = await this.pullFileSafely(cloudFile, isSilent, "Changes API");
                     if (success) {
                         completed++;
-                        await this.log(`[Smart Pull] Downloaded: ${cloudFile.path}`);
+                        await this.log(`[Changes API] Synced: ${cloudFile.path}`);
                     }
                 });
             }
@@ -1355,6 +1634,10 @@ export class SyncManager {
 
         await this.log(`[Smart Push] Pushing ${this.dirtyPaths.size} dirty files...`);
 
+        // Load communication data to check for active merge locks
+        const commData = await this.loadCommunication();
+        const now = Date.now();
+
         const uploadQueue: Array<{
             path: string;
             mtime: number;
@@ -1364,6 +1647,16 @@ export class SyncManager {
         const deleteQueue: string[] = [];
 
         for (const path of this.dirtyPaths) {
+            // Priority 0: Check if another device is currently merging this file
+            const mergeLock = commData.mergeLocks[path];
+            if (mergeLock && mergeLock.holder !== this.deviceId && mergeLock.expiresAt > now) {
+                await this.log(
+                    `[Smart Push] Skipping: ${path} is being merged by ${mergeLock.holder} (expires in ${Math.round((mergeLock.expiresAt - now) / 1000)}s)`,
+                );
+                // Don't remove from dirtyPaths - we'll retry next sync cycle
+                continue;
+            }
+
             // Priority 1: 完全に外部(専用ロジック)で管理するファイル。汎用ループでは一切触らない。
             if (this.isManagedSeparately(path)) {
                 continue;
@@ -1597,14 +1890,21 @@ export class SyncManager {
                             file.mtime,
                         );
 
-                        // SUCCESS: Update indices with REMOTE metadata (Remote is now the common state)
+                        // SUCCESS: Update indices with REMOTE metadata
+                        // IMPORTANT: Do NOT update ancestorHash here!
+                        // ancestorHash should only be updated when we CONFIRM that both Local and Remote
+                        // have the same content (i.e., during Pull when hash matches).
+                        // If we update ancestorHash here and another device pushes immediately after,
+                        // ancestorHash would equal localBase.hash, causing the 3-way merge to incorrectly
+                        // treat Local as "unchanged" and lose our pushed content.
+                        const previousAncestorHash = this.localIndex[file.path]?.ancestorHash;
                         const entry = {
                             fileId: uploaded.id,
                             mtime: file.mtime,
                             size: uploaded.size,
                             hash: uploaded.hash,
                             lastAction: "push" as const,
-                            ancestorHash: uploaded.hash, // Update to new common state after successful push
+                            ancestorHash: previousAncestorHash || uploaded.hash, // Preserve original ancestor, fallback for new files
                         };
                         this.index[file.path] = entry;
                         this.localIndex[file.path] = { ...entry };
@@ -2059,9 +2359,13 @@ export class SyncManager {
                 `[Merge] Found ${revisions.length} revisions: ${revisions.map((r) => r.hash?.substring(0, 8) || "no-hash").join(", ")}`,
             );
 
-            const baseRev = revisions.find(
-                (r) => r.hash && r.hash.toLowerCase() === baseHash.toLowerCase(),
-            );
+            // Find the MOST RECENT revision with matching hash (search from end)
+            // revisions array is ordered oldest-first, so we need findLast or reverse search
+            // Using slice().reverse().find() for compatibility with older JS targets
+            const baseRev = revisions
+                .slice()
+                .reverse()
+                .find((r) => r.hash && r.hash.toLowerCase() === baseHash.toLowerCase());
 
             if (!baseRev) {
                 await this.log(`[Merge] No base revision found matching hash ${baseHash}.`);
@@ -2088,10 +2392,15 @@ export class SyncManager {
                 `[Merge] Content lengths (raw/norm) - Base: ${baseContentStr.length}/${baseNorm.length}, Local: ${localContentStr.length}/${localNorm.length}, Remote: ${remoteContentStr.length}/${remoteNorm.length}`,
             );
 
+            // DEBUG: Output full content for debugging merge issues
+            await this.log(`[Merge DEBUG] Base Content:\n---\n${baseNorm}\n---`);
+            await this.log(`[Merge DEBUG] Local Content:\n---\n${localNorm}\n---`);
+            await this.log(`[Merge DEBUG] Remote Content:\n---\n${remoteNorm}\n---`);
+
             // 3. Perform Merge using improved 3-way line encoding
             const dmp = new diff_match_patch();
 
-            // RELAXED MATCHING WITH STRICT PROTECTION:
+            // RELAXED MATCHING WITH STRICT PROTECTION (Reverted):
             dmp.Match_Threshold = 0.5;
             dmp.Patch_DeleteThreshold = 0.5;
             dmp.Patch_Margin = 4;
@@ -2143,6 +2452,9 @@ export class SyncManager {
                     return null;
                 }
             }
+
+            // DEBUG: Output merged content
+            await this.log(`[Merge DEBUG] Final Merged Content:\n---\n${mergedText}\n---`);
 
             // =========================================================================
             // ADDED-LINE PROTECTION (Final Integrity Check)
@@ -2217,57 +2529,38 @@ export class SyncManager {
 
             let localIdx = -1;
             let remoteIdx = -1;
-            let earlyRemoteIdx = -1; // Earlier occurrence of remoteHash (before localIdx)
-            let earlyLocalIdx = -1; // Earlier occurrence of localHash (before remoteIdx)
 
-            // First pass: find last occurrences
+            // 1. Search full history for the LATEST occurrence of both versions.
+            // Using the latest occurrence is safer as it represents the most recent
+            // common point before divergence.
             for (let i = revisions.length - 1; i >= 0; i--) {
                 const hash = revisions[i].hash?.toLowerCase();
-                if (hash === localLower && localIdx === -1) {
-                    localIdx = i;
-                }
-                if (hash === remoteLower && remoteIdx === -1) {
-                    remoteIdx = i;
-                }
+                if (hash === localLower && localIdx === -1) localIdx = i;
+                if (hash === remoteLower && remoteIdx === -1) remoteIdx = i;
                 if (localIdx !== -1 && remoteIdx !== -1) break;
             }
 
-            await this.log(`[Merge] localIdx=${localIdx}, remoteIdx=${remoteIdx}`);
+            await this.log(
+                `[Merge] localIdx=${localIdx}, remoteIdx=${remoteIdx} (Latest Occurrences)`,
+            );
 
             if (localIdx === -1 || remoteIdx === -1) {
                 await this.log(`[Merge] Could not find both versions in history`);
                 return null;
             }
 
-            // Determine common ancestor
-            // Principle: The common ancestor must exist BEFORE both known versions in a linear history.
-            // min(localIdx, remoteIdx) might point to one of the versions themselves.
-            const pivotIdx = Math.min(localIdx, remoteIdx) - 1;
+            // Determine common ancestor index.
+            // In a linear history (like Google Drive file revisions), the older version (smaller index)
+            // is by definition the common ancestor from which the newer version (higher index) originated.
+            // We MUST NOT subtract 1 here, as that would pick an even older revision,
+            // potentially containing data that would be misidentified as "deleted" in the newer branch.
+            const pivotIdx = Math.min(localIdx, remoteIdx);
 
-            if (pivotIdx < 0) {
-                await this.log(`[Merge] No common ancestor found before both versions in history`);
-                return null;
-            }
-
-            // Search backwards from pivot to find a hash that is different from both current states
-            // (Safety check against weird history where same hash repeats)
-            for (let i = pivotIdx; i >= 0; i--) {
-                const candidateHash = revisions[i].hash?.toLowerCase();
-                if (
-                    candidateHash &&
-                    candidateHash !== localLower &&
-                    candidateHash !== remoteLower
-                ) {
-                    const foundHash = revisions[i].hash;
-                    await this.log(
-                        `[Merge] Selected true ancestor at index ${i}: ${foundHash?.substring(0, 8)} (localIdx=${localIdx}, remoteIdx=${remoteIdx})`,
-                    );
-                    return foundHash || null;
-                }
-            }
-
-            await this.log(`[Merge] Could not find a distinct ancestor hash in history`);
-            return null;
+            const foundHash = revisions[pivotIdx].hash;
+            await this.log(
+                `[Merge] Selected ancestor at index ${pivotIdx}: ${foundHash?.substring(0, 8)}`,
+            );
+            return foundHash || null;
         } catch (e) {
             await this.log(`[Merge] Error finding common ancestor: ${e}`);
             return null;
@@ -2389,16 +2682,41 @@ export class SyncManager {
             mtime?: number;
             size?: number;
         },
+
         isSilent: boolean,
         logPrefix: string,
     ): Promise<boolean> {
         const fileId = item.fileId || item.id;
         if (!fileId) return false;
 
+        const isText = item.path.endsWith(".md") || item.path.endsWith(".txt");
+
+        // EARLY MERGE LOCK CHECK:
+        // If another device is currently merging this file, we should wait for their result
+        // instead of proceeding with our own conflict detection/merge logic.
+        const lockStatus = await this.checkMergeLock(item.path);
+        if (lockStatus.locked) {
+            await this.log(
+                `[${logPrefix}] Skipping pull: ${item.path} is being merged by ${lockStatus.holder} (expires in ${lockStatus.expiresIn}s)`,
+            );
+            if (this.settings.showDetailedNotifications || !isSilent) {
+                new Notice(
+                    `⏳ ${item.path.split("/").pop()}: ${this.t("noticeWaitOtherDeviceMerge") || "Waiting for other device to resolve merge..."}`,
+                );
+            }
+            // Mark as pending conflict so next sync shows "merge result applied"
+            if (this.localIndex[item.path]) {
+                this.localIndex[item.path].pendingConflict = true;
+                await this.saveLocalIndex();
+            }
+            return false; // Wait for other device to finish
+        }
+
         try {
             // CONFLICT DETECTION
             const exists = await this.app.vault.adapter.exists(item.path);
             if (exists) {
+                this.syncingPaths.add(item.path);
                 try {
                     const localContent = await this.app.vault.adapter.readBinary(item.path);
                     const currentHash = md5(localContent);
@@ -2420,25 +2738,37 @@ export class SyncManager {
 
                     // Check if modified locally (New Local OR Modified Local)
                     // Comparison is against our local BASE state.
-                    let isModifiedLocally =
+                    const isActuallyModified =
                         !localBase ||
                         !localBase.hash ||
                         localBase.hash.toLowerCase() !== currentHash;
+                    let isModifiedLocally = isActuallyModified;
 
                     // SAFETY GUARD:
-                    // If we just pushed this file (lastAction=push), and now we receive a DIFFERENT version from remote,
-                    // it implies a conflict even if our disk file hasn't changed since the push.
-                    // The remote side might have overwritten our push without merging.
-                    // We must force a local merge check to recover potentially lost changes using history lookup.
+                    // If we just pushed (lastAction=push) or merged (lastAction=merge) this file,
+                    // and now we receive a DIFFERENT version from remote, it implies a conflict
+                    // even if our disk file hasn't changed since that action.
+                    // The remote side might have been updated while we were working.
+                    // We must force a local merge check to recover potentially lost changes.
+                    // EXCEPTION: If pendingConflict=true, another device is resolving the merge,
+                    // so we should just accept their result instead of triggering Safety Guard.
+                    let safetyGuardTriggered = false;
                     if (
                         !isModifiedLocally &&
-                        localBase?.lastAction === "push" &&
-                        hasRemoteConflict
+                        (localBase?.lastAction === "push" || localBase?.lastAction === "merge") &&
+                        hasRemoteConflict &&
+                        !localBase?.pendingConflict // Skip if waiting for other device's merge result
                     ) {
                         await this.log(
-                            `[${logPrefix}] Safety Guard: Detected remote change after our push. Forcing merge check to prevent data loss.`,
+                            `[${logPrefix}] Safety Guard: Detected remote change after our ${localBase?.lastAction}. Forcing merge check to prevent data loss.`,
                         );
+                        if (this.settings.showDetailedNotifications || !isSilent) {
+                            new Notice(
+                                `🔄 ${item.path.split("/").pop()}: ${this.t("noticeSafetyMerge") || "Safe-merging to protect recent changes..."}`,
+                            );
+                        }
                         isModifiedLocally = true;
+                        safetyGuardTriggered = true;
                     }
 
                     await this.log(
@@ -2450,14 +2780,14 @@ export class SyncManager {
                         // Content match check (False alarm / Already updated by other client)
                         if (item.hash && currentHash === item.hash.toLowerCase()) {
                             const stat = await this.app.vault.adapter.stat(item.path);
-                            // Preserve existing lastAction if available, otherwise mark as pull
-                            const existingAction = localBase?.lastAction;
+                            // Mark as 'pull' to indicate sync is complete.
+                            // This clears lastAction=push so future remote updates won't trigger Safety Guard.
                             const entry = {
                                 fileId: fileId,
                                 mtime: stat?.mtime || Date.now(),
                                 size: stat?.size || localContent.byteLength,
                                 hash: item.hash,
-                                lastAction: existingAction || ("pull" as const),
+                                lastAction: "pull" as const, // Sync confirmed, clear push state
                                 ancestorHash: item.hash, // Correctly set ancestor to current state
                             };
                             this.index[item.path] = entry;
@@ -2466,17 +2796,30 @@ export class SyncManager {
                             return true; // Already matched
                         }
 
-                        // KEY FIX: If local hasn't been modified (!isModifiedLocally), there's
-                        // nothing to merge - we should just accept the remote content.
-                        // Previous logic had exceptions for justPushed/justMerged, but these caused
-                        // infinite merge loops. If the file on disk hasn't changed (isModifiedLocally=false),
-                        // there's literally no user edit to protect - accept remote unconditionally.
-                        if (hasRemoteConflict && !isModifiedLocally) {
+                        // 3. REMOTE UPDATED, LOCAL UNMODIFIED
+                        // If the local file matches our last known common base (localBase.hash),
+                        // and we haven't performed any new (user) actions, it is SAFE
+                        // to accept the remote version regardless of what it contains.
+                        // IMPORTANT: Skip this if Safety Guard triggered - we need to merge instead!
+                        if (hasRemoteConflict && !isActuallyModified && !safetyGuardTriggered) {
+                            // Check if we were in a pending conflict state (waiting for merge resolution)
+                            const wasPendingConflict = localBase?.pendingConflict === true;
+
                             await this.log(
-                                `[${logPrefix}] Remote updated, local unmodified (not pushed). Accepting remote.`,
+                                `[${logPrefix}] Remote updated, local unmodified. Accepting remote version. (wasPendingConflict=${wasPendingConflict})`,
                             );
 
-                            // Prevent markDirty from re-adding this path during write
+                            if (this.settings.showDetailedNotifications || !isSilent) {
+                                if (wasPendingConflict) {
+                                    // We were waiting for another device to resolve the conflict
+                                    new Notice(`${this.t("noticeCheckOtherDevice")}`);
+                                } else {
+                                    // Normal pull - remote was simply updated
+                                    new Notice(
+                                        `${this.t("noticeFilePulled") || "📥 Pulled"}: ${item.path.split("/").pop()}`,
+                                    );
+                                }
+                            }
                             this.syncingPaths.add(item.path);
                             const remoteContent = await this.adapter.downloadFile(fileId);
                             await this.app.vault.adapter.writeBinary(item.path, remoteContent);
@@ -2488,209 +2831,195 @@ export class SyncManager {
                                 size: remoteContent.byteLength,
                                 hash: item.hash,
                                 lastAction: "pull" as const,
-                                ancestorHash: item.hash, // Set ancestor for future merges
+                                ancestorHash: item.hash,
+                                pendingConflict: false, // Clear the flag
                             };
                             this.index[item.path] = entry;
                             this.localIndex[item.path] = { ...entry };
-
-                            if (this.settings.showDetailedNotifications || !isSilent) {
-                                new Notice(
-                                    `${this.t("noticeFilePulled")}: ${item.path.split("/").pop()}`,
-                                );
-                            }
                             return true;
                         }
 
-                        // TRUE CONFLICT: Attempt 3-way merge if text file
-                        const remoteContent = await this.adapter.downloadFile(fileId);
-                        const isText = item.path.endsWith(".md") || item.path.endsWith(".txt");
+                        // 4. CONFLICT (Both Modified) -> Proceed to Merger with lock
+                        // We reach here if:
+                        // - remote content != local content
+                        // - AND local content has changed since the last known sync (isModifiedLocally = true)
 
                         if (isText && localBase?.hash) {
-                            const localContentStr = new TextDecoder().decode(localContent);
-                            const remoteContentStr = new TextDecoder().decode(remoteContent);
+                            // === DISTRIBUTED MERGE LOCK ===
+                            await this.log(
+                                `[${logPrefix}] Attempting to acquire merge lock for ${item.path}...`,
+                            );
 
-                            // PING-PONG LOOP PREVENTION: Check if both versions contain the same content
-                            // This happens when both devices merged the same changes but produced
-                            // slightly different orderings or whitespace, causing endless merge loops
-                            if (this.areSemanticallyEquivalent(localContentStr, remoteContentStr)) {
+                            const lockResult = await this.acquireMergeLock(item.path);
+                            if (!lockResult.acquired) {
                                 await this.log(
-                                    `[${logPrefix}] Ping-pong detected: Local and remote are semantically equivalent. Accepting remote to break loop.`,
+                                    `[${logPrefix}] Lock not acquired: ${item.path} is being handled by ${lockResult.holder} (expires in ${lockResult.expiresIn}s)`,
                                 );
-
-                                // Just accept remote version to break the loop
-                                await this.app.vault.adapter.writeBinary(item.path, remoteContent);
-
-                                const stat = await this.app.vault.adapter.stat(item.path);
-                                const entry = {
-                                    fileId: fileId,
-                                    mtime: stat?.mtime || Date.now(),
-                                    size: remoteContent.byteLength,
-                                    hash: item.hash,
-                                    lastAction: "pull" as const,
-                                    ancestorHash: item.hash, // Set to remote hash to establish new baseline
-                                };
-                                this.index[item.path] = entry;
-                                this.localIndex[item.path] = { ...entry };
-
                                 if (this.settings.showDetailedNotifications || !isSilent) {
                                     new Notice(
-                                        `${this.t("noticeFilePulled")}: ${item.path.split("/").pop()}`,
+                                        `⏳ ${item.path.split("/").pop()}: ${this.t("noticeWaitOtherDeviceMerge") || "Waiting for other device to resolve merge..."}`,
                                     );
                                 }
-                                return true;
+                                // Mark as pending conflict so next sync shows "merge result applied"
+                                if (this.localIndex[item.path]) {
+                                    this.localIndex[item.path].pendingConflict = true;
+                                }
+                                return false; // Let other device solve it
+                            }
+                            await this.log(`[${logPrefix}] Lock acquired successfully.`);
+
+                            if (this.settings.showDetailedNotifications || !isSilent) {
+                                new Notice(
+                                    `🔄 ${this.t("noticeMergingFile") || "Merging"}: ${item.path.split("/").pop()}`,
+                                );
                             }
 
-                            // Use ancestorHash as the common ancestor for 3-way merge
-                            // ancestorHash is set on pull and preserved on push
+                            // Use ancestorHash as common ancestor
                             let baseHash = localBase.ancestorHash;
                             let origin = "ancestorHash";
 
-                            // CRITICAL FIX: If the baseHash matches our local hash OR matches remote hash,
-                            // it means the "Base" is currently invalid for a 3-way merge.
+                            await this.log(
+                                `[${logPrefix}] Base selection: ancestorHash=${baseHash?.substring(0, 8) || "null"}, localBase.hash=${localBase.hash?.substring(0, 8) || "null"}, remote.hash=${item.hash?.substring(0, 8) || "null"}`,
+                            );
+
+                            // Validate Ancestor
                             const isBaseSameAsLocal =
                                 baseHash &&
                                 localBase.hash &&
                                 baseHash.toLowerCase() === localBase.hash.toLowerCase();
-
                             const isBaseSameAsRemote =
                                 baseHash &&
                                 item.hash &&
                                 baseHash.toLowerCase() === item.hash.toLowerCase();
 
-                            if (!baseHash || isBaseSameAsLocal || isBaseSameAsRemote) {
-                                await this.log(
-                                    `[${logPrefix}] Ancestor check required: baseSameAsLocal=${!!isBaseSameAsLocal}, baseSameAsRemote=${!!isBaseSameAsRemote}. Searching history...`,
-                                );
+                            // Determine if ancestorHash is valid for 3-way merge
+                            // We need history lookup if:
+                            // - ancestorHash is missing
+                            // - OR: ancestorHash is same as Local, BUT we have NO local changes (Safety Guard case)
+                            //      In this case, ancestorHash=Local implies we have no delta, but there IS a conflict,
+                            //      which means Remote diverged from an EARLIER version we don't know about.
+                            // - OR: ancestorHash is same as Remote (Remote is our ancestor, but we diverged)
+                            const needHistoryLookup =
+                                !baseHash ||
+                                (isBaseSameAsLocal && !isActuallyModified) ||
+                                isBaseSameAsRemote;
 
-                                // Fallback Logic: Reconstruct true ancestor from history
+                            if (needHistoryLookup) {
+                                await this.log(
+                                    `[${logPrefix}] ancestorHash invalid (missing=${!baseHash}, sameAsLocal=${isBaseSameAsLocal}, sameAsRemote=${isBaseSameAsRemote}). Searching history...`,
+                                );
                                 const computedAncestor = await this.findCommonAncestorHash(
                                     item.path,
                                     localBase.hash as string,
                                     item.hash || "",
                                 );
-
-                                // Validate the computed ancestor is actually different from current states
-                                if (
-                                    computedAncestor &&
-                                    computedAncestor.toLowerCase() !==
-                                        localBase.hash?.toLowerCase() &&
-                                    computedAncestor.toLowerCase() !== item.hash?.toLowerCase()
-                                ) {
+                                if (computedAncestor) {
                                     baseHash = computedAncestor;
-                                    origin = "history lookup (validated)";
-                                } else {
-                                    await this.log(
-                                        `[${logPrefix}] Failed to find valid distinct ancestor. Skipping merge to safe-rename.`,
-                                    );
-                                    baseHash = undefined; // Forces conflict file creation
+                                    origin = "history lookup";
                                 }
                             }
 
-                            await this.log(
-                                `[${logPrefix}] Conflict detected. Using ancestor: ${baseHash?.substring(0, 8) || "none"} (from ${origin})`,
-                            );
-
-                            // =========================================================================
-                            // SUBSET OPTIMIZATION (Anti-Regressive Merge)
-                            // =========================================================================
-                            if (isText && this.isContentSubset(remoteContentStr, localContentStr)) {
-                                const areIdentical = this.isContentSubset(
+                            if (!baseHash) {
+                                await this.log(
+                                    `[${logPrefix}] Genuinely unsolvable conflict. Falling back to conflict file.`,
+                                );
+                            } else {
+                                const baseHashFound = baseHash;
+                                const remoteContent = await this.adapter.downloadFile(fileId);
+                                const localContentStr = new TextDecoder().decode(localContent);
+                                const remoteContentStr = new TextDecoder().decode(remoteContent);
+                                const merged = await this.tryThreeWayMerge(
+                                    item.path,
                                     localContentStr,
+                                    baseHashFound,
                                     remoteContentStr,
                                 );
-                                if (areIdentical) {
-                                    await this.log(
-                                        `[${logPrefix}] Already up to date (Exact match or semantic subset). Updating index.`,
+
+                                if (merged) {
+                                    // SUCCESS: Write merged content
+                                    const mergedStr = new TextDecoder().decode(merged);
+                                    const normalizedMerged = mergedStr.replace(/\r\n/g, "\n");
+                                    await this.app.vault.adapter.writeBinary(item.path, merged);
+                                    const mergedHash = md5(
+                                        new TextEncoder().encode(normalizedMerged).buffer,
                                     );
-                                } else {
-                                    await this.log(
-                                        `[${logPrefix}] Anti-Regression: Preserving superior local and repair-pushing.`,
-                                    );
-                                    this.dirtyPaths.add(item.path); // ONLY mark dirty if we actually have MORE data than remote
+
+                                    const isIdenticalToRemote =
+                                        item.hash && mergedHash === item.hash.toLowerCase();
+                                    if (isIdenticalToRemote) {
+                                        await this.log(
+                                            `[${logPrefix}] Result matches remote. Marking as Synced.`,
+                                        );
+                                        const stat = await this.app.vault.adapter.stat(item.path);
+                                        // SUCCESS: Result matches remote
+                                        const entry = {
+                                            fileId,
+                                            mtime: stat?.mtime || Date.now(),
+                                            size: merged.byteLength,
+                                            hash: mergedHash,
+                                            lastAction: "pull" as const,
+                                            ancestorHash: mergedHash,
+                                        };
+                                        if (this.settings.showDetailedNotifications || !isSilent) {
+                                            new Notice(
+                                                `📥 ${item.path.split("/").pop()}: ${this.t("noticeRemoteMergeSynced") || "Remote merge result applied"}`,
+                                            );
+                                        }
+                                        this.index[item.path] = entry; // Cloud matches remote
+                                        this.localIndex[item.path] = { ...entry };
+                                    } else {
+                                        // Final lock verify before push using communication.json
+                                        const lockCheck = await this.checkMergeLock(item.path);
+                                        // If we still own the lock (not locked by another device), we're good
+                                        if (!lockCheck.locked) {
+                                            const stat = await this.app.vault.adapter.stat(
+                                                item.path,
+                                            );
+                                            // SUCCESS: Local merged, Cloud still has remote version
+                                            const entryLocal = {
+                                                fileId,
+                                                mtime: stat?.mtime || Date.now(),
+                                                size: merged.byteLength,
+                                                hash: mergedHash,
+                                                lastAction: "merge" as const,
+                                                ancestorHash: baseHashFound, // The version we merged AGAINST is our new base locally
+                                            };
+                                            const entryCloud = {
+                                                fileId,
+                                                mtime: item.mtime || Date.now(),
+                                                size: item.size || 0,
+                                                hash: item.hash,
+                                                lastAction: "pull" as const,
+                                                ancestorHash: item.hash,
+                                            };
+                                            this.index[item.path] = entryCloud; // IMPORTANT: Reflect what is ACTUALLY on cloud
+                                            this.localIndex[item.path] = entryLocal;
+                                            this.dirtyPaths.add(item.path);
+                                            await this.log(
+                                                `[${logPrefix}] Merged successfully. Queued for push.`,
+                                            );
+                                            if (
+                                                this.settings.showDetailedNotifications ||
+                                                !isSilent
+                                            ) {
+                                                const message = localBase?.pendingConflict
+                                                    ? this.t("noticeCheckOtherDevice")
+                                                    : this.t("noticeMergeSuccess");
+                                                new Notice(
+                                                    `${message}: ${item.path.split("/").pop()}`,
+                                                );
+                                            }
+                                        } else {
+                                            await this.log(
+                                                `[${logPrefix}] Lock lost during merge. Aborting.`,
+                                            );
+                                            return false;
+                                        }
+                                    }
+
+                                    await this.releaseMergeLock(item.path, logPrefix);
+                                    return true;
                                 }
-
-                                const entry = {
-                                    fileId: fileId,
-                                    mtime: item.mtime || Date.now(),
-                                    size: item.size || 0,
-                                    hash: item.hash?.toLowerCase() || "",
-                                    lastAction: "pull" as const,
-                                    ancestorHash: item.hash?.toLowerCase() || "",
-                                };
-                                this.index[item.path] = entry;
-                                this.localIndex[item.path] = { ...entry };
-                                return true;
-                            }
-
-                            const baseHashFound = baseHash; // Local copy for closure
-                            const merged = baseHashFound
-                                ? await this.tryThreeWayMerge(
-                                      item.path,
-                                      localContentStr,
-                                      baseHashFound,
-                                      remoteContentStr,
-                                  )
-                                : null;
-
-                            if (merged) {
-                                // Normalize line endings to LF before hashing to prevent endless loops
-                                // caused by CRLF (Windows) vs LF (Unix/Hash) mismatches.
-                                const mergedStr = new TextDecoder().decode(merged);
-                                const normalizedMerged = mergedStr.replace(/\r\n/g, "\n");
-
-                                // SUCCESS: Overwrite original with merged content
-                                await this.app.vault.adapter.writeBinary(item.path, merged);
-                                const mergedHash = md5(
-                                    new TextEncoder().encode(normalizedMerged).buffer,
-                                );
-
-                                // Check if the result is identical to remote (Fast-Forward case)
-                                // If local had no changes (Base == Local), then Result == Remote.
-                                // In this case, we shouldn't push it back (ping-pong loop).
-                                const isIdenticalToRemote =
-                                    item.hash && mergedHash === item.hash.toLowerCase();
-
-                                if (isIdenticalToRemote) {
-                                    await this.log(
-                                        `[${logPrefix}] Merged content matches remote. Treating as PULL (no push required).`,
-                                    );
-                                    // Treat as a pull
-                                    const stat = await this.app.vault.adapter.stat(item.path);
-                                    const entry = {
-                                        fileId: fileId,
-                                        mtime: stat?.mtime || Date.now(),
-                                        size: merged.byteLength,
-                                        hash: mergedHash,
-                                        lastAction: "pull" as const,
-                                        ancestorHash: mergedHash,
-                                    };
-                                    this.index[item.path] = entry;
-                                    this.localIndex[item.path] = { ...entry };
-                                    // DO NOT add to dirtyPaths (don't push back what we just got)
-                                } else {
-                                    // True merge (mixed content)
-                                    // Update index and mark as dirty so merged version is pushed
-                                    const stat = await this.app.vault.adapter.stat(item.path);
-                                    const entry = {
-                                        fileId: fileId,
-                                        mtime: stat?.mtime || Date.now(),
-                                        size: merged.byteLength,
-                                        hash: mergedHash, // Use normalized hash
-                                        lastAction: "merge" as const, // Mark as merged so smartPush knows to push it
-                                        ancestorHash: mergedHash, // CRITICAL: Move ancestor forward to the merged result
-                                    };
-                                    this.index[item.path] = entry;
-                                    this.localIndex[item.path] = { ...entry }; // Critical: update localIndex to allow subsequent push
-                                    this.dirtyPaths.add(item.path); // Only mark dirty if it's a new unique state
-                                }
-
-                                await this.log(`[${logPrefix}] Auto-merged: ${item.path}`);
-                                if (this.settings.showDetailedNotifications || !isSilent) {
-                                    new Notice(
-                                        `${this.t("noticeFileMerged")}: ${item.path.split("/").pop()}`,
-                                    );
-                                }
-                                return true;
                             }
 
                             // Merge failed - check if local changes are already included in remote
@@ -2727,7 +3056,7 @@ export class SyncManager {
 
                             // Main file remains as is. Update index to reflect the REMOTE hash we are ignoring/overwriting.
                             // This ensures the local file remains "modified" relative to the index's remote view.
-                            const entry = {
+                            const entryCloud = {
                                 fileId: fileId,
                                 mtime: item.mtime || Date.now(),
                                 size: item.size || 0,
@@ -2735,9 +3064,30 @@ export class SyncManager {
                                 lastAction: "pull" as const,
                                 ancestorHash: item.hash?.toLowerCase() || "",
                             };
-                            this.index[item.path] = entry;
-                            this.localIndex[item.path] = { ...entry };
+                            // Local entry should reflect the actual local state, with the ORIGINAL ancestor preserved
+                            // for proper 3-way merge if another conflict occurs before our push succeeds.
+                            const localStat = await this.app.vault.adapter.stat(item.path);
+                            const entryLocal = {
+                                fileId: fileId,
+                                mtime: localStat?.mtime || Date.now(),
+                                size: localStat?.size || localContent.byteLength,
+                                hash: currentHash,
+                                lastAction: "merge" as const, // Indicate merge state pending push
+                                ancestorHash:
+                                    localBase?.ancestorHash || item.hash?.toLowerCase() || "",
+                            };
+                            this.index[item.path] = entryCloud;
+                            this.localIndex[item.path] = entryLocal;
                             this.dirtyPaths.add(item.path); // Settle state (force push to cloud)
+
+                            if (isText && localBase?.hash) {
+                                await this.releaseMergeLock(item.path, logPrefix);
+                            }
+                            if (this.settings.showDetailedNotifications || !isSilent) {
+                                new Notice(
+                                    `${this.t("noticeConflictKeptLocal")}: ${conflictPath.split("/").pop()}`,
+                                );
+                            }
                         } else {
                             // STANDARD FALLBACK: Remote is primary, Local moves to conflict
                             const localFile = this.app.vault.getAbstractFileByPath(item.path);
@@ -2769,13 +3119,39 @@ export class SyncManager {
                             };
                             this.index[item.path] = entry;
                             this.localIndex[item.path] = { ...entry };
+
+                            // Ensure lock is released even if we fallback to conflict file
+                            if (isText && localBase?.hash) {
+                                await this.releaseMergeLock(item.path, logPrefix);
+                            }
+
+                            if (this.settings.showDetailedNotifications || !isSilent) {
+                                new Notice(
+                                    `${this.t("noticeConflictSaved")}: ${conflictPath.split("/").pop()}`,
+                                );
+                            }
+                        }
+                        return true;
+                    } else {
+                        // Both Local and Remote match our last known index state.
+                        await this.log(
+                            `[${logPrefix}] Skipping redundant update (already in sync): ${item.path}`,
+                        );
+
+                        // If we were waiting for conflict resolution but nothing changed (e.g. other device kept its local version as conflict file),
+                        // we should still notify the user to check the other device.
+                        if (this.localIndex[item.path]?.pendingConflict) {
+                            delete this.localIndex[item.path].pendingConflict;
+                            // Persist the state change
+                            await this.saveLocalIndex();
+
+                            if (this.settings.showDetailedNotifications || !isSilent) {
+                                new Notice(
+                                    `${this.t("noticeCheckOtherDevice")}: ${item.path.split("/").pop()}`,
+                                );
+                            }
                         }
 
-                        if (this.settings.showDetailedNotifications || !isSilent) {
-                            new Notice(
-                                `${this.t("noticeFileConflict")}: ${item.path.split("/").pop()}`,
-                            );
-                        }
                         return true;
                     }
                 } catch (err) {

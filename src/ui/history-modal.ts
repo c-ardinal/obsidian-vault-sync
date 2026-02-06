@@ -129,7 +129,24 @@ export class HistoryModal extends Modal {
                     cls: "revision-author",
                 });
             }
-            metaDiv.createDiv({ text: this.formatSize(rev.size), cls: "revision-size" });
+
+            const sizeHashDiv = metaDiv.createDiv({ cls: "revision-size-hash" });
+            sizeHashDiv.style.display = "flex";
+            sizeHashDiv.style.gap = "8px";
+            sizeHashDiv.style.opacity = "0.7";
+            sizeHashDiv.style.fontSize = "0.8em";
+
+            sizeHashDiv.createSpan({ text: this.formatSize(rev.size), cls: "revision-size" });
+
+            if (rev.hash) {
+                const hashSpan = sizeHashDiv.createSpan({
+                    text: `# ${rev.hash.substring(0, 8)}`,
+                    cls: "revision-hash",
+                });
+                hashSpan.title = rev.hash;
+                hashSpan.style.fontFamily = "monospace";
+                hashSpan.style.cursor = "help";
+            }
 
             li.addEventListener("click", () => {
                 this.selectedRevision = rev;
