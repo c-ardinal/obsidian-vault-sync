@@ -1,0 +1,3 @@
+new-selector {
+  color: red;
+}

@@ -212,8 +212,8 @@ if (binaryCases.length > 0) {
                     lastAction: "pull" as const,
                     ancestorHash: hash,
                 };
-                sm.index[filePath] = { ...entry };
-                sm.localIndex[filePath] = { ...entry };
+                (sm as any).index[filePath] = { ...entry };
+                (sm as any).localIndex[filePath] = { ...entry };
 
                 // Upload different content as "remote update"
                 const remoteContent = new Uint8Array([0x89, 0x50, 0x4e, 0x48])
@@ -222,11 +222,11 @@ if (binaryCases.length > 0) {
 
                 // Write different local content
                 device.app.vaultAdapter.setFile(filePath, "different");
-                sm.dirtyPaths.add(filePath);
+                (sm as any).dirtyPaths.add(filePath);
 
                 // Pull should NOT attempt merge (isText=false for binary extensions)
                 const remoteMeta = await cloud.getFileMetadata(filePath);
-                const result = await sm.pullFileSafely(remoteMeta!, true, "Test");
+                const result = await (sm as any).pullFileSafely(remoteMeta!, true, "Test");
 
                 // Binary files should create conflict file, not merge
                 const allFiles = device.listLocalFiles();

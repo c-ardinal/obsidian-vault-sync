@@ -2399,12 +2399,9 @@ export class SyncManager {
 
             // 3. Perform Merge using improved 3-way line encoding
             const dmp = new diff_match_patch();
-
-            // RELAXED MATCHING WITH STRICT PROTECTION (Reverted):
-            dmp.Match_Threshold = 0.5; // Slightly stricter to prevent misplacement
-            dmp.Match_Distance = 250; // Prefer closer matches (reasonable for Obsidian notes)
+            dmp.Match_Threshold = 0.5;
+            dmp.Match_Distance = 250;
             dmp.Patch_DeleteThreshold = 0.5;
-            dmp.Patch_Margin = 1; // Reduce context margin to prevent overlapping at head/tail
 
             // Custom encoding that accounts for ALL lines in Base, Local, AND Remote.
             const {
@@ -2417,49 +2414,7 @@ export class SyncManager {
             // Step 1: Compute diffs between Base and Remote (Changes made by Remote)
             const diffs = dmp.diff_main(charsBase, charsRemote, false);
 
-            // Step 2: Create patch derived from Remote changes
-            const patches = dmp.patch_make(charsBase, diffs);
-            await this.log(`[Merge] Attempting application of ${patches.length} patches.`);
-
-            // Step 3: Apply patch to Local content
-            let [mergedChars, successResults] = dmp.patch_apply(patches, charsLocal);
-
-            // ATOMIC FALLBACK: If any patch failed, try applying them one-by-one
-            const allSuccess = successResults.every((s: boolean) => s);
-            if (!allSuccess) {
-                await this.log(
-                    `[Merge] Some patches could not be applied in bulk. Attempting atomic recovery...`,
-                );
-                let currentMerged = charsLocal;
-                for (let i = 0; i < patches.length; i++) {
-                    const [res, success] = dmp.patch_apply([patches[i]], currentMerged);
-                    if (success[0]) {
-                        currentMerged = res;
-                    } else {
-                        await this.log(`[Merge] Patch #${i} failed even in atomic mode.`);
-                    }
-                }
-                mergedChars = currentMerged;
-            }
-
-            // Decode the merged ID string back to actual text lines
-            let mergedText = "";
-            for (let i = 0; i < mergedChars.length; i++) {
-                const idx = mergedChars.charCodeAt(i);
-                if (idx < lineArray.length) {
-                    mergedText += lineArray[idx];
-                } else {
-                    await this.log(`[Merge] CRITICAL: Encoding error during decode (idx=${idx})`);
-                    return null;
-                }
-            }
-
-            // DEBUG: Output merged content
-            await this.log(`[Merge DEBUG] Final Merged Content:\n---\n${mergedText}\n---`);
-
-            // =========================================================================
-            // ADDED-LINE PROTECTION (Final Integrity Check)
-            // =========================================================================
+            // Define Helper for Added-Line Protection check
             const getUniqueLines = (text: string, base: string) => {
                 const lines = text
                     .split("\n")
@@ -2473,27 +2428,90 @@ export class SyncManager {
                 );
                 return lines.filter((l) => !baseLines.has(l));
             };
-
             const localAddedLines = getUniqueLines(localNorm, baseNorm);
-            if (localAddedLines.length > 0) {
-                const mergedLines = new Set(
-                    mergedText
-                        .split("\n")
-                        .map((l) => l.trim())
-                        .filter((l) => l.length > 0),
-                );
-                for (const line of localAddedLines) {
-                    if (!mergedLines.has(line)) {
-                        await this.log(
-                            `[Merge] VALIDATION FAILED: Local line was lost: "${line.substring(0, 40)}..."`,
-                        );
-                        return null;
+
+            // ATTEMPT LOOP: Dynamic Patch_Margin retry strategy (4 -> 2 -> 1)
+            const margins = [4, 2, 1];
+            for (const margin of margins) {
+                await this.log(`[Merge] Attempting merge with Patch_Margin=${margin}...`);
+                dmp.Patch_Margin = margin;
+
+                // Step 2: Create patch derived from Remote changes
+                const patches = dmp.patch_make(charsBase, diffs);
+
+                // Step 3: Apply patch to Local content
+                let [mergedChars, successResults] = dmp.patch_apply(patches, charsLocal);
+
+                // ATOMIC FALLBACK: If any patch failed, try applying them one-by-one
+                const allSuccess = successResults.every((s: boolean) => s);
+                if (!allSuccess) {
+                    await this.log(
+                        `[Merge] Bulk apply failed (margin=${margin}). Attempting atomic recovery...`,
+                    );
+                    let currentMerged = charsLocal;
+                    for (let i = 0; i < patches.length; i++) {
+                        const [res, success] = dmp.patch_apply([patches[i]], currentMerged);
+                        if (success[0]) {
+                            currentMerged = res;
+                        }
                     }
+                    mergedChars = currentMerged;
+                }
+
+                // Decode the merged ID string back to actual text lines
+                let mergedText = "";
+                let decodeError = false;
+                for (let i = 0; i < mergedChars.length; i++) {
+                    const idx = mergedChars.charCodeAt(i);
+                    if (idx < lineArray.length) {
+                        mergedText += lineArray[idx];
+                    } else {
+                        await this.log(
+                            `[Merge] Encoding error during decode (idx=${idx}, margin=${margin})`,
+                        );
+                        decodeError = true;
+                        break;
+                    }
+                }
+                if (decodeError) continue;
+
+                // DEBUG: Output merged content
+                await this.log(
+                    `[Merge DEBUG] Merged Content (margin=${margin}):\n---\n${mergedText}\n---`,
+                );
+
+                // VALIDATION: ADDED-LINE PROTECTION (Final Integrity Check)
+                let validationFailed = false;
+                if (localAddedLines.length > 0) {
+                    const mergedLines = new Set(
+                        mergedText
+                            .split("\n")
+                            .map((l) => l.trim())
+                            .filter((l) => l.length > 0),
+                    );
+                    for (const line of localAddedLines) {
+                        if (!mergedLines.has(line)) {
+                            await this.log(
+                                `[Merge] VALIDATION FAILED (margin=${margin}): Local line was lost: "${line.substring(0, 40)}..."`,
+                            );
+                            validationFailed = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (!validationFailed) {
+                    await this.log(
+                        `[Merge] SUCCESS: Auto-merged ${path} with Patch_Margin=${margin}`,
+                    );
+                    return new TextEncoder().encode(mergedText).buffer;
                 }
             }
 
-            await this.log(`[Merge] SUCCESS: Auto-merged ${path} (Passed added-line protection)`);
-            return new TextEncoder().encode(mergedText).buffer;
+            await this.log(
+                `[Merge] FAIL: All Patch_Margin attempts failed for ${path}. (Safety Fallback)`,
+            );
+            return null;
         } catch (e) {
             await this.log(`[Merge] Error: ${e}`);
             return null;
@@ -3029,7 +3047,8 @@ export class SyncManager {
                         }
 
                         // =========================================================================
-                        // CONFLICT FALLBACK: Determine which version should be primary
+                        // CONFLICT FALLBACK: Remote version is always primary to ensure global stability.
+                        // Local version is moved to a conflict file.
                         // =========================================================================
                         const timestamp = new Date()
                             .toISOString()
@@ -3039,98 +3058,52 @@ export class SyncManager {
                         const baseName = item.path.substring(0, item.path.lastIndexOf("."));
                         const conflictPath = `${baseName} (Conflict ${timestamp}).${ext}`;
 
-                        // If we just pushed or merged (no local changes since then), then our local file
-                        // is likely the superior one, and remote is stale, regressive, or a bad merge result.
                         const isLocalProbablyBetter =
                             localBase?.lastAction === "push" || localBase?.lastAction === "merge";
 
-                        if (isLocalProbablyBetter) {
-                            await this.log(
-                                `[${logPrefix}] CONFLICT (Local Priority): Keeping local as main.`,
-                            );
+                        await this.log(
+                            `[${logPrefix}] CONFLICT (Remote Priority): Accepting remote version as main. ` +
+                                (isLocalProbablyBetter
+                                    ? "(Safety Guard/Recent action hit)"
+                                    : "(Standard dual modification)"),
+                        );
 
-                            // Download remote content into the CONFLICT file
-                            const remoteContent = await this.adapter.downloadFile(fileId);
-                            await this.ensureLocalFolder(conflictPath);
-                            await this.app.vault.adapter.writeBinary(conflictPath, remoteContent);
-                            this.dirtyPaths.add(conflictPath);
-
-                            // Main file remains as is. Update index to reflect the REMOTE hash we are ignoring/overwriting.
-                            // This ensures the local file remains "modified" relative to the index's remote view.
-                            const entryCloud = {
-                                fileId: fileId,
-                                mtime: item.mtime || Date.now(),
-                                size: item.size || 0,
-                                hash: item.hash?.toLowerCase() || "",
-                                lastAction: "pull" as const,
-                                ancestorHash: item.hash?.toLowerCase() || "",
-                            };
-                            // Local entry should reflect the actual local state, with the ORIGINAL ancestor preserved
-                            // for proper 3-way merge if another conflict occurs before our push succeeds.
-                            const localStat = await this.app.vault.adapter.stat(item.path);
-                            const entryLocal = {
-                                fileId: fileId,
-                                mtime: localStat?.mtime || Date.now(),
-                                size: localStat?.size || localContent.byteLength,
-                                hash: currentHash,
-                                lastAction: "merge" as const, // Indicate merge state pending push
-                                ancestorHash:
-                                    localBase?.ancestorHash || item.hash?.toLowerCase() || "",
-                            };
-                            this.index[item.path] = entryCloud;
-                            this.localIndex[item.path] = entryLocal;
-                            this.dirtyPaths.add(item.path); // Settle state (force push to cloud)
-
-                            if (isText && localBase?.hash) {
-                                await this.releaseMergeLock(item.path, logPrefix);
-                            }
-                            if (this.settings.showDetailedNotifications || !isSilent) {
-                                new Notice(
-                                    `${this.t("noticeConflictKeptLocal")}: ${conflictPath.split("/").pop()}`,
-                                );
-                            }
+                        // 1. Move local version to conflict path
+                        const localFile = this.app.vault.getAbstractFileByPath(item.path);
+                        if (localFile instanceof TFile) {
+                            await this.app.vault.rename(localFile, conflictPath);
                         } else {
-                            // STANDARD FALLBACK: Remote is primary, Local moves to conflict
-                            const localFile = this.app.vault.getAbstractFileByPath(item.path);
-                            if (localFile instanceof TFile) {
-                                await this.app.vault.rename(localFile, conflictPath);
-                                await this.log(
-                                    `[${logPrefix}] CONFLICT: Renamed local version to ${conflictPath}`,
-                                );
-                            } else {
-                                await this.app.vault.adapter.rename(item.path, conflictPath);
-                                await this.log(
-                                    `[${logPrefix}] CONFLICT (Direct): Renamed local version to ${conflictPath}`,
-                                );
-                            }
+                            await this.app.vault.adapter.rename(item.path, conflictPath);
+                        }
+                        await this.log(`[${logPrefix}] Renamed local version to ${conflictPath}`);
 
-                            // Download remote version to primary path
-                            const remoteContent = await this.adapter.downloadFile(fileId);
-                            await this.ensureLocalFolder(item.path);
-                            await this.app.vault.adapter.writeBinary(item.path, remoteContent);
+                        // 2. Download remote version to primary path
+                        const remoteContent = await this.adapter.downloadFile(fileId);
+                        await this.ensureLocalFolder(item.path);
+                        await this.app.vault.adapter.writeBinary(item.path, remoteContent);
 
-                            const stat = await this.app.vault.adapter.stat(item.path);
-                            const entry = {
-                                fileId: fileId,
-                                mtime: stat?.mtime || Date.now(),
-                                size: remoteContent.byteLength,
-                                hash: item.hash?.toLowerCase() || "",
-                                lastAction: "pull" as const,
-                                ancestorHash: item.hash?.toLowerCase() || "",
-                            };
-                            this.index[item.path] = entry;
-                            this.localIndex[item.path] = { ...entry };
+                        // 3. Update index to match remote state
+                        const stat = await this.app.vault.adapter.stat(item.path);
+                        const entry = {
+                            fileId: fileId,
+                            mtime: stat?.mtime || Date.now(),
+                            size: remoteContent.byteLength,
+                            hash: item.hash?.toLowerCase() || "",
+                            lastAction: "pull" as const,
+                            ancestorHash: item.hash?.toLowerCase() || "",
+                        };
+                        this.index[item.path] = entry;
+                        this.localIndex[item.path] = { ...entry };
 
-                            // Ensure lock is released even if we fallback to conflict file
-                            if (isText && localBase?.hash) {
-                                await this.releaseMergeLock(item.path, logPrefix);
-                            }
+                        // Ensure lock is released
+                        if (isText && localBase?.hash) {
+                            await this.releaseMergeLock(item.path, logPrefix);
+                        }
 
-                            if (this.settings.showDetailedNotifications || !isSilent) {
-                                new Notice(
-                                    `${this.t("noticeConflictSaved")}: ${conflictPath.split("/").pop()}`,
-                                );
-                            }
+                        if (this.settings.showDetailedNotifications || !isSilent) {
+                            new Notice(
+                                `${this.t("noticeConflictSaved") || "Conflict detected. Local file moved to"}: ${conflictPath.split("/").pop()}`,
+                            );
                         }
                         return true;
                     } else {
