@@ -202,6 +202,26 @@ export class SyncManager {
         }
     }
 
+    /**
+     * Helper to show notification and log it.
+     * @param message The message to display/log
+     * @param isDetailed If true, only show UI notice if showDetailedNotifications is enabled
+     * @param isSilent If true, suppress UI notice (but still log)
+     */
+    public async notify(message: string, isDetailed: boolean = false, isSilent: boolean = false) {
+        // Show if:
+        // 1. Manual sync (!isSilent)
+        // 2. OR it's a detailed message AND the user wants to see detailed messages even during auto-sync
+        const shouldShow = !isSilent || (isDetailed && this.settings.showDetailedNotifications);
+
+        if (shouldShow) {
+            new Notice(message);
+            await this.log(`[Notice] ${message}`);
+        } else {
+            await this.log(`[Silent Notice] ${message}`);
+        }
+    }
+
     private async ensureLocalFolder(filePath: string) {
         const parts = filePath.split("/");
         if (parts.length <= 1) return;
@@ -1087,7 +1107,7 @@ export class SyncManager {
     private async executeSmartSync(isSilent: boolean, scanVault: boolean): Promise<void> {
         try {
             await this.log("=== SMART SYNC START ===");
-            if (!isSilent) new Notice(`⚡ ${this.t("statusSyncing")}`);
+            await this.notify(`⚡ ${this.t("statusSyncing")}`, false, isSilent);
 
             // Clean up recentlyDeletedFromRemote: remove entries for files that no longer exist locally
             // (they were successfully deleted, so we don't need to track them anymore)
@@ -1109,8 +1129,8 @@ export class SyncManager {
             // === PUSH PHASE ===
             const pushed = await this.smartPush(isSilent, scanVault);
 
-            if (!pulled && !pushed && !isSilent) {
-                new Notice(this.t("noticeVaultUpToDate"));
+            if (!pulled && !pushed) {
+                await this.notify(this.t("noticeVaultUpToDate"), false, isSilent);
             }
 
             await this.log("=== SMART SYNC COMPLETED ===");
@@ -1338,9 +1358,7 @@ export class SyncManager {
 
                     completed++;
                     await this.log(`[Smart Pull] [${completed}/${total}] Deleted locally: ${path}`);
-                    if (this.settings.showDetailedNotifications || !isSilent) {
-                        new Notice(`🗑️ ${path.split("/").pop()}`);
-                    }
+                    await this.notify(`🗑️ ${path.split("/").pop()}`, true, isSilent);
                 } catch (e) {
                     await this.log(`[Smart Pull] Delete failed: ${path} - ${e}`);
                 }
@@ -1433,7 +1451,7 @@ export class SyncManager {
         await this.saveIndex();
 
         if (total > 0) {
-            new Notice(`⬇️ ${this.t("pullCompleted")} (${total} files)`);
+            await this.notify(`⬇️ ${this.t("noticePullCompleted")} (${total} files)`, false, false);
             return true;
         }
         return false;
@@ -1487,11 +1505,11 @@ export class SyncManager {
                             delete this.localIndex[pathToDelete]; // Added for consistency
                             completed++;
                             await this.log(`[Smart Pull] Deleted: ${pathToDelete}`);
-                            if (this.settings.showDetailedNotifications || !isSilent) {
-                                new Notice(
-                                    `${this.t("fileRemoved")}: ${pathToDelete.split("/").pop()}`,
-                                );
-                            }
+                            await this.notify(
+                                `${this.t("fileRemoved")}: ${pathToDelete.split("/").pop()}`,
+                                true,
+                                isSilent,
+                            );
                         } catch (e) {
                             await this.log(`[Smart Pull] Delete failed: ${pathToDelete} - ${e}`);
                         }
@@ -1531,8 +1549,10 @@ export class SyncManager {
                         `[Smart Pull] Waiting: ${cloudFile.path} is being merged by ${mergeLock.holder} (expires in ${Math.round((mergeLock.expiresAt - now) / 1000)}s)`,
                     );
                     if (this.settings.showDetailedNotifications || !isSilent) {
-                        new Notice(
+                        await this.notify(
                             `⏳ ${cloudFile.path.split("/").pop()}: ${this.t("noticeWaitOtherDeviceMerge") || "Waiting for other device to resolve merge..."}`,
+                            true,
+                            isSilent,
                         );
                     }
                     // Mark as pending conflict so next sync shows "merge result applied"
@@ -1595,7 +1615,11 @@ export class SyncManager {
         await this.saveIndex();
 
         if (tasks.length > 0) {
-            new Notice(`⬇️ ${this.t("noticePullCompleted")} (${tasks.length} changes)`);
+            await this.notify(
+                `⬇️ ${this.t("noticePullCompleted")} (${tasks.length} changes)`,
+                false,
+                false,
+            );
             return true;
         }
         return false;
@@ -1916,11 +1940,11 @@ export class SyncManager {
                         await this.log(
                             `[Smart Push] [${completed}/${totalOps}] Pushed: ${file.path}`,
                         );
-                        if (this.settings.showDetailedNotifications || !isSilent) {
-                            new Notice(
-                                `${this.t("noticeFilePushed")}: ${file.path.split("/").pop()}`,
-                            );
-                        }
+                        await this.notify(
+                            `${this.t("noticeFilePushed")}: ${file.path.split("/").pop()}`,
+                            true,
+                            isSilent,
+                        );
                     } catch (e) {
                         await this.log(`[Smart Push] Upload failed: ${file.path} - ${e}`);
                     }
@@ -2001,11 +2025,11 @@ export class SyncManager {
                             await this.log(
                                 `[Smart Push] [${completed}/${totalOps}] Deleted remote: ${path}`,
                             );
-                            if (this.settings.showDetailedNotifications || !isSilent) {
-                                new Notice(
-                                    `${this.t("noticeFileTrashed")}: ${path.split("/").pop()}`,
-                                );
-                            }
+                            await this.notify(
+                                `${this.t("noticeFileTrashed")}: ${path.split("/").pop()}`,
+                                true,
+                                isSilent,
+                            );
                         } else {
                             // Zombie entry: in localIndex but not in shared index.
                             // Already "deleted" on remote by others or previous run.
@@ -2069,7 +2093,11 @@ export class SyncManager {
             }
 
             if (completed > 0) {
-                new Notice(`⬆️ ${this.t("noticePushCompleted")} (${completed} files)`);
+                await this.notify(
+                    `⬆️ ${this.t("noticePushCompleted")} (${completed} files)`,
+                    false,
+                    false,
+                );
             }
             return true;
         } finally {
@@ -2681,7 +2709,7 @@ export class SyncManager {
 
             // Note: modifyBinary triggers 'modify' event, which calls markDirty via main.ts listener.
             // So we don't need to manually call markDirty.
-            new Notice(this.t("noticeFileRestored"));
+            await this.notify(this.t("noticeFileRestored"));
         } catch (e) {
             await this.log(`[History] Rollback failed: ${e}`);
             throw e;
@@ -2718,11 +2746,11 @@ export class SyncManager {
             await this.log(
                 `[${logPrefix}] Skipping pull: ${item.path} is being merged by ${lockStatus.holder} (expires in ${lockStatus.expiresIn}s)`,
             );
-            if (this.settings.showDetailedNotifications || !isSilent) {
-                new Notice(
-                    `⏳ ${item.path.split("/").pop()}: ${this.t("noticeWaitOtherDeviceMerge") || "Waiting for other device to resolve merge..."}`,
-                );
-            }
+            await this.notify(
+                `⏳ ${item.path.split("/").pop()}: ${this.t("noticeWaitOtherDeviceMerge") || "Waiting for other device to resolve merge..."}`,
+                true,
+                isSilent,
+            );
             // Mark as pending conflict so next sync shows "merge result applied"
             if (this.localIndex[item.path]) {
                 this.localIndex[item.path].pendingConflict = true;
@@ -2781,11 +2809,11 @@ export class SyncManager {
                         await this.log(
                             `[${logPrefix}] Safety Guard: Detected remote change after our ${localBase?.lastAction}. Forcing merge check to prevent data loss.`,
                         );
-                        if (this.settings.showDetailedNotifications || !isSilent) {
-                            new Notice(
-                                `🔄 ${item.path.split("/").pop()}: ${this.t("noticeSafetyMerge") || "Safe-merging to protect recent changes..."}`,
-                            );
-                        }
+                        await this.notify(
+                            `🔄 ${item.path.split("/").pop()}: ${this.t("noticeSafetyMerge") || "Safe-merging to protect recent changes..."}`,
+                            true,
+                            isSilent,
+                        );
                         isModifiedLocally = true;
                         safetyGuardTriggered = true;
                     }
@@ -2828,16 +2856,16 @@ export class SyncManager {
                                 `[${logPrefix}] Remote updated, local unmodified. Accepting remote version. (wasPendingConflict=${wasPendingConflict})`,
                             );
 
-                            if (this.settings.showDetailedNotifications || !isSilent) {
-                                if (wasPendingConflict) {
-                                    // We were waiting for another device to resolve the conflict
-                                    new Notice(`${this.t("noticeCheckOtherDevice")}`);
-                                } else {
-                                    // Normal pull - remote was simply updated
-                                    new Notice(
-                                        `${this.t("noticeFilePulled") || "📥 Pulled"}: ${item.path.split("/").pop()}`,
-                                    );
-                                }
+                            if (wasPendingConflict) {
+                                // We were waiting for another device to resolve the conflict
+                                await this.notify(this.t("noticeCheckOtherDevice"), true, isSilent);
+                            } else {
+                                // Normal pull - remote was simply updated
+                                await this.notify(
+                                    `${this.t("noticeFilePulled") || "📥 Pulled"}: ${item.path.split("/").pop()}`,
+                                    true,
+                                    isSilent,
+                                );
                             }
                             this.syncingPaths.add(item.path);
                             const remoteContent = await this.adapter.downloadFile(fileId);
@@ -2874,11 +2902,11 @@ export class SyncManager {
                                 await this.log(
                                     `[${logPrefix}] Lock not acquired: ${item.path} is being handled by ${lockResult.holder} (expires in ${lockResult.expiresIn}s)`,
                                 );
-                                if (this.settings.showDetailedNotifications || !isSilent) {
-                                    new Notice(
-                                        `⏳ ${item.path.split("/").pop()}: ${this.t("noticeWaitOtherDeviceMerge") || "Waiting for other device to resolve merge..."}`,
-                                    );
-                                }
+                                await this.notify(
+                                    `⏳ ${item.path.split("/").pop()}: ${this.t("noticeWaitOtherDeviceMerge") || "Waiting for other device to resolve merge..."}`,
+                                    true,
+                                    isSilent,
+                                );
                                 // Mark as pending conflict so next sync shows "merge result applied"
                                 if (this.localIndex[item.path]) {
                                     this.localIndex[item.path].pendingConflict = true;
@@ -2887,11 +2915,11 @@ export class SyncManager {
                             }
                             await this.log(`[${logPrefix}] Lock acquired successfully.`);
 
-                            if (this.settings.showDetailedNotifications || !isSilent) {
-                                new Notice(
-                                    `🔄 ${this.t("noticeMergingFile") || "Merging"}: ${item.path.split("/").pop()}`,
-                                );
-                            }
+                            await this.notify(
+                                `🔄 ${this.t("noticeMergingFile") || "Merging"}: ${item.path.split("/").pop()}`,
+                                true,
+                                isSilent,
+                            );
 
                             // Use ancestorHash as common ancestor
                             let baseHash = localBase.ancestorHash;
@@ -2979,11 +3007,11 @@ export class SyncManager {
                                             lastAction: "pull" as const,
                                             ancestorHash: mergedHash,
                                         };
-                                        if (this.settings.showDetailedNotifications || !isSilent) {
-                                            new Notice(
-                                                `📥 ${item.path.split("/").pop()}: ${this.t("noticeRemoteMergeSynced") || "Remote merge result applied"}`,
-                                            );
-                                        }
+                                        await this.notify(
+                                            `📥 ${item.path.split("/").pop()}: ${this.t("noticeRemoteMergeSynced") || "Remote merge result applied"}`,
+                                            true,
+                                            isSilent,
+                                        );
                                         this.index[item.path] = entry; // Cloud matches remote
                                         this.localIndex[item.path] = { ...entry };
                                     } else {
@@ -3017,17 +3045,13 @@ export class SyncManager {
                                             await this.log(
                                                 `[${logPrefix}] Merged successfully. Queued for push.`,
                                             );
-                                            if (
-                                                this.settings.showDetailedNotifications ||
-                                                !isSilent
-                                            ) {
-                                                const message = localBase?.pendingConflict
-                                                    ? this.t("noticeCheckOtherDevice")
-                                                    : this.t("noticeMergeSuccess");
-                                                new Notice(
-                                                    `${message}: ${item.path.split("/").pop()}`,
-                                                );
-                                            }
+                                            // Both cases (normal merge or resolving pending conflict) are successful merges.
+                                            // The timing of noticeCheckOtherDevice was confusing users.
+                                            await this.notify(
+                                                `${this.t("noticeMergeSuccess")}: ${item.path.split("/").pop()}`,
+                                                true,
+                                                isSilent,
+                                            );
                                         } else {
                                             await this.log(
                                                 `[${logPrefix}] Lock lost during merge. Aborting.`,
@@ -3100,11 +3124,11 @@ export class SyncManager {
                             await this.releaseMergeLock(item.path, logPrefix);
                         }
 
-                        if (this.settings.showDetailedNotifications || !isSilent) {
-                            new Notice(
-                                `${this.t("noticeConflictSaved") || "Conflict detected. Local file moved to"}: ${conflictPath.split("/").pop()}`,
-                            );
-                        }
+                        await this.notify(
+                            `${this.t("noticeConflictSaved") || "Conflict detected. Local file moved to"}: ${conflictPath.split("/").pop()}`,
+                            true,
+                            isSilent,
+                        );
                         return true;
                     } else {
                         // Both Local and Remote match our last known index state.
@@ -3119,11 +3143,13 @@ export class SyncManager {
                             // Persist the state change
                             await this.saveLocalIndex();
 
-                            if (this.settings.showDetailedNotifications || !isSilent) {
-                                new Notice(
-                                    `${this.t("noticeCheckOtherDevice")}: ${item.path.split("/").pop()}`,
-                                );
-                            }
+                            // If we were waiting for conflict resolution and content now matches,
+                            // the other device successfully pushed the merge result.
+                            await this.notify(
+                                `${this.t("noticeRemoteMergeSynced")}: ${item.path.split("/").pop()}`,
+                                true,
+                                isSilent,
+                            );
                         }
 
                         return true;
@@ -3154,9 +3180,11 @@ export class SyncManager {
             this.index[item.path] = entry;
             this.localIndex[item.path] = { ...entry };
 
-            if (this.settings.showDetailedNotifications || !isSilent) {
-                new Notice(`${this.t("noticeFilePulled")}: ${item.path.split("/").pop()}`);
-            }
+            await this.notify(
+                `${this.t("noticeFilePulled")}: ${item.path.split("/").pop()}`,
+                true,
+                isSilent,
+            );
             return true;
         } catch (e) {
             await this.log(`[${logPrefix}] Pull failed: ${item.path} - ${e}`);

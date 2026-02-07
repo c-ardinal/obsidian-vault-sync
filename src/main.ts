@@ -1,6 +1,5 @@
 import {
     App,
-    Notice,
     Plugin,
     PluginSettingTab,
     Setting,
@@ -80,20 +79,10 @@ const i18n: Record<string, Record<string, string>> = {
         noticeAuthFailed: "Auth failed",
         noticePushCompleted: "✅ Push completed.",
         noticePullCompleted: "✅ Pull completed.",
-        noticeNothingToPush: "✅ Cloud is already up to date.",
-        noticeNothingToPull: "✅ Local vault is already up to date.",
         noticeVaultUpToDate: "✅ Vault is up to date (Index verified).",
-        noticeFolderCreated: "📁 Created folder",
         noticeFilePushed: "📤 Pushed",
         noticeFilePulled: "📥 Pulled",
         noticeFileTrashed: "🗑️ Trashed",
-        noticeFileRemoved: "🗑️ Removed",
-        noticeErrRemoteEmpty: "⚠️ Remote file list empty. Orphan cleanup skipped.",
-        noticeErrOrphanAborted: "⚠️ Orphan cleanup aborted: too many files affected.",
-        noticeOrphanMoved: "🧹 Orphan moved",
-        noticeOrphansMore: "and more orphans moved.",
-        noticeOrphansDone: "orphan files moved to",
-        noticeFileMerged: "✅ Auto-merged",
         noticeWaitOtherDeviceMerge: "Waiting for other device to resolve conflict...",
         noticeMergingFile: "Merging",
         noticeMergeSuccess: "Merge auto-resolved",
@@ -102,7 +91,6 @@ const i18n: Record<string, Record<string, string>> = {
         noticeRemoteMergeSynced: "Remote merge result applied",
         noticeSafetyMerge: "Protective merge: Ensuring recent changes are not lost...",
         noticeConflictSaved: "⚠️ Conflict: Local preserved as conflict file, Remote pulled",
-        noticeConflictKeptLocal: "⚠️ Conflict: Remote changes saved to conflict file, Local kept",
         noticeSavedKeepForever: "📌 Saved: Keep Forever",
         noticeFailedToSave: "❌ Failed to save",
         noticeFileRestored: "✅ File restored. Syncing changes...",
@@ -199,21 +187,10 @@ const i18n: Record<string, Record<string, string>> = {
         noticeAuthFailed: "認証に失敗しました",
         noticePushCompleted: "✅ アップロード完了",
         noticePullCompleted: "✅ ダウンロード完了",
-        noticeNothingToPush: "✅ クラウドは最新の状態です",
-        noticeNothingToPull: "✅ ローカルは最新の状態です",
         noticeVaultUpToDate: "✅ すべて最新の状態です",
-        noticeFolderCreated: "📁 フォルダを作成しました",
         noticeFilePushed: "📤 アップロード",
         noticeFilePulled: "📥 ダウンロード",
-        noticeFileTrashed: "🗑️ 削除 (リモート)",
-        noticeFileRemoved: "🗑️ 削除 (ローカル)",
-        noticeErrRemoteEmpty: "⚠️ リモート一覧が空のため、クリーンアップを中止しました",
-        noticeErrOrphanAborted:
-            "⚠️ 安全のためクリーンアップを中止しました（対象ファイルが多すぎます）",
-        noticeOrphanMoved: "🧹 未管理ファイルを移動しました",
-        noticeOrphansMore: "件の未管理ファイルを移動しました",
-        noticeOrphansDone: "件のファイルを移動しました：",
-        noticeFileMerged: "✅ 自動マージ",
+        noticeFileTrashed: "🗑️ 削除",
         noticeWaitOtherDeviceMerge: "他のデバイスが競合を解決するのを待機しています...",
         noticeMergingFile: "マージ中",
         noticeMergeSuccess: "マージが自動解決されました",
@@ -222,8 +199,6 @@ const i18n: Record<string, Record<string, string>> = {
         noticeRemoteMergeSynced: "他デバイスでの競合解決結果を反映しました",
         noticeSafetyMerge: "保護マージ中: 最新の変更が失われないよう確認しています...",
         noticeConflictSaved: "⚠️ 競合: ローカル版を保護し、リモート版を反映しました",
-        noticeConflictKeptLocal:
-            "⚠️ 競合: 現在の変更を優先しました。リモート版を別ファイルに保存しました",
         noticeSavedKeepForever: "📌 保存完了: 無期限",
         noticeFailedToSave: "❌ 保存に失敗しました",
         noticeFileRestored: "✅ ファイルを復元しました。同期を開始します...",
@@ -352,6 +327,8 @@ export default class VaultSync extends Plugin {
             t,
         );
 
+        await this.syncManager.log(`=== Plugin Startup: version=${this.manifest.version} ===`);
+
         await this.syncManager.loadIndex();
 
         // Register Activity Callbacks for Auto-Sync Animation
@@ -400,14 +377,16 @@ export default class VaultSync extends Plugin {
         this.addCommand({
             id: "sync-vault",
             name: t("labelSyncCommand"),
-            callback: () => {
+            callback: async () => {
                 if (this.syncRibbonIconEl) {
-                    this.performSyncOperation(
+                    await this.performSyncOperation(
                         [{ element: this.syncRibbonIconEl, originalIcon: "sync" }],
-                        () => this.syncManager.requestSmartSync(false),
+                        async () => {
+                            await this.syncManager.requestSmartSync(false);
+                        },
                     );
                 } else {
-                    this.syncManager.requestSmartSync(false);
+                    await this.syncManager.requestSmartSync(false);
                 }
             },
         });
@@ -416,7 +395,7 @@ export default class VaultSync extends Plugin {
             id: "force-full-scan",
             name: t("labelFullAudit"),
             callback: async () => {
-                new Notice(t("statusScanningLocalFiles")); // Reuse existing message or add new one
+                await this.syncManager.notify(t("statusScanningLocalFiles"));
                 await this.syncManager.requestBackgroundScan(false);
             },
         });
@@ -765,7 +744,7 @@ class VaultSyncSettingTab extends PluginSettingTab {
                             tokens.accessToken,
                             tokens.refreshToken,
                         );
-                        new Notice(t("noticeAuthSuccess"));
+                        await this.plugin.syncManager.notify(t("noticeAuthSuccess"));
                         this.display();
                     }
                 }),
@@ -807,10 +786,10 @@ class VaultSyncSettingTab extends PluginSettingTab {
                             tokens.accessToken,
                             tokens.refreshToken,
                         );
-                        new Notice(t("noticeAuthSuccess"));
+                        await this.plugin.syncManager.notify(t("noticeAuthSuccess"));
                         this.display();
                     } catch (e) {
-                        new Notice(
+                        await this.plugin.syncManager.notify(
                             `${t("noticeAuthFailed")}: ${e instanceof Error ? e.message : String(e)}`,
                         );
                     }

@@ -2,7 +2,6 @@ import {
     App,
     Modal,
     TFile,
-    Notice,
     ButtonComponent,
     setIcon,
     DropdownComponent,
@@ -213,12 +212,14 @@ export class HistoryModal extends Modal {
                                     this.selectedRevision!.id,
                                     newVal,
                                 );
-                                new Notice(
+                                await this.syncManager.notify(
                                     `${this.syncManager.t("noticeSavedKeepForever")}: ${newVal}`,
                                 );
                                 this.render();
                             } catch (err) {
-                                new Notice(`${this.syncManager.t("noticeFailedToSave")}: ${err}`);
+                                await this.syncManager.notify(
+                                    `${this.syncManager.t("noticeFailedToSave")}: ${err}`,
+                                );
                                 this.selectedRevision!.keepForever = !newVal; // Revert
                                 this.render();
                             }
