@@ -128,6 +128,17 @@ export class MockVault {
     async createFolder(path: string): Promise<void> {
         await this.adapter.mkdir(path);
     }
+
+    getFiles(): TFile[] {
+        const files: TFile[] = [];
+        for (const path of this.adapter.listAllFiles()) {
+            const tf = this.getAbstractFileByPath(path);
+            if (tf instanceof TFile) {
+                files.push(tf);
+            }
+        }
+        return files;
+    }
 }
 
 /**

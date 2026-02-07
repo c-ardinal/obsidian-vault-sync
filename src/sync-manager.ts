@@ -140,6 +140,21 @@ export class SyncManager {
 
     private onActivityStart: () => void = () => {};
     private onActivityEnd: () => void = () => {};
+    private isSpinning = false;
+
+    private startActivity() {
+        if (!this.isSpinning) {
+            this.isSpinning = true;
+            this.onActivityStart();
+        }
+    }
+
+    private endActivity() {
+        if (this.isSpinning) {
+            this.isSpinning = false;
+            this.onActivityEnd();
+        }
+    }
 
     private syncRequestedWhileSyncing: boolean = false;
     private nextSyncParams: { isSilent: boolean; scanVault: boolean } | null = null;
@@ -1143,7 +1158,9 @@ export class SyncManager {
      * - Push: Upload dirty files
      */
     private async executeSmartSync(isSilent: boolean, scanVault: boolean): Promise<void> {
-        this.onActivityStart();
+        if (!isSilent) {
+            this.startActivity();
+        }
         try {
             await this.log("=== SMART SYNC START ===");
             await this.notify(`⚡ ${this.t("statusSyncing")}`, false, isSilent);
@@ -1177,7 +1194,7 @@ export class SyncManager {
             await this.log(`Smart Sync failed: ${e}`);
             throw e;
         } finally {
-            this.onActivityEnd();
+            this.endActivity();
         }
     }
 
@@ -1487,11 +1504,11 @@ export class SyncManager {
         }
 
         if (tasks.length > 0) {
-            // this.onActivityStart();
+            this.startActivity();
             try {
                 await this.runParallel(tasks);
             } finally {
-                // this.onActivityEnd();
+                // Keep spinning until executeSmartSync finishes
             }
         }
 
@@ -1655,11 +1672,11 @@ export class SyncManager {
         }
 
         if (tasks.length > 0) {
-            // this.onActivityStart();
+            this.startActivity();
             try {
                 await this.runParallel(tasks);
             } finally {
-                // this.onActivityEnd();
+                // Keep spinning until executeSmartSync finishes
             }
         }
 
@@ -1705,9 +1722,56 @@ export class SyncManager {
             }
         }
 
+        // === INFER DELETED FOLDERS ===
+        // Startup Scan/Full Scan only detects missing files, not missing folders.
+        // We must walk up the tree of missing files to find their missing folders.
+        if (this.dirtyPaths.size > 0) {
+            const checkedFolders = new Set<string>();
+            const missingFiles: string[] = [];
+
+            // Identify missing files that were previously synced
+            for (const path of this.dirtyPaths) {
+                if (this.index[path]) {
+                    // Quick check using adapter (async)
+                    // We can batch this or just do it sequentially (robustness > speed here)
+                    const exists = await this.app.vault.adapter.exists(path);
+                    if (!exists) {
+                        missingFiles.push(path);
+                    }
+                }
+            }
+
+            for (const path of missingFiles) {
+                let folder = path.substring(0, path.lastIndexOf("/"));
+                while (folder) {
+                    if (checkedFolders.has(folder)) break; // Optimization
+                    if (this.shouldIgnore(folder)) break;
+                    if (this.deletedFolders.has(folder)) {
+                        checkedFolders.add(folder);
+                        break;
+                    }
+
+                    const exists = await this.app.vault.adapter.exists(folder);
+                    // Do not mark as checked immediately, wait for existence check result logic
+
+                    if (!exists) {
+                        // Folder is missing locally, mark for remote deletion
+                        this.deletedFolders.add(folder);
+                        await this.log(`[Smart Push] Inferred deleted folder: ${folder}`);
+                        // Continue walking up to check parent
+                        folder = folder.substring(0, folder.lastIndexOf("/"));
+                    } else {
+                        // Folder exists, stop walking up
+                        break;
+                    }
+                }
+            }
+        }
+
         // === FOLDER DELETION PHASE ===
         let folderDeletedCount = 0;
         if (this.deletedFolders.size > 0) {
+            this.startActivity(); // Spin if folder deletion needed
             await this.log(
                 `[Smart Push] Processing ${this.deletedFolders.size} deleted folder(s)...`,
             );
@@ -1817,6 +1881,23 @@ export class SyncManager {
                 if (exists) {
                     const stat = await this.app.vault.adapter.stat(path);
                     if (stat) {
+                        // NEW: Handle folders
+                        if (stat.type === "folder") {
+                            try {
+                                // Create folder on remote
+                                await this.adapter.ensureFoldersExist([path]);
+                                await this.log(`[Smart Push] Synced folder: ${path}`);
+                                // Remove from dirty paths as it's handled
+                                this.dirtyPaths.delete(path);
+                                // Note: We don't index folders, so nothing to update in index
+                                return;
+                            } catch (e) {
+                                await this.log(`[Smart Push] Failed to sync folder ${path}: ${e}`);
+                                return;
+                            }
+                        }
+
+                        // ... file handling continues ...
                         // OPTIONAL: Double check hash one last time before upload queue?
                         // But scan already did it. If markDirty came from event, we might want to check here.
                         // For now, let's calculate hash to store in queue so we don't have to read file twice if possible,
@@ -1905,13 +1986,17 @@ export class SyncManager {
                 }
             });
         }
-        await this.runParallel(dirtyPathTasks, 20);
+        if (dirtyPathTasks.length > 0) {
+            await this.runParallel(dirtyPathTasks, 20);
+        }
 
         const totalOps = uploadQueue.length + deleteQueue.length;
         if (totalOps === 0 && folderDeletedCount === 0) {
             await this.log("[Smart Push] No changes after filtering.");
             return false;
         }
+
+        this.startActivity(); // Spin for upload/delete work
 
         // this.onActivityStart();
         try {

@@ -1,4 +1,4 @@
-$DEST_PATH = "C:\_Workspace\obsidian\Dreamlands\.obsidian\plugins\obsidian-vault-sync"
+$DEST_PATH = "C:\_Workspace\obsidian\PluginTest\.obsidian\plugins\obsidian-vault-sync"
 
 Write-Host "=== STARTING TESTS ===" -ForegroundColor Cyan
 # テスト実行 (エラーがあれば停止)

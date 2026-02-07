@@ -266,6 +266,8 @@ interface VaultSyncSettings {
 
     // Security
     encryptionSecret: string;
+    // Internal State
+    hasCompletedFirstSync: boolean;
 }
 
 const DEFAULT_SETTINGS: VaultSyncSettings = {
@@ -283,6 +285,7 @@ const DEFAULT_SETTINGS: VaultSyncSettings = {
     cloudRootFolder: "ObsidianVaultSync",
     exclusionPatterns: ".git\n.svn\n.hg\n.bzr",
     encryptionSecret: "",
+    hasCompletedFirstSync: false,
 };
 
 export default class VaultSync extends Plugin {
@@ -355,8 +358,15 @@ export default class VaultSync extends Plugin {
                     this.syncManager.log(
                         "Startup grace period ended. Triggering initial Smart Sync.",
                     );
-                    // Use Smart Sync for faster startup (O(1) check), but enable vault scan (O(N)) for startup
-                    await this.syncManager.requestSmartSync(false, true);
+
+                    // First time sync -> Loud (notify + icon spin). Subsequent -> Silent.
+                    const isFirstSync = !this.settings.hasCompletedFirstSync;
+                    await this.syncManager.requestSmartSync(!isFirstSync, true);
+
+                    if (isFirstSync) {
+                        this.settings.hasCompletedFirstSync = true;
+                        this.saveSettings();
+                    }
                 }, this.settings.startupDelaySec * 1000);
             } else {
                 this.isReady = true;
@@ -513,7 +523,8 @@ export default class VaultSync extends Plugin {
         this.registerEvent(
             this.app.vault.on("create", (file) => {
                 if (!this.isReady) return;
-                if (!(file instanceof TFile)) return;
+                // Allow both TFile and TFolder
+                // if (!(file instanceof TFile)) return;
                 if (this.syncManager.shouldIgnore(file.path)) return;
 
                 this.syncManager.markDirty(file.path);
