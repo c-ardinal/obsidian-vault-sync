@@ -1,0 +1,64 @@
+name: "C1-C2: Conflict Detection Scenarios"
+description: "C1: Detection just before upload. C2: Safety Guard detection during pull."
+setup:
+    files:
+        "notes/c1.md": "Base C1\n"
+        "notes/c2.md": "Base C2\n"
+    devices:
+        - name: "DeviceA"
+          id: "dev_a"
+        - name: "DeviceB"
+          id: "dev_b"
+    synced: true
+
+steps:
+    # C1: Pre-push detection
+    # 1. B edits and pushes C1 (A doesn't know yet)
+    - device: "DeviceB"
+      action: "edit"
+      path: "notes/c1.md"
+      content: "Base C1\nB changed\n"
+    - device: "DeviceB"
+      action: "push"
+      path: "notes/c1.md"
+
+    # 2. A edits C1 locally
+    - device: "DeviceA"
+      action: "edit"
+      path: "notes/c1.md"
+      content: "Base C1\nA changed\n"
+
+    # 3. A tries to push -> Should detect conflict and auto-merge
+    - device: "DeviceA"
+      action: "push"
+      path: "notes/c1.md"
+      expect:
+          pushed: false
+          conflict: true
+          lastAction: "merge"
+          localContent: "Base C1\nB changed\nA changed\n"
+
+    # C2: Safety Guard (Pull-time detection)
+    # 1. B edits and pushes C2
+    - device: "DeviceB"
+      action: "edit"
+      path: "notes/c2.md"
+      content: "Base C2\nB changed\n"
+    - device: "DeviceB"
+      action: "push"
+      path: "notes/c2.md"
+
+    # 2. A edits C2 locally
+    - device: "DeviceA"
+      action: "edit"
+      path: "notes/c2.md"
+      content: "Base C2\nA changed\n"
+
+    # 3. A performs pull -> Safety Guard should trigger merge
+    - device: "DeviceA"
+      action: "pull"
+      path: "notes/c2.md"
+      expect:
+          pulled: true
+          lastAction: "merge"
+          localContent: "Base C2\nB changed\nA changed\n"

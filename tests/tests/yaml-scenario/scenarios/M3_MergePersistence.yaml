@@ -1,0 +1,43 @@
+name: "M3: Merge Persistence"
+description: "Verifies that correct merge result is saved and prioritized for push in the next sync cycle."
+setup:
+    files:
+        "bug.md": "Base\n"
+    devices:
+        - name: "Win"
+          id: "dev_win"
+        - name: "Mac"
+          id: "dev_mac"
+    synced: true
+
+steps:
+    - device: "Win"
+      action: "edit"
+      path: "bug.md"
+      content: "Base\nAdded by Win\n"
+
+    - device: "Win"
+      action: "push"
+      path: "bug.md"
+      expect:
+          pushed: true
+
+    - device: "Mac"
+      action: "edit"
+      path: "bug.md"
+      content: "Base\nAdded by Mac\n"
+
+    - device: "Mac"
+      action: "pull"
+      path: "bug.md"
+      expect:
+          pulled: true
+          lastAction: "merge"
+          isDirty: true # Must be dirty to be pushed later
+
+    - device: "Mac"
+      action: "push"
+      path: "bug.md"
+      expect:
+          pushed: true
+          cloudContent: "Base\nAdded by Win\nAdded by Mac\n"

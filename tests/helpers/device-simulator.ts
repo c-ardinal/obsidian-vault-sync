@@ -120,7 +120,27 @@ export class DeviceSimulator {
         isSilent = true,
     ): Promise<{ pushed: boolean; conflictDetected: boolean }> {
         const exists = await this.app.vaultAdapter.exists(path);
-        if (!exists) return { pushed: false, conflictDetected: false };
+
+        // If it doesn't exist but is in dirtyPaths, it's a deletion.
+        if (!exists) {
+            if (this.sm.dirtyPaths.has(path)) {
+                const localIndexEntry = this.sm.localIndex[path];
+                if (localIndexEntry?.fileId) {
+                    await this.cloud.deleteFile(localIndexEntry.fileId);
+                } else {
+                    // If no ID, try to find by path in cloud
+                    const remoteMeta = await this.cloud.getFileMetadata(path);
+                    if (remoteMeta?.id) {
+                        await this.cloud.deleteFile(remoteMeta.id);
+                    }
+                }
+                this.sm.dirtyPaths.delete(path);
+                delete this.sm.index[path];
+                delete this.sm.localIndex[path];
+                return { pushed: true, conflictDetected: false };
+            }
+            return { pushed: false, conflictDetected: false };
+        }
 
         const content = await this.app.vaultAdapter.readBinary(path);
         const currentHash = md5(content);
@@ -215,7 +235,23 @@ export class DeviceSimulator {
      */
     async pullFile(path: string, isSilent = true): Promise<boolean> {
         const remoteMeta = await this.cloud.getFileMetadata(path);
-        if (!remoteMeta) return false;
+
+        // Handle remote deletion (similar to smartPull:1372-1392)
+        if (!remoteMeta) {
+            if (this.sm.index[path] || this.sm.localIndex[path]) {
+                const file = this.app.vault.getAbstractFileByPath(path);
+                if (file) {
+                    await (this.app.vault as any).trash(file, true);
+                } else {
+                    // Fallback: direct adapter removal if TFile not found
+                    await this.app.vaultAdapter.remove(path);
+                }
+                delete this.sm.index[path];
+                delete this.sm.localIndex[path];
+                return true;
+            }
+            return false;
+        }
         return await this.sm.pullFileSafely(remoteMeta, isSilent, "Pull");
     }
 

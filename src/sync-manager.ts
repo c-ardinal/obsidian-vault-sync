@@ -133,10 +133,13 @@ export class SyncManager {
     /** Maximum age for full scan progress before reset (5 minutes) */
     private readonly FULL_SCAN_MAX_AGE_MS = 5 * 60 * 1000;
 
-    private forceCleanupNextSync = true;
+    private forceCleanupNextSync: boolean = false;
 
     private onActivityStart: () => void = () => {};
     private onActivityEnd: () => void = () => {};
+
+    private syncRequestedWhileSyncing: boolean = false;
+    private nextSyncParams: { isSilent: boolean; scanVault: boolean } | null = null;
 
     constructor(
         private app: App,
@@ -1059,8 +1062,18 @@ export class SyncManager {
      * @param scanVault If true, perform a full vault scan for changes (O(N)) - useful for startup
      */
     async requestSmartSync(isSilent: boolean = true, scanVault: boolean = false): Promise<void> {
-        // If already smart syncing, just wait for it
+        // If already smart syncing, mark that we need another pass after and wait.
         if (this.syncState === "SMART_SYNCING") {
+            this.syncRequestedWhileSyncing = true;
+            if (!this.nextSyncParams) {
+                this.nextSyncParams = { isSilent, scanVault };
+            } else {
+                // Merge requirements: if any request is NOT silent, the next pass should not be silent.
+                // If any request wants a full scan, the next pass should scan.
+                this.nextSyncParams.isSilent = this.nextSyncParams.isSilent && isSilent;
+                this.nextSyncParams.scanVault = this.nextSyncParams.scanVault || scanVault;
+            }
+
             if (this.currentSyncPromise) {
                 await this.currentSyncPromise;
             }
@@ -1087,16 +1100,29 @@ export class SyncManager {
             }
         }
 
-        // Execute smart sync
-        this.syncState = "SMART_SYNCING";
-        this.currentSyncPromise = this.executeSmartSync(isSilent, scanVault);
+        let currentIsSilent = isSilent;
+        let currentScanVault = scanVault;
 
-        try {
-            await this.currentSyncPromise;
-        } finally {
-            this.syncState = "IDLE";
-            this.currentSyncPromise = null;
-        }
+        // Execute smart sync with re-queueing support
+        do {
+            this.syncRequestedWhileSyncing = false;
+            this.syncState = "SMART_SYNCING";
+            this.currentSyncPromise = this.executeSmartSync(currentIsSilent, currentScanVault);
+
+            try {
+                await this.currentSyncPromise;
+            } finally {
+                this.syncState = "IDLE";
+                this.currentSyncPromise = null;
+            }
+
+            // If another request came in, prepare parameters for the next pass
+            if (this.syncRequestedWhileSyncing && this.nextSyncParams) {
+                currentIsSilent = this.nextSyncParams.isSilent;
+                currentScanVault = this.nextSyncParams.scanVault;
+                this.nextSyncParams = null;
+            }
+        } while (this.syncRequestedWhileSyncing);
     }
 
     /**
@@ -1305,7 +1331,20 @@ export class SyncManager {
             if (this.shouldIgnore(path)) continue;
 
             if (!remoteIndex[path]) {
-                toDeleteLocal.push(path);
+                const localBase = this.localIndex[path];
+                const isModified =
+                    this.dirtyPaths.has(path) ||
+                    localBase?.lastAction === "push" ||
+                    localBase?.lastAction === "merge";
+
+                if (isModified) {
+                    await this.log(
+                        `[Smart Pull] Conflict: ${path} removed from remote but modified locally. Queuing for merge check.`,
+                    );
+                    toDownload.push({ path, fileId: "" } as any); // Dummy fileId for deletion conflict
+                } else {
+                    toDeleteLocal.push(path);
+                }
             }
         }
 
@@ -2733,8 +2772,12 @@ export class SyncManager {
         isSilent: boolean,
         logPrefix: string,
     ): Promise<boolean> {
+        if (!item) return false;
+
+        // Handle deletion check Early
+        const isRemoteDeleted = !item.hash && !item.fileId;
         const fileId = item.fileId || item.id;
-        if (!fileId) return false;
+        if (!fileId && !isRemoteDeleted) return false;
 
         const isText = item.path.endsWith(".md") || item.path.endsWith(".txt");
 
@@ -2779,9 +2822,10 @@ export class SyncManager {
 
                     // Check if remote was updated since our last sync
                     const hasRemoteConflict =
-                        localBase?.hash &&
-                        item.hash &&
-                        localBase.hash.toLowerCase() !== item.hash.toLowerCase();
+                        (localBase?.hash &&
+                            item.hash &&
+                            localBase.hash.toLowerCase() !== item.hash.toLowerCase()) ||
+                        isRemoteDeleted; // Remote deletion is a conflict if we are modified
 
                     // Check if modified locally (New Local OR Modified Local)
                     // Comparison is against our local BASE state.
@@ -2789,21 +2833,25 @@ export class SyncManager {
                         !localBase ||
                         !localBase.hash ||
                         localBase.hash.toLowerCase() !== currentHash;
-                    let isModifiedLocally = isActuallyModified;
+                    let isModifiedLocally = isActuallyModified || this.dirtyPaths.has(item.path);
 
                     // SAFETY GUARD:
-                    // If we just pushed (lastAction=push) or merged (lastAction=merge) this file,
-                    // and now we receive a DIFFERENT version from remote, it implies a conflict
-                    // even if our disk file hasn't changed since that action.
-                    // The remote side might have been updated while we were working.
-                    // We must force a local merge check to recover potentially lost changes.
-                    // EXCEPTION: If pendingConflict=true, another device is resolving the merge,
-                    // so we should just accept their result instead of triggering Safety Guard.
+                    // Check 1: Remote was updated since our last sync
+                    const hasRemoteUpdate =
+                        (localBase?.hash &&
+                            item.hash &&
+                            localBase.hash.toLowerCase() !== item.hash.toLowerCase()) ||
+                        isRemoteDeleted; // Remote deletion is a conflict if we are modified
+
+                    // Check 2: Safety Guard for "Push then Remote Changed"
+                    // Only trigger if local IS modified AND we pushed previously.
+                    // If local is CLEAN (matches index), we assume remote is the source of truth
+                    // (even if we just pushed, remote might have merged our push).
                     let safetyGuardTriggered = false;
                     if (
-                        !isModifiedLocally &&
+                        isModifiedLocally && // Only trigger if local IS modified
                         (localBase?.lastAction === "push" || localBase?.lastAction === "merge") &&
-                        hasRemoteConflict &&
+                        hasRemoteUpdate && // Use the general remote update check
                         !localBase?.pendingConflict // Skip if waiting for other device's merge result
                     ) {
                         await this.log(
@@ -2830,15 +2878,17 @@ export class SyncManager {
                             // Mark as 'pull' to indicate sync is complete.
                             // This clears lastAction=push so future remote updates won't trigger Safety Guard.
                             const entry = {
-                                fileId: fileId,
+                                fileId: fileId || "",
                                 mtime: stat?.mtime || Date.now(),
                                 size: stat?.size || localContent.byteLength,
-                                hash: item.hash,
+                                hash: item.hash || "",
                                 lastAction: "pull" as const, // Sync confirmed, clear push state
-                                ancestorHash: item.hash, // Correctly set ancestor to current state
+                                ancestorHash: item.hash || "", // Correctly set ancestor to current state
                             };
                             this.index[item.path] = entry;
                             this.localIndex[item.path] = { ...entry }; // Update local base for consistency
+                            this.dirtyPaths.delete(item.path); // Clear dirty since it now matches remote exactly
+                            await this.saveLocalIndex();
                             await this.log(`[${logPrefix}] Skipped (content match): ${item.path}`);
                             return true; // Already matched
                         }
@@ -2868,12 +2918,12 @@ export class SyncManager {
                                 );
                             }
                             this.syncingPaths.add(item.path);
-                            const remoteContent = await this.adapter.downloadFile(fileId);
+                            const remoteContent = await this.adapter.downloadFile(fileId || "");
                             await this.app.vault.adapter.writeBinary(item.path, remoteContent);
 
                             const stat = await this.app.vault.adapter.stat(item.path);
                             const entry = {
-                                fileId: fileId,
+                                fileId: fileId || "",
                                 mtime: stat?.mtime || Date.now(),
                                 size: remoteContent.byteLength,
                                 hash: item.hash,
@@ -2972,7 +3022,7 @@ export class SyncManager {
                                 );
                             } else {
                                 const baseHashFound = baseHash;
-                                const remoteContent = await this.adapter.downloadFile(fileId);
+                                const remoteContent = await this.adapter.downloadFile(fileId || "");
                                 const localContentStr = new TextDecoder().decode(localContent);
                                 const remoteContentStr = new TextDecoder().decode(remoteContent);
                                 const merged = await this.tryThreeWayMerge(
@@ -2993,6 +3043,7 @@ export class SyncManager {
 
                                     const isIdenticalToRemote =
                                         item.hash && mergedHash === item.hash.toLowerCase();
+
                                     if (isIdenticalToRemote) {
                                         await this.log(
                                             `[${logPrefix}] Result matches remote. Marking as Synced.`,
@@ -3000,12 +3051,12 @@ export class SyncManager {
                                         const stat = await this.app.vault.adapter.stat(item.path);
                                         // SUCCESS: Result matches remote
                                         const entry = {
-                                            fileId,
+                                            fileId: fileId || "",
                                             mtime: stat?.mtime || Date.now(),
                                             size: merged.byteLength,
-                                            hash: mergedHash,
+                                            hash: item.hash?.toLowerCase() || "",
                                             lastAction: "pull" as const,
-                                            ancestorHash: mergedHash,
+                                            ancestorHash: item.hash?.toLowerCase() || "",
                                         };
                                         await this.notify(
                                             `📥 ${item.path.split("/").pop()}: ${this.t("noticeRemoteMergeSynced") || "Remote merge result applied"}`,
@@ -3014,6 +3065,7 @@ export class SyncManager {
                                         );
                                         this.index[item.path] = entry; // Cloud matches remote
                                         this.localIndex[item.path] = { ...entry };
+                                        this.dirtyPaths.delete(item.path);
                                     } else {
                                         // Final lock verify before push using communication.json
                                         const lockCheck = await this.checkMergeLock(item.path);
@@ -3024,7 +3076,7 @@ export class SyncManager {
                                             );
                                             // SUCCESS: Local merged, Cloud still has remote version
                                             const entryLocal = {
-                                                fileId,
+                                                fileId: fileId || "",
                                                 mtime: stat?.mtime || Date.now(),
                                                 size: merged.byteLength,
                                                 hash: mergedHash,
@@ -3032,16 +3084,19 @@ export class SyncManager {
                                                 ancestorHash: baseHashFound, // The version we merged AGAINST is our new base locally
                                             };
                                             const entryCloud = {
-                                                fileId,
+                                                fileId: fileId || "",
                                                 mtime: item.mtime || Date.now(),
                                                 size: item.size || 0,
                                                 hash: item.hash,
                                                 lastAction: "pull" as const,
                                                 ancestorHash: item.hash,
                                             };
-                                            this.index[item.path] = entryCloud; // IMPORTANT: Reflect what is ACTUALLY on cloud
+                                            // Correctly reflect cloud vs local state and PERSIST!
+                                            this.index[item.path] = entryCloud;
                                             this.localIndex[item.path] = entryLocal;
                                             this.dirtyPaths.add(item.path);
+                                            await this.saveLocalIndex();
+
                                             await this.log(
                                                 `[${logPrefix}] Merged successfully. Queued for push.`,
                                             );
@@ -3102,22 +3157,34 @@ export class SyncManager {
                         await this.log(`[${logPrefix}] Renamed local version to ${conflictPath}`);
 
                         // 2. Download remote version to primary path
-                        const remoteContent = await this.adapter.downloadFile(fileId);
-                        await this.ensureLocalFolder(item.path);
-                        await this.app.vault.adapter.writeBinary(item.path, remoteContent);
+                        let remoteSize = 0;
+                        if (!isRemoteDeleted) {
+                            const remoteContent = await this.adapter.downloadFile(fileId || "");
+                            await this.ensureLocalFolder(item.path);
+                            await this.app.vault.adapter.writeBinary(item.path, remoteContent);
+                            remoteSize = remoteContent.byteLength;
+                        } else {
+                            // If remote was deleted, primary path is now empty
+                            const exists = await this.app.vault.adapter.exists(item.path);
+                            if (exists) {
+                                await this.app.vault.adapter.remove(item.path);
+                            }
+                        }
 
                         // 3. Update index to match remote state
                         const stat = await this.app.vault.adapter.stat(item.path);
                         const entry = {
-                            fileId: fileId,
+                            fileId: fileId || "",
                             mtime: stat?.mtime || Date.now(),
-                            size: remoteContent.byteLength,
+                            size: remoteSize,
                             hash: item.hash?.toLowerCase() || "",
                             lastAction: "pull" as const,
                             ancestorHash: item.hash?.toLowerCase() || "",
                         };
                         this.index[item.path] = entry;
                         this.localIndex[item.path] = { ...entry };
+                        this.dirtyPaths.delete(item.path);
+                        await this.saveLocalIndex();
 
                         // Ensure lock is released
                         if (isText && localBase?.hash) {
@@ -3152,6 +3219,18 @@ export class SyncManager {
                             );
                         }
 
+                        if (isRemoteDeleted) {
+                            await this.log(
+                                `[${logPrefix}] Deleting local file after moving to conflict (remote deleted): ${item.path}`,
+                            );
+                            // Primary file is gone (moved to conflict)
+                            delete this.index[item.path];
+                            delete this.localIndex[item.path];
+                            this.dirtyPaths.delete(item.path);
+                            await this.saveLocalIndex();
+                            return true;
+                        }
+
                         return true;
                     }
                 } catch (err) {
@@ -3165,20 +3244,21 @@ export class SyncManager {
             this.syncingPaths.add(item.path);
             await this.ensureLocalFolder(item.path);
 
-            const content = await this.adapter.downloadFile(fileId);
+            const content = await this.adapter.downloadFile(fileId || "");
             await this.app.vault.adapter.writeBinary(item.path, content);
 
             const stat = await this.app.vault.adapter.stat(item.path);
             const entry = {
-                fileId: fileId,
+                fileId: fileId || "",
                 mtime: stat?.mtime || item.mtime || Date.now(),
                 size: stat?.size || item.size || content.byteLength,
-                hash: item.hash,
+                hash: item.hash || "",
                 lastAction: "pull" as const,
-                ancestorHash: item.hash, // Set ancestor for future merges
+                ancestorHash: item.hash || "", // Set ancestor for future merges
             };
             this.index[item.path] = entry;
             this.localIndex[item.path] = { ...entry };
+            await this.saveLocalIndex();
 
             await this.notify(
                 `${this.t("noticeFilePulled")}: ${item.path.split("/").pop()}`,

@@ -12,8 +12,8 @@
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { MockCloudAdapter } from "./helpers/mock-cloud-adapter";
-import { DeviceSimulator, hashOf } from "./helpers/device-simulator";
+import { MockCloudAdapter } from "../../helpers/mock-cloud-adapter";
+import { DeviceSimulator, hashOf } from "../../helpers/device-simulator";
 
 const FILE_PATH = "notes/test.md";
 const FILE_ID = "file_shared_1";

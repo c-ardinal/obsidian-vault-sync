@@ -1,7 +1,7 @@
 /**
  * Fixture-based 3-way merge algorithm tests.
  *
- * Test cases are auto-discovered from tests/merge-fixtures/ directory.
+ * Test cases are auto-discovered from tests/merge-algorithm/scenarios/ directory.
  * Each case folder contains:
  *   base.*       - Common ancestor content
  *   remote.*     - Remote (cloud) version
@@ -12,12 +12,12 @@
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { MockCloudAdapter } from "./helpers/mock-cloud-adapter";
-import { DeviceSimulator } from "./helpers/device-simulator";
+import { MockCloudAdapter } from "../../helpers/mock-cloud-adapter";
+import { DeviceSimulator } from "../../helpers/device-simulator";
 import * as fs from "fs";
 import * as path from "path";
 
-const FIXTURES_DIR = path.resolve(__dirname, "merge-fixtures");
+const FIXTURES_DIR = path.resolve(__dirname, "scenarios");
 
 /** Discover all test cases from fixture directories */
 function discoverCases(): {

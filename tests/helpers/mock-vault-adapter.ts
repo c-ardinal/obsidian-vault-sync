@@ -52,6 +52,11 @@ export class MockVaultAdapter {
         this.folders.add(path);
     }
 
+    async remove(path: string): Promise<void> {
+        this.files.delete(path);
+        this.folders.delete(path);
+    }
+
     // --- Helper for tests ---
     setFile(path: string, content: string, mtime?: number): void {
         const buf = new TextEncoder().encode(content).buffer as ArrayBuffer;
@@ -110,6 +115,10 @@ export class MockVault {
 
     async modifyBinary(file: TFile, content: ArrayBuffer): Promise<void> {
         await this.adapter.writeBinary(file.path, content);
+    }
+
+    async trash(file: TFile, system: boolean): Promise<void> {
+        await this.adapter.remove(file.path);
     }
 
     async createBinary(path: string, content: ArrayBuffer): Promise<void> {

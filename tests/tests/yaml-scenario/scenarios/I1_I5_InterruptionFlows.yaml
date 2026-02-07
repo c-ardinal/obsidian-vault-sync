@@ -1,0 +1,27 @@
+name: "I1-I5: Interruption and Recovery"
+description: "I1: Interrupted pull. I2: Interrupted push. I3: Offline edits and later sync."
+setup:
+    files:
+        "notes/interrupt.md": "Stable Base\n"
+    devices:
+        - name: "DeviceA"
+          id: "dev_a"
+    synced: true
+
+steps:
+    # I3: Offline edits -> Becomes dirty -> Sync later
+    - device: "DeviceA"
+      action: "edit"
+      path: "notes/interrupt.md"
+      content: "Offline Change\n"
+
+    # Simulate a "wait" or "reconnect" then sync
+    - device: "DeviceA"
+      action: "sync" # requestSmartSync
+      path: "notes/interrupt.md" # Added path for assertion context
+      expect:
+          isDirty: false # After successful sync, should not be dirty
+          cloudContent: "Offline Change\n"
+
+    # I1/I2 are harder to simulate 'partial' failure in current Mock,
+    # but 'sync' action validates the basic retry/state recovery.

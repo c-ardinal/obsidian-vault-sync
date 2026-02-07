@@ -1,0 +1,60 @@
+name: "M2: 3-Device Sequential Merge"
+description: "A edits L1, B edits L2, C edits L3. Verifies that all changes propagate through sequential merges."
+setup:
+    files:
+        "notes/multi.md": "Line 1\nLine 2\nLine 3\n"
+    devices:
+        - name: "DeviceA"
+          id: "dev_a"
+        - name: "DeviceB"
+          id: "dev_b"
+        - name: "DeviceC"
+          id: "dev_c"
+    synced: true
+
+steps:
+    # 1. A edits Line 1 and pushes
+    - device: "DeviceA"
+      action: "edit"
+      path: "notes/multi.md"
+      content: "L1 changed by A\nLine 2\nLine 3\n"
+    - device: "DeviceA"
+      action: "push"
+      path: "notes/multi.md"
+
+    # 2. B edits Line 2 and pulls (merges A's change)
+    - device: "DeviceB"
+      action: "edit"
+      path: "notes/multi.md"
+      content: "Line 1\nL2 changed by B\nLine 3\n"
+    - device: "DeviceB"
+      action: "pull"
+      path: "notes/multi.md"
+      expect:
+          pulled: true
+          localContent: "L1 changed by A\nL2 changed by B\nLine 3\n"
+
+    # 3. B pushes its merged result
+    - device: "DeviceB"
+      action: "push"
+      path: "notes/multi.md"
+
+    # 4. C edits Line 3 and pulls (merges A and B's changes)
+    - device: "DeviceC"
+      action: "edit"
+      path: "notes/multi.md"
+      content: "Line 1\nLine 2\nL3 changed by C\n"
+    - device: "DeviceC"
+      action: "pull"
+      path: "notes/multi.md"
+      expect:
+          pulled: true
+          localContent: "L1 changed by A\nL2 changed by B\nL3 changed by C\n"
+
+    # 5. Final push from C
+    - device: "DeviceC"
+      action: "push"
+      path: "notes/multi.md"
+      expect:
+          pushed: true
+          cloudContent: "L1 changed by A\nL2 changed by B\nL3 changed by C\n"
