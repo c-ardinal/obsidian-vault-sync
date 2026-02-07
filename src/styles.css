@@ -25,8 +25,8 @@
 
 /* History Modal */
 .modal.mod-history-modal {
-    width: 60vw;
-    height: 60vh;
+    width: 90vw;
+    height: 90vh;
     max-width: 90vw;
     max-height: 90vh;
 }
