@@ -18,6 +18,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
     private resolveCache: Map<string, Promise<string>> = new Map();
     private idToPathCache: Map<string, string> = new Map(); // ID -> fullPath
     private resolvePathCache: Map<string, string> = new Map(); // ID -> fullPath (built during resolution)
+    private outsideFolderIds: Set<string> = new Set(); // IDs confirmed to be outside vaultRootId
     private cloudRootFolder: string = DEFAULT_ROOT_FOLDER;
 
     constructor(
@@ -835,12 +836,13 @@ export class GoogleDriveAdapter implements CloudAdapter {
     }
 
     private async resolveFullPath(fileId: string): Promise<string> {
-        // Quick lookup for recently uploaded files
+        // Quick lookup for recently uploaded files or previously resolved ones
         const cachedPath = this.idToPathCache.get(fileId) || this.resolvePathCache.get(fileId);
         if (cachedPath) return cachedPath;
 
         let currentId = fileId;
         const pathParts: string[] = [];
+        const encounteredIds: string[] = [];
 
         await this.ensureRootFolders();
         if (!this.vaultRootId) throw new Error("Vault root not initialized");
@@ -848,23 +850,49 @@ export class GoogleDriveAdapter implements CloudAdapter {
         while (true) {
             if (currentId === this.vaultRootId) break;
 
-            const response = await this.fetchWithAuth(
-                `https://www.googleapis.com/drive/v3/files/${currentId}?fields=id,name,parents`,
-            );
-            const file = await response.json();
-
-            if (!file.id) throw new Error(`File not found: ${currentId}`);
-
-            // Don't add the file itself if we are looking up its parents,
-            // but for the first iteration (the file itself), we need its name.
-            if (currentId === fileId) {
-                pathParts.unshift(file.name);
-            } else {
-                pathParts.unshift(file.name);
+            // Check if we already know this ID is OUTSIDE the vault
+            if (this.outsideFolderIds.has(currentId)) {
+                encounteredIds.forEach((id) => this.outsideFolderIds.add(id));
+                throw new Error("File is outside the vault root (cached)");
             }
 
-            if (!file.parents || file.parents.length === 0) break;
-            currentId = file.parents[0];
+            // Check if we already know the path for this intermediate folder
+            const folderPath = this.resolvePathCache.get(currentId);
+            if (folderPath) {
+                pathParts.unshift(folderPath);
+                break;
+            }
+
+            try {
+                const response = await this.fetchWithAuth(
+                    `https://www.googleapis.com/drive/v3/files/${currentId}?fields=id,name,parents`,
+                );
+                const file = await response.json();
+
+                if (!file.id) throw new Error(`File not found: ${currentId}`);
+
+                encounteredIds.push(currentId);
+                pathParts.unshift(file.name);
+
+                if (!file.parents || file.parents.length === 0) {
+                    // Reached the root of Drive without hitting vaultRootId
+                    // This means the file is OUTSIDE the vault.
+                    encounteredIds.forEach((id) => this.outsideFolderIds.add(id));
+                    throw new Error("File is outside the vault root");
+                }
+                currentId = file.parents[0];
+            } catch (error: any) {
+                // If it's a 403/404 or our own "outside" error, abort resolution
+                // SyncManager will catch this at the getChanges level and mark as removed/ignored.
+                if (
+                    error.message?.includes("outside") ||
+                    error.message?.includes("404") ||
+                    error.message?.includes("403")
+                ) {
+                    encounteredIds.forEach((id) => this.outsideFolderIds.add(id));
+                }
+                throw error;
+            }
         }
 
         const fullPath = pathParts.join("/");

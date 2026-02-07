@@ -1574,6 +1574,7 @@ export class SyncManager {
         let hasTotalChanges = false;
         let currentPageToken = this.startPageToken;
         let confirmedCountTotal = 0;
+        let pageCount = 1;
 
         do {
             const changes = await this.adapter.getChanges(currentPageToken);
@@ -1587,12 +1588,18 @@ export class SyncManager {
                 break; // No more changes
             }
 
-            await this.log(`[Smart Pull] Changes API returned ${changes.changes.length} changes`);
+            await this.log(
+                `[Smart Pull] Changes API page processed (${changes.changes.length} items)`,
+            );
             hasTotalChanges = true;
 
             // In confirmation mode, if we haven't confirmed anything yet, notify user about the wait
             if (drainAll && confirmedCountTotal === 0) {
-                await this.notify(this.t("statusWaitingForRemoteRegistration"), false, isSilent);
+                await this.notify(
+                    `${this.t("statusWaitingForRemoteRegistration")} (Page ${pageCount++})...`,
+                    false,
+                    isSilent,
+                );
             }
 
             // Load communication data for mergeLock checks
