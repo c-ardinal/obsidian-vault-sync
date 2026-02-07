@@ -1,4 +1,3 @@
-import { jsYaml } from "js-yaml";
 import { readFileSync, readdirSync } from "fs";
 import { join } from "path";
 import { describe, it, expect } from "vitest";
@@ -7,7 +6,7 @@ import { DeviceSimulator, hashOf } from "./device-simulator";
 
 export interface TestStep {
     device: string;
-    action: "edit" | "push" | "pull" | "sync" | "wait" | "delete";
+    action: "edit" | "push" | "forcePush" | "pull" | "sync" | "wait" | "delete";
     path: string;
     content?: string;
     expect?: {
@@ -19,6 +18,7 @@ export interface TestStep {
         cloudContent?: string;
         isDirty?: boolean;
         ancestorHash?: string;
+        exists?: string[];
     };
 }
 
