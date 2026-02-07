@@ -11,6 +11,7 @@ import {
 import { SyncManager } from "../sync-manager";
 import { FileRevision } from "../types/adapter";
 import { diff_match_patch } from "diff-match-patch";
+import { PromptModal } from "./prompt-modal";
 
 export class HistoryModal extends Modal {
     private revisions: FileRevision[] = [];
@@ -18,6 +19,7 @@ export class HistoryModal extends Modal {
     private baseRevision: FileRevision | null = null; // null means Local File
     private fileContent: string | null = null; // Current local content for diff
     private listScrollLeft: number = 0; // Preserve horizontal scroll position
+    private diffMode: "unified" | "split" = "unified";
 
     constructor(
         app: App,
@@ -95,7 +97,10 @@ export class HistoryModal extends Modal {
 
         // Left: Revision List
         const listContainer = container.createDiv({ cls: "vault-sync-history-list" });
-        listContainer.createEl("h3", { text: this.syncManager.t("historyRevisions") });
+        const listTitle = listContainer.createEl("h3", {
+            text: this.syncManager.t("historyRevisions"),
+        });
+        listTitle.style.margin = "0px";
 
         if (this.revisions.length === 0) {
             listContainer.createDiv({ text: this.syncManager.t("historyNoHistoryFound") });
@@ -105,46 +110,49 @@ export class HistoryModal extends Modal {
         // Sort DESC (Newest first)
         this.revisions.sort((a, b) => b.modifiedTime - a.modifiedTime);
 
+        let lastDateStr = "";
         for (const rev of this.revisions) {
+            const date = new Date(rev.modifiedTime);
+            const dateStr = date.toLocaleDateString();
+            if (dateStr !== lastDateStr) {
+                const dateHeader = ul.createEl("li", { cls: "vault-sync-revision-date-header" });
+                dateHeader.setText(`● ${dateStr}`);
+                lastDateStr = dateStr;
+            }
+
             const li = ul.createEl("li", { cls: "vault-sync-revision-item" });
             if (this.selectedRevision?.id === rev.id) {
                 li.addClass("is-selected");
             }
 
-            const dateStr = new Date(rev.modifiedTime).toLocaleString();
+            const timeStr = date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
             const metaDiv = li.createDiv({ cls: "revision-meta" });
 
-            const dateSpan = metaDiv.createSpan({ cls: "revision-date" });
-            dateSpan.setText(dateStr);
-
-            if (rev.keepForever) {
-                const pin = metaDiv.createSpan({ cls: "revision-pin", text: " 📌" });
-                pin.title = this.syncManager.t("historyProtectedFromDeletion");
-            }
-
-            if (rev.author) {
-                metaDiv.createDiv({
-                    text: `${this.syncManager.t("historyByAuthor")} ${rev.author}`,
-                    cls: "revision-author",
-                });
-            }
-
-            const sizeHashDiv = metaDiv.createDiv({ cls: "revision-size-hash" });
-            sizeHashDiv.style.display = "flex";
-            sizeHashDiv.style.gap = "8px";
-            sizeHashDiv.style.opacity = "0.7";
-            sizeHashDiv.style.fontSize = "0.8em";
-
-            sizeHashDiv.createSpan({ text: this.formatSize(rev.size), cls: "revision-size" });
-
+            // Row 1: Time and Hash
+            const topRow = metaDiv.createDiv({ cls: "revision-top-row" });
+            topRow.createSpan({ text: timeStr, cls: "revision-time" });
             if (rev.hash) {
-                const hashSpan = sizeHashDiv.createSpan({
-                    text: `# ${rev.hash.substring(0, 8)}`,
+                const hashSpan = topRow.createSpan({
+                    text: `#${rev.hash.substring(0, 8)}`,
                     cls: "revision-hash",
                 });
                 hashSpan.title = rev.hash;
-                hashSpan.style.fontFamily = "monospace";
-                hashSpan.style.cursor = "help";
+            }
+
+            // Row 2: Author
+            const authorDiv = metaDiv.createDiv({ cls: "revision-author" });
+            authorDiv.setText(rev.author || this.syncManager.t("historyAuthorUnknown"));
+
+            // Row 3: Size
+            const sizeDiv = metaDiv.createDiv({ cls: "revision-size" });
+            sizeDiv.style.display = "flex";
+            sizeDiv.style.justifyContent = "space-between";
+            sizeDiv.createSpan({ text: this.formatSize(rev.size) });
+
+            if (rev.keepForever) {
+                const pin = sizeDiv.createSpan({ cls: "revision-pin", text: "📌" });
+                pin.title = this.syncManager.t("historyProtectedFromDeletion");
+                pin.style.fontSize = "0.9em";
             }
 
             li.addEventListener("click", () => {
@@ -250,6 +258,57 @@ export class HistoryModal extends Modal {
                         });
                 });
 
+                // Restore As
+                menu.addItem((item) => {
+                    item.setTitle(this.syncManager.t("historyRestoreAs"))
+                        .setIcon("copy")
+                        .onClick(async () => {
+                            const ext = this.file.extension;
+                            const baseName = this.file.path.substring(
+                                0,
+                                this.file.path.lastIndexOf("."),
+                            );
+                            const defaultPath = `${baseName}_restored.${ext}`;
+
+                            const prompt = new PromptModal(
+                                this.app,
+                                this.syncManager.t("historyRestoreAsTitle"),
+                                defaultPath,
+                                async (newPath) => {
+                                    if (newPath) {
+                                        try {
+                                            const buffer =
+                                                await this.syncManager.getRevisionContent(
+                                                    this.file.path,
+                                                    this.selectedRevision!.id,
+                                                );
+                                            await this.app.vault.createBinary(newPath, buffer);
+                                            await this.syncManager.notify(
+                                                this.syncManager
+                                                    .t("historyRestoreAsNotice")
+                                                    .replace("{0}", newPath),
+                                            );
+                                        } catch (err) {
+                                            await this.syncManager.notify(
+                                                `${this.syncManager.t("noticeFailedToSave")}: ${err}`,
+                                            );
+                                        }
+                                    }
+                                },
+                                async (val) => {
+                                    if (!val) return null;
+                                    const exists = await this.app.vault.adapter.exists(val);
+                                    if (exists) {
+                                        return this.syncManager.t("historyRestoreAsErrorExists");
+                                    }
+                                    return null;
+                                },
+                            );
+
+                            prompt.open();
+                        });
+                });
+
                 const rect = menuBtn.extraSettingsEl.getBoundingClientRect();
                 menu.showAtPosition({
                     x: rect.right,
@@ -334,6 +393,23 @@ export class HistoryModal extends Modal {
             this.render(); // Re-render diff
         });
 
+        // Toggle View Mode (Integrated into control row)
+        const modeBtn = new ExtraButtonComponent(controlRow)
+            .setIcon(this.diffMode === "unified" ? "rows" : "columns")
+            .setTooltip(
+                this.diffMode === "unified"
+                    ? this.syncManager.t("historyDiffModeUnified")
+                    : this.syncManager.t("historyDiffModeSplit"),
+            )
+            .onClick(() => {
+                this.diffMode = this.diffMode === "unified" ? "split" : "unified";
+                this.render();
+            });
+        modeBtn.extraSettingsEl.addClass("diff-mode-toggle");
+        if (this.diffMode === "split") {
+            modeBtn.extraSettingsEl.addClass("is-active");
+        }
+
         // Diff View
         const diffContainer = detailContainer.createDiv({ cls: "revision-diff-view" });
         diffContainer.createDiv({ text: "Loading diff...", cls: "loading-text" });
@@ -405,25 +481,62 @@ export class HistoryModal extends Modal {
             const diffs = dmp.diff_main(baseContent, targetContent);
             dmp.diff_cleanupSemantic(diffs);
 
-            diffs.forEach((part) => {
-                const op = part[0]; // 0: equal, 1: insert, -1: delete
-                const text = part[1];
+            if (this.diffMode === "unified") {
+                this.renderLineDiff(container, diffs, true);
+            } else {
+                // Split View
+                container.style.display = "flex";
+                container.style.gap = "0";
+                container.style.padding = "0";
 
-                const colorClass =
-                    op === 1 ? "diff-added" : op === -1 ? "diff-removed" : "diff-neutral";
+                const leftPane = container.createDiv({ cls: "diff-pane diff-pane-left" });
+                const rightPane = container.createDiv({ cls: "diff-pane diff-pane-right" });
 
-                const span = container.createEl("span", { cls: colorClass });
-                span.setText(text);
-            });
+                // Filter for each side
+                const leftDiffs = diffs.filter(([op]) => op !== 1);
+                const rightDiffs = diffs.filter(([op]) => op !== -1);
+
+                this.renderLineDiff(leftPane, leftDiffs, true);
+                this.renderLineDiff(rightPane, rightDiffs, true);
+            }
         } catch (e) {
             container.empty();
             container.createDiv({
-                text: `Failed to load content for diff: ${e}`,
+                text: `${this.syncManager.t("historyError")}: ${e instanceof Error ? e.message : String(e)}`,
                 cls: "error-text",
             });
+            console.error(e);
         }
     }
 
+    /**
+     * Helper to render diffs as a vertical list of lines with line numbers
+     */
+    private renderLineDiff(container: HTMLElement, diffs: [number, string][], showLineNo: boolean) {
+        let lineNo = 1;
+        let lineDiv = container.createDiv({ cls: "diff-line" });
+        if (showLineNo) lineDiv.createDiv({ cls: "diff-line-number", text: String(lineNo++) });
+        let contentDiv = lineDiv.createDiv({ cls: "diff-line-content" });
+
+        diffs.forEach(([op, text]) => {
+            const lines = text.split("\n");
+            for (let i = 0; i < lines.length; i++) {
+                if (i > 0) {
+                    lineDiv = container.createDiv({ cls: "diff-line" });
+                    if (showLineNo)
+                        lineDiv.createDiv({ cls: "diff-line-number", text: String(lineNo++) });
+                    contentDiv = lineDiv.createDiv({ cls: "diff-line-content" });
+                }
+
+                if (lines[i]) {
+                    const colorClass =
+                        op === 1 ? "diff-added" : op === -1 ? "diff-removed" : "diff-neutral";
+                    const span = contentDiv.createSpan({ cls: colorClass });
+                    span.setText(lines[i]);
+                }
+            }
+        });
+    }
     formatSize(bytes: number): string {
         if (bytes < 1024) return `${bytes} B`;
         if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
