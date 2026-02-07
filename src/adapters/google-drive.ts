@@ -445,8 +445,18 @@ export class GoogleDriveAdapter implements CloudAdapter {
         if (parts.length <= 1) return rootId;
 
         const folderPath = parts.slice(0, -1).join("/");
-        if (this.resolveCache.has(folderPath)) {
-            return this.resolveCache.get(folderPath)!;
+
+        // Check resolveCache first
+        const existingPromise = this.resolveCache.get(folderPath);
+        if (existingPromise) {
+            try {
+                return await existingPromise;
+            } catch (e) {
+                // If the cached promise was rejected (e.g. not found with create=false),
+                // and we now want to create, we should proceed to try again.
+                if (!create) throw e;
+                this.resolveCache.delete(folderPath);
+            }
         }
 
         const promise = (async () => {
@@ -456,6 +466,8 @@ export class GoogleDriveAdapter implements CloudAdapter {
 
             for (const part of folderPathParts) {
                 pathAccumulator += (pathAccumulator ? "/" : "") + part;
+
+                // Also check folderCache within the loop
                 if (this.folderCache.has(pathAccumulator)) {
                     currentParentId = this.folderCache.get(pathAccumulator)!;
                     continue;
@@ -474,18 +486,32 @@ export class GoogleDriveAdapter implements CloudAdapter {
                 } else if (create) {
                     currentParentId = await this.createFolder(part, currentParentId);
                 } else {
-                    // Start throwing if folder not found and create=false
                     throw new Error(`Folder not found: ${pathAccumulator}`);
                 }
                 this.folderCache.set(pathAccumulator, currentParentId);
+
+                // If this is a sub-path, we can cache its resolution as well
+                if (pathAccumulator !== folderPath && !this.resolveCache.has(pathAccumulator)) {
+                    this.resolveCache.set(pathAccumulator, Promise.resolve(currentParentId));
+                }
             }
             return currentParentId;
         })();
 
-        // Only cache if we are creating folders (or confirmed they exist).
-        // If create=false and it fails, the promise rejects, which is fine (caller handles it).
+        // Only cache if we are creating or if it succeeded.
+        // To prevent "spoiling" the cache with a rejection when create=false,
+        // we wrap it to catch errors and cleanup.
         this.resolveCache.set(folderPath, promise);
-        return promise;
+
+        try {
+            return await promise;
+        } catch (e) {
+            // Cleanup cache on failure so next attempt (possibly with create=true) can retry
+            if (this.resolveCache.get(folderPath) === promise) {
+                this.resolveCache.delete(folderPath);
+            }
+            throw e;
+        }
     }
 
     async getFileMetadata(path: string): Promise<CloudFile | null> {
@@ -697,6 +723,13 @@ export class GoogleDriveAdapter implements CloudAdapter {
                                     );
                                 }
                                 this.folderCache.set(pathAccumulator, currentParentId);
+                                // Also populate resolveCache for intermediate paths
+                                if (!this.resolveCache.has(pathAccumulator)) {
+                                    this.resolveCache.set(
+                                        pathAccumulator,
+                                        Promise.resolve(currentParentId),
+                                    );
+                                }
                             }
                         }
                     }),
