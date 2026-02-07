@@ -272,7 +272,7 @@ const DEFAULT_SETTINGS: VaultSyncSettings = {
     enableStartupSync: true,
     startupDelaySec: 10,
     enableAutoSyncInInterval: true,
-    autoSyncIntervalSec: 1800, // 30 minutes
+    autoSyncIntervalSec: 10, // 30 minutes
     enableOnSaveTrigger: true,
     enableOnModifyTrigger: true,
     onModifyDelaySec: 5,
@@ -356,7 +356,7 @@ export default class VaultSync extends Plugin {
                         "Startup grace period ended. Triggering initial Smart Sync.",
                     );
                     // Use Smart Sync for faster startup (O(1) check), but enable vault scan (O(N)) for startup
-                    await this.syncManager.requestSmartSync(true, true);
+                    await this.syncManager.requestSmartSync(false, true);
                 }, this.settings.startupDelaySec * 1000);
             } else {
                 this.isReady = true;

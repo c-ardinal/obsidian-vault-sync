@@ -439,7 +439,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
         return this.initPromise!;
     }
 
-    private async resolveParentId(path: string): Promise<string> {
+    private async resolveParentId(path: string, create: boolean = true): Promise<string> {
         const rootId = await this.ensureRootFolders();
         const parts = path.split("/").filter((p) => p);
         if (parts.length <= 1) return rootId;
@@ -471,41 +471,52 @@ export class GoogleDriveAdapter implements CloudAdapter {
 
                 if (data.files && data.files.length > 0) {
                     currentParentId = data.files[0].id;
-                } else {
+                } else if (create) {
                     currentParentId = await this.createFolder(part, currentParentId);
+                } else {
+                    // Start throwing if folder not found and create=false
+                    throw new Error(`Folder not found: ${pathAccumulator}`);
                 }
                 this.folderCache.set(pathAccumulator, currentParentId);
             }
             return currentParentId;
         })();
 
+        // Only cache if we are creating folders (or confirmed they exist).
+        // If create=false and it fails, the promise rejects, which is fine (caller handles it).
         this.resolveCache.set(folderPath, promise);
         return promise;
     }
 
     async getFileMetadata(path: string): Promise<CloudFile | null> {
-        const parentId = await this.resolveParentId(path);
-        const name = path.split("/").pop();
-        const query = `name = '${this.escapeQueryValue(
-            name || "",
-        )}' and '${parentId}' in parents and trashed = false`;
-        const response = await this.fetchWithAuth(
-            `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,mimeType,modifiedTime,size,md5Checksum)`,
-        );
-        const data = await response.json();
+        try {
+            const parentId = await this.resolveParentId(path, false);
+            const name = path.split("/").pop();
+            const query = `name = '${this.escapeQueryValue(
+                name || "",
+            )}' and '${parentId}' in parents and trashed = false`;
+            const response = await this.fetchWithAuth(
+                `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,mimeType,modifiedTime,size,md5Checksum)`,
+            );
+            const data = await response.json();
 
-        if (data.files && data.files.length > 0) {
-            const file = data.files[0];
-            return {
-                id: file.id,
-                path: path,
-                mtime: new Date(file.modifiedTime).getTime(),
-                size: parseInt(file.size || "0"),
-                kind: file.mimeType === "application/vnd.google-apps.folder" ? "folder" : "file",
-                hash: file.md5Checksum,
-            };
+            if (data.files && data.files.length > 0) {
+                const file = data.files[0];
+                return {
+                    id: file.id,
+                    path: path,
+                    mtime: new Date(file.modifiedTime).getTime(),
+                    size: parseInt(file.size || "0"),
+                    kind:
+                        file.mimeType === "application/vnd.google-apps.folder" ? "folder" : "file",
+                    hash: file.md5Checksum,
+                };
+            }
+            return null;
+        } catch (e) {
+            // If parent resolution fails, file definitely doesn't exist
+            return null;
         }
-        return null;
     }
 
     async getFileMetadataById(fileId: string, knownPath?: string): Promise<CloudFile | null> {
@@ -541,7 +552,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
     }
 
     async uploadFile(path: string, content: ArrayBuffer, mtime: number): Promise<CloudFile> {
-        const parentId = await this.resolveParentId(path);
+        const parentId = await this.resolveParentId(path, true);
         const name = path.split("/").pop();
         const metadata: any = {
             name: name,

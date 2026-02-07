@@ -123,6 +123,8 @@ export class SyncManager {
     private dirtyPaths: Set<string> = new Set();
     /** Paths currently being synced (to prevent re-marking as dirty) */
     private syncingPaths: Set<string> = new Set();
+    /** Folders deleted locally that should be deleted remotely */
+    private deletedFolders: Set<string> = new Set();
     /** Paths deleted during pull (to prevent re-upload as "new" if local deletion fails) */
     private recentlyDeletedFromRemote: Set<string> = new Set();
     /** Flag to interrupt running full scan */
@@ -971,11 +973,15 @@ export class SyncManager {
      * Called from main.ts on folder delete events
      */
     markFolderDeleted(folderPath: string) {
+        if (this.shouldIgnore(folderPath)) return;
+        this.deletedFolders.add(folderPath); // Track folder for efficient remote deletion
+        this.log(`[Dirty] Marked for deletion (folder root): ${folderPath}`);
+
         const prefix = folderPath + "/";
         for (const path of Object.keys(this.index)) {
             if (path.startsWith(prefix) && !this.shouldIgnore(path)) {
                 this.dirtyPaths.add(path);
-                this.log(`[Dirty] Marked for deletion (folder): ${path}`);
+                this.log(`[Dirty] Marked for deletion (child): ${path}`);
             }
         }
     }
@@ -1137,6 +1143,7 @@ export class SyncManager {
      * - Push: Upload dirty files
      */
     private async executeSmartSync(isSilent: boolean, scanVault: boolean): Promise<void> {
+        this.onActivityStart();
         try {
             await this.log("=== SMART SYNC START ===");
             await this.notify(`⚡ ${this.t("statusSyncing")}`, false, isSilent);
@@ -1169,6 +1176,8 @@ export class SyncManager {
         } catch (e) {
             await this.log(`Smart Sync failed: ${e}`);
             throw e;
+        } finally {
+            this.onActivityEnd();
         }
     }
 
@@ -1478,11 +1487,11 @@ export class SyncManager {
         }
 
         if (tasks.length > 0) {
-            this.onActivityStart();
+            // this.onActivityStart();
             try {
                 await this.runParallel(tasks);
             } finally {
-                this.onActivityEnd();
+                // this.onActivityEnd();
             }
         }
 
@@ -1646,11 +1655,11 @@ export class SyncManager {
         }
 
         if (tasks.length > 0) {
-            this.onActivityStart();
+            // this.onActivityStart();
             try {
                 await this.runParallel(tasks);
             } finally {
-                this.onActivityEnd();
+                // this.onActivityEnd();
             }
         }
 
@@ -1696,7 +1705,67 @@ export class SyncManager {
             }
         }
 
-        if (this.dirtyPaths.size === 0) {
+        // === FOLDER DELETION PHASE ===
+        let folderDeletedCount = 0;
+        if (this.deletedFolders.size > 0) {
+            await this.log(
+                `[Smart Push] Processing ${this.deletedFolders.size} deleted folder(s)...`,
+            );
+
+            // Sort by depth (deepest first) to handle nested deletions cleanly
+            const folders = Array.from(this.deletedFolders).sort((a, b) => b.length - a.length);
+
+            for (const folderPath of folders) {
+                try {
+                    // Try to find folder ID by path on remote
+                    const meta = await this.adapter.getFileMetadata(folderPath);
+                    if (meta && meta.id) {
+                        if (meta.kind === "folder") {
+                            await this.adapter.deleteFile(meta.id);
+                            folderDeletedCount++;
+                            await this.log(`[Smart Push] Deleted remote folder: ${folderPath}`);
+                            await this.notify(
+                                `${this.t("noticeFileTrashed")}: ${folderPath.split("/").pop()}`,
+                                true,
+                                isSilent,
+                            );
+                        }
+                    } else {
+                        await this.log(
+                            `[Smart Push] Folder not found on remote (already deleted?): ${folderPath}`,
+                        );
+                    }
+
+                    // Clean up Index & DirtyPaths for all descendants
+                    // Since we deleted the parent, all children are gone on remote.
+                    const prefix = folderPath + "/";
+
+                    // 1. Remove from dirtyPaths to prevent redundant file deletion attempts
+                    // (Iterate copy to safely delete while iterating)
+                    for (const dirtyPath of Array.from(this.dirtyPaths)) {
+                        if (dirtyPath.startsWith(prefix)) {
+                            this.dirtyPaths.delete(dirtyPath);
+                        }
+                    }
+
+                    // 2. Remove from Index
+                    const allPaths = Object.keys(this.index);
+                    for (const path of allPaths) {
+                        if (path.startsWith(prefix)) {
+                            delete this.index[path];
+                            delete this.localIndex[path];
+                        }
+                    }
+
+                    // Mark as handled
+                    this.deletedFolders.delete(folderPath);
+                } catch (e) {
+                    await this.log(`[Smart Push] Failed to delete folder ${folderPath}: ${e}`);
+                }
+            }
+        }
+
+        if (this.dirtyPaths.size === 0 && folderDeletedCount === 0) {
             await this.log("[Smart Push] No dirty files to push. Skipping.");
             return false;
         }
@@ -1715,125 +1784,136 @@ export class SyncManager {
         }> = [];
         const deleteQueue: string[] = [];
 
-        for (const path of this.dirtyPaths) {
-            // Priority 0: Check if another device is currently merging this file
-            const mergeLock = commData.mergeLocks[path];
-            if (mergeLock && mergeLock.holder !== this.deviceId && mergeLock.expiresAt > now) {
-                await this.log(
-                    `[Smart Push] Skipping: ${path} is being merged by ${mergeLock.holder} (expires in ${Math.round((mergeLock.expiresAt - now) / 1000)}s)`,
-                );
-                // Don't remove from dirtyPaths - we'll retry next sync cycle
-                continue;
-            }
+        const dirtyPathTasks: (() => Promise<void>)[] = [];
+        const dirtyPathsSnapshot = Array.from(this.dirtyPaths);
 
-            // Priority 1: 完全に外部(専用ロジック)で管理するファイル。汎用ループでは一切触らない。
-            if (this.isManagedSeparately(path)) {
-                continue;
-            }
-
-            // Priority 2: リモートに存在してはいけないファイル。
-            // 以前同期されていた（インデックスにある）ならリモートから掃除する。
-            if (this.shouldNotBeOnRemote(path)) {
-                if (this.localIndex[path]) {
-                    deleteQueue.push(path);
+        for (const path of dirtyPathsSnapshot) {
+            dirtyPathTasks.push(async () => {
+                // Priority 0: Check if another device is currently merging this file
+                const mergeLock = commData.mergeLocks[path];
+                if (mergeLock && mergeLock.holder !== this.deviceId && mergeLock.expiresAt > now) {
+                    await this.log(
+                        `[Smart Push] Skipping: ${path} is being merged by ${mergeLock.holder} (expires in ${Math.round((mergeLock.expiresAt - now) / 1000)}s)`,
+                    );
+                    // Don't remove from dirtyPaths - we'll retry next sync cycle
+                    return;
                 }
-                continue;
-            }
 
-            const exists = await this.app.vault.adapter.exists(path);
-            if (exists) {
-                const stat = await this.app.vault.adapter.stat(path);
-                if (stat) {
-                    // OPTIONAL: Double check hash one last time before upload queue?
-                    // But scan already did it. If markDirty came from event, we might want to check here.
-                    // For now, let's calculate hash to store in queue so we don't have to read file twice if possible,
-                    // OR just queue it and let uploadFile handle it.
-                    // The user wants to avoid PUSH if hash is same.
-                    // Since dirtyPaths can come from `markDirty` (events) which didn't check hash,
-                    // we MUST check hash here to filter out "false alarms" from events.
-                    try {
-                        const content = await this.app.vault.adapter.readBinary(path);
-                        // Get mtime AFTER reading content to ensure consistency
-                        const statAfterRead = await this.app.vault.adapter.stat(path);
-                        const mtimeAfterRead = statAfterRead?.mtime ?? stat.mtime;
+                // Priority 1: 完全に外部(専用ロジック)で管理するファイル。汎用ループでは一切触らない。
+                if (this.isManagedSeparately(path)) {
+                    return;
+                }
 
-                        const currentHash = md5(content);
-                        const localIndexEntry = this.localIndex[path];
+                // Priority 2: リモートに存在してはいけないファイル。
+                // 以前同期されていた（インデックスにある）ならリモートから掃除する。
+                if (this.shouldNotBeOnRemote(path)) {
+                    if (this.localIndex[path]) {
+                        deleteQueue.push(path);
+                    }
+                    return;
+                }
 
-                        // Adoption/Shortcut Check:
-                        // If index has a hash and it matches current, just update mtime and skip.
-                        // If it's a NEW file (!indexEntry), check remote to see if we can adopt it without uploading.
-                        let alreadyOnRemoteFile: import("./types/adapter").CloudFile | null = null;
-                        if (!localIndexEntry) {
-                            try {
-                                alreadyOnRemoteFile = await this.adapter.getFileMetadata(path);
-                            } catch (e) {
-                                // Ignore metadata lookup errors
+                const exists = await this.app.vault.adapter.exists(path);
+                if (exists) {
+                    const stat = await this.app.vault.adapter.stat(path);
+                    if (stat) {
+                        // OPTIONAL: Double check hash one last time before upload queue?
+                        // But scan already did it. If markDirty came from event, we might want to check here.
+                        // For now, let's calculate hash to store in queue so we don't have to read file twice if possible,
+                        // OR just queue it and let uploadFile handle it.
+                        // The user wants to avoid PUSH if hash is same.
+                        // Since dirtyPaths can come from `markDirty` (events) which didn't check hash,
+                        // we MUST check hash here to filter out "false alarms" from events.
+                        try {
+                            const content = await this.app.vault.adapter.readBinary(path);
+                            // Get mtime AFTER reading content to ensure consistency
+                            const statAfterRead = await this.app.vault.adapter.stat(path);
+                            const mtimeAfterRead = statAfterRead?.mtime ?? stat.mtime;
+
+                            const currentHash = md5(content);
+                            const localIndexEntry = this.localIndex[path];
+
+                            // Adoption/Shortcut Check:
+                            // If index has a hash and it matches current, just update mtime and skip.
+                            // If it's a NEW file (!indexEntry), check remote to see if we can adopt it without uploading.
+                            let alreadyOnRemoteFile: import("./types/adapter").CloudFile | null =
+                                null;
+                            if (!localIndexEntry) {
+                                try {
+                                    alreadyOnRemoteFile = await this.adapter.getFileMetadata(path);
+                                } catch (e) {
+                                    // Ignore metadata lookup errors
+                                }
                             }
-                        }
 
-                        if (
-                            localIndexEntry?.hash &&
-                            localIndexEntry.hash.toLowerCase() === currentHash &&
-                            localIndexEntry.lastAction !== "merge" // Ensure pending merges are pushed
-                        ) {
-                            // Local content matches our local base. No need to push.
-                            // However, let's update mtimes to avoid re-calculating hash.
-                            this.localIndex[path].mtime = mtimeAfterRead;
-                            if (this.index[path]) {
-                                this.index[path].mtime = mtimeAfterRead;
+                            if (
+                                localIndexEntry?.hash &&
+                                localIndexEntry.hash.toLowerCase() === currentHash &&
+                                localIndexEntry.lastAction !== "merge" // Ensure pending merges are pushed
+                            ) {
+                                // Local content matches our local base. No need to push.
+                                // However, let's update mtimes to avoid re-calculating hash.
+                                this.localIndex[path].mtime = mtimeAfterRead;
+                                if (this.index[path]) {
+                                    this.index[path].mtime = mtimeAfterRead;
+                                }
+                                this.dirtyPaths.delete(path); // Remove from dirty since content matches
+                                await this.log(`[Smart Push] Skipped (hash match): ${path}`);
+                                return;
+                            } else if (
+                                !localIndexEntry &&
+                                alreadyOnRemoteFile?.hash &&
+                                alreadyOnRemoteFile.hash.toLowerCase() === currentHash
+                            ) {
+                                // NEW file found on remote with SAME hash -> Adopt it!
+                                // Treat as "pull" since we're accepting remote state
+                                const entry = {
+                                    fileId: alreadyOnRemoteFile.id,
+                                    mtime: mtimeAfterRead,
+                                    size: content.byteLength,
+                                    hash: alreadyOnRemoteFile.hash,
+                                    lastAction: "pull" as const,
+                                    ancestorHash: alreadyOnRemoteFile.hash, // Set ancestor for future merges
+                                };
+                                this.index[path] = entry;
+                                this.localIndex[path] = { ...entry };
+                                this.dirtyPaths.delete(path);
+                                await this.log(
+                                    `[Smart Push] Adopted existing remote file: ${path}`,
+                                );
+                                return;
                             }
-                            this.dirtyPaths.delete(path); // Remove from dirty since content matches
-                            await this.log(`[Smart Push] Skipped (hash match): ${path}`);
-                            continue;
-                        } else if (
-                            !localIndexEntry &&
-                            alreadyOnRemoteFile?.hash &&
-                            alreadyOnRemoteFile.hash.toLowerCase() === currentHash
-                        ) {
-                            // NEW file found on remote with SAME hash -> Adopt it!
-                            // Treat as "pull" since we're accepting remote state
-                            const entry = {
-                                fileId: alreadyOnRemoteFile.id,
+
+                            // Hash differs or new file -> Queue for upload with buffered content
+                            uploadQueue.push({
+                                path,
                                 mtime: mtimeAfterRead,
                                 size: content.byteLength,
-                                hash: alreadyOnRemoteFile.hash,
-                                lastAction: "pull" as const,
-                                ancestorHash: alreadyOnRemoteFile.hash, // Set ancestor for future merges
-                            };
-                            this.index[path] = entry;
-                            this.localIndex[path] = { ...entry };
-                            this.dirtyPaths.delete(path);
-                            await this.log(`[Smart Push] Adopted existing remote file: ${path}`);
-                            continue;
+                                content,
+                            });
+                        } catch (e) {
+                            await this.log(
+                                `[Smart Push] Failed to read ${path} for hash check: ${e}`,
+                            );
                         }
-
-                        // Hash differs or new file -> Queue for upload with buffered content
-                        uploadQueue.push({
-                            path,
-                            mtime: mtimeAfterRead,
-                            size: content.byteLength,
-                            content,
-                        });
-                    } catch (e) {
-                        await this.log(`[Smart Push] Failed to read ${path} for hash check: ${e}`);
+                    }
+                } else {
+                    // File was deleted locally
+                    if (this.localIndex[path]) {
+                        deleteQueue.push(path);
                     }
                 }
-            } else {
-                // File was deleted locally
-                if (this.localIndex[path]) {
-                    deleteQueue.push(path);
-                }
-            }
+            });
         }
+        await this.runParallel(dirtyPathTasks, 20);
 
         const totalOps = uploadQueue.length + deleteQueue.length;
-        if (totalOps === 0) {
+        if (totalOps === 0 && folderDeletedCount === 0) {
             await this.log("[Smart Push] No changes after filtering.");
             return false;
         }
 
-        this.onActivityStart();
+        // this.onActivityStart();
         try {
             // Ensure folders exist on remote
             // OPTIMIZATION: Removed listFiles() call here. We just pass the folders we need.
@@ -2146,7 +2226,7 @@ export class SyncManager {
             }
             return true;
         } finally {
-            this.onActivityEnd();
+            // this.onActivityEnd();
         }
     }
 
