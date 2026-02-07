@@ -1,7 +1,10 @@
 // Minimal Obsidian API mocks for testing SyncManager
 
 export class Notice {
-    constructor(public message: string, _timeout?: number) {}
+    constructor(
+        public message: string,
+        _timeout?: number,
+    ) {}
 }
 
 export class TAbstractFile {
@@ -31,4 +34,21 @@ export class Platform {
 
 export class App {
     vault: any;
+}
+
+export function normalizePath(path: string): string {
+    // Simple mock implementation
+    // 1. Replace backslashes with forward slashes
+    let res = path.replace(/\\/g, "/");
+
+    // 2. Remove duplicate slashes
+    res = res.replace(/\/+/g, "/");
+
+    // 3. Remove leading slash (Obsidian paths are relative to vault root)
+    if (res.startsWith("/")) res = res.substring(1);
+
+    // 4. Remove trailing slash (except if root, but empty string is root here)
+    if (res.endsWith("/") && res.length > 1) res = res.substring(0, res.length - 1);
+
+    return res;
 }

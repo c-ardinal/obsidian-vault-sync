@@ -1,5 +1,6 @@
 import { CloudAdapter } from "./types/adapter";
 import { App, TFile, TFolder, TAbstractFile, Notice } from "obsidian";
+import { normalizePath } from "./utils/path";
 import { matchWildcard } from "./utils/wildcard";
 import { md5 } from "./utils/md5";
 import { RevisionCache } from "./revision-cache";
@@ -226,6 +227,8 @@ export class SyncManager {
     }
 
     private async ensureLocalFolder(filePath: string) {
+        // Ensure path uses forward slashes regardless of OS
+        filePath = normalizePath(filePath);
         const parts = filePath.split("/");
         if (parts.length <= 1) return;
 
@@ -651,7 +654,8 @@ export class SyncManager {
      * これらがインデックスに存在する場合、リモートから削除される。
      */
     private shouldNotBeOnRemote(path: string): boolean {
-        const normalizedPath = path.toLowerCase();
+        // Normalize path first to handle Windows backslashes correctly
+        const normalizedPath = normalizePath(path).toLowerCase();
         const normalizedWithSlash = normalizedPath.endsWith("/")
             ? normalizedPath
             : normalizedPath + "/";
@@ -750,6 +754,8 @@ export class SyncManager {
      * Called from main.ts on file modify/create events
      */
     markDirty(path: string) {
+        // Ensure consistent path format across OS
+        path = normalizePath(path);
         if (this.shouldIgnore(path)) return;
         if (this.syncingPaths.has(path)) return;
 
