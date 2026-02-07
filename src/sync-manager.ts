@@ -137,6 +137,11 @@ export class SyncManager {
     private readonly FULL_SCAN_MAX_AGE_MS = 5 * 60 * 1000;
 
     private forceCleanupNextSync: boolean = false;
+    private indexLoadFailed = false;
+
+    public isSyncing(): boolean {
+        return this.syncState !== "IDLE";
+    }
 
     private onActivityStart: () => void = () => {};
     private onActivityEnd: () => void = () => {};
@@ -458,6 +463,7 @@ export class SyncManager {
             }
 
             await this.log(`[Index] Fatal load failure. Starting fresh.`);
+            this.indexLoadFailed = true;
             this.index = {};
             this.localIndex = {};
             this.startPageToken = null;
@@ -1079,6 +1085,13 @@ export class SyncManager {
     }
 
     /**
+     * Check if this is a fresh start (index failed to load or is empty)
+     */
+    isFreshStart(): boolean {
+        return this.indexLoadFailed || Object.keys(this.index).length === 0;
+    }
+
+    /**
      * Request Smart Sync - high priority, interrupts full scan
      * This is the main entry point for user-triggered syncs
      */
@@ -1184,6 +1197,22 @@ export class SyncManager {
 
             // === PUSH PHASE ===
             const pushed = await this.smartPush(isSilent, scanVault);
+
+            // === CONFIRMATION PHASE (Initial Sync) ===
+            // For initial sync (scanVault=true) and adapters with Changes API support,
+            // we immediately check for our own pushes to confirm identity and update ancestor hashes.
+            // drainAll=true processes all pages in one go, overcoming any pageSize limits.
+            if (pushed && scanVault && this.adapter.supportsChangesAPI) {
+                await this.log(
+                    "[Smart Sync] Initial sync push detected. Running immediate identity check...",
+                );
+                await this.notify(this.t("statusInitialSyncConfirmation"), false, isSilent);
+
+                await this.pullViaChangesAPI(isSilent, true);
+
+                // Re-confirm completion after identity check
+                await this.notify(this.t("noticePushCompleted"), false, isSilent);
+            }
 
             if (!pulled && !pushed) {
                 await this.notify(this.t("noticeVaultUpToDate"), false, isSilent);
@@ -1530,167 +1559,204 @@ export class SyncManager {
 
     /**
      * Pull via Changes API (for adapters that support it)
+     * @param isSilent Suppress notifications
+     * @param drainAll If true, process all available pages of changes (useful after initial push)
      */
-    private async pullViaChangesAPI(isSilent: boolean): Promise<boolean> {
+    private async pullViaChangesAPI(
+        isSilent: boolean,
+        drainAll: boolean = false,
+    ): Promise<boolean> {
         if (!this.startPageToken) {
             this.startPageToken = await this.adapter.getStartPageToken();
             await this.saveIndex();
         }
 
-        const changes = await this.adapter.getChanges(this.startPageToken);
+        let hasTotalChanges = false;
+        let currentPageToken = this.startPageToken;
+        let confirmedCountTotal = 0;
 
-        if (changes.changes.length === 0) {
-            await this.log("[Smart Pull] No changes from Changes API");
-            if (changes.newStartPageToken) {
-                this.startPageToken = changes.newStartPageToken;
-                await this.saveIndex();
+        do {
+            const changes = await this.adapter.getChanges(currentPageToken);
+
+            if (changes.changes.length === 0) {
+                await this.log("[Smart Pull] No changes from Changes API");
+                if (changes.newStartPageToken) {
+                    this.startPageToken = changes.newStartPageToken;
+                    await this.saveIndex();
+                }
+                break; // No more changes
             }
-            return false;
-        }
 
-        await this.log(`[Smart Pull] Changes API returned ${changes.changes.length} changes`);
+            await this.log(`[Smart Pull] Changes API returned ${changes.changes.length} changes`);
+            hasTotalChanges = true;
 
-        // Load communication data for mergeLock checks
-        const commData = await this.loadCommunication();
+            // In confirmation mode, if we haven't confirmed anything yet, notify user about the wait
+            if (drainAll && confirmedCountTotal === 0) {
+                await this.notify(this.t("statusWaitingForRemoteRegistration"), false, isSilent);
+            }
 
-        const tasks: (() => Promise<void>)[] = [];
-        let completed = 0;
+            // Load communication data for mergeLock checks
+            const commData = await this.loadCommunication();
 
-        for (const change of changes.changes) {
-            if (change.removed) {
-                // File was deleted on remote
-                const pathToDelete = Object.entries(this.index).find(
-                    ([, entry]) => entry.fileId === change.fileId,
-                )?.[0];
+            const tasks: (() => Promise<void>)[] = [];
+            let completed = 0;
 
-                if (pathToDelete && pathToDelete !== this.pluginDataPath) {
-                    // Track this path to prevent re-upload if local deletion fails
-                    this.recentlyDeletedFromRemote.add(pathToDelete);
-                    tasks.push(async () => {
-                        try {
-                            const file = this.app.vault.getAbstractFileByPath(pathToDelete);
-                            if (file) {
-                                await this.app.vault.trash(file, true);
+            for (const change of changes.changes) {
+                if (change.removed) {
+                    // File was deleted on remote
+                    const pathToDelete = Object.entries(this.index).find(
+                        ([, entry]) => entry.fileId === change.fileId,
+                    )?.[0];
+
+                    if (pathToDelete && pathToDelete !== this.pluginDataPath) {
+                        // Track this path to prevent re-upload if local deletion fails
+                        this.recentlyDeletedFromRemote.add(pathToDelete);
+                        tasks.push(async () => {
+                            try {
+                                const file = this.app.vault.getAbstractFileByPath(pathToDelete);
+                                if (file) {
+                                    await this.app.vault.trash(file, true);
+                                }
+                                delete this.index[pathToDelete];
+                                delete this.localIndex[pathToDelete]; // Added for consistency
+                                completed++;
+                                await this.log(`[Smart Pull] Deleted: ${pathToDelete}`);
+                                await this.notify(
+                                    `${this.t("fileRemoved")}: ${pathToDelete.split("/").pop()}`,
+                                    true,
+                                    isSilent,
+                                );
+                            } catch (e) {
+                                await this.log(
+                                    `[Smart Pull] Delete failed: ${pathToDelete} - ${e}`,
+                                );
                             }
-                            delete this.index[pathToDelete];
-                            delete this.localIndex[pathToDelete]; // Added for consistency
-                            completed++;
-                            await this.log(`[Smart Pull] Deleted: ${pathToDelete}`);
+                        });
+                    }
+                } else if (change.file && change.file.kind === "file") {
+                    // File was added or modified
+                    const cloudFile = change.file;
+                    if (cloudFile.path === this.pluginDataPath) continue;
+                    if (this.isManagedSeparately(cloudFile.path)) continue;
+
+                    // NEW: もしリモート禁止対象ファイルが上がってきたら、即座に削除
+                    if (this.shouldNotBeOnRemote(cloudFile.path)) {
+                        tasks.push(async () => {
+                            try {
+                                await this.adapter.deleteFile(cloudFile.id);
+                                await this.log(
+                                    `[Smart Pull] [Cleanup] Deleted forbidden file (via Changes API): ${cloudFile.path}`,
+                                );
+                                delete this.index[cloudFile.path];
+                                delete this.localIndex[cloudFile.path];
+                            } catch (e) {
+                                await this.log(
+                                    `[Smart Pull] [Cleanup] Failed to delete forbidden file: ${cloudFile.path} - ${e}`,
+                                );
+                            }
+                        });
+                        continue;
+                    }
+
+                    // Check if another device is merging this file
+                    const mergeLock = commData.mergeLocks[cloudFile.path];
+                    const now = Date.now();
+                    if (
+                        mergeLock &&
+                        mergeLock.holder !== this.deviceId &&
+                        mergeLock.expiresAt > now
+                    ) {
+                        await this.log(
+                            `[Smart Pull] Waiting: ${cloudFile.path} is being merged by ${mergeLock.holder} (expires in ${Math.round((mergeLock.expiresAt - now) / 1000)}s)`,
+                        );
+                        if (this.settings.showDetailedNotifications || !isSilent) {
                             await this.notify(
-                                `${this.t("fileRemoved")}: ${pathToDelete.split("/").pop()}`,
+                                `⏳ ${cloudFile.path.split("/").pop()}: ${this.t("noticeWaitOtherDeviceMerge") || "Waiting for other device to resolve merge..."}`,
                                 true,
                                 isSilent,
                             );
-                        } catch (e) {
-                            await this.log(`[Smart Pull] Delete failed: ${pathToDelete} - ${e}`);
                         }
-                    });
-                }
-            } else if (change.file && change.file.kind === "file") {
-                // File was added or modified
-                const cloudFile = change.file;
-                if (cloudFile.path === this.pluginDataPath) continue;
-                if (this.isManagedSeparately(cloudFile.path)) continue;
-
-                // NEW: もしリモート禁止対象ファイルが上がってきたら、即座に削除
-                if (this.shouldNotBeOnRemote(cloudFile.path)) {
-                    tasks.push(async () => {
-                        try {
-                            await this.adapter.deleteFile(cloudFile.id);
-                            await this.log(
-                                `[Smart Pull] [Cleanup] Deleted forbidden file (via Changes API): ${cloudFile.path}`,
-                            );
-                            delete this.index[cloudFile.path];
-                            delete this.localIndex[cloudFile.path];
-                        } catch (e) {
-                            await this.log(
-                                `[Smart Pull] [Cleanup] Failed to delete forbidden file: ${cloudFile.path} - ${e}`,
-                            );
+                        // Mark as pending conflict so next sync shows "merge result applied"
+                        if (this.localIndex[cloudFile.path]) {
+                            this.localIndex[cloudFile.path].pendingConflict = true;
+                            await this.saveLocalIndex();
                         }
-                    });
-                    continue;
-                }
-
-                // Check if another device is merging this file
-                // mergeLock is stored in communication.json for faster access
-                const mergeLock = commData.mergeLocks[cloudFile.path];
-                const now = Date.now();
-                if (mergeLock && mergeLock.holder !== this.deviceId && mergeLock.expiresAt > now) {
-                    await this.log(
-                        `[Smart Pull] Waiting: ${cloudFile.path} is being merged by ${mergeLock.holder} (expires in ${Math.round((mergeLock.expiresAt - now) / 1000)}s)`,
-                    );
-                    if (this.settings.showDetailedNotifications || !isSilent) {
-                        await this.notify(
-                            `⏳ ${cloudFile.path.split("/").pop()}: ${this.t("noticeWaitOtherDeviceMerge") || "Waiting for other device to resolve merge..."}`,
-                            true,
-                            isSilent,
-                        );
+                        continue; // Skip this file, wait for merge to complete
                     }
-                    // Mark as pending conflict so next sync shows "merge result applied"
-                    if (this.localIndex[cloudFile.path]) {
-                        this.localIndex[cloudFile.path].pendingConflict = true;
-                        await this.saveLocalIndex();
-                    }
-                    continue; // Skip this file, wait for merge to complete
-                }
 
-                // Skip if local index hash matches (already synced by this client)
-                const localEntry = this.index[cloudFile.path];
-                if (
-                    localEntry?.hash &&
-                    cloudFile.hash &&
-                    localEntry.hash.toLowerCase() === cloudFile.hash.toLowerCase()
-                ) {
-                    // Update lastAction to 'pull' to indicate sync is confirmed
-                    // This clears 'push' state so future remote updates won't trigger Safety Guard
-                    // ALSO update ancestorHash here - this is the ONLY safe place to confirm
-                    // that both Local and Remote agree on this hash.
+                    // Skip if local index hash matches (already synced by this client)
+                    const localEntry = this.index[cloudFile.path];
                     if (
-                        this.localIndex[cloudFile.path]?.lastAction === "push" ||
-                        this.localIndex[cloudFile.path]?.lastAction === "merge"
+                        localEntry?.hash &&
+                        cloudFile.hash &&
+                        localEntry.hash.toLowerCase() === cloudFile.hash.toLowerCase()
                     ) {
-                        this.localIndex[cloudFile.path].lastAction = "pull";
-                        // NOW we can safely set ancestorHash - both sides confirmed to have this content
-                        this.localIndex[cloudFile.path].ancestorHash = cloudFile.hash;
-                        this.index[cloudFile.path].ancestorHash = cloudFile.hash;
-                        await this.log(
-                            `[Smart Pull] Sync confirmed for ${cloudFile.path}. ancestorHash updated to ${cloudFile.hash?.substring(0, 8)}`,
+                        if (
+                            this.localIndex[cloudFile.path]?.lastAction === "push" ||
+                            this.localIndex[cloudFile.path]?.lastAction === "merge"
+                        ) {
+                            this.localIndex[cloudFile.path].lastAction = "pull";
+                            this.localIndex[cloudFile.path].ancestorHash = cloudFile.hash;
+                            this.index[cloudFile.path].ancestorHash = cloudFile.hash;
+                            await this.log(
+                                `[Smart Pull] Sync confirmed for ${cloudFile.path}. ancestorHash updated to ${cloudFile.hash?.substring(0, 8)}`,
+                            );
+
+                            // Notify individual confirmation if detailed notifications are on
+                            confirmedCountTotal++;
+                            if (this.settings.showDetailedNotifications || !isSilent) {
+                                await this.notify(
+                                    `✅ ${this.t("noticeSyncConfirmed")}: ${cloudFile.path.split("/").pop()}`,
+                                    true,
+                                    isSilent,
+                                );
+                            }
+                        }
+                        await this.log(`[Smart Pull] Skipping (hash match): ${cloudFile.path}`);
+                        continue;
+                    }
+
+                    tasks.push(async () => {
+                        const success = await this.pullFileSafely(
+                            cloudFile,
+                            isSilent,
+                            "Changes API",
                         );
-                    }
-                    await this.log(`[Smart Pull] Skipping (hash match): ${cloudFile.path}`);
-                    continue;
+                        if (success) {
+                            completed++;
+                            await this.log(`[Changes API] Synced: ${cloudFile.path}`);
+                        }
+                    });
                 }
-
-                tasks.push(async () => {
-                    const success = await this.pullFileSafely(cloudFile, isSilent, "Changes API");
-                    if (success) {
-                        completed++;
-                        await this.log(`[Changes API] Synced: ${cloudFile.path}`);
-                    }
-                });
             }
-        }
 
-        if (tasks.length > 0) {
-            this.startActivity();
-            try {
-                await this.runParallel(tasks);
-            } finally {
-                // Keep spinning until executeSmartSync finishes
+            if (tasks.length > 0) {
+                this.startActivity();
+                try {
+                    await this.runParallel(tasks);
+                } finally {
+                    // endActivity is handled by executeSmartSync
+                }
             }
-        }
 
-        if (changes.newStartPageToken) {
-            this.startPageToken = changes.newStartPageToken;
-        }
-        await this.saveIndex();
+            // Advance to next page if supported, or settle on new start token
+            if (changes.nextPageToken) {
+                currentPageToken = changes.nextPageToken;
+                this.startPageToken = currentPageToken;
+                await this.saveIndex();
+            } else if (changes.newStartPageToken) {
+                this.startPageToken = changes.newStartPageToken;
+                await this.saveIndex();
+                break; // Reach the end
+            } else {
+                break; // No tokens, stop
+            }
 
-        if (tasks.length > 0) {
-            await this.notify(
-                `⬇️ ${this.t("noticePullCompleted")} (${tasks.length} changes)`,
-                false,
-                false,
-            );
+            if (!drainAll) break; // Only process one page unless drainAll is true
+        } while (currentPageToken);
+
+        if (hasTotalChanges) {
+            // Notification is handled once at the end in executeSmartSync if return value is true
             return true;
         }
         return false;
@@ -2039,13 +2105,13 @@ export class SyncManager {
                         // === CONFLICT CHECK (Optimistic Locking) ===
                         // Before uploading, check if remote has changed since our last sync.
                         // If remote hash != index hash, someone else pushed. We MUST NOT overwrite.
+                        let remoteMeta: import("./types/adapter").CloudFile | null = null;
                         try {
                             const params = {
                                 fileId: this.index[file.path]?.fileId,
                                 path: file.path,
                             };
                             // Use fileId if available for faster lookup, otherwise path
-                            let remoteMeta = null;
                             if (params.fileId) {
                                 try {
                                     // CRITICAL FIX: Use ID-based lookup if available!
@@ -2122,6 +2188,7 @@ export class SyncManager {
                             file.path,
                             file.content,
                             file.mtime,
+                            remoteMeta?.id, // Optimized: pass the ID we already fetched to save redundant lookups
                         );
 
                         // SUCCESS: Update indices with REMOTE metadata

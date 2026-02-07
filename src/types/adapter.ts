@@ -8,6 +8,7 @@ export interface CloudFile {
 }
 
 export interface CloudChanges {
+    nextPageToken?: string;
     newStartPageToken?: string;
     changes: {
         fileId: string;
@@ -46,7 +47,12 @@ export interface CloudAdapter {
      */
     getFileMetadataById(fileId: string, knownPath?: string): Promise<CloudFile | null>;
     downloadFile(fileId: string): Promise<ArrayBuffer>;
-    uploadFile(path: string, content: ArrayBuffer, mtime: number): Promise<CloudFile>;
+    uploadFile(
+        path: string,
+        content: ArrayBuffer,
+        mtime: number,
+        existingFileId?: string,
+    ): Promise<CloudFile>;
     deleteFile(fileId: string): Promise<void>;
     createFolder(path: string): Promise<string>;
     ensureFoldersExist(

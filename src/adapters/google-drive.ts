@@ -16,6 +16,8 @@ export class GoogleDriveAdapter implements CloudAdapter {
     private folderCache: Map<string, string> = new Map();
     private initPromise: Promise<string> | null = null;
     private resolveCache: Map<string, Promise<string>> = new Map();
+    private idToPathCache: Map<string, string> = new Map(); // ID -> fullPath
+    private resolvePathCache: Map<string, string> = new Map(); // ID -> fullPath (built during resolution)
     private cloudRootFolder: string = DEFAULT_ROOT_FOLDER;
 
     constructor(
@@ -577,24 +579,36 @@ export class GoogleDriveAdapter implements CloudAdapter {
         return await response.arrayBuffer();
     }
 
-    async uploadFile(path: string, content: ArrayBuffer, mtime: number): Promise<CloudFile> {
-        const parentId = await this.resolveParentId(path, true);
+    async uploadFile(
+        path: string,
+        content: ArrayBuffer,
+        mtime: number,
+        existingFileId?: string,
+    ): Promise<CloudFile> {
         const name = path.split("/").pop();
         const metadata: any = {
             name: name,
             modifiedTime: new Date(mtime).toISOString(),
         };
 
-        const existing = await this.getFileMetadata(path);
+        let activeFileId = existingFileId;
+        if (!activeFileId) {
+            // Only perform path-based lookup if ID is not provided
+            const existing = await this.getFileMetadata(path);
+            if (existing) activeFileId = existing.id;
+        }
 
         let url =
             "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,md5Checksum,size";
         let method = "POST";
 
-        if (existing) {
-            url = `https://www.googleapis.com/upload/drive/v3/files/${existing.id}?uploadType=multipart&fields=id,md5Checksum,size`;
+        if (activeFileId) {
+            // PATCH: skip resolveParentId if we already have the file ID
+            url = `https://www.googleapis.com/upload/drive/v3/files/${activeFileId}?uploadType=multipart&fields=id,md5Checksum,size`;
             method = "PATCH";
         } else {
+            // NEW FILE: resolve parent ID
+            const parentId = await this.resolveParentId(path, true);
             metadata.parents = [parentId];
         }
 
@@ -620,7 +634,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
         });
 
         const data = await response.json();
-        return {
+        const result: CloudFile = {
             id: data.id,
             path: path,
             mtime: mtime,
@@ -628,6 +642,13 @@ export class GoogleDriveAdapter implements CloudAdapter {
             kind: "file",
             hash: data.md5Checksum,
         };
+
+        // CACHE for immediate identity check
+        this.idToPathCache.set(result.id, result.path);
+        // Also feed resolvePathCache to prevent redundant lookups if other tools use it
+        this.resolvePathCache.set(result.id, result.path);
+
+        return result;
     }
 
     async deleteFile(fileId: string): Promise<void> {
@@ -675,7 +696,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
         const total = uniquePaths.length;
         let current = 0;
 
-        const FOLDER_CONCURRENCY = 5;
+        const FOLDER_CONCURRENCY = 10;
 
         for (const depth of depths) {
             const foldersAtDepth = depthMap.get(depth)!;
@@ -767,20 +788,15 @@ export class GoogleDriveAdapter implements CloudAdapter {
         const fields =
             "nextPageToken,newStartPageToken,changes(fileId,removed,file(id,name,mimeType,modifiedTime,size,md5Checksum,parents,trashed))";
         const response = await this.fetchWithAuth(
-            `https://www.googleapis.com/drive/v3/changes?pageToken=${pageToken}&pageSize=500&fields=${fields}`,
+            `https://www.googleapis.com/drive/v3/changes?pageToken=${pageToken}&pageSize=1000&fields=${fields}`,
         );
         const data = await response.json();
 
-        // FIX: Handle pagination.
-        // If there are more pages, 'nextPageToken' is present.
-        // If it's the last page, 'newStartPageToken' is present.
-        // We must use whichever is available to advance the cursor.
-        const nextToken = data.newStartPageToken || data.nextPageToken;
-
         return {
-            newStartPageToken: nextToken,
+            nextPageToken: data.nextPageToken,
+            newStartPageToken: data.newStartPageToken,
             changes: await Promise.all(
-                data.changes.map(async (c: any) => {
+                (data.changes || []).map(async (c: any) => {
                     let fullPath = c.file ? c.file.name : "";
                     if (c.file && !c.removed && c.file.parents) {
                         try {
@@ -819,6 +835,10 @@ export class GoogleDriveAdapter implements CloudAdapter {
     }
 
     private async resolveFullPath(fileId: string): Promise<string> {
+        // Quick lookup for recently uploaded files
+        const cachedPath = this.idToPathCache.get(fileId) || this.resolvePathCache.get(fileId);
+        if (cachedPath) return cachedPath;
+
         let currentId = fileId;
         const pathParts: string[] = [];
 
@@ -843,21 +863,13 @@ export class GoogleDriveAdapter implements CloudAdapter {
                 pathParts.unshift(file.name);
             }
 
-            if (!file.parents || file.parents.length === 0) {
-                // Reached root or outside of vault without hitting vaultRootId
-                throw new Error("File is outside the vault folder");
-            }
-
-            // Move up to parent
+            if (!file.parents || file.parents.length === 0) break;
             currentId = file.parents[0];
-
-            // Optimization: If parent is vault root, stop here
-            if (currentId === this.vaultRootId) {
-                break;
-            }
         }
 
-        return pathParts.join("/");
+        const fullPath = pathParts.join("/");
+        this.resolvePathCache.set(fileId, fullPath);
+        return fullPath;
     }
 
     async listFiles(folderId?: string): Promise<CloudFile[]> {

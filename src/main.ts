@@ -73,6 +73,8 @@ const i18n: Record<string, Record<string, string>> = {
         statusChangesToPush: "changes to push...",
         statusChangesToPull: "changes detected. Syncing...",
         statusScanningOrphans: "🔍 Scanning for orphan files...",
+        statusInitialSyncConfirmation: "Preparing identity check for uploaded files...",
+        statusWaitingForRemoteRegistration: "Waiting for remote to register uploaded files...",
 
         // Notifications (Notice)
         noticeAuthSuccess: "Successfully authenticated!",
@@ -80,9 +82,10 @@ const i18n: Record<string, Record<string, string>> = {
         noticePushCompleted: "✅ Push completed.",
         noticePullCompleted: "✅ Pull completed.",
         noticeVaultUpToDate: "✅ Vault is up to date (Index verified).",
-        noticeFilePushed: "📤 Pushed",
-        noticeFilePulled: "📥 Pulled",
+        noticeFilePushed: "📤 Pushing",
+        noticeFilePulled: "📥 Pulling",
         noticeFileTrashed: "🗑️ Trashed",
+        noticeSyncConfirmed: "Sync confirmed",
         noticeWaitOtherDeviceMerge: "Waiting for other device to resolve conflict...",
         noticeMergingFile: "Merging",
         noticeMergeSuccess: "Merge auto-resolved",
@@ -181,6 +184,8 @@ const i18n: Record<string, Record<string, string>> = {
         statusChangesToPush: "件の変更をアップロード中...",
         statusChangesToPull: "件の変更を検出しました。同期中...",
         statusScanningOrphans: "🔍 未管理ファイルの走査中...",
+        statusInitialSyncConfirmation: "アップロードしたファイルの同一性確認を準備中...",
+        statusWaitingForRemoteRegistration: "リモート側の反映完了を待機中...",
 
         // Notifications (Notice)
         noticeAuthSuccess: "認証に成功しました！",
@@ -188,9 +193,10 @@ const i18n: Record<string, Record<string, string>> = {
         noticePushCompleted: "✅ アップロード完了",
         noticePullCompleted: "✅ ダウンロード完了",
         noticeVaultUpToDate: "✅ すべて最新の状態です",
-        noticeFilePushed: "📤 アップロード",
-        noticeFilePulled: "📥 ダウンロード",
+        noticeFilePushed: "📤 アップロード中",
+        noticeFilePulled: "📥 ダウンロード中",
         noticeFileTrashed: "🗑️ 削除",
+        noticeSyncConfirmed: "同期成功",
         noticeWaitOtherDeviceMerge: "他のデバイスが競合を解決するのを待機しています...",
         noticeMergingFile: "マージ中",
         noticeMergeSuccess: "マージが自動解決されました",
@@ -359,13 +365,16 @@ export default class VaultSync extends Plugin {
                         "Startup grace period ended. Triggering initial Smart Sync.",
                     );
 
-                    // First time sync -> Loud (notify + icon spin). Subsequent -> Silent.
+                    // First time sync OR fresh start -> Loud (notify + icon spin). Subsequent -> Silent.
                     const isFirstSync = !this.settings.hasCompletedFirstSync;
-                    await this.syncManager.requestSmartSync(!isFirstSync, true);
+                    const isFreshStart = this.syncManager.isFreshStart();
+                    const shouldBeLoud = isFirstSync || isFreshStart;
+
+                    await this.syncManager.requestSmartSync(!shouldBeLoud, true);
 
                     if (isFirstSync) {
                         this.settings.hasCompletedFirstSync = true;
-                        this.saveSettings();
+                        await this.saveSettings();
                     }
                 }, this.settings.startupDelaySec * 1000);
             } else {
@@ -469,6 +478,12 @@ export default class VaultSync extends Plugin {
                 );
                 return;
             }
+        }
+
+        if (source === "interval" && this.syncManager.isSyncing()) {
+            // Already syncing, interval trigger should be quiet
+            await this.syncManager.requestSmartSync(true);
+            return;
         }
 
         await this.syncManager.log(`[Trigger] Activated via ${source}`);
