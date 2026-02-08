@@ -24,7 +24,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
     constructor(
         private _clientId: string,
         private _clientSecret: string,
-        private vaultName: string,
+        public vaultName: string,
         cloudRootFolder?: string,
     ) {
         this.cloudRootFolder = this.validateRootFolder(cloudRootFolder);
@@ -36,6 +36,10 @@ export class GoogleDriveAdapter implements CloudAdapter {
 
     get clientSecret(): string {
         return this._clientSecret;
+    }
+
+    get rootFolder(): string {
+        return this.cloudRootFolder;
     }
 
     setCredentials(clientId: string, clientSecret: string) {

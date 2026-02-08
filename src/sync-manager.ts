@@ -5,10 +5,12 @@ import { matchWildcard } from "./utils/wildcard";
 import { md5 } from "./utils/md5";
 import { RevisionCache } from "./revision-cache";
 import { diff_match_patch } from "diff-match-patch";
+import { SETTINGS_LIMITS } from "./constants";
 
 export interface SyncManagerSettings {
     concurrency: number;
-    showDetailedNotifications: boolean;
+    notificationLevel: "verbose" | "standard" | "error";
+    conflictResolutionStrategy: "smart-merge" | "force-local" | "force-remote" | "always-fork";
     enableLogging: boolean;
     exclusionPatterns: string;
 }
@@ -232,10 +234,23 @@ export class SyncManager {
      * @param isSilent If true, suppress UI notice (but still log)
      */
     public async notify(message: string, isDetailed: boolean = false, isSilent: boolean = false) {
-        // Show if:
-        // 1. Manual sync (!isSilent)
-        // 2. OR it's a detailed message AND the user wants to see detailed messages even during auto-sync
-        const shouldShow = !isSilent || (isDetailed && this.settings.showDetailedNotifications);
+        // notificationLevel: "verbose" | "standard" | "error"
+        // error: Only show if specifically flagged as error (we'll assume standard notify is not error)
+        // standard: Show non-detailed (standard) messages, hide detailed.
+        // verbose: Show everything.
+        if (this.settings.notificationLevel === "error") {
+            // For now, this method is mostly used for status/info.
+            // Errors usually throw or are logged.
+            // If we wanted to support explicit error notifications, we'd need an extra param.
+            // Assuming normal "notify" calls are INFO level.
+            await this.log(`[Silent Notice (ErrorLevel)] ${message}`);
+            return;
+        }
+
+        const showVerbose = this.settings.notificationLevel === "verbose";
+        // If message is detailed, show only if verbose.
+        // If message is standard (!isDetailed), show if standard or verbose (which is !error).
+        const shouldShow = !isSilent && (!isDetailed || showVerbose);
 
         if (shouldShow) {
             new Notice(message);
@@ -563,7 +578,12 @@ export class SyncManager {
     ): Promise<T[]> {
         const results: T[] = [];
         const queue = [...tasks];
-        const workers = Array(Math.min(concurrency, queue.length))
+
+        // Handle invalid concurrency (e.g. -1 for disabled) to avoid RangeError
+        const workerCount = Math.max(0, Math.min(concurrency, queue.length));
+        if (workerCount === 0) return [];
+
+        const workers = Array(workerCount)
             .fill(null)
             .map(async () => {
                 while (queue.length > 0) {
@@ -1114,6 +1134,11 @@ export class SyncManager {
      * @param scanVault If true, perform a full vault scan for changes (O(N)) - useful for startup
      */
     async requestSmartSync(isSilent: boolean = true, scanVault: boolean = false): Promise<void> {
+        if (this.settings.concurrency === SETTINGS_LIMITS.concurrency.disabled) {
+            await this.log("[Smart Sync] Skipped: Concurrency is disabled (-1)");
+            return;
+        }
+
         // If already smart syncing, mark that we need another pass after and wait.
         if (this.syncState === "SMART_SYNCING") {
             this.syncRequestedWhileSyncing = true;
@@ -1715,7 +1740,7 @@ export class SyncManager {
                         await this.log(
                             `[Smart Pull] Waiting: ${cloudFile.path} is being merged by ${mergeLock.holder} (expires in ${Math.round((mergeLock.expiresAt - now) / 1000)}s)`,
                         );
-                        if (this.settings.showDetailedNotifications || !isSilent) {
+                        if (this.settings.notificationLevel === "verbose" || !isSilent) {
                             await this.notify(
                                 `⏳ ${cloudFile.path.split("/").pop()}: ${this.t("noticeWaitOtherDeviceMerge") || "Waiting for other device to resolve merge..."}`,
                                 true,
@@ -1764,7 +1789,7 @@ export class SyncManager {
 
                             // Notify individual confirmation if detailed notifications are on
                             confirmedCountTotal++;
-                            if (this.settings.showDetailedNotifications || !isSilent) {
+                            if (this.settings.notificationLevel === "verbose" || !isSilent) {
                                 await this.notify(
                                     `✅ ${this.t("noticeSyncConfirmed")}: ${cloudFile.path.split("/").pop()}`,
                                     true,
@@ -2718,18 +2743,34 @@ export class SyncManager {
 
         return { chars1, chars2, chars3, lineArray };
     }
-
     /**
      * Try to perform a 3-way merge
      * @returns Merged content as ArrayBuffer if successful, null if conflict persists
      */
-    private async tryThreeWayMerge(
+    private async perform3WayMerge(
         path: string,
         localContentStr: string,
-        baseHash: string,
         remoteContentStr: string,
+        baseHash: string,
     ): Promise<ArrayBuffer | null> {
         try {
+            // Check Conflict Resolution Strategy
+            const strategy = this.settings.conflictResolutionStrategy;
+            if (strategy === "force-local") {
+                await this.log(`[Merge] Strategy is 'Force Local'. Overwriting remote changes.`);
+                return new TextEncoder().encode(localContentStr).buffer;
+            }
+            if (strategy === "force-remote") {
+                await this.log(`[Merge] Strategy is 'Force Remote'. Overwriting local changes.`);
+                return new TextEncoder().encode(remoteContentStr).buffer;
+            }
+            if (strategy === "always-fork") {
+                await this.log(`[Merge] Strategy is 'Always Fork'. Skipping auto-merge.`);
+                return null;
+            }
+
+            // Normal 'smart-merge' logic continues below...
+            // 1. Find Base Revision (Common Ancestor)
             await this.log(`[Merge] Attempting 3-way merge for ${path}...`);
             await this.log(`[Merge] Looking for base revision with hash: ${baseHash}`);
 
@@ -3338,11 +3379,11 @@ export class SyncManager {
                                 const remoteContent = await this.adapter.downloadFile(fileId || "");
                                 const localContentStr = new TextDecoder().decode(localContent);
                                 const remoteContentStr = new TextDecoder().decode(remoteContent);
-                                const merged = await this.tryThreeWayMerge(
+                                const merged = await this.perform3WayMerge(
                                     item.path,
                                     localContentStr,
-                                    baseHashFound,
                                     remoteContentStr,
+                                    baseHashFound,
                                 );
 
                                 if (merged) {

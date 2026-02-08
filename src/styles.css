@@ -497,3 +497,19 @@
 .is-mobile .revision-size {
     display: block;
 }
+
+/* Exclusion Pattern Textarea */
+.vault-sync-exclusion-textarea {
+    font-family: var(--font-monospace);
+    min-height: 200px;
+    width: 100%;
+    resize: vertical;
+    line-height: 1.4;
+    white-space: pre;
+    overflow-x: auto;
+}
+
+/* Respect newlines in setting descriptions */
+.vault-sync-settings-container .setting-item-description {
+    white-space: pre-wrap;
+}

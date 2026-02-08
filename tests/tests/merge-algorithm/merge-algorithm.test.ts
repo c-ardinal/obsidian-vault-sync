@@ -137,13 +137,13 @@ describe("3-way merge algorithm (fixture-based)", () => {
             await cloud.uploadFile(filePath, baseBuf, Date.now());
             const baseHash = cloud.getCloudHash(filePath)!;
 
-            // Call tryThreeWayMerge directly (private method)
+            // Call perform3WayMerge directly (private method)
             const sm = device.syncManager;
-            const result: ArrayBuffer | null = await (sm as any).tryThreeWayMerge(
+            const result: ArrayBuffer | null = await (sm as any).perform3WayMerge(
                 filePath,
                 localContent,
-                baseHash,
                 remoteContent,
+                baseHash,
             );
 
             try {
