@@ -44,8 +44,8 @@ jobs:
 
             - name: Archive Source Code
               run: |
-                  zip -r "Source code.zip" . -x "*.git*" "node_modules/*" "dist/*"
-                  tar -czvf "Source code.tar.gz" --exclude=".git" --exclude="node_modules" --exclude="dist" .
+                  zip -r "Source code.zip" . -x "*.git*" "node_modules/*" "dist/*" "Source code.zip" "Source code.tar.gz" "obsidian-vault-sync_*.zip"
+                  tar -czvf "Source code.tar.gz" --exclude=".git" --exclude="node_modules" --exclude="dist" --exclude="Source code.zip" --exclude="Source code.tar.gz" --exclude="obsidian-vault-sync_*.zip" .
 
             - name: Create Release
               uses: softprops/action-gh-release@v1
