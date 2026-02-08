@@ -1,4 +1,7 @@
-$DEST_PATH = "C:\_Workspace\obsidian\PluginTest\.obsidian\plugins\obsidian-vault-sync"
+$DEST_PATHS = @(
+    "C:\_Workspace\obsidian\PluginTest\.obsidian\plugins\obsidian-vault-sync",
+    "C:\_Workspace\obsidian\Dreamlands\.obsidian\plugins\obsidian-vault-sync"
+)
 
 Write-Host "=== STARTING TESTS ===" -ForegroundColor Cyan
 # テスト実行 (エラーがあれば停止)
@@ -18,10 +21,12 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Host "=== COPYING FILES ===" -ForegroundColor Cyan
 # ファイルコピー
-if (-not (Test-Path $DEST_PATH)) {
-    Write-Host "Creating destination directory: $DEST_PATH"
-    New-Item -ItemType Directory -Force -Path $DEST_PATH | Out-Null
-}
+foreach ($path in $DEST_PATHS) {
+    if (-not (Test-Path $path)) {
+        Write-Host "Creating destination directory: $path"
+        New-Item -ItemType Directory -Force -Path $path | Out-Null
+    }
 
-Copy-Item -Path ".\dist\*" -Destination $DEST_PATH -Recurse -Force
-Write-Host "✅ COPY DONE to: $DEST_PATH" -ForegroundColor Green
+    Copy-Item -Path ".\dist\obsidian-vault-sync\*" -Destination $path -Recurse -Force
+    Write-Host "✅ COPY DONE to: $path" -ForegroundColor Green
+}

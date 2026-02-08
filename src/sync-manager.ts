@@ -73,19 +73,14 @@ export class SyncManager {
     // === System-level internal files (Local only or Custom management) ===
     private static readonly PLUGIN_DIR = ".obsidian/plugins/obsidian-vault-sync/";
 
-    /** Files managed locally only (Never synced, never deleted from remote) */
-    private static readonly INTERNAL_LOCAL_ONLY = [
-        "logs/",
-        "cache/",
-        "local-index.json",
-        "dirty.json",
-    ];
+    private static readonly INTERNAL_LOCAL_ONLY = ["logs/", "cache/", "data/local/"];
 
     /** Files managed by custom logic (e.g. saveIndex), skipped by generic sync loop */
     private static readonly INTERNAL_REMOTE_MANAGED = [
-        "sync-index.json",
-        "sync-index_raw.json",
-        "communication.json",
+        "data/remote/sync-index.json",
+        "data/remote/sync-index_raw.json",
+        "data/remote/communication.json",
+        "data/remote/data.json", // Settings file
     ];
 
     /** General system-level files that should be ignored and cleaned up from remote if found */
@@ -176,8 +171,8 @@ export class SyncManager {
         public t: (key: string) => string,
     ) {
         this.logFolder = `${this.pluginDir}/logs`;
-        this.localIndexPath = `${this.pluginDir}/local-index.json`;
-        // communication.json is in the same directory as sync-index.json
+        this.localIndexPath = `${this.pluginDir}/data/local/local-index.json`;
+        // communication.json is in the data/remote directory
         this.communicationPath = this.pluginDataPath.replace(
             "sync-index.json",
             "communication.json",

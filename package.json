@@ -3,7 +3,7 @@
     "version": "0.1.0",
     "description": "Obsidian Cloud Storage Sync Plugin (Google Drive)",
     "type": "module",
-    "main": "dist/main.js",
+    "main": "dist/obsidian-vault-sync/main.js",
     "scripts": {
         "dev": "rollup -c -w",
         "build": "node update-build-hash.mjs && rollup -c",

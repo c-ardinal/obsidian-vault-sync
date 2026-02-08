@@ -1,4 +1,4 @@
-import { App } from "obsidian";
+import { App, Platform } from "obsidian";
 
 const IV_LENGTH = 12;
 const SALT_LENGTH = 16;
@@ -14,7 +14,44 @@ export class SecureStorage {
         pluginDir: string,
         private secret: string,
     ) {
-        this.filePath = `${pluginDir}/.sync-state`;
+        this.filePath = `${pluginDir}/data/local/.sync-state`;
+    }
+
+    private async ensureDir(path: string) {
+        const parts = path.split("/");
+        const dir = parts.slice(0, -1).join("/");
+        if (!(await this.app.vault.adapter.exists(dir))) {
+            await this.app.vault.createFolder(dir).catch(() => {});
+        }
+    }
+
+    private hideFile(relativePath: string) {
+        // Dot-files are automatically hidden on Linux/Android/Mac.
+        // However, we apply system attributes where possible for extra safety.
+        if (!Platform.isDesktop) return;
+
+        const adapter = this.app.vault.adapter as any;
+        if (adapter.getBasePath) {
+            const basePath = adapter.getBasePath();
+
+            import("child_process").then((cp) => {
+                if (process.platform === "win32") {
+                    // Windows: attrib +h
+                    const fullPath = `${basePath}/${relativePath}`.replace(/\//g, "\\");
+                    cp.exec(`attrib +h "${fullPath}"`, (err) => {
+                        if (err)
+                            console.error("VaultSync: Failed to hide .sync-state on Windows", err);
+                    });
+                } else if (process.platform === "darwin") {
+                    // MacOS: chflags hidden (adds redundancy to dot-prefix)
+                    const fullPath = `${basePath}/${relativePath}`;
+                    cp.exec(`chflags hidden "${fullPath}"`, (err) => {
+                        if (err) console.error("VaultSync: Failed to hide .sync-state on Mac", err);
+                    });
+                }
+                // Linux: No standard system attribute for hidden files beyond dot-prefix.
+            });
+        }
     }
 
     private async getKey(salt: Uint8Array): Promise<CryptoKey> {
@@ -67,7 +104,13 @@ export class SecureStorage {
         buffer.set(new Uint8Array(encryptedContent), SALT_LENGTH + IV_LENGTH);
 
         // Write as binary
+        await this.ensureDir(this.filePath);
+        const exists = await this.app.vault.adapter.exists(this.filePath);
         await this.app.vault.adapter.writeBinary(this.filePath, buffer.buffer);
+
+        if (!exists) {
+            this.hideFile(this.filePath);
+        }
     }
 
     async loadCredentials(): Promise<Record<string, any> | null> {

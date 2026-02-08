@@ -13,6 +13,9 @@ import { SyncManager } from "./sync-manager";
 import { SecureStorage } from "./secure-storage";
 import { HistoryModal } from "./ui/history-modal";
 
+const DATA_LOCAL_DIR = "data/local";
+const DATA_REMOTE_DIR = "data/remote";
+
 // i18n Localization
 const i18n: Record<string, Record<string, string>> = {
     en: {
@@ -348,13 +351,16 @@ export default class VaultSync extends Plugin {
             this.settings.cloudRootFolder,
         );
 
+        // MIGRATION: Move files to new layout
+        await this.migrateFileLayout();
+
         // Settings are loaded in onload, but we need to ensure adapter has credentials
         // This is handled in loadSettings now.
 
         this.syncManager = new SyncManager(
             this.app,
             this.adapter,
-            `${this.manifest.dir}/sync-index.json`,
+            `${this.manifest.dir}/${DATA_REMOTE_DIR}/sync-index.json`,
             this.settings,
             this.manifest.dir || "",
             t,
@@ -612,7 +618,20 @@ export default class VaultSync extends Plugin {
     }
 
     async loadSettings() {
-        this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+        let loadedData = {};
+        const dataPath = `${this.manifest.dir}/${DATA_REMOTE_DIR}/data.json`;
+        if (await this.app.vault.adapter.exists(dataPath)) {
+            try {
+                loadedData = JSON.parse(await this.app.vault.adapter.read(dataPath));
+            } catch (e) {
+                console.error("VaultSync: Failed to load data.json", e);
+            }
+        } else {
+            // Fallback/Migration: Try load from root
+            loadedData = (await this.loadData()) || {};
+        }
+
+        this.settings = Object.assign({}, DEFAULT_SETTINGS, loadedData);
 
         // SEC-001: Ensure encryption secret exists
         if (!this.settings.encryptionSecret) {
@@ -621,7 +640,7 @@ export default class VaultSync extends Plugin {
             this.settings.encryptionSecret = Array.from(array, (b) =>
                 b.toString(16).padStart(2, "0"),
             ).join("");
-            await this.saveData(this.settings);
+            await this.saveSettings();
         }
 
         // Initialize SecureStorage with the secret
@@ -642,7 +661,7 @@ export default class VaultSync extends Plugin {
         }
 
         // MIGRATION: Check if legacy credentials exist in data.json and move them
-        const data = (await this.loadData()) as any;
+        const data = this.settings as any;
         if (data && (data.clientId || data.accessToken)) {
             console.log("VaultSync: Migrating credentials to secure storage...");
             await this.saveCredentials(
@@ -658,13 +677,72 @@ export default class VaultSync extends Plugin {
             delete settingsAny["clientSecret"];
             delete settingsAny["accessToken"];
             delete settingsAny["refreshToken"];
-            await this.saveData(this.settings);
+            delete settingsAny["refreshToken"];
+            await this.saveSettings();
             console.log("VaultSync: Migration complete.");
         }
     }
 
     async saveSettings() {
-        await this.saveData(this.settings);
+        const dataPath = `${this.manifest.dir}/${DATA_REMOTE_DIR}/data.json`;
+        try {
+            // Ensure directory exists
+            const dir = `${this.manifest.dir}/${DATA_REMOTE_DIR}`;
+            if (!(await this.app.vault.adapter.exists(dir))) {
+                await this.app.vault.createFolder(dir);
+            }
+            await this.app.vault.adapter.write(dataPath, JSON.stringify(this.settings, null, 2));
+        } catch (e) {
+            console.error("VaultSync: Failed to save settings", e);
+        }
+    }
+
+    private async migrateFileLayout() {
+        const moves = [
+            { old: "data.json", new: `${DATA_REMOTE_DIR}/data.json` },
+            { old: "sync-index.json", new: `${DATA_REMOTE_DIR}/sync-index.json` },
+            { old: "sync-index_raw.json", new: `${DATA_REMOTE_DIR}/sync-index_raw.json` },
+            { old: "communication.json", new: `${DATA_REMOTE_DIR}/communication.json` },
+            { old: "local-index.json", new: `${DATA_LOCAL_DIR}/local-index.json` },
+            { old: "dirty.json", new: `${DATA_LOCAL_DIR}/dirty.json` },
+            // Note: .sync-state migration handled/accessed by SecureStorage logic,
+            // but we can move it here if it exists in old standard location to keep hygiene.
+            // SecureStorage handles its own path logic, but let's move it if found in root.
+            { old: ".sync-state", new: `${DATA_LOCAL_DIR}/.sync-state` },
+        ];
+
+        // Ensure directories exist
+        const dirs = [
+            `${this.manifest.dir}/${DATA_LOCAL_DIR}`,
+            `${this.manifest.dir}/${DATA_REMOTE_DIR}`,
+        ];
+
+        for (const dir of dirs) {
+            if (!(await this.app.vault.adapter.exists(dir))) {
+                await this.app.vault.createFolder(dir).catch(() => {});
+            }
+        }
+
+        for (const move of moves) {
+            const oldPath = `${this.manifest.dir}/${move.old}`;
+            const newPath = `${this.manifest.dir}/${move.new}`;
+
+            if (
+                (await this.app.vault.adapter.exists(oldPath)) &&
+                !(await this.app.vault.adapter.exists(newPath))
+            ) {
+                try {
+                    // Copy then remove to be safe
+                    // Or read/write/delete
+                    const content = await this.app.vault.adapter.readBinary(oldPath);
+                    await this.app.vault.adapter.writeBinary(newPath, content);
+                    await this.app.vault.adapter.remove(oldPath);
+                    console.log(`VaultSync: Migrated ${move.old} to ${move.new}`);
+                } catch (e) {
+                    console.error(`VaultSync: Failed to migrate ${move.old}`, e);
+                }
+            }
+        }
     }
 
     async saveCredentials(
