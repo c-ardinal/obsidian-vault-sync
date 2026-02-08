@@ -1,0 +1,60 @@
+name: Auto Release
+
+on:
+    push:
+        branches:
+            - master
+            - main
+
+jobs:
+    build-and-release:
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: "20"
+
+            - name: Install dependencies
+              run: npm ci
+
+            - name: Run Build
+              run: npm run build:release
+
+            - name: Run Tests
+              run: npm test
+
+            - name: Get Version
+              id: get_version
+              run: |
+                  VERSION=$(node -p "require('./manifest.json').version")
+                  echo "VERSION=$VERSION" >> $GITHUB_ENV
+                  echo "Detected version: $VERSION"
+
+            - name: Archive Production Artifact
+              run: |
+                  cd dist
+                  zip -r "../obsidian-vault-sync_${{ env.VERSION }}.zip" obsidian-vault-sync
+
+            - name: Archive Source Code
+              run: |
+                  zip -r "Source code.zip" . -x "*.git*" "node_modules/*" "dist/*"
+                  tar -czvf "Source code.tar.gz" --exclude=".git" --exclude="node_modules" --exclude="dist" .
+
+            - name: Create Release
+              uses: softprops/action-gh-release@v1
+              with:
+                  tag_name: ${{ env.VERSION }}
+                  name: Release ${{ env.VERSION }}
+                  files: |
+                      obsidian-vault-sync_${{ env.VERSION }}.zip
+                      Source code.zip
+                      Source code.tar.gz
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
