@@ -1047,7 +1047,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
         if (!meta) throw new Error(`File not found: ${path}`);
 
         await this.fetchWithAuth(
-            `https://www.googleapis.com/drive/v3/files/${meta.id}/revisions/${revisionId}`,
+            `https://www.googleapis.com/drive/v3/files/${meta.id}/revisions/${revisionId}?keepForever=${keepForever}`,
             {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },

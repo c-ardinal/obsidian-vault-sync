@@ -100,14 +100,12 @@ const i18n: Record<string, Record<string, string>> = {
 
         // History Modal & Browser UI
         historyTitle: "History",
-        historyActions: "Actions",
+        historyActions: "Menue",
         historyKeepForever: "Keep Forever (Protect)",
-        historyRevisions: "Revisions",
         historyNoHistoryFound: "No history found.",
         historyProtectedFromDeletion: "Protected from auto-deletion",
         historyByAuthor: "by",
         historySelectRevision: "Select a revision to view details.",
-        historyRevisionLabel: "Revision",
         historyRestoreVersion: "Restore this version",
         historyRestoreConfirm:
             "Are you sure you want to restore this version ({0})?\n\nCurrent local changes will be replaced.",
@@ -217,14 +215,12 @@ const i18n: Record<string, Record<string, string>> = {
 
         // History Modal & Browser UI
         historyTitle: "履歴",
-        historyActions: "操作",
+        historyActions: "メニュー",
         historyKeepForever: "無期限保存 (保護)",
-        historyRevisions: "リビジョン一覧",
         historyNoHistoryFound: "履歴が見つかりません",
         historyProtectedFromDeletion: "自動削除から保護されています",
         historyByAuthor: "更新者:",
         historySelectRevision: "リビジョンを選択すると詳細が表示されます",
-        historyRevisionLabel: "リビジョン",
         historyRestoreVersion: "このバージョンを復元",
         historyRestoreConfirm:
             "このバージョン ({0}) を復元してもよろしいですか？\n\n現在のローカルファイルの内容は上書きされます。",

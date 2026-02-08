@@ -20,6 +20,7 @@ export class HistoryModal extends Modal {
     private fileContent: string | null = null; // Current local content for diff
     private listScrollLeft: number = 0; // Preserve horizontal scroll position
     private diffMode: "unified" | "split" = "unified";
+    private isDrawerOpen: boolean = false;
 
     constructor(
         app: App,
@@ -81,11 +82,44 @@ export class HistoryModal extends Modal {
 
         contentEl.empty();
 
+        // 1. Sort Revisions FIRST (DESC: Newest first)
+        this.revisions.sort((a, b) => b.modifiedTime - a.modifiedTime);
+
+        // 2. Auto-select latest revision if none selected
+        if (!this.selectedRevision && this.revisions.length > 0) {
+            this.selectedRevision = this.revisions[0];
+            if (this.revisions.length > 1) {
+                this.baseRevision = this.revisions[1];
+            } else {
+                this.baseRevision = { id: "empty", modifiedTime: 0, size: 0 };
+            }
+        }
+
         // Header row with title and close button
         const headerRow = contentEl.createDiv({ cls: "vault-sync-header-row" });
         headerRow.createEl("h2", {
             text: `${this.syncManager.t("historyTitle")}: ${this.file.name}`,
         });
+
+        // Mobile-only: Toggle button for the drawer
+        const toggleHistoryBtn = headerRow.createEl("button", {
+            cls: "vault-sync-history-toggle-btn",
+            attr: { "aria-label": "Toggle History" },
+        });
+        setIcon(toggleHistoryBtn, "history");
+        if (this.isDrawerOpen) {
+            toggleHistoryBtn.addClass("is-active");
+        }
+
+        toggleHistoryBtn.addEventListener("click", () => {
+            this.isDrawerOpen = !this.isDrawerOpen;
+            const container = contentEl.querySelector(".vault-sync-history-container");
+            if (container) {
+                container.toggleClass("is-drawer-open", this.isDrawerOpen);
+            }
+            toggleHistoryBtn.toggleClass("is-active", this.isDrawerOpen);
+        });
+
         const closeBtn = headerRow.createEl("button", {
             cls: "vault-sync-close-btn",
             attr: { "aria-label": "Close" },
@@ -93,30 +127,30 @@ export class HistoryModal extends Modal {
         setIcon(closeBtn, "x");
         closeBtn.addEventListener("click", () => this.close());
 
+        // --- Container Creation (Grid Layout) ---
         const container = contentEl.createDiv({ cls: "vault-sync-history-container" });
+        if (this.isDrawerOpen) {
+            container.addClass("is-drawer-open");
+        }
 
-        // Left: Revision List
+        // --- [Area: list] Revision List (Drawer) ---
         const listContainer = container.createDiv({ cls: "vault-sync-history-list" });
-        const listTitle = listContainer.createEl("h3", {
-            text: this.syncManager.t("historyRevisions"),
-        });
-        listTitle.style.margin = "0px";
 
         if (this.revisions.length === 0) {
-            listContainer.createDiv({ text: this.syncManager.t("historyNoHistoryFound") });
+            listContainer.createDiv({
+                text: this.syncManager.t("historyNoHistoryFound"),
+                cls: "no-history",
+            });
         }
 
         const ul = listContainer.createEl("ul", { cls: "vault-sync-revision-list" });
-        // Sort DESC (Newest first)
-        this.revisions.sort((a, b) => b.modifiedTime - a.modifiedTime);
 
         let lastDateStr = "";
         for (const rev of this.revisions) {
             const date = new Date(rev.modifiedTime);
             const dateStr = date.toLocaleDateString();
             if (dateStr !== lastDateStr) {
-                const dateHeader = ul.createEl("li", { cls: "vault-sync-revision-date-header" });
-                dateHeader.setText(`● ${dateStr}`);
+                ul.createEl("li", { cls: "vault-sync-revision-date-header" }).setText(dateStr);
                 lastDateStr = dateStr;
             }
 
@@ -166,47 +200,100 @@ export class HistoryModal extends Modal {
                     // Oldest revision -> compare with empty
                     this.baseRevision = { id: "empty", modifiedTime: 0, size: 0 };
                 }
-
                 this.render(); // Re-render to show diff
             });
         }
-
-        // Restore scroll position after list is built
         ul.scrollLeft = this.listScrollLeft;
 
-        // Right: Diff / Actions
-        const detailContainer = container.createDiv({ cls: "vault-sync-history-detail" });
-
+        // --- If no selection, show placeholder and return ---
         if (!this.selectedRevision) {
-            detailContainer.createDiv({
+            const placeholder = container.createDiv({ cls: "placeholder-container" });
+            placeholder.createDiv({
                 text: this.syncManager.t("historySelectRevision"),
                 cls: "placeholder-text",
             });
             return;
         }
 
-        // Actions Header
-        const header = detailContainer.createDiv({ cls: "revision-actions-header" });
+        // --- [Area: header] Info Header ---
+        const infoHeader = container.createDiv({ cls: "vault-sync-info-header" });
+        const header = infoHeader.createDiv({ cls: "revision-actions-header" });
 
-        // Row 1: Title & Menu
-        const titleRow = header.createDiv({ cls: "revision-title-row" });
-        titleRow.style.display = "flex";
-        titleRow.style.justifyContent = "space-between";
-        titleRow.style.alignItems = "center";
+        // Row 2: Diff Controls
+        const controlRow = header.createDiv({ cls: "revision-control-row" });
+        controlRow.style.display = "flex";
+        controlRow.style.alignItems = "center";
+        controlRow.style.gap = "8px";
+        controlRow.style.marginTop = "8px";
 
-        const detailsTitle = titleRow.createEl("h3");
-        detailsTitle.setText(
-            `${this.syncManager.t("historyRevisionLabel")}: ${new Date(this.selectedRevision.modifiedTime).toLocaleString()}`,
-        );
-        detailsTitle.style.margin = "0";
+        controlRow.createSpan({ text: this.syncManager.t("historyCompareWith") });
+
+        const dropdown = new DropdownComponent(controlRow);
+        dropdown.addOption("local", this.syncManager.t("historyCurrentLocalFile"));
+        const currentIdx = this.revisions.indexOf(this.selectedRevision);
+        if (currentIdx < this.revisions.length - 1) {
+            const prev = this.revisions[currentIdx + 1];
+            dropdown.addOption(
+                prev.id,
+                `${this.syncManager.t("historyPreviousVersion")} (${new Date(prev.modifiedTime).toLocaleString()})`,
+            );
+        } else {
+            dropdown.addOption(
+                "empty",
+                `${this.syncManager.t("historyPreviousVersion")} (${this.syncManager.t("historyInitialEmptyVersion")})`,
+            );
+        }
+        this.revisions.forEach((r) => {
+            if (r.id === this.selectedRevision?.id) return;
+            if (
+                currentIdx < this.revisions.length - 1 &&
+                r.id === this.revisions[currentIdx + 1].id
+            )
+                return;
+            dropdown.addOption(
+                r.id,
+                `${new Date(r.modifiedTime).toLocaleString()} (${r.author || this.syncManager.t("historyAuthorUnknown")})`,
+            );
+        });
+        if (this.baseRevision) {
+            dropdown.setValue(this.baseRevision.id);
+        } else {
+            dropdown.setValue("local");
+        }
+        dropdown.onChange((val) => {
+            if (val === "local") {
+                this.baseRevision = null;
+            } else if (val === "empty") {
+                this.baseRevision = { id: "empty", modifiedTime: 0, size: 0 };
+            } else {
+                this.baseRevision = this.revisions.find((r) => r.id === val) || null;
+            }
+            this.render(); // Re-render diff
+        });
+
+        // Toggle View Mode
+        const modeBtn = new ExtraButtonComponent(controlRow)
+            .setIcon(this.diffMode === "unified" ? "rows" : "columns")
+            .setTooltip(
+                this.diffMode === "unified"
+                    ? this.syncManager.t("historyDiffModeUnified")
+                    : this.syncManager.t("historyDiffModeSplit"),
+            )
+            .onClick(() => {
+                this.diffMode = this.diffMode === "unified" ? "split" : "unified";
+                this.render();
+            });
+        modeBtn.extraSettingsEl.addClass("diff-mode-toggle");
+        if (this.diffMode === "split") {
+            modeBtn.extraSettingsEl.addClass("is-active");
+        }
 
         // Menu Button
-        const menuBtn = new ExtraButtonComponent(titleRow)
+        const menuBtn = new ExtraButtonComponent(controlRow)
             .setIcon("vertical-three-dots")
             .setTooltip(this.syncManager.t("historyActions"))
             .onClick(() => {
                 const menu = new Menu();
-
                 // Keep Forever Toggle
                 menu.addItem((item) => {
                     item.setTitle(this.syncManager.t("historyKeepForever"))
@@ -233,31 +320,7 @@ export class HistoryModal extends Modal {
                             }
                         });
                 });
-
                 menu.addSeparator();
-
-                // Restore
-                menu.addItem((item) => {
-                    item.setTitle(this.syncManager.t("historyRestoreVersion"))
-                        .setIcon("rotate-ccw")
-                        .setWarning(true)
-                        .onClick(async () => {
-                            const dateStr = new Date(
-                                this.selectedRevision!.modifiedTime,
-                            ).toLocaleString();
-                            const confirmed = window.confirm(
-                                this.syncManager.t("historyRestoreConfirm").replace("{0}", dateStr),
-                            );
-                            if (confirmed) {
-                                this.close();
-                                await this.syncManager.restoreRevision(
-                                    this.file.path,
-                                    this.selectedRevision!,
-                                );
-                            }
-                        });
-                });
-
                 // Restore As
                 menu.addItem((item) => {
                     item.setTitle(this.syncManager.t("historyRestoreAs"))
@@ -269,7 +332,6 @@ export class HistoryModal extends Modal {
                                 this.file.path.lastIndexOf("."),
                             );
                             const defaultPath = `${baseName}_restored.${ext}`;
-
                             const prompt = new PromptModal(
                                 this.app,
                                 this.syncManager.t("historyRestoreAsTitle"),
@@ -304,117 +366,47 @@ export class HistoryModal extends Modal {
                                     return null;
                                 },
                             );
-
                             prompt.open();
                         });
                 });
-
+                // Restore
+                menu.addItem((item) => {
+                    item.setTitle(this.syncManager.t("historyRestoreVersion"))
+                        .setIcon("rotate-ccw")
+                        .setWarning(true)
+                        .onClick(async () => {
+                            const dateStr = new Date(
+                                this.selectedRevision!.modifiedTime,
+                            ).toLocaleString();
+                            const confirmed = window.confirm(
+                                this.syncManager.t("historyRestoreConfirm").replace("{0}", dateStr),
+                            );
+                            if (confirmed) {
+                                this.close();
+                                await this.syncManager.restoreRevision(
+                                    this.file.path,
+                                    this.selectedRevision!,
+                                );
+                            }
+                        });
+                });
                 const rect = menuBtn.extraSettingsEl.getBoundingClientRect();
                 menu.showAtPosition({
                     x: rect.right,
                     y: rect.bottom,
                 });
-
-                // Hack: Left-shift the menu to align right edges
-                // Execute synchronously to avoid flicker (hopes that showAtPosition appends to DOM synchronously)
+                // Hack: Left-shift the menu
                 const menus = document.body.querySelectorAll(".menu");
                 const latestMenu = menus[menus.length - 1] as HTMLElement;
                 if (latestMenu) {
                     const menuWidth = latestMenu.offsetWidth;
-                    // Determine overlap: currently x is at rect.right (menu's left edge)
-                    // We want menu's right edge to be at rect.right
-                    // So new left = rect.right - menuWidth
                     latestMenu.style.left = `${rect.right - menuWidth}px`;
                 }
             });
 
-        // Row 2: Diff Controls
-        const controlRow = header.createDiv({ cls: "revision-control-row" });
-        controlRow.style.display = "flex";
-        controlRow.style.alignItems = "center";
-        controlRow.style.gap = "8px";
-        controlRow.style.marginTop = "8px";
-
-        controlRow.createSpan({ text: this.syncManager.t("historyCompareWith") });
-
-        const dropdown = new DropdownComponent(controlRow);
-
-        // Option: Local File
-        dropdown.addOption("local", this.syncManager.t("historyCurrentLocalFile"));
-
-        // Option: Previous Revision (if exists)
-        const currentIdx = this.revisions.indexOf(this.selectedRevision);
-        if (currentIdx < this.revisions.length - 1) {
-            const prev = this.revisions[currentIdx + 1];
-            dropdown.addOption(
-                prev.id,
-                `${this.syncManager.t("historyPreviousVersion")} (${new Date(prev.modifiedTime).toLocaleString()})`,
-            );
-        } else {
-            dropdown.addOption(
-                "empty",
-                `${this.syncManager.t("historyPreviousVersion")} (${this.syncManager.t("historyInitialEmptyVersion")})`,
-            );
-        }
-
-        // Separator logic is hard in standard dropdown, just list others
-        // We can add "Select specific..." placeholder logic or just list top 5?
-        // Let's list all for now, but mark them.
-        this.revisions.forEach((r) => {
-            if (r.id === this.selectedRevision?.id) return; // Don't compare with self
-            // Skip if already added as "Previous"
-            if (
-                currentIdx < this.revisions.length - 1 &&
-                r.id === this.revisions[currentIdx + 1].id
-            )
-                return;
-
-            dropdown.addOption(
-                r.id,
-                `${new Date(r.modifiedTime).toLocaleString()} (${r.author || this.syncManager.t("historyAuthorUnknown")})`,
-            );
-        });
-
-        // Set value
-        if (this.baseRevision) {
-            dropdown.setValue(this.baseRevision.id);
-        } else {
-            dropdown.setValue("local");
-        }
-
-        dropdown.onChange((val) => {
-            if (val === "local") {
-                this.baseRevision = null;
-            } else if (val === "empty") {
-                this.baseRevision = { id: "empty", modifiedTime: 0, size: 0 };
-            } else {
-                this.baseRevision = this.revisions.find((r) => r.id === val) || null;
-            }
-            this.render(); // Re-render diff
-        });
-
-        // Toggle View Mode (Integrated into control row)
-        const modeBtn = new ExtraButtonComponent(controlRow)
-            .setIcon(this.diffMode === "unified" ? "rows" : "columns")
-            .setTooltip(
-                this.diffMode === "unified"
-                    ? this.syncManager.t("historyDiffModeUnified")
-                    : this.syncManager.t("historyDiffModeSplit"),
-            )
-            .onClick(() => {
-                this.diffMode = this.diffMode === "unified" ? "split" : "unified";
-                this.render();
-            });
-        modeBtn.extraSettingsEl.addClass("diff-mode-toggle");
-        if (this.diffMode === "split") {
-            modeBtn.extraSettingsEl.addClass("is-active");
-        }
-
-        // Diff View
-        const diffContainer = detailContainer.createDiv({ cls: "revision-diff-view" });
+        // --- [Area: diff] Diff View ---
+        const diffContainer = container.createDiv({ cls: "revision-diff-view" });
         diffContainer.createDiv({ text: "Loading diff...", cls: "loading-text" });
-
-        // Async load content and diff
         this.loadDiff(diffContainer, this.selectedRevision, this.baseRevision);
     }
 
