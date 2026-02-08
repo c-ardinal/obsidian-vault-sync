@@ -518,20 +518,6 @@ class VaultSyncSettingTab extends PluginSettingTab {
         containerEl.createEl("h3", { text: t("settingAuthSection") });
 
         new Setting(containerEl)
-            .setName(t("settingAuthStatus"))
-            .setDesc(this.plugin.adapter.getAuthStatus())
-            .addButton((button) =>
-                button.setButtonText(t("settingCheckStatus")).onClick(async () => {
-                    const isAuthed = await this.plugin.adapter.isAuthenticated();
-                    if (isAuthed) {
-                        new Notice(t("noticeAuthSuccess"));
-                    } else {
-                        new Notice(t("noticeAuthFailed"));
-                    }
-                }),
-            );
-
-        new Setting(containerEl)
             .setName(t("settingClientId"))
             .setDesc(t("settingClientIdDesc"))
             .addText((text) =>
@@ -578,7 +564,11 @@ class VaultSyncSettingTab extends PluginSettingTab {
             .setDesc(t("settingLoginDesc"))
             .addButton((button) =>
                 button
-                    .setButtonText(t("settingLogin"))
+                    .setButtonText(
+                        this.plugin.adapter.isAuthenticated()
+                            ? t("settingRelogin")
+                            : t("settingLogin"),
+                    )
                     .setCta()
                     .onClick(async () => {
                         await this.plugin.adapter.login();

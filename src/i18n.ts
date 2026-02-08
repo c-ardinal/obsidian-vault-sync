@@ -4,13 +4,12 @@ export const i18n: Record<string, Record<string, string>> = {
         // Settings UI
         settingSettingsTitle: "VaultSync Settings",
         settingAuthSection: "Authentication",
-        settingAuthStatus: "Authentication Status",
-        settingCheckStatus: "Check Status",
         settingClientId: "Google Client ID",
         settingClientIdDesc: "Enter your Google Cloud Project Client ID",
         settingClientSecret: "Google Client Secret",
         settingClientSecretDesc: "Enter your Google Cloud Project Client Secret",
         settingLogin: "Login",
+        settingRelogin: "Re-login",
         settingLoginDesc: "Authorize with Google Drive",
         settingManualAuthSection: "Manual Authentication (Mobile)",
         settingManualAuthDesc:
@@ -138,13 +137,12 @@ export const i18n: Record<string, Record<string, string>> = {
         // Settings UI
         settingSettingsTitle: "VaultSync 設定",
         settingAuthSection: "認証",
-        settingAuthStatus: "認証ステータス",
-        settingCheckStatus: "確認",
         settingClientId: "Client ID",
         settingClientIdDesc: "Google Cloud Project の Client ID",
         settingClientSecret: "Client Secret",
         settingClientSecretDesc: "Google Cloud Project の Client Secret",
         settingLogin: "ログイン",
+        settingRelogin: "再ログイン",
         settingLoginDesc: "Google Drive と連携します",
         settingManualAuthSection: "手動認証 (モバイル用)",
         settingManualAuthDesc:
