@@ -1,228 +1,11 @@
-import {
-    App,
-    Notice,
-    Plugin,
-    PluginSettingTab,
-    Setting,
-    TFile,
-    setIcon,
-    requestUrl,
-    Platform,
-} from "obsidian";
+import { App, Plugin, PluginSettingTab, Setting, TFile, setIcon, Platform, Notice } from "obsidian";
 import { GoogleDriveAdapter } from "./adapters/google-drive";
 import { SyncManager } from "./sync-manager";
 import { SecureStorage } from "./secure-storage";
-
-// i18n Localization
-const i18n: Record<string, Record<string, string>> = {
-    en: {
-        settingsTitle: "VaultSync Settings",
-        authSection: "Authentication",
-        authStatus: "Authentication Status",
-        checkStatus: "Check Status",
-        clientId: "Google Client ID",
-        clientIdDesc: "Enter your Google Cloud Project Client ID",
-        clientSecret: "Google Client Secret",
-        clientSecretDesc: "Enter your Google Cloud Project Client Secret",
-        login: "Login",
-        loginDesc: "Authorize with Google Drive",
-        manualAuthSection: "Manual Authentication (Mobile)",
-        manualAuthDesc:
-            "If automatic redirect fails (localhost error), copy the browser URL and paste it below:",
-        manualAuthPlaceholder: "Enter the resulting URL or code",
-        manualAuthVerify: "Verify and Login",
-        authorize: "Authorize",
-        authSuccess: "Successfully authenticated!",
-        triggerSection: "Sync Triggers",
-        startupSync: "Enable Startup Sync",
-        startupSyncDesc: "Sync with cloud automatically upon starting Obsidian",
-        startupDelay: "Startup Delay (seconds)",
-        startupDelayDesc: "Wait for Obsidian to index files before syncing (0-600s)",
-        autoSyncInterval: "Auto-sync Interval (seconds)",
-        autoSyncIntervalDesc:
-            "Sync periodically in the background (30-86400s). Set to 0 to disable.",
-        triggerSave: "Trigger: Save (Ctrl+S)",
-        triggerSaveDesc: "Sync when you explicitly save a file",
-        triggerModify: "Trigger: On Modify (Mobile/Debounce)",
-        triggerModifyDesc: "Sync after a period of inactivity while editing",
-        modifyDelay: "Modify Delay (seconds)",
-        modifyDelayDesc: "Seconds of inactivity before syncing (1-60s)",
-        triggerLayout: "Trigger: Layout Change",
-        triggerLayoutDesc: "Sync when switching between files or closing tabs",
-        perfSection: "Performance",
-        concurrency: "Concurrency",
-        concurrencyDesc: "Number of parallel file Push/Pull during sync (1-10)",
-        advancedSection: "Advanced",
-        detailedNotifications: "Show Detailed Notifications",
-        detailedNotificationsDesc: "Show progress notifications for each file pushed/pulled",
-        enableLogging: "Enable Logging",
-        enableLoggingDesc: "Developer: Write daily logs to obsidian-vault-sync/logs folder",
-        cloudRootFolder: "Cloud Root Folder",
-        cloudRootFolderDesc: "Root folder name on Google Drive (default: ObsidianVaultSync)",
-        exclusionSection: "Exclusion Patterns",
-        exclusionPatterns: "Exclude Files/Folders",
-        exclusionPatternsDesc:
-            "Glob patterns (one per line). Use * for any chars, ** for recursive dirs. Example: *.tmp, temp/**",
-        fetchingRemoteList: "Fetching remote file list...",
-        reconcilingChanges: "Analyzing changes (MD5)...",
-        scanningLocalFiles: "Scanning local files...",
-        syncInProgress: "Sync in progress...",
-        syncing: "Syncing...",
-        authFailed: "Auth failed",
-        pushCompleted: "✅ Push completed.",
-        pullCompleted: "✅ Pull completed.",
-        nothingToPush: "✅ Cloud is already up to date.",
-        nothingToPull: "✅ Local vault is already up to date.",
-        vaultUpToDate: "✅ Vault is up to date (Index verified).",
-        changesToPush: "changes to push...",
-        changesToPull: "changes detected. Syncing...",
-        folderCreated: "📁 Created folder",
-        filePushed: "📤 Pushed",
-        filePulled: "📥 Pulled",
-        fileTrashed: "🗑️ Trashed",
-        fileRemoved: "🗑️ Removed",
-        scanningOrphans: "🔍 Scanning for orphan files...",
-        errRemoteEmpty: "⚠️ Remote file list empty. Orphan cleanup skipped.",
-        errOrphanAborted: "⚠️ Orphan cleanup aborted: too many files affected.",
-        orphanMoved: "🧹 Orphan moved",
-        orphansMore: "and more orphans moved.",
-        orphansDone: "orphan files moved to",
-        pushTooltip: "Push to Cloud",
-        pullTooltip: "Pull from Cloud",
-        pushCommand: "Push Changes to Cloud",
-        pullCommand: "Pull Changes from Cloud",
-    },
-    ja: {
-        settingsTitle: "VaultSync 設定",
-        authSection: "認証",
-        authStatus: "認証ステータス",
-        checkStatus: "確認",
-        clientId: "Google Client ID",
-        clientIdDesc: "Google Cloud Project の Client ID を入力してください",
-        clientSecret: "Google Client Secret",
-        clientSecretDesc: "Google Cloud Project の Client Secret を入力してください",
-        login: "ログイン",
-        loginDesc: "Google Drive と連携します",
-        manualAuthSection: "手動認証 (モバイル用)",
-        manualAuthDesc:
-            "自動リダイレクトに失敗する場合（localhostエラー）、ブラウザのURLをコピーして以下に貼り付けてください：",
-        manualAuthPlaceholder: "リダイレクト先のURLまたはコードを入力",
-        manualAuthVerify: "検証してログイン",
-        authorize: "認証",
-        authSuccess: "認証に成功しました！",
-        triggerSection: "同期トリガー",
-        startupSync: "起動時に同期",
-        startupSyncDesc: "Obsidian 起動時に自動でクラウドと同期します",
-        startupDelay: "起動時の遅延 (秒)",
-        startupDelayDesc: "同期開始前に待機する時間 (0-600秒)",
-        autoSyncInterval: "自動同期の間隔 (秒)",
-        autoSyncIntervalDesc: "バックグラウンドで定期的に同期 (30-86400秒, 0で無効)",
-        triggerSave: "トリガー: 保存時 (Ctrl+S)",
-        triggerSaveDesc: "明示的にファイルを保存した際に同期を実行",
-        triggerModify: "トリガー: 編集時 (モバイル/デバウンス)",
-        triggerModifyDesc: "編集後、一定時間操作がなければ同期を実行",
-        modifyDelay: "編集後の遅延 (秒)",
-        modifyDelayDesc: "同期を実行するまでの待機時間 (1-60秒)",
-        triggerLayout: "トリガー: レイアウト変更時",
-        triggerLayoutDesc: "ファイルを切り替えたり、タブを閉じたときに同期",
-        perfSection: "パフォーマンス",
-        concurrency: "並列実行数",
-        concurrencyDesc: "同期時に並列で実行するファイルのプッシュ/プル数 (1-10)",
-        advancedSection: "高度な設定",
-        detailedNotifications: "詳細な通知を表示",
-        detailedNotificationsDesc: "プッシュ/プルごとに進捗通知を表示します",
-        enableLogging: "ログ出力を有効化",
-        enableLoggingDesc: "開発者向け: obsidian-vault-sync/logs フォルダに日別ログを出力します",
-        cloudRootFolder: "クラウドルートフォルダ",
-        cloudRootFolderDesc:
-            "Google Drive 上の同期先ルートフォルダ名 (デフォルト: ObsidianVaultSync)",
-        exclusionSection: "除外パターン",
-        exclusionPatterns: "除外ファイル/フォルダ",
-        exclusionPatternsDesc:
-            "globパターン (1行1パターン)。* は任意の文字、** は再帰ディレクトリ。例: *.tmp, temp/**",
-        fetchingRemoteList: "リモートからファイル一覧を取得中...",
-        reconcilingChanges: "変更内容を分析中 (MD5照合)...",
-        scanningLocalFiles: "ローカルファイルを走査中...",
-        syncInProgress: "現在同期中です...",
-        syncing: "同期中...",
-        authFailed: "認証に失敗しました",
-        pushCompleted: "✅ アップロード完了",
-        pullCompleted: "✅ ダウンロード完了",
-        nothingToPush: "✅ クラウドは最新の状態です",
-        nothingToPull: "✅ ローカルは最新の状態です",
-        vaultUpToDate: "✅ Vaultは最新です (インデックス照合済み)",
-        changesToPush: "件の変更をアップロード中...",
-        changesToPull: "件の変更を検出しました。同期中...",
-        folderCreated: "📁 フォルダを作成しました",
-        filePushed: "📤 アップロード完了",
-        filePulled: "📥 ダウンロード完了",
-        fileTrashed: "🗑️ 削除しました（リモート）",
-        fileRemoved: "🗑️ 削除しました（ローカル）",
-        scanningOrphans: "🔍 未管理ファイルの走査中...",
-        errRemoteEmpty: "⚠️ リモート一覧が空のため、クリーンアップを中止しました",
-        errOrphanAborted: "⚠️ 安全のためクリーンアップを中止しました（対象ファイルが多すぎます）",
-        orphanMoved: "🧹 未管理ファイルを移動しました",
-        orphansMore: "件の未管理ファイルを移動しました",
-        orphansDone: "件のファイルを移動しました：",
-        pushTooltip: "クラウドへプッシュ",
-        pullTooltip: "クラウドからプル",
-        pushCommand: "クラウドへ変更をプッシュ",
-        pullCommand: "クラウドから変更をプル",
-    },
-};
-
-function t(key: string): string {
-    const lang = window.localStorage.getItem("language") || "en";
-    const dict = i18n[lang] || i18n["en"];
-    return dict[key] || i18n["en"][key] || key;
-}
-
-interface VaultSyncSettings {
-    // Sync Triggers
-    enableStartupSync: boolean;
-    startupDelaySec: number;
-
-    enableAutoSyncInInterval: boolean;
-    autoSyncIntervalSec: number;
-
-    enableOnSaveTrigger: boolean;
-    enableOnModifyTrigger: boolean;
-    onModifyDelaySec: number;
-    enableOnLayoutChangeTrigger: boolean;
-
-    // Performance
-    concurrency: number;
-
-    // UI/Notifications
-    showDetailedNotifications: boolean;
-
-    // Developer
-    enableLogging: boolean;
-    cloudRootFolder: string;
-
-    // Exclusion
-    exclusionPatterns: string;
-
-    // Security
-    encryptionSecret: string;
-}
-
-const DEFAULT_SETTINGS: VaultSyncSettings = {
-    enableStartupSync: true,
-    startupDelaySec: 10,
-    enableAutoSyncInInterval: true,
-    autoSyncIntervalSec: 1800, // 30 minutes
-    enableOnSaveTrigger: true,
-    enableOnModifyTrigger: true,
-    onModifyDelaySec: 5,
-    enableOnLayoutChangeTrigger: true,
-    concurrency: 5,
-    showDetailedNotifications: true,
-    enableLogging: false,
-    cloudRootFolder: "ObsidianVaultSync",
-    exclusionPatterns: ".obsidian/plugins/obsidian-vault-sync/logs\n.git",
-    encryptionSecret: "",
-};
+import { HistoryModal } from "./ui/history-modal";
+import { DEFAULT_SETTINGS, SETTINGS_LIMITS } from "./constants";
+import { DATA_LOCAL_DIR, DATA_REMOTE_DIR, VaultSyncSettings } from "./types/settings";
+import { t } from "./i18n";
 
 export default class VaultSync extends Plugin {
     settings!: VaultSyncSettings;
@@ -230,8 +13,11 @@ export default class VaultSync extends Plugin {
     syncManager!: SyncManager;
     secureStorage!: SecureStorage;
     private isReady = false;
-    private pushRibbonIconEl: HTMLElement | null = null;
-    private pullRibbonIconEl: HTMLElement | null = null;
+    private syncRibbonIconEl: HTMLElement | null = null;
+    private manualSyncInProgress = false;
+    private lastSaveRequestTime = 0;
+    private lastModifyTime = 0;
+    private autoSyncInterval: number | null = null;
 
     async onload() {
         // Initialize adapter first with defaults
@@ -239,7 +25,7 @@ export default class VaultSync extends Plugin {
             "",
             "",
             this.app.vault.getName(),
-            DEFAULT_SETTINGS.cloudRootFolder, // temp default
+            DEFAULT_SETTINGS.cloudRootFolder,
         );
 
         await this.loadSettings();
@@ -252,19 +38,39 @@ export default class VaultSync extends Plugin {
             this.settings.cloudRootFolder,
         );
 
+        // MIGRATION: Move files to new layout
+        await this.migrateFileLayout();
+
         // Settings are loaded in onload, but we need to ensure adapter has credentials
         // This is handled in loadSettings now.
-
         this.syncManager = new SyncManager(
             this.app,
             this.adapter,
-            `${this.manifest.dir}/sync-index.json`,
+            `${this.manifest.dir}/${DATA_REMOTE_DIR}/sync-index.json`,
             this.settings,
             this.manifest.dir || "",
             t,
         );
 
+        await this.syncManager.log(`=== Plugin Startup: version=${this.manifest.version} ===`);
+
         await this.syncManager.loadIndex();
+
+        // Register Activity Callbacks for Auto-Sync Animation
+        this.syncManager.setActivityCallbacks(
+            () => {
+                if (!this.manualSyncInProgress && this.syncRibbonIconEl) {
+                    setIcon(this.syncRibbonIconEl, "sync");
+                    this.syncRibbonIconEl.addClass("vault-sync-spinning");
+                }
+            },
+            () => {
+                if (!this.manualSyncInProgress && this.syncRibbonIconEl) {
+                    this.syncRibbonIconEl.removeClass("vault-sync-spinning");
+                    setIcon(this.syncRibbonIconEl, "sync");
+                }
+            },
+        );
 
         // 0. Startup Grace Period
         this.app.workspace.onLayoutReady(() => {
@@ -272,9 +78,20 @@ export default class VaultSync extends Plugin {
                 window.setTimeout(async () => {
                     this.isReady = true;
                     this.syncManager.log(
-                        "Startup grace period ended. Triggering initial auto-sync.",
+                        "Startup grace period ended. Triggering initial Smart Sync.",
                     );
-                    await this.syncManager.sync(true); // Silent startup sync
+
+                    // First time sync OR fresh start -> Loud (notify + icon spin). Subsequent -> Silent.
+                    const isFirstSync = !this.settings.hasCompletedFirstSync;
+                    const isFreshStart = this.syncManager.isFreshStart();
+                    const shouldBeLoud = isFirstSync || isFreshStart;
+
+                    await this.syncManager.requestSmartSync(!shouldBeLoud, true);
+
+                    if (isFirstSync) {
+                        this.settings.hasCompletedFirstSync = true;
+                        await this.saveSettings();
+                    }
                 }, this.settings.startupDelaySec * 1000);
             } else {
                 this.isReady = true;
@@ -282,49 +99,40 @@ export default class VaultSync extends Plugin {
             }
         });
 
-        this.pushRibbonIconEl = this.addRibbonIcon("upload-cloud", t("pushTooltip"), async () => {
-            if (this.pushRibbonIconEl) {
+        // 1. Ribbon Icon
+        // Ribbon button uses Smart Sync for O(1) performance when no changes
+        this.syncRibbonIconEl = this.addRibbonIcon("sync", t("labelSyncTooltip"), async () => {
+            if (this.syncRibbonIconEl) {
                 await this.performSyncOperation(
-                    [{ element: this.pushRibbonIconEl, originalIcon: "upload-cloud" }],
-                    () => this.syncManager.push(),
-                );
-            }
-        });
-
-        this.pullRibbonIconEl = this.addRibbonIcon("download-cloud", t("pullTooltip"), async () => {
-            if (this.pullRibbonIconEl) {
-                await this.performSyncOperation(
-                    [{ element: this.pullRibbonIconEl, originalIcon: "download-cloud" }],
-                    () => this.syncManager.pull(),
+                    [{ element: this.syncRibbonIconEl, originalIcon: "sync" }],
+                    () => this.syncManager.requestSmartSync(false),
                 );
             }
         });
 
         this.addCommand({
-            id: "push-vault",
-            name: t("pushCommand"),
-            callback: () => {
-                if (this.pushRibbonIconEl) {
-                    this.performSyncOperation(
-                        [{ element: this.pushRibbonIconEl, originalIcon: "upload-cloud" }],
-                        () => this.syncManager.push(),
+            id: "sync-vault",
+            name: t("labelSyncCommand"),
+            callback: async () => {
+                if (this.syncRibbonIconEl) {
+                    await this.performSyncOperation(
+                        [{ element: this.syncRibbonIconEl, originalIcon: "sync" }],
+                        async () => {
+                            await this.syncManager.requestSmartSync(false);
+                        },
                     );
+                } else {
+                    await this.syncManager.requestSmartSync(false);
                 }
             },
         });
 
         this.addCommand({
-            id: "pull-vault",
-            name: t("pullCommand"),
-            callback: () => {
-                if (this.pullRibbonIconEl) {
-                    this.performSyncOperation(
-                        [{ element: this.pullRibbonIconEl, originalIcon: "download-cloud" }],
-                        () => this.syncManager.pull(),
-                    );
-                } else {
-                    this.syncManager.pull();
-                }
+            id: "force-full-scan",
+            name: t("labelFullAudit"),
+            callback: async () => {
+                await this.syncManager.notify(t("statusScanningLocalFiles"));
+                await this.syncManager.requestBackgroundScan(false);
             },
         });
 
@@ -332,9 +140,56 @@ export default class VaultSync extends Plugin {
 
         this.setupAutoSyncInterval();
         this.registerTriggers();
+
+        // 5. History Menu
+        this.registerEvent(
+            this.app.workspace.on("file-menu", (menu, file) => {
+                if (this.syncManager && this.syncManager.supportsHistory) {
+                    if (file instanceof TFile) {
+                        menu.addItem((item) => {
+                            item.setTitle(t("labelViewHistory"))
+                                .setIcon("history")
+                                .onClick(() => {
+                                    new HistoryModal(this.app, this.syncManager, file).open();
+                                });
+                        });
+                    }
+                }
+            }),
+        );
     }
 
-    private autoSyncInterval: number | null = null;
+    onunload() {
+        if (this.autoSyncInterval) {
+            window.clearInterval(this.autoSyncInterval);
+        }
+    }
+
+    async performSyncOperation(
+        targets: { element: HTMLElement; originalIcon: string }[],
+        operation: () => Promise<void>,
+    ) {
+        // Prevent concurrent clicks if any icon is already spinning
+        if (targets.some((t) => t.element.classList.contains("vault-sync-spinning"))) return;
+
+        this.manualSyncInProgress = true;
+        // Change to sync icon (circle arrow) and animate all targets
+        for (const target of targets) {
+            setIcon(target.element, "sync");
+            target.element.addClass("vault-sync-spinning");
+        }
+
+        try {
+            await operation();
+        } finally {
+            for (const target of targets) {
+                target.element.removeClass("vault-sync-spinning");
+                // Revert to original icon
+                setIcon(target.element, target.originalIcon);
+            }
+            this.manualSyncInProgress = false;
+        }
+    }
 
     setupAutoSyncInterval() {
         // Clear existing
@@ -343,69 +198,165 @@ export default class VaultSync extends Plugin {
             this.autoSyncInterval = null;
         }
 
-        // 1. Interval
-        if (this.settings.enableAutoSyncInInterval && this.settings.autoSyncIntervalSec > 0) {
+        // 1. Interval - use Smart Sync for regular intervals
+        if (
+            this.settings.autoSyncIntervalSec !== SETTINGS_LIMITS.autoSyncInterval.disabled &&
+            this.settings.autoSyncIntervalSec >= SETTINGS_LIMITS.autoSyncInterval.min
+        ) {
             this.autoSyncInterval = window.setInterval(() => {
-                this.triggerAutoSync();
+                this.triggerSmartSync("interval");
             }, this.settings.autoSyncIntervalSec * 1000);
             this.registerInterval(this.autoSyncInterval);
         }
     }
 
-    private async triggerAutoSync() {
+    /**
+     * Trigger Smart Sync - high priority, O(1) check via sync-index.json
+     * Used for user-initiated actions (save, modify, layout change)
+     * @param source The source of the trigger for debugging and priority handling
+     */
+    private async triggerSmartSync(source: string = "unknown") {
         if (!this.isReady) return;
-        const targets: { element: HTMLElement; originalIcon: string }[] = [];
-        if (this.pushRibbonIconEl) {
-            targets.push({ element: this.pushRibbonIconEl, originalIcon: "upload-cloud" });
-        }
-        if (this.pullRibbonIconEl) {
-            targets.push({ element: this.pullRibbonIconEl, originalIcon: "download-cloud" });
+
+        // Respect debounce: If user is actively editing, suppressed triggers (layout, interval)
+        // should NOT interrupt. The 'modify' trigger (debounced) will handle it eventually.
+        if (source === "interval") {
+            const timeSinceModify = Date.now() - this.lastModifyTime;
+            if (timeSinceModify < this.settings.onModifyDelaySec * 1000) {
+                await this.syncManager.log(
+                    `[Trigger] Skipped ${source} trigger (active editing detected: ${timeSinceModify}ms ago)`,
+                );
+                return;
+            }
         }
 
-        if (targets.length > 0) {
-            // Auto-sync does a full Sync (Pull -> Push)
-            await this.performSyncOperation(targets, () => this.syncManager.sync(true));
-        } else {
-            await this.syncManager.sync(true);
+        if (source === "interval" && this.syncManager.isSyncing()) {
+            // Already syncing, interval trigger should be quiet
+            await this.syncManager.requestSmartSync(true);
+            return;
         }
+
+        await this.syncManager.log(`[Trigger] Activated via ${source}`);
+        // Helper for user-initiated actions that shouldn't lock UI immediately (like save/modify)
+        // Animation is handled via Activity Callbacks if changes are found
+        await this.syncManager.requestSmartSync(true);
     }
 
     private registerTriggers() {
         // 2. Save Trigger (Ctrl+S)
         this.registerDomEvent(document, "keydown", (evt: KeyboardEvent) => {
-            if (!this.settings.enableOnSaveTrigger) return;
+            if (this.settings.onSaveDelaySec === SETTINGS_LIMITS.onSaveDelay.disabled) return;
             if ((evt.ctrlKey || evt.metaKey) && evt.key === "s") {
-                this.triggerAutoSync();
+                this.lastSaveRequestTime = Date.now();
+                if (this.settings.onSaveDelaySec === 0) {
+                    this.triggerSmartSync("save");
+                } else {
+                    window.setTimeout(() => {
+                        this.triggerSmartSync("save");
+                    }, this.settings.onSaveDelaySec * 1000);
+                }
             }
         });
 
-        // 3. Modify trigger with debounce
+        // 3. Modify trigger with debounce - marks dirty and triggers Smart Sync
         let modifyTimeout: number | null = null;
         this.registerEvent(
             this.app.vault.on("modify", (file) => {
-                if (!this.settings.enableOnModifyTrigger || !this.isReady) return;
+                if (!this.isReady) return;
                 if (!(file instanceof TFile)) return;
                 if (this.syncManager.shouldIgnore(file.path)) return;
-
+                // Track modification time for debounce protection
+                this.lastModifyTime = Date.now();
+                // Mark file as dirty immediately
+                this.syncManager.markDirty(file.path);
+                // Check if this modify is result of explicit save (happened closely after Ctrl+S)
+                // If so, trigger immediately (bypass debounce)
+                if (Date.now() - this.lastSaveRequestTime < 2000) {
+                    if (modifyTimeout) window.clearTimeout(modifyTimeout);
+                    this.triggerSmartSync("save");
+                    return;
+                }
+                // Debounce the actual sync
+                if (this.settings.onModifyDelaySec === SETTINGS_LIMITS.onModifyDelay.disabled)
+                    return;
                 if (modifyTimeout) window.clearTimeout(modifyTimeout);
                 modifyTimeout = window.setTimeout(() => {
-                    this.triggerAutoSync();
+                    this.triggerSmartSync("modify");
                 }, this.settings.onModifyDelaySec * 1000);
             }),
         );
 
-        // 4. Layout Change trigger
+        // 3b. Create trigger
+        this.registerEvent(
+            this.app.vault.on("create", (file) => {
+                if (!this.isReady) return;
+                if (this.syncManager.shouldIgnore(file.path)) return;
+                this.syncManager.markDirty(file.path);
+            }),
+        );
+
+        // 3c. Delete trigger
+        this.registerEvent(
+            this.app.vault.on("delete", (file) => {
+                if (!this.isReady) return;
+                if (file instanceof TFile) {
+                    this.syncManager.markDeleted(file.path);
+                } else {
+                    this.syncManager.markFolderDeleted(file.path);
+                }
+            }),
+        );
+
+        // 3d. Rename trigger - mark both old and new paths (files and folders)
+        this.registerEvent(
+            this.app.vault.on("rename", (file, oldPath) => {
+                if (!this.isReady) return;
+                if (file instanceof TFile) {
+                    // File renamed/moved - use markRenamed to handle both
+                    // normal renames and "create then rename" cases
+                    this.syncManager.markRenamed(oldPath, file.path);
+                } else {
+                    // Folder renamed/moved - mark all indexed files for update
+                    this.syncManager.markFolderRenamed(oldPath, file.path);
+                }
+            }),
+        );
+
+        // 3d. Layout change trigger (switching files/tabs)
         this.registerEvent(
             this.app.workspace.on("layout-change", () => {
-                if (this.settings.enableOnLayoutChangeTrigger) {
-                    this.triggerAutoSync();
+                if (!this.isReady) return;
+                if (
+                    this.settings.onLayoutChangeDelaySec ===
+                    SETTINGS_LIMITS.onLayoutChangeDelay.disabled
+                )
+                    return;
+                if (this.settings.onLayoutChangeDelaySec === 0) {
+                    this.triggerSmartSync("layout-change");
+                } else {
+                    window.setTimeout(() => {
+                        this.triggerSmartSync("layout-change");
+                    }, this.settings.onLayoutChangeDelaySec * 1000);
                 }
             }),
         );
     }
 
     async loadSettings() {
-        this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+        let loadedData: Partial<VaultSyncSettings> = {};
+        const dataPath = `${this.manifest.dir}/${DATA_REMOTE_DIR}/data.json`;
+        if (await this.app.vault.adapter.exists(dataPath)) {
+            try {
+                loadedData = JSON.parse(await this.app.vault.adapter.read(dataPath));
+            } catch (e) {
+                console.error("VaultSync: Failed to load data.json", e);
+            }
+        } else {
+            // Fallback/Migration: Try load from root
+            loadedData = (await this.loadData()) || {};
+        }
+
+        this.settings = Object.assign({}, DEFAULT_SETTINGS, loadedData);
 
         // SEC-001: Ensure encryption secret exists
         if (!this.settings.encryptionSecret) {
@@ -414,7 +365,7 @@ export default class VaultSync extends Plugin {
             this.settings.encryptionSecret = Array.from(array, (b) =>
                 b.toString(16).padStart(2, "0"),
             ).join("");
-            await this.saveData(this.settings);
+            await this.saveSettings();
         }
 
         // Initialize SecureStorage with the secret
@@ -432,10 +383,16 @@ export default class VaultSync extends Plugin {
                 credentials.accessToken || null,
                 credentials.refreshToken || null,
             );
+            this.adapter.updateConfig(
+                credentials.clientId || "",
+                credentials.clientSecret || "",
+                this.app.vault.getName(),
+                this.settings.cloudRootFolder,
+            );
         }
 
-        // MIGRATION: Check if legacy credentials exist in data.json and move them
-        const data = (await this.loadData()) as any;
+        // MIGRATION: Check if legacy credentials exist in data.json (unencrypted) and move them
+        const data: any = this.settings;
         if (data && (data.clientId || data.accessToken)) {
             console.log("VaultSync: Migrating credentials to secure storage...");
             await this.saveCredentials(
@@ -451,12 +408,23 @@ export default class VaultSync extends Plugin {
             delete settingsAny["clientSecret"];
             delete settingsAny["accessToken"];
             delete settingsAny["refreshToken"];
-            await this.saveData(this.settings);
+            await this.saveSettings();
             console.log("VaultSync: Migration complete.");
         }
     }
 
     async saveSettings() {
+        // Ensure data dir exists
+        const dataDir = `${this.manifest.dir}/${DATA_REMOTE_DIR}`;
+        if (!(await this.app.vault.adapter.exists(dataDir))) {
+            await this.app.vault.createFolder(dataDir).catch(() => {});
+        }
+
+        // Save to data.json in new layout
+        const dataPath = `${dataDir}/data.json`;
+        await this.app.vault.adapter.write(dataPath, JSON.stringify(this.settings, null, 2));
+
+        // For compatibility with VaultSync mobile/other versions that use loadData
         await this.saveData(this.settings);
     }
 
@@ -474,28 +442,57 @@ export default class VaultSync extends Plugin {
             accessToken,
             refreshToken,
         });
+
+        // Also update live adapter config
+        this.adapter.updateConfig(
+            clientId,
+            clientSecret,
+            this.app.vault.getName(),
+            this.settings.cloudRootFolder,
+        );
     }
 
-    async performSyncOperation(
-        targets: { element: HTMLElement; originalIcon: string }[],
-        operation: () => Promise<void>,
-    ) {
-        // Prevent concurrent clicks if any icon is already spinning
-        if (targets.some((t) => t.element.classList.contains("vault-sync-spinning"))) return;
+    async migrateFileLayout() {
+        const moves = [
+            { old: "data.json", new: `${DATA_REMOTE_DIR}/data.json` },
+            { old: "sync-index.json", new: `${DATA_REMOTE_DIR}/sync-index.json` },
+            { old: "sync-index_raw.json", new: `${DATA_REMOTE_DIR}/sync-index_raw.json` },
+            { old: "communication.json", new: `${DATA_REMOTE_DIR}/communication.json` },
+            { old: "local-index.json", new: `${DATA_LOCAL_DIR}/local-index.json` },
+            { old: "dirty.json", new: `${DATA_LOCAL_DIR}/dirty.json` },
+            // Note: .sync-state migration handled/accessed by SecureStorage as well,
+            // but we can move it here if it exists in old standard location.
+            { old: ".sync-state", new: `${DATA_LOCAL_DIR}/.sync-state` },
+        ];
 
-        // Change to sync icon (circle arrow) and animate all targets
-        for (const target of targets) {
-            setIcon(target.element, "sync");
-            target.element.addClass("vault-sync-spinning");
+        // Ensure directories exist
+        const dirs = [
+            `${this.manifest.dir}/${DATA_LOCAL_DIR}`,
+            `${this.manifest.dir}/${DATA_REMOTE_DIR}`,
+        ];
+        for (const dir of dirs) {
+            if (!(await this.app.vault.adapter.exists(dir))) {
+                await this.app.vault.createFolder(dir).catch(() => {});
+            }
         }
 
-        try {
-            await operation();
-        } finally {
-            for (const target of targets) {
-                target.element.removeClass("vault-sync-spinning");
-                // Revert to original icon
-                setIcon(target.element, target.originalIcon);
+        for (const move of moves) {
+            const oldPath = `${this.manifest.dir}/${move.old}`;
+            const newPath = `${this.manifest.dir}/${move.new}`;
+
+            if (
+                (await this.app.vault.adapter.exists(oldPath)) &&
+                !(await this.app.vault.adapter.exists(newPath))
+            ) {
+                try {
+                    // Copy then remove to be safe
+                    const content = await this.app.vault.adapter.readBinary(oldPath);
+                    await this.app.vault.adapter.writeBinary(newPath, content);
+                    await this.app.vault.adapter.remove(oldPath);
+                    console.log(`VaultSync: Migrated ${move.old} to ${move.new}`);
+                } catch (e) {
+                    console.error(`VaultSync: Failed to migrate ${move.old}`, e);
+                }
             }
         }
     }
@@ -511,31 +508,25 @@ class VaultSyncSettingTab extends PluginSettingTab {
 
     display(): void {
         const { containerEl } = this;
+        const scrollPos = containerEl.scrollTop;
         containerEl.empty();
-        containerEl.createEl("h2", { text: t("settingsTitle") });
+        containerEl.addClass("vault-sync-settings-container");
+
+        containerEl.createEl("h2", { text: t("settingSettingsTitle") });
 
         // 1. Authentication
-        containerEl.createEl("h3", { text: t("authSection") });
+        containerEl.createEl("h3", { text: t("settingAuthSection") });
 
         new Setting(containerEl)
-            .setName(t("authStatus"))
-            .setDesc(this.plugin.adapter.getAuthStatus())
-            .addButton((button) =>
-                button.setButtonText(t("checkStatus")).onClick(() => {
-                    this.display();
-                }),
-            );
-
-        new Setting(containerEl)
-            .setName(t("clientId"))
-            .setDesc(t("clientIdDesc"))
+            .setName(t("settingClientId"))
+            .setDesc(t("settingClientIdDesc"))
             .addText((text) =>
                 text.setValue(this.plugin.adapter.clientId).onChange(async (value) => {
                     // Update adapter temporarily so config is live
                     this.plugin.adapter.updateConfig(
                         value,
                         this.plugin.adapter.clientSecret,
-                        this.app.vault.getName(),
+                        this.plugin.app.vault.getName(),
                         this.plugin.settings.cloudRootFolder,
                     );
                     // Persist securely
@@ -549,18 +540,16 @@ class VaultSyncSettingTab extends PluginSettingTab {
             );
 
         new Setting(containerEl)
-            .setName(t("clientSecret"))
-            .setDesc(t("clientSecretDesc"))
+            .setName(t("settingClientSecret"))
+            .setDesc(t("settingClientSecretDesc"))
             .addText((text) =>
                 text.setValue(this.plugin.adapter.clientSecret).onChange(async (value) => {
-                    // Update adapter temporarily
                     this.plugin.adapter.updateConfig(
                         this.plugin.adapter.clientId,
                         value,
-                        this.app.vault.getName(),
+                        this.plugin.app.vault.getName(),
                         this.plugin.settings.cloudRootFolder,
                     );
-                    // Persist securely
                     await this.plugin.saveCredentials(
                         this.plugin.adapter.clientId,
                         value,
@@ -571,78 +560,91 @@ class VaultSyncSettingTab extends PluginSettingTab {
             );
 
         new Setting(containerEl)
-            .setName(t("login"))
-            .setDesc(t("loginDesc"))
+            .setName(t("settingLogin"))
+            .setDesc(t("settingLoginDesc"))
             .addButton((button) =>
-                button.setButtonText(t("authorize")).onClick(async () => {
-                    await this.plugin.adapter.login();
-                    if (!Platform.isMobile) {
-                        const tokens = this.plugin.adapter.getTokens();
-                        await this.plugin.saveCredentials(
-                            this.plugin.adapter.clientId,
-                            this.plugin.adapter.clientSecret,
-                            tokens.accessToken,
-                            tokens.refreshToken,
-                        );
-                        new Notice(t("authSuccess"));
-                        this.display();
-                    }
-                }),
+                button
+                    .setButtonText(
+                        this.plugin.adapter.isAuthenticated()
+                            ? t("settingRelogin")
+                            : t("settingLogin"),
+                    )
+                    .setCta()
+                    .onClick(async () => {
+                        await this.plugin.adapter.login();
+                        if (!Platform.isMobile) {
+                            const tokens = this.plugin.adapter.getTokens();
+                            await this.plugin.saveCredentials(
+                                this.plugin.adapter.clientId,
+                                this.plugin.adapter.clientSecret,
+                                tokens.accessToken,
+                                tokens.refreshToken,
+                            );
+                            await this.plugin.syncManager.notify(t("noticeAuthSuccess"));
+                            this.display();
+                        }
+                    }),
             );
 
-        // Manual Auth (Mobile Fallback)
-        containerEl.createEl("h4", { text: t("manualAuthSection") });
-        containerEl.createEl("p", {
-            text: t("manualAuthDesc"),
-            cls: "setting-item-description",
-        });
-        let textComponent: any;
-        new Setting(containerEl)
-            .addText((text) => {
-                textComponent = text;
-                text.setPlaceholder(t("manualAuthPlaceholder")).inputEl.style.width = "100%";
-            })
-            .addButton((btn) => {
-                btn.setButtonText(t("manualAuthVerify")).onClick(async () => {
-                    const val = textComponent.getValue().trim();
-                    if (!val) return;
+        // Mobile/Manual Auth
+        if (Platform.isMobile) {
+            containerEl.createEl("h4", { text: t("settingManualAuthSection") });
+            containerEl.createEl("p", {
+                text: t("settingManualAuthDesc"),
+                cls: "setting-item-description",
+            });
 
-                    let code = val;
-                    if (val.includes("code=")) {
-                        try {
-                            const url = new window.URL(val);
-                            code = url.searchParams.get("code") || val;
-                        } catch (e) {
-                            // ignore
+            let textComponent: any;
+            new Setting(containerEl)
+                .setName(t("settingAuthorize"))
+                .addText((text) => {
+                    textComponent = text;
+                    text.setPlaceholder(t("settingManualAuthPlaceholder")).inputEl.style.width =
+                        "100%";
+                })
+                .addButton((button) =>
+                    button.setButtonText(t("settingManualAuthVerify")).onClick(async () => {
+                        const val = textComponent.getValue().trim();
+                        if (!val) return;
+
+                        let code = val;
+                        // Extract code from URL if full URL is pasted
+                        if (val.includes("code=")) {
+                            try {
+                                const url = new window.URL(val);
+                                code = url.searchParams.get("code") || val;
+                            } catch (e) {
+                                // ignore
+                            }
                         }
-                    }
 
-                    try {
-                        await this.plugin.adapter.exchangeCodeForToken(code);
-                        const tokens = this.plugin.adapter.getTokens();
-                        await this.plugin.saveCredentials(
-                            this.plugin.adapter.clientId,
-                            this.plugin.adapter.clientSecret,
-                            tokens.accessToken,
-                            tokens.refreshToken,
-                        );
-                        new Notice(t("authSuccess"));
-                        this.display();
-                    } catch (e) {
-                        new Notice(
-                            `${t("authFailed")}: ${e instanceof Error ? e.message : String(e)}`,
-                        );
-                    }
-                });
-            })
-            .setClass("auth-manual-input");
+                        try {
+                            await this.plugin.adapter.exchangeCodeForToken(code);
+                            const tokens = this.plugin.adapter.getTokens();
+                            await this.plugin.saveCredentials(
+                                this.plugin.adapter.clientId,
+                                this.plugin.adapter.clientSecret,
+                                tokens.accessToken,
+                                tokens.refreshToken,
+                            );
+                            await this.plugin.syncManager.notify(t("noticeAuthSuccess"));
+                            this.display();
+                        } catch (e) {
+                            await this.plugin.syncManager.notify(
+                                `${t("noticeAuthFailed")}: ${e instanceof Error ? e.message : String(e)}`,
+                            );
+                        }
+                    }),
+                )
+                .setClass("auth-manual-input");
+        }
 
         // 2. Sync Triggers
-        containerEl.createEl("h3", { text: t("triggerSection") });
+        containerEl.createEl("h3", { text: t("settingTriggerSection") });
 
         new Setting(containerEl)
-            .setName(t("startupSync"))
-            .setDesc(t("startupSyncDesc"))
+            .setName(t("settingStartupSync"))
+            .setDesc(t("settingStartupSyncDesc"))
             .addToggle((toggle) =>
                 toggle.setValue(this.plugin.settings.enableStartupSync).onChange(async (value) => {
                     this.plugin.settings.enableStartupSync = value;
@@ -651,144 +653,172 @@ class VaultSyncSettingTab extends PluginSettingTab {
                 }),
             );
 
-        if (this.plugin.settings.enableStartupSync) {
-            new Setting(containerEl)
-                .setName(t("startupDelay"))
-                .setDesc(t("startupDelayDesc"))
-                .addText((text) =>
-                    text
-                        .setValue(String(this.plugin.settings.startupDelaySec))
-                        .onChange(async (value) => {
-                            this.plugin.settings.startupDelaySec = this.validateNumber(
-                                value,
-                                0,
-                                600,
-                                10,
-                            );
-                            await this.plugin.saveSettings();
-                        }),
-                );
-        }
-
         new Setting(containerEl)
-            .setName(t("autoSyncInterval"))
-            .setDesc(t("autoSyncIntervalDesc"))
+            .setName(t("settingAutoSyncInterval"))
+            .setDesc(
+                t("settingAutoSyncIntervalDesc") +
+                    `\n(Min: ${SETTINGS_LIMITS.autoSyncInterval.min}, Max: ${SETTINGS_LIMITS.autoSyncInterval.max}, Default: ${SETTINGS_LIMITS.autoSyncInterval.default}, Disabled: ${SETTINGS_LIMITS.autoSyncInterval.disabled})`,
+            )
             .addText((text) =>
                 text
                     .setValue(String(this.plugin.settings.autoSyncIntervalSec))
+                    .setPlaceholder(String(SETTINGS_LIMITS.autoSyncInterval.default))
                     .onChange(async (value) => {
-                        const validated = this.validateNumber(value, 0, 86400, 1800);
+                        const validated = this.validateNumber(
+                            value,
+                            SETTINGS_LIMITS.autoSyncInterval.min,
+                            SETTINGS_LIMITS.autoSyncInterval.max,
+                            SETTINGS_LIMITS.autoSyncInterval.default,
+                            SETTINGS_LIMITS.autoSyncInterval.disabled,
+                        );
                         this.plugin.settings.autoSyncIntervalSec = validated;
-                        this.plugin.settings.enableAutoSyncInInterval = validated > 0;
+                        this.plugin.settings.enableAutoSyncInInterval =
+                            validated !== SETTINGS_LIMITS.autoSyncInterval.disabled;
                         await this.plugin.saveSettings();
                         this.plugin.setupAutoSyncInterval();
                     }),
             );
 
         new Setting(containerEl)
-            .setName(t("triggerSave"))
-            .setDesc(t("triggerSaveDesc"))
-            .addToggle((toggle) =>
-                toggle
-                    .setValue(this.plugin.settings.enableOnSaveTrigger)
+            .setName(t("settingTriggerSave"))
+            .setDesc(
+                t("settingTriggerSaveDesc") +
+                    `\n(Min: ${SETTINGS_LIMITS.onSaveDelay.min}, Max: ${SETTINGS_LIMITS.onSaveDelay.max}, Default: ${SETTINGS_LIMITS.onSaveDelay.default}, Disabled: ${SETTINGS_LIMITS.onSaveDelay.disabled})`,
+            )
+            .addText((text) =>
+                text
+                    .setValue(String(this.plugin.settings.onSaveDelaySec))
+                    .setPlaceholder(String(SETTINGS_LIMITS.onSaveDelay.default))
                     .onChange(async (value) => {
-                        this.plugin.settings.enableOnSaveTrigger = value;
+                        this.plugin.settings.onSaveDelaySec = this.validateNumber(
+                            value,
+                            SETTINGS_LIMITS.onSaveDelay.min,
+                            SETTINGS_LIMITS.onSaveDelay.max,
+                            SETTINGS_LIMITS.onSaveDelay.default,
+                            SETTINGS_LIMITS.onSaveDelay.disabled,
+                        );
                         await this.plugin.saveSettings();
                     }),
             );
 
         new Setting(containerEl)
-            .setName(t("triggerModify"))
-            .setDesc(t("triggerModifyDesc"))
-            .addToggle((toggle) =>
-                toggle
-                    .setValue(this.plugin.settings.enableOnModifyTrigger)
+            .setName(t("settingModify"))
+            .setDesc(
+                t("settingModifyDesc") +
+                    `\n(Min: ${SETTINGS_LIMITS.onModifyDelay.min}, Max: ${SETTINGS_LIMITS.onModifyDelay.max}, Default: ${SETTINGS_LIMITS.onModifyDelay.default}, Disabled: ${SETTINGS_LIMITS.onModifyDelay.disabled})`,
+            )
+            .addText((text) =>
+                text
+                    .setValue(String(this.plugin.settings.onModifyDelaySec))
+                    .setPlaceholder(String(SETTINGS_LIMITS.onModifyDelay.default))
                     .onChange(async (value) => {
-                        this.plugin.settings.enableOnModifyTrigger = value;
+                        this.plugin.settings.onModifyDelaySec = this.validateNumber(
+                            value,
+                            SETTINGS_LIMITS.onModifyDelay.min,
+                            SETTINGS_LIMITS.onModifyDelay.max,
+                            SETTINGS_LIMITS.onModifyDelay.default,
+                            SETTINGS_LIMITS.onModifyDelay.disabled,
+                        );
                         await this.plugin.saveSettings();
-                        this.display();
                     }),
             );
 
-        if (this.plugin.settings.enableOnModifyTrigger) {
-            new Setting(containerEl)
-                .setName(t("modifyDelay"))
-                .setDesc(t("modifyDelayDesc"))
-                .addText((text) =>
-                    text
-                        .setValue(String(this.plugin.settings.onModifyDelaySec))
-                        .onChange(async (value) => {
-                            this.plugin.settings.onModifyDelaySec = this.validateNumber(
-                                value,
-                                1,
-                                60,
-                                5,
-                            );
-                            await this.plugin.saveSettings();
-                        }),
-                );
-        }
-
         new Setting(containerEl)
-            .setName(t("triggerLayout"))
-            .setDesc(t("triggerLayoutDesc"))
-            .addToggle((toggle) =>
-                toggle
-                    .setValue(this.plugin.settings.enableOnLayoutChangeTrigger)
+            .setName(t("settingTriggerLayout"))
+            .setDesc(
+                t("settingTriggerLayoutDesc") +
+                    `\n(Min: ${SETTINGS_LIMITS.onLayoutChangeDelay.min}, Max: ${SETTINGS_LIMITS.onLayoutChangeDelay.max}, Default: ${SETTINGS_LIMITS.onLayoutChangeDelay.default}, Disabled: ${SETTINGS_LIMITS.onLayoutChangeDelay.disabled})`,
+            )
+            .addText((text) =>
+                text
+                    .setValue(String(this.plugin.settings.onLayoutChangeDelaySec))
+                    .setPlaceholder(String(SETTINGS_LIMITS.onLayoutChangeDelay.default))
                     .onChange(async (value) => {
-                        this.plugin.settings.enableOnLayoutChangeTrigger = value;
+                        this.plugin.settings.onLayoutChangeDelaySec = this.validateNumber(
+                            value,
+                            SETTINGS_LIMITS.onLayoutChangeDelay.min,
+                            SETTINGS_LIMITS.onLayoutChangeDelay.max,
+                            SETTINGS_LIMITS.onLayoutChangeDelay.default,
+                            SETTINGS_LIMITS.onLayoutChangeDelay.disabled,
+                        );
                         await this.plugin.saveSettings();
                     }),
             );
 
         // 3. Performance
-        containerEl.createEl("h3", { text: t("perfSection") });
+        containerEl.createEl("h3", { text: t("settingPerfSection") });
 
         new Setting(containerEl)
-            .setName(t("concurrency"))
-            .setDesc(t("concurrencyDesc"))
+            .setName(t("settingConcurrency"))
+            .setDesc(
+                t("settingConcurrencyDesc") +
+                    `\n(Min: ${SETTINGS_LIMITS.concurrency.min}, Max: ${SETTINGS_LIMITS.concurrency.max}, Default: ${SETTINGS_LIMITS.concurrency.default}, Disabled: ${SETTINGS_LIMITS.concurrency.disabled})`,
+            )
             .addText((text) =>
                 text.setValue(String(this.plugin.settings.concurrency)).onChange(async (value) => {
-                    this.plugin.settings.concurrency = this.validateNumber(value, 1, 10, 5);
+                    this.plugin.settings.concurrency = this.validateNumber(
+                        value,
+                        SETTINGS_LIMITS.concurrency.min,
+                        SETTINGS_LIMITS.concurrency.max,
+                        SETTINGS_LIMITS.concurrency.default,
+                        SETTINGS_LIMITS.concurrency.disabled,
+                    );
                     await this.plugin.saveSettings();
                 }),
             );
 
+        new Setting(containerEl)
+            .setName(t("settingNotificationLevel"))
+            .setDesc(t("settingNotificationLevelDesc"))
+            .addDropdown((dropdown) =>
+                dropdown
+                    .addOption("verbose", t("settingNotificationLevelVerbose"))
+                    .addOption("standard", t("settingNotificationLevelStandard"))
+                    .addOption("error", t("settingNotificationLevelError"))
+                    .setValue(this.plugin.settings.notificationLevel)
+                    .onChange(async (value: string) => {
+                        this.plugin.settings.notificationLevel = value as
+                            | "verbose"
+                            | "standard"
+                            | "error";
+                        await this.plugin.saveSettings();
+                    }),
+            );
+
         // 4. Advanced
-        containerEl.createEl("h3", { text: t("advancedSection") });
+        containerEl.createEl("h3", { text: t("settingAdvancedSection") });
 
         new Setting(containerEl)
-            .setName(t("detailedNotifications"))
-            .setDesc(t("detailedNotificationsDesc"))
-            .addToggle((toggle) =>
-                toggle
-                    .setValue(this.plugin.settings.showDetailedNotifications)
-                    .onChange(async (value) => {
-                        this.plugin.settings.showDetailedNotifications = value;
+            .setName(t("settingConflictStrategy"))
+            .setDesc(t("settingConflictStrategyDesc"))
+            .addDropdown((dropdown) =>
+                dropdown
+                    .addOption("smart-merge", t("settingConflictStrategySmart"))
+                    .addOption("always-fork", t("settingConflictStrategyFork"))
+                    .addOption("force-local", t("settingConflictStrategyLocal"))
+                    .addOption("force-remote", t("settingConflictStrategyRemote"))
+                    .setValue(this.plugin.settings.conflictResolutionStrategy)
+                    .onChange(async (value: string) => {
+                        this.plugin.settings.conflictResolutionStrategy = value as
+                            | "smart-merge"
+                            | "force-local"
+                            | "force-remote"
+                            | "always-fork";
                         await this.plugin.saveSettings();
                     }),
             );
 
         new Setting(containerEl)
-            .setName(t("enableLogging"))
-            .setDesc(t("enableLoggingDesc"))
-            .addToggle((toggle) =>
-                toggle.setValue(this.plugin.settings.enableLogging).onChange(async (value) => {
-                    this.plugin.settings.enableLogging = value;
-                    await this.plugin.saveSettings();
-                }),
-            );
-
-        new Setting(containerEl)
-            .setName(t("cloudRootFolder"))
-            .setDesc(t("cloudRootFolderDesc"))
+            .setName(t("settingCloudRootFolder"))
+            .setDesc(t("settingCloudRootFolderDesc"))
             .addText((text) =>
                 text
-                    .setPlaceholder("ObsidianVaultSync")
                     .setValue(this.plugin.settings.cloudRootFolder)
+                    .setPlaceholder("ObsidianVaultSync")
                     .onChange(async (value) => {
-                        // Validation: empty or invalid -> default
+                        // Sanitize input
                         const sanitized = value.trim();
+                        // Basic validation to prevent invalid paths
                         if (
                             !sanitized ||
                             sanitized.startsWith("/") ||
@@ -796,39 +826,99 @@ class VaultSyncSettingTab extends PluginSettingTab {
                             sanitized.length > 255 ||
                             /[<>:"|?*]/.test(sanitized)
                         ) {
-                            this.plugin.settings.cloudRootFolder = "ObsidianVaultSync";
-                        } else {
-                            this.plugin.settings.cloudRootFolder = sanitized;
+                            // Revert if invalid (optional: show error)
+                            // For now, if empty, default. If invalid, maybe just don't save?
+                            // But following old logic, if empty use default.
+                            if (!sanitized) {
+                                this.plugin.settings.cloudRootFolder = "ObsidianVaultSync";
+                                await this.plugin.saveSettings();
+                            }
+                            return;
                         }
+
+                        this.plugin.settings.cloudRootFolder = sanitized;
+                        await this.plugin.saveSettings();
+                        // Also update live adapter
                         this.plugin.adapter.updateConfig(
                             this.plugin.adapter.clientId,
                             this.plugin.adapter.clientSecret,
-                            this.app.vault.getName(),
+                            this.plugin.app.vault.getName(),
                             this.plugin.settings.cloudRootFolder,
                         );
                     }),
             );
 
-        // 5. Exclusion Patterns
-        containerEl.createEl("h3", { text: t("exclusionSection") });
+        // 5. Exclusion
+        containerEl.createEl("h3", { text: t("settingExclusionSection") });
 
         new Setting(containerEl)
-            .setName(t("exclusionPatterns"))
-            .setDesc(t("exclusionPatternsDesc"))
-            .addTextArea((textarea) =>
+            .setName(t("settingExclusionPatterns"))
+            .setDesc(t("settingExclusionPatternsDesc"))
+            .addTextArea((textarea) => {
                 textarea
-                    .setPlaceholder("*.tmp\ntemp/**\n.git/**")
                     .setValue(this.plugin.settings.exclusionPatterns)
+                    .setPlaceholder("*.tmp\ntemp/**\n.git/**")
                     .onChange(async (value) => {
                         this.plugin.settings.exclusionPatterns = value;
                         await this.plugin.saveSettings();
+                        // Trigger cleanup on next sync
+                        this.plugin.syncManager.triggerFullCleanup();
+                    });
+                textarea.inputEl.addClass("vault-sync-exclusion-textarea");
+                textarea.inputEl.rows = 10;
+            });
+
+        // 6. Developer
+        if (this.plugin.settings.isDeveloperMode) {
+            containerEl.createEl("h3", { text: t("settingDevSection") });
+
+            new Setting(containerEl)
+                .setName(t("settingEnableLogging"))
+                .setDesc(t("settingEnableLoggingDesc"))
+                .addToggle((toggle) =>
+                    toggle.setValue(this.plugin.settings.enableLogging).onChange(async (value) => {
+                        this.plugin.settings.enableLogging = value;
+                        await this.plugin.saveSettings();
                     }),
-            );
+                );
+
+            new Setting(containerEl)
+                .setName(t("settingStartupDelay"))
+                .setDesc(
+                    t("settingStartupDelayDesc") +
+                        `\n(Min: ${SETTINGS_LIMITS.startupDelay.min}, Max: ${SETTINGS_LIMITS.startupDelay.max}, Default: ${SETTINGS_LIMITS.startupDelay.default})`,
+                )
+                .addText((text) =>
+                    text
+                        .setValue(String(this.plugin.settings.startupDelaySec))
+                        .setPlaceholder("10")
+                        .onChange(async (value) => {
+                            this.plugin.settings.startupDelaySec = this.validateNumber(
+                                value,
+                                SETTINGS_LIMITS.startupDelay.min,
+                                SETTINGS_LIMITS.startupDelay.max,
+                                SETTINGS_LIMITS.startupDelay.default,
+                            );
+                            await this.plugin.saveSettings();
+                        }),
+                );
+        }
+
+        // Restore scroll position
+        containerEl.scrollTop = scrollPos;
     }
 
-    private validateNumber(value: string, min: number, max: number, defaultValue: number): number {
+    private validateNumber(
+        value: string,
+        min: number,
+        max: number,
+        defaultValue: number,
+        disabledValue?: number,
+    ): number {
         const num = Number(value);
         if (isNaN(num)) return defaultValue;
-        return Math.min(Math.max(num, min), max);
+        if (disabledValue !== undefined && num === disabledValue) return num;
+        if (num < min || num > max) return defaultValue;
+        return num;
     }
 }

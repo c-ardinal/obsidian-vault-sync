@@ -10,7 +10,8 @@
         "moduleResolution": "node",
         "importHelpers": true,
         "lib": ["DOM", "ESNext"],
-        "strict": true
+        "strict": true,
+        "outDir": "./dist"
     },
     "include": ["**/*.ts"]
 }

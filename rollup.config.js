@@ -14,23 +14,23 @@ if you want to view the source visit the github repository of this plugin
 export default {
     input: "src/main.ts",
     output: {
-        file: "dist/main.js",
+        file: "dist/obsidian-vault-sync/main.js",
         sourcemap: "inline",
         sourcemapExcludeSources: isProd,
         format: "cjs",
         exports: "default",
         banner,
+        inlineDynamicImports: true,
     },
-    inlineDynamicImports: true,
-    external: ["obsidian"],
+    external: ["obsidian", "fs", "os", "path", "child_process"],
     plugins: [
         typescript(),
         nodeResolve({ browser: true }),
         commonjs(),
         copy({
             targets: [
-                { src: "manifest.json", dest: "dist" },
-                { src: "src/styles.css", dest: "dist" },
+                { src: "manifest.json", dest: "dist/obsidian-vault-sync" },
+                { src: "src/styles.css", dest: "dist/obsidian-vault-sync" },
             ],
         }),
     ],

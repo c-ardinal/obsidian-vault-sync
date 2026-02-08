@@ -8,6 +8,7 @@ export interface CloudFile {
 }
 
 export interface CloudChanges {
+    nextPageToken?: string;
     newStartPageToken?: string;
     changes: {
         fileId: string;
@@ -19,6 +20,17 @@ export interface CloudChanges {
 export interface CloudAdapter {
     name: string;
 
+    // === Feature Flags ===
+    // Changes API support (Google Drive, OneDrive, Dropbox)
+    // When true, getChanges() can be used for faster pull detection
+    readonly supportsChangesAPI: boolean;
+
+    // Hash support for file content verification
+    readonly supportsHash: boolean;
+
+    // Initialization (optional - pre-warm root folder discovery)
+    initialize?(): Promise<void>;
+
     // Auth
     isAuthenticated(): boolean;
     getAuthUrl(): Promise<string>;
@@ -27,8 +39,20 @@ export interface CloudAdapter {
 
     // File Operations
     getFileMetadata(path: string): Promise<CloudFile | null>;
+    /**
+     * Get metadata by File ID (Strong Consistency preferred).
+     * Used for conflict detection where path-based lookup (SearchResults) might be stale.
+     * @param fileId The cloud file ID
+     * @param knownPath Optional known path to populate the result (avoids expensive path resolution)
+     */
+    getFileMetadataById(fileId: string, knownPath?: string): Promise<CloudFile | null>;
     downloadFile(fileId: string): Promise<ArrayBuffer>;
-    uploadFile(path: string, content: ArrayBuffer, mtime: number): Promise<CloudFile>;
+    uploadFile(
+        path: string,
+        content: ArrayBuffer,
+        mtime: number,
+        existingFileId?: string,
+    ): Promise<CloudFile>;
     deleteFile(fileId: string): Promise<void>;
     createFolder(path: string): Promise<string>;
     ensureFoldersExist(
@@ -37,9 +61,25 @@ export interface CloudAdapter {
     ): Promise<void>;
     fileExistsById(fileId: string): Promise<boolean>;
 
-    // Fast Sync Support
+    // Fast Sync Support (optional - only if supportsChangesAPI is true)
     getStartPageToken(): Promise<string>;
     getChanges(pageToken: string): Promise<CloudChanges>;
     listFiles(folderId?: string): Promise<CloudFile[]>;
     setLogger(logger: (msg: string) => void): void;
+
+    // === History Support (optional) ===
+    readonly supportsHistory: boolean;
+    listRevisions?(path: string): Promise<FileRevision[]>;
+    getRevisionContent?(path: string, revisionId: string): Promise<ArrayBuffer>;
+    setRevisionKeepForever?(path: string, revisionId: string, keepForever: boolean): Promise<void>;
+    deleteRevision?(path: string, revisionId: string): Promise<void>;
+}
+
+export interface FileRevision {
+    id: string;
+    modifiedTime: number; // Unix timestamp
+    size: number;
+    author?: string; // 更新者名（取得可能な場合）
+    keepForever?: boolean;
+    hash?: string; // [Sec] コンテンツ整合性検証用 (MD5等)
 }

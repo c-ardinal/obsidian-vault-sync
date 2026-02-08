@@ -1,0 +1,40 @@
+name: "N1-N3: Basic Sync Path"
+description: "Covers simple sync, simple push, and simple pull."
+setup:
+    files:
+        "notes/hello.md": "Hello World"
+    devices:
+        - name: "DeviceA"
+          id: "dev_a"
+        - name: "DeviceB"
+          id: "dev_b"
+    synced: true
+
+steps:
+    # N1: Synced
+    - device: "DeviceA"
+      action: "sync"
+      path: "notes/hello.md"
+      expect:
+          isDirty: false
+          lastAction: "pull"
+
+    # N2: Simple Push
+    - device: "DeviceA"
+      action: "edit"
+      path: "notes/hello.md"
+      content: "Modified by A"
+    - device: "DeviceA"
+      action: "push"
+      path: "notes/hello.md"
+      expect:
+          pushed: true
+          cloudContent: "Modified by A"
+
+    # N3: Simple Pull
+    - device: "DeviceB"
+      action: "pull"
+      path: "notes/hello.md"
+      expect:
+          pulled: true
+          localContent: "Modified by A"

@@ -1,0 +1,50 @@
+name: "M4: Circular Merge Prevention"
+description: "Verifies that after A merges B's changes and pushes, B accepts it without re-merging."
+setup:
+    files:
+        "notes/m4.md": "Base M4\n"
+    devices:
+        - name: "DeviceA"
+          id: "dev_a"
+        - name: "DeviceB"
+          id: "dev_b"
+    synced: true
+
+steps:
+    # 1. B edits and pushes
+    - device: "DeviceB"
+      action: "edit"
+      path: "notes/m4.md"
+      content: "Base M4\nB change\n"
+    - device: "DeviceB"
+      action: "push"
+      path: "notes/m4.md"
+
+    # 2. A edits locally (conflict)
+    - device: "DeviceA"
+      action: "edit"
+      path: "notes/m4.md"
+      content: "Base M4\nA change\n"
+
+    # 3. A pulls (merges) and pushes
+    - device: "DeviceA"
+      action: "pull"
+      path: "notes/m4.md"
+      expect:
+          lastAction: "merge"
+          localContent: "Base M4\nB change\nA change\n" # Verify A's merge order
+    - device: "DeviceA"
+      action: "push"
+      path: "notes/m4.md"
+      expect:
+          pushed: true
+          cloudContent: "Base M4\nB change\nA change\n"
+
+    # 4. B pulls -> Should accept A's merge result as a simple PULL (no re-merge)
+    - device: "DeviceB"
+      action: "pull"
+      path: "notes/m4.md"
+      expect:
+          pulled: true
+          lastAction: "pull"
+          localContent: "Base M4\nB change\nA change\n"

@@ -7,17 +7,24 @@ const DEFAULT_ROOT_FOLDER = "ObsidianVaultSync";
 export class GoogleDriveAdapter implements CloudAdapter {
     name = "Google Drive";
 
+    // Feature flags - Google Drive supports both
+    readonly supportsChangesAPI = true;
+    readonly supportsHash = true; // MD5 checksum
+
     private appRootId: string | null = null;
     private vaultRootId: string | null = null;
     private folderCache: Map<string, string> = new Map();
     private initPromise: Promise<string> | null = null;
     private resolveCache: Map<string, Promise<string>> = new Map();
+    private idToPathCache: Map<string, string> = new Map(); // ID -> fullPath
+    private resolvePathCache: Map<string, string> = new Map(); // ID -> fullPath (built during resolution)
+    private outsideFolderIds: Set<string> = new Set(); // IDs confirmed to be outside vaultRootId
     private cloudRootFolder: string = DEFAULT_ROOT_FOLDER;
 
     constructor(
         private _clientId: string,
         private _clientSecret: string,
-        private vaultName: string,
+        public vaultName: string,
         cloudRootFolder?: string,
     ) {
         this.cloudRootFolder = this.validateRootFolder(cloudRootFolder);
@@ -29,6 +36,10 @@ export class GoogleDriveAdapter implements CloudAdapter {
 
     get clientSecret(): string {
         return this._clientSecret;
+    }
+
+    get rootFolder(): string {
+        return this.cloudRootFolder;
     }
 
     setCredentials(clientId: string, clientSecret: string) {
@@ -111,6 +122,14 @@ export class GoogleDriveAdapter implements CloudAdapter {
         if (this.accessToken) return "Authenticated";
         if (this.refreshToken) return "Token available (Requires refresh)";
         return "Not authenticated";
+    }
+
+    /**
+     * Initialize the adapter (ensure root folders exist)
+     * Call this at the start of sync to avoid delays later
+     */
+    async initialize(): Promise<void> {
+        await this.ensureRootFolders();
     }
 
     private getRedirectUri(): string {
@@ -206,29 +225,98 @@ export class GoogleDriveAdapter implements CloudAdapter {
         const headers = new Headers(options.headers || {});
         headers.set("Authorization", `Bearer ${this.accessToken}`);
 
-        const response = await fetch(url, { ...options, headers });
+        try {
+            const response = await fetch(url, { ...options, headers });
 
-        // SEC-004: Limit retries
-        if (response.status === 401 && this.refreshToken && retryCount < 2) {
-            await this.refreshTokens();
-            return this.fetchWithAuth(url, options, retryCount + 1);
-        }
+            // SEC-004: Limit retries
+            const MAX_RETRIES = 3;
 
-        if (!response.ok) {
-            let body = "";
-            try {
-                body = await response.text();
-            } catch (e) {
-                body = "Could not read error body";
+            // Handle 401 Unauthorized (Refresh Token)
+            if (response.status === 401 && this.refreshToken && retryCount < 2) {
+                await this.refreshTokens();
+                return this.fetchWithAuth(url, options, retryCount + 1);
             }
-            // SEC-007: Sanitize error messages (log real one, throw safe one)
-            console.error(`VaultSync: API Error ${response.status}: ${body}`);
-            throw new Error(
-                `API Error ${response.status}: Request failed (See console for details)`,
-            );
-        }
 
-        return response;
+            // Handle 429 (Too Many Requests) and 5xx (Server Errors) with Exponential Backoff
+            if ((response.status === 429 || response.status >= 500) && retryCount < MAX_RETRIES) {
+                // Check connectivity
+                if (!window.navigator.onLine) {
+                    await this.log("Network offline. Waiting for connection...");
+                    await this.waitForOnline();
+                }
+
+                const backoffDelay = Math.pow(2, retryCount) * 1000 + Math.random() * 500;
+                await this.log(
+                    `API Error ${response.status}. Retrying in ${Math.round(backoffDelay)}ms (Attempt ${retryCount + 1}/${MAX_RETRIES})...`,
+                );
+                await new Promise((resolve) => setTimeout(resolve, backoffDelay));
+                return this.fetchWithAuth(url, options, retryCount + 1);
+            }
+
+            if (!response.ok) {
+                let errorMsg = `API Error ${response.status}`;
+                try {
+                    const text = await response.text();
+                    try {
+                        const json = JSON.parse(text);
+                        if (json.error && json.error.message) {
+                            errorMsg = json.error.message;
+                        } else {
+                            errorMsg = text;
+                        }
+                    } catch {
+                        errorMsg = text;
+                    }
+                } catch (e) {
+                    errorMsg = "Could not read error body";
+                }
+
+                // SEC-007: Sanitize error messages (logging)
+                console.error(`VaultSync: API Error ${response.status}: ${errorMsg}`);
+
+                // Throw the actual error message so callers can handle specific cases
+                throw new Error(errorMsg);
+            }
+
+            return response;
+        } catch (e) {
+            // Handle network timeouts / offline status
+            const isNetworkError = e instanceof TypeError && e.message === "Failed to fetch";
+            if (isNetworkError && retryCount < 3) {
+                if (!window.navigator.onLine) {
+                    await this.log("Network offline during fetch. Waiting for connection...");
+                    await this.waitForOnline();
+                }
+
+                const backoffDelay = Math.pow(2, retryCount) * 2000;
+                await this.log(`Network error. Retrying in ${backoffDelay}ms...`);
+                await new Promise((resolve) => setTimeout(resolve, backoffDelay));
+                return this.fetchWithAuth(url, options, retryCount + 1);
+            }
+            throw e;
+        }
+    }
+
+    private async waitForOnline(): Promise<void> {
+        if (window.navigator.onLine) return;
+        return new Promise((resolve) => {
+            const onOnline = () => {
+                window.removeEventListener("online", onOnline);
+                window.removeEventListener("focus", onOnline);
+                resolve();
+            };
+            window.addEventListener("online", onOnline);
+            window.addEventListener("focus", onOnline);
+            // Fallback: Check every 5 seconds just in case (for mobile webview quirks)
+            const interval = setInterval(() => {
+                if (window.navigator.onLine) {
+                    window.removeEventListener("online", onOnline);
+                    window.removeEventListener("focus", onOnline);
+                    clearInterval(interval);
+                    resolve();
+                }
+            }, 5000);
+        });
     }
 
     // SEC-005: Common escaping helper
@@ -369,14 +457,24 @@ export class GoogleDriveAdapter implements CloudAdapter {
         return this.initPromise!;
     }
 
-    private async resolveParentId(path: string): Promise<string> {
+    private async resolveParentId(path: string, create: boolean = true): Promise<string> {
         const rootId = await this.ensureRootFolders();
         const parts = path.split("/").filter((p) => p);
         if (parts.length <= 1) return rootId;
 
         const folderPath = parts.slice(0, -1).join("/");
-        if (this.resolveCache.has(folderPath)) {
-            return this.resolveCache.get(folderPath)!;
+
+        // Check resolveCache first
+        const existingPromise = this.resolveCache.get(folderPath);
+        if (existingPromise) {
+            try {
+                return await existingPromise;
+            } catch (e) {
+                // If the cached promise was rejected (e.g. not found with create=false),
+                // and we now want to create, we should proceed to try again.
+                if (!create) throw e;
+                this.resolveCache.delete(folderPath);
+            }
         }
 
         const promise = (async () => {
@@ -386,6 +484,8 @@ export class GoogleDriveAdapter implements CloudAdapter {
 
             for (const part of folderPathParts) {
                 pathAccumulator += (pathAccumulator ? "/" : "") + part;
+
+                // Also check folderCache within the loop
                 if (this.folderCache.has(pathAccumulator)) {
                     currentParentId = this.folderCache.get(pathAccumulator)!;
                     continue;
@@ -401,41 +501,91 @@ export class GoogleDriveAdapter implements CloudAdapter {
 
                 if (data.files && data.files.length > 0) {
                     currentParentId = data.files[0].id;
-                } else {
+                } else if (create) {
                     currentParentId = await this.createFolder(part, currentParentId);
+                } else {
+                    throw new Error(`Folder not found: ${pathAccumulator}`);
                 }
                 this.folderCache.set(pathAccumulator, currentParentId);
+
+                // If this is a sub-path, we can cache its resolution as well
+                if (pathAccumulator !== folderPath && !this.resolveCache.has(pathAccumulator)) {
+                    this.resolveCache.set(pathAccumulator, Promise.resolve(currentParentId));
+                }
             }
             return currentParentId;
         })();
 
+        // Only cache if we are creating or if it succeeded.
+        // To prevent "spoiling" the cache with a rejection when create=false,
+        // we wrap it to catch errors and cleanup.
         this.resolveCache.set(folderPath, promise);
-        return promise;
+
+        try {
+            return await promise;
+        } catch (e) {
+            // Cleanup cache on failure so next attempt (possibly with create=true) can retry
+            if (this.resolveCache.get(folderPath) === promise) {
+                this.resolveCache.delete(folderPath);
+            }
+            throw e;
+        }
     }
 
     async getFileMetadata(path: string): Promise<CloudFile | null> {
-        const parentId = await this.resolveParentId(path);
-        const name = path.split("/").pop();
-        const query = `name = '${this.escapeQueryValue(
-            name || "",
-        )}' and '${parentId}' in parents and trashed = false`;
-        const response = await this.fetchWithAuth(
-            `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,mimeType,modifiedTime,size,md5Checksum)`,
-        );
-        const data = await response.json();
+        try {
+            const parentId = await this.resolveParentId(path, false);
+            const name = path.split("/").pop();
+            const query = `name = '${this.escapeQueryValue(
+                name || "",
+            )}' and '${parentId}' in parents and trashed = false`;
+            const response = await this.fetchWithAuth(
+                `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,mimeType,modifiedTime,size,md5Checksum)`,
+            );
+            const data = await response.json();
 
-        if (data.files && data.files.length > 0) {
-            const file = data.files[0];
+            if (data.files && data.files.length > 0) {
+                const file = data.files[0];
+                return {
+                    id: file.id,
+                    path: path,
+                    mtime: new Date(file.modifiedTime).getTime(),
+                    size: parseInt(file.size || "0"),
+                    kind:
+                        file.mimeType === "application/vnd.google-apps.folder" ? "folder" : "file",
+                    hash: file.md5Checksum,
+                };
+            }
+            return null;
+        } catch (e) {
+            // If parent resolution fails, file definitely doesn't exist
+            return null;
+        }
+    }
+
+    async getFileMetadataById(fileId: string, knownPath?: string): Promise<CloudFile | null> {
+        try {
+            // Direct ID lookup provides stronger consistency than query search
+            const response = await this.fetchWithAuth(
+                `https://www.googleapis.com/drive/v3/files/${fileId}?fields=id,name,mimeType,modifiedTime,size,md5Checksum,trashed`,
+            );
+            const file = await response.json();
+
+            // Handle deleted/trashed files as null
+            if (!file.id || file.trashed) return null;
+
             return {
                 id: file.id,
-                path: path,
+                path: knownPath || file.name, // Partial path (name only) if knownPath not provided, but sufficient for hash check
                 mtime: new Date(file.modifiedTime).getTime(),
                 size: parseInt(file.size || "0"),
                 kind: file.mimeType === "application/vnd.google-apps.folder" ? "folder" : "file",
                 hash: file.md5Checksum,
             };
+        } catch (e) {
+            // 404 or other errors -> treat as not found
+            return null;
         }
-        return null;
     }
 
     async downloadFile(fileId: string): Promise<ArrayBuffer> {
@@ -445,24 +595,36 @@ export class GoogleDriveAdapter implements CloudAdapter {
         return await response.arrayBuffer();
     }
 
-    async uploadFile(path: string, content: ArrayBuffer, mtime: number): Promise<CloudFile> {
-        const parentId = await this.resolveParentId(path);
+    async uploadFile(
+        path: string,
+        content: ArrayBuffer,
+        mtime: number,
+        existingFileId?: string,
+    ): Promise<CloudFile> {
         const name = path.split("/").pop();
         const metadata: any = {
             name: name,
             modifiedTime: new Date(mtime).toISOString(),
         };
 
-        const existing = await this.getFileMetadata(path);
+        let activeFileId = existingFileId;
+        if (!activeFileId) {
+            // Only perform path-based lookup if ID is not provided
+            const existing = await this.getFileMetadata(path);
+            if (existing) activeFileId = existing.id;
+        }
 
         let url =
             "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,md5Checksum,size";
         let method = "POST";
 
-        if (existing) {
-            url = `https://www.googleapis.com/upload/drive/v3/files/${existing.id}?uploadType=multipart&fields=id,md5Checksum,size`;
+        if (activeFileId) {
+            // PATCH: skip resolveParentId if we already have the file ID
+            url = `https://www.googleapis.com/upload/drive/v3/files/${activeFileId}?uploadType=multipart&fields=id,md5Checksum,size`;
             method = "PATCH";
         } else {
+            // NEW FILE: resolve parent ID
+            const parentId = await this.resolveParentId(path, true);
             metadata.parents = [parentId];
         }
 
@@ -488,7 +650,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
         });
 
         const data = await response.json();
-        return {
+        const result: CloudFile = {
             id: data.id,
             path: path,
             mtime: mtime,
@@ -496,6 +658,13 @@ export class GoogleDriveAdapter implements CloudAdapter {
             kind: "file",
             hash: data.md5Checksum,
         };
+
+        // CACHE for immediate identity check
+        this.idToPathCache.set(result.id, result.path);
+        // Also feed resolvePathCache to prevent redundant lookups if other tools use it
+        this.resolvePathCache.set(result.id, result.path);
+
+        return result;
     }
 
     async deleteFile(fileId: string): Promise<void> {
@@ -543,7 +712,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
         const total = uniquePaths.length;
         let current = 0;
 
-        const FOLDER_CONCURRENCY = 5;
+        const FOLDER_CONCURRENCY = 10;
 
         for (const depth of depths) {
             const foldersAtDepth = depthMap.get(depth)!;
@@ -591,6 +760,13 @@ export class GoogleDriveAdapter implements CloudAdapter {
                                     );
                                 }
                                 this.folderCache.set(pathAccumulator, currentParentId);
+                                // Also populate resolveCache for intermediate paths
+                                if (!this.resolveCache.has(pathAccumulator)) {
+                                    this.resolveCache.set(
+                                        pathAccumulator,
+                                        Promise.resolve(currentParentId),
+                                    );
+                                }
                             }
                         }
                     }),
@@ -620,15 +796,23 @@ export class GoogleDriveAdapter implements CloudAdapter {
     }
 
     async getChanges(pageToken: string): Promise<CloudChanges> {
+        // Optimized fields request:
+        // - nextPageToken, newStartPageToken: for pagination/continuation
+        // - changes: the actual list
+        //   - fileId, removed: core change info
+        //   - file(...): file metadata needed for SyncManager (id, name, mimeType, parents, trashed, etc.)
+        const fields =
+            "nextPageToken,newStartPageToken,changes(fileId,removed,file(id,name,mimeType,modifiedTime,size,md5Checksum,parents,trashed))";
         const response = await this.fetchWithAuth(
-            `https://www.googleapis.com/drive/v3/changes?pageToken=${pageToken}&fields=*`,
+            `https://www.googleapis.com/drive/v3/changes?pageToken=${pageToken}&pageSize=1000&fields=${fields}`,
         );
         const data = await response.json();
 
         return {
+            nextPageToken: data.nextPageToken,
             newStartPageToken: data.newStartPageToken,
             changes: await Promise.all(
-                data.changes.map(async (c: any) => {
+                (data.changes || []).map(async (c: any) => {
                     let fullPath = c.file ? c.file.name : "";
                     if (c.file && !c.removed && c.file.parents) {
                         try {
@@ -640,22 +824,26 @@ export class GoogleDriveAdapter implements CloudAdapter {
                         }
                     }
 
+                    // Treat trashed files as removed
+                    const isRemoved = c.removed || (c.file && c.file.trashed);
+
                     return {
                         fileId: c.fileId,
-                        removed: c.removed,
-                        file: c.file
-                            ? {
-                                  id: c.file.id,
-                                  path: fullPath,
-                                  mtime: new Date(c.file.modifiedTime).getTime(),
-                                  size: parseInt(c.file.size || "0"),
-                                  kind:
-                                      c.file.mimeType === "application/vnd.google-apps.folder"
-                                          ? "folder"
-                                          : "file",
-                                  hash: c.file.md5Checksum,
-                              }
-                            : undefined,
+                        removed: isRemoved,
+                        file:
+                            c.file && !isRemoved
+                                ? {
+                                      id: c.file.id,
+                                      path: fullPath,
+                                      mtime: new Date(c.file.modifiedTime).getTime(),
+                                      size: parseInt(c.file.size || "0"),
+                                      kind:
+                                          c.file.mimeType === "application/vnd.google-apps.folder"
+                                              ? "folder"
+                                              : "file",
+                                      hash: c.file.md5Checksum,
+                                  }
+                                : undefined,
                     };
                 }),
             ),
@@ -663,8 +851,13 @@ export class GoogleDriveAdapter implements CloudAdapter {
     }
 
     private async resolveFullPath(fileId: string): Promise<string> {
+        // Quick lookup for recently uploaded files or previously resolved ones
+        const cachedPath = this.idToPathCache.get(fileId) || this.resolvePathCache.get(fileId);
+        if (cachedPath) return cachedPath;
+
         let currentId = fileId;
         const pathParts: string[] = [];
+        const encounteredIds: string[] = [];
 
         await this.ensureRootFolders();
         if (!this.vaultRootId) throw new Error("Vault root not initialized");
@@ -672,36 +865,54 @@ export class GoogleDriveAdapter implements CloudAdapter {
         while (true) {
             if (currentId === this.vaultRootId) break;
 
-            const response = await this.fetchWithAuth(
-                `https://www.googleapis.com/drive/v3/files/${currentId}?fields=id,name,parents`,
-            );
-            const file = await response.json();
-
-            if (!file.id) throw new Error(`File not found: ${currentId}`);
-
-            // Don't add the file itself if we are looking up its parents,
-            // but for the first iteration (the file itself), we need its name.
-            if (currentId === fileId) {
-                pathParts.unshift(file.name);
-            } else {
-                pathParts.unshift(file.name);
+            // Check if we already know this ID is OUTSIDE the vault
+            if (this.outsideFolderIds.has(currentId)) {
+                encounteredIds.forEach((id) => this.outsideFolderIds.add(id));
+                throw new Error("File is outside the vault root (cached)");
             }
 
-            if (!file.parents || file.parents.length === 0) {
-                // Reached root or outside of vault without hitting vaultRootId
-                throw new Error("File is outside the vault folder");
-            }
-
-            // Move up to parent
-            currentId = file.parents[0];
-
-            // Optimization: If parent is vault root, stop here
-            if (currentId === this.vaultRootId) {
+            // Check if we already know the path for this intermediate folder
+            const folderPath = this.resolvePathCache.get(currentId);
+            if (folderPath) {
+                pathParts.unshift(folderPath);
                 break;
+            }
+
+            try {
+                const response = await this.fetchWithAuth(
+                    `https://www.googleapis.com/drive/v3/files/${currentId}?fields=id,name,parents`,
+                );
+                const file = await response.json();
+
+                if (!file.id) throw new Error(`File not found: ${currentId}`);
+
+                encounteredIds.push(currentId);
+                pathParts.unshift(file.name);
+
+                if (!file.parents || file.parents.length === 0) {
+                    // Reached the root of Drive without hitting vaultRootId
+                    // This means the file is OUTSIDE the vault.
+                    encounteredIds.forEach((id) => this.outsideFolderIds.add(id));
+                    throw new Error("File is outside the vault root");
+                }
+                currentId = file.parents[0];
+            } catch (error: any) {
+                // If it's a 403/404 or our own "outside" error, abort resolution
+                // SyncManager will catch this at the getChanges level and mark as removed/ignored.
+                if (
+                    error.message?.includes("outside") ||
+                    error.message?.includes("404") ||
+                    error.message?.includes("403")
+                ) {
+                    encounteredIds.forEach((id) => this.outsideFolderIds.add(id));
+                }
+                throw error;
             }
         }
 
-        return pathParts.join("/");
+        const fullPath = pathParts.join("/");
+        this.resolvePathCache.set(fileId, fullPath);
+        return fullPath;
     }
 
     async listFiles(folderId?: string): Promise<CloudFile[]> {
@@ -762,5 +973,112 @@ export class GoogleDriveAdapter implements CloudAdapter {
 
         await walk(rootId, "");
         return files;
+    }
+
+    // =========================================================================================
+    // History & Revisions Support
+    // =========================================================================================
+
+    readonly supportsHistory = true;
+
+    private validatePath(path: string) {
+        // Prevent path traversal and enforce valid chars
+        // Vault paths are relative, so starting with / is technically invalid but often normalized.
+        // We mainly check for ".." components.
+        if (path.includes("..") || path.includes("\\") || /[<>:"|?*]/.test(path)) {
+            throw new Error(`Invalid path: ${path}`);
+        }
+    }
+
+    async listRevisions(path: string): Promise<import("../types/adapter").FileRevision[]> {
+        this.validatePath(path);
+        const meta = await this.getFileMetadata(path);
+        if (!meta) throw new Error(`File not found: ${path}`);
+
+        const response = await this.fetchWithAuth(
+            `https://www.googleapis.com/drive/v3/files/${meta.id}/revisions?fields=revisions(id,modifiedTime,size,lastModifyingUser,keepForever,md5Checksum)`,
+        );
+        const data = await response.json();
+
+        return (data.revisions || []).map((rev: any) => ({
+            id: rev.id,
+            modifiedTime: new Date(rev.modifiedTime).getTime(),
+            size: parseInt(rev.size || "0"),
+            author: rev.lastModifyingUser?.displayName,
+            keepForever: rev.keepForever,
+            hash: rev.md5Checksum,
+        }));
+    }
+
+    async getRevisionContent(path: string, revisionId: string): Promise<ArrayBuffer> {
+        this.validatePath(path);
+        // We need fileId first
+        const meta = await this.getFileMetadata(path);
+        if (!meta) throw new Error(`File not found: ${path}`);
+
+        // 1. Get revision metadata for hash verification (if available in list)
+        // Or get it from the get call if header allows?
+        // Revisions.get supports fields.
+        const metaResponse = await this.fetchWithAuth(
+            `https://www.googleapis.com/drive/v3/files/${meta.id}/revisions/${revisionId}?fields=md5Checksum`,
+        );
+        const metaData = await metaResponse.json();
+        const expectedHash = metaData.md5Checksum;
+
+        // 2. Download content
+        const response = await this.fetchWithAuth(
+            `https://www.googleapis.com/drive/v3/files/${meta.id}/revisions/${revisionId}?alt=media`,
+        );
+        const buffer = await response.arrayBuffer();
+
+        // 3. Security Integrity Check
+        if (expectedHash) {
+            // Need MD5 impl. Assuming md5 is imported or available.
+            // Since we need to import it, we should do that at top of file.
+            // For now, let's assume util usage or implement minimal check if md5 util not imported.
+            // WAIT - I need to import md5 at the top of the file!
+            // I will add the import in a separate tool call if needed or use dynamic import?
+            // Dynamic import for utility is cleaner to avoid messing with top imports in this chunk replace.
+
+            const { md5 } = await import("../utils/md5");
+            const actualHash = md5(buffer);
+            if (actualHash.toLowerCase() !== expectedHash.toLowerCase()) {
+                throw new Error(
+                    `[Security] Integrity check failed! Expected ${expectedHash}, got ${actualHash}. Possible data corruption or tampering.`,
+                );
+            }
+        }
+
+        return buffer;
+    }
+
+    async setRevisionKeepForever(
+        path: string,
+        revisionId: string,
+        keepForever: boolean,
+    ): Promise<void> {
+        this.validatePath(path);
+        const meta = await this.getFileMetadata(path);
+        if (!meta) throw new Error(`File not found: ${path}`);
+
+        await this.fetchWithAuth(
+            `https://www.googleapis.com/drive/v3/files/${meta.id}/revisions/${revisionId}`,
+            {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ keepForever: keepForever }),
+            },
+        );
+    }
+
+    async deleteRevision(path: string, revisionId: string): Promise<void> {
+        this.validatePath(path);
+        const meta = await this.getFileMetadata(path);
+        if (!meta) throw new Error(`File not found: ${path}`);
+
+        await this.fetchWithAuth(
+            `https://www.googleapis.com/drive/v3/files/${meta.id}/revisions/${revisionId}`,
+            { method: "DELETE" },
+        );
     }
 }

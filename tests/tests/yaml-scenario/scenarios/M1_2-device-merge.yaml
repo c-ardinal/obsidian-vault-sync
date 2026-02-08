@@ -1,0 +1,53 @@
+name: "M1: 2-Device Simultaneous Edit & Merge"
+description: "Scenario where DeviceA pushes, then DeviceB tries to push and detects conflict, merges, and pushes merged result."
+setup:
+    files:
+        "notes/m1.md": "Line 1\nLine 2\n"
+    devices:
+        - name: "DeviceA"
+          id: "dev_a"
+        - name: "DeviceB"
+          id: "dev_b"
+    synced: true
+
+steps:
+    - device: "DeviceA"
+      action: "edit"
+      path: "notes/m1.md"
+      content: "Line 1 edited by A\nLine 2\n"
+
+    - device: "DeviceA"
+      action: "push"
+      path: "notes/m1.md"
+      expect:
+          pushed: true
+          lastAction: "push"
+
+    - device: "DeviceB"
+      action: "edit"
+      path: "notes/m1.md"
+      content: "Line 1\nLine 2 edited by B\n"
+
+    - device: "DeviceB"
+      action: "push"
+      path: "notes/m1.md"
+      expect:
+          pushed: false
+          conflict: true
+          lastAction: "merge" # After B attempts push, it detects conflict and auto-merges
+          localContent: "Line 1 edited by A\nLine 2 edited by B\n"
+
+    - device: "DeviceB"
+      action: "push"
+      path: "notes/m1.md"
+      expect:
+          pushed: true
+          lastAction: "push"
+          cloudContent: "Line 1 edited by A\nLine 2 edited by B\n"
+
+    - device: "DeviceA"
+      action: "pull"
+      path: "notes/m1.md"
+      expect:
+          pulled: true
+          localContent: "Line 1 edited by A\nLine 2 edited by B\n"

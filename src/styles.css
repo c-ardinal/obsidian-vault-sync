@@ -13,6 +13,27 @@
     color: var(--text-accent);
 }
 
+/* Loading Spinner */
+.vault-sync-loading-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    width: 100%;
+    gap: 15px;
+    color: var(--text-muted);
+}
+
+.vault-sync-spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid var(--background-modifier-border);
+    border-top-color: var(--text-accent);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
 .auth-manual-input .setting-item-control {
     flex-wrap: wrap;
     gap: 8px;
@@ -21,4 +42,474 @@
 
 .auth-manual-input input[type="text"] {
     flex: 1 1 200px;
+}
+
+/* History Modal */
+.modal.mod-history-modal {
+    width: 90vw;
+    height: 90vh;
+    max-width: 90vw;
+    max-height: 90vh;
+    padding: 0;
+    background-color: var(--background-primary);
+}
+
+.modal.mod-history-modal .modal-close-button {
+    display: flex;
+}
+
+.is-mobile .modal.mod-history-modal .modal-close-button {
+    display: none;
+}
+
+/* Target the inner content div of the modal to handle layout */
+.modal.mod-history-modal .modal-content {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden; /* Disable scroll on the main container */
+    padding: 0;
+    margin: 0;
+}
+
+/* Main Title Row */
+.vault-sync-header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 20px;
+    border-bottom: 1px solid var(--background-modifier-border);
+    flex-shrink: 0;
+}
+.vault-sync-header-row h2 {
+    margin: 0;
+    font-size: 1.2em;
+    flex: 1;
+}
+.vault-sync-close-btn {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    width: 32px;
+    height: 32px;
+    padding: 4px;
+    border-radius: 50%;
+    color: var(--text-muted);
+    display: none; /* Hidden on PC */
+    align-items: center;
+    justify-content: center;
+}
+
+.is-mobile .vault-sync-close-btn {
+    display: flex; /* Show on Mobile */
+}
+.vault-sync-close-btn:hover {
+    background-color: var(--background-modifier-hover);
+    color: var(--text-normal);
+}
+
+.vault-sync-history-toggle-btn {
+    display: none; /* Hidden on PC */
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 4px;
+    margin-right: 8px;
+    border-radius: 4px;
+    color: var(--text-muted);
+    align-items: center;
+    justify-content: center;
+}
+
+/* Grid Layout Container */
+.vault-sync-history-container {
+    display: grid;
+    /* PC Defaults */
+    grid-template-columns: 200px 1fr;
+    grid-template-rows: auto 1fr;
+    grid-template-areas:
+        "list header"
+        "list diff";
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+    position: relative;
+    background-color: var(--background-primary);
+}
+
+/* Area: List (Drawer) */
+.vault-sync-history-list {
+    grid-area: list;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border-right: 1px solid var(--background-modifier-border);
+    background-color: var(--background-primary);
+}
+
+/* Area: Header (Revision Info & Controls) */
+.vault-sync-info-header {
+    grid-area: header;
+    border-bottom: 1px solid var(--background-modifier-border);
+    padding: 15px;
+    background-color: var(--background-primary);
+    overflow: visible;
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+/* Area: Diff */
+.revision-diff-view {
+    grid-area: diff;
+    overflow: auto;
+    padding: 0;
+    position: relative;
+    background-color: var(--background-primary);
+    user-select: text;
+    -webkit-user-select: text;
+}
+
+/* List Styling */
+.vault-sync-revision-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    overflow-y: auto;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Date Header with dot */
+.vault-sync-revision-date-header {
+    padding: 8px 15px 8px 12px; /* Adjusted padding to accommodate dot */
+    font-weight: bold;
+    font-size: 0.9em;
+    color: var(--text-accent);
+    background-color: var(--background-primary); /* Restored opaque background */
+    position: sticky; /* Restored sticky positioning */
+    top: 0;
+    z-index: 5; /* Ensure it stays on top of scrolling items */
+    /* Make the line continuous through the header */
+    margin-left: 12px;
+    border-left: 2px solid var(--background-modifier-border);
+}
+
+/* Timeline Dot for Date Header - Larger than item dots */
+.vault-sync-revision-date-header::before {
+    content: "";
+    position: absolute;
+    left: -7px; /* Center on 2px border: -6px (radius) - 1px */
+    top: 50%;
+    transform: translateY(-50%);
+    width: 12px; /* Increased size */
+    height: 12px;
+    border-radius: 50%;
+    background-color: var(--text-accent); /* Accent color for date header dot */
+    z-index: 6;
+    box-shadow: 0 0 0 2px var(--background-primary); /* Optional: ring to separate from line if needed */
+}
+
+/* Revision Item Styling */
+.vault-sync-revision-item {
+    position: relative;
+    padding: 8px 15px 8px 20px; /* Match header padding */
+    cursor: pointer;
+    margin-left: 12px;
+    border-left: 2px solid var(--background-modifier-border);
+    border-bottom: none;
+    transition: background-color 0.1s ease;
+}
+
+/* Timeline Dot for Item */
+.vault-sync-revision-item::before {
+    content: "";
+    position: absolute;
+    left: -6px; /* Center on 2px border: -5px - 1px */
+    top: 12px; /* Adjust vertical position */
+    width: 10px; /* Smaller than header dot */
+    height: 10px;
+    border-radius: 50%;
+    background-color: var(--background-modifier-border); /* Default gray */
+    border: 1px solid var(--background-primary);
+    z-index: 1;
+    box-sizing: border-box;
+}
+
+.vault-sync-revision-item:hover {
+    background-color: var(--background-modifier-hover);
+}
+
+/* Selected State - Matching Old Design Colors */
+.vault-sync-revision-item.is-selected {
+    background-color: hsla(263, 70%, 50%, 0.15); /* Deep purple background */
+    border-left-color: var(--text-accent); /* Make the line accent color */
+}
+
+.vault-sync-revision-item.is-selected::before {
+    background-color: var(--text-accent); /* Solid accent dot */
+    width: 10px;
+    /* To match "Old Design" (Image 2): It looks like a solid purple dot. */
+    box-shadow: 0 0 0 2px var(--background-modifier-active-hover); /* Ring matching bg */
+}
+
+/* Details Colors */
+.revision-meta {
+    font-size: 0.85em;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.revision-top-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.revision-time {
+    font-weight: 600;
+    color: var(--text-normal);
+}
+
+.revision-hash {
+    font-family: var(--font-monospace);
+    font-size: 0.85em;
+    color: var(--text-muted);
+    background-color: var(--background-modifier-form-field); /* Slightly darker/lighter box */
+    padding: 1px 4px;
+    border-radius: 4px;
+}
+
+.revision-author,
+.revision-size {
+    color: var(--text-muted);
+    font-size: 0.8em;
+}
+
+/* Info Header Styling */
+.revision-actions-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.revision-title-row h3 {
+    margin: 0;
+    font-size: 1.1em;
+}
+
+.revision-control-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    width: 100%; /* Ensure full width for alignment */
+}
+
+.diff-mode-toggle {
+    margin-left: auto; /* Push toggle and menu to the right */
+}
+
+/* Diff Content Styling - Matching Old Design */
+.diff-line {
+    display: flex;
+    align-items: stretch;
+    width: 100%;
+    font-family: var(--font-monospace);
+    font-size: 0.9em;
+    line-height: 1.5;
+}
+
+.diff-line-number {
+    width: 40px;
+    padding: 0 5px;
+    text-align: right;
+    color: var(--text-faint);
+    border-right: 1px solid var(--background-modifier-border);
+    user-select: none;
+    background-color: var(--background-secondary);
+    flex-shrink: 0;
+}
+
+.diff-line-content {
+    flex: 1;
+    padding: 0 10px;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+/* Diff Colors - Refined to match image */
+.diff-added {
+    background-color: transparent; /* Remove block background */
+    color: var(--text-success); /* Green text */
+}
+
+.diff-removed {
+    background-color: transparent; /* Remove block background */
+    color: var(--text-error); /* Red text */
+    text-decoration: line-through;
+}
+
+/* Unified diff specific background for line context */
+/* If we want the whole line to be subtly tinted, we'd need to target the parent .diff-line or wrap content */
+/* For now, stick to text color as requested */
+
+/* Split View Pains */
+.diff-pane {
+    flex: 1;
+    overflow-y: auto;
+}
+.diff-pane-left {
+    border-right: 1px solid var(--background-modifier-border);
+}
+
+/* === MOBILE STYLES === */
+.is-mobile .modal.mod-history-modal {
+    width: 100vw;
+    height: 100vh;
+    max-width: 100vw;
+    max-height: 100vh;
+    border-radius: 0;
+    padding: 0;
+    background-color: var(--background-primary);
+}
+.is-mobile .modal.mod-history-modal .modal-content {
+    padding: 0;
+    padding-top: env(safe-area-inset-top);
+}
+
+/* Floating Action Button for Mobile History Toggle */
+.is-mobile .vault-sync-history-toggle-btn {
+    display: flex;
+    position: absolute;
+    bottom: 24px;
+    right: 24px;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background-color: var(--interactive-accent);
+    color: var(--text-on-accent);
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3); /* Strong shadow for float effect */
+    z-index: 100; /* Top most */
+    padding: 0;
+    margin: 0;
+    justify-content: center;
+    align-items: center;
+    transition:
+        transform 0.2s ease,
+        background-color 0.2s;
+}
+
+.is-mobile .vault-sync-history-toggle-btn svg {
+    width: 24px;
+    height: 24px;
+}
+
+.is-mobile .vault-sync-history-toggle-btn:active {
+    transform: scale(0.95);
+}
+
+.is-mobile .vault-sync-history-container {
+    /* Mobile Grid: Header on top, then List(Drawer) + Diff below */
+    grid-template-areas:
+        "header header"
+        "list diff";
+    grid-template-rows: auto 1fr;
+    grid-template-columns: 0px 1fr; /* Default: Drawer Closed (width 0 or very small) */
+    transition: grid-template-columns 0.3s ease;
+    gap: 0;
+}
+
+/* Drawer Open State */
+.is-mobile .vault-sync-history-container.is-drawer-open {
+    grid-template-columns: 170px 1fr; /* Fixed width drawer might be better than valid vw if we want readable text */
+}
+
+/* Drawer Styling on Mobile */
+.is-mobile .vault-sync-history-list {
+    background-color: var(--background-primary);
+    z-index: 10;
+    white-space: nowrap; /* Prevent text wrap during transition */
+}
+/* If closed (width 0), content is hidden by overflow:hidden on container */
+
+.is-mobile .vault-sync-history-list h3 {
+    padding: 10px;
+    font-size: 1em;
+}
+
+.is-mobile .vault-sync-revision-date-header {
+    margin-left: 0;
+    border-left: none; /* Remove PC outline in mobile drawer? Or keep? */
+    /* Actually, mobile drawer likely needs the timeline too */
+    margin-left: 12px;
+    border-left: 2px solid var(--background-modifier-border);
+    padding-left: 12px;
+    /* Sticky header in drawer */
+    top: 0;
+    background-color: var(--background-primary);
+    font-size: 0.9em;
+}
+.is-mobile .vault-sync-revision-date-header::before {
+    left: -7px;
+}
+
+.is-mobile .vault-sync-revision-item {
+    padding: 12px 10px 12px 20px;
+    margin-left: 12px;
+    border-left: 2px solid var(--background-modifier-border);
+}
+
+.is-mobile .vault-sync-revision-item::before {
+    left: -6px;
+    top: 19px;
+    transform: translateY(-50%); /* Center vertical on mobile item */
+}
+
+.is-mobile .vault-sync-info-header {
+    padding: 10px;
+    gap: 8px;
+}
+
+.is-mobile .revision-title-row h3 {
+    font-size: 1em;
+}
+
+.is-mobile .revision-control-row {
+    gap: 8px;
+}
+
+.is-mobile .dropdown {
+    max-width: 250px; /* Limit dropdown width on mobile */
+}
+
+/* Adjustments for the drawer toggle button visibility */
+.is-mobile .vault-sync-history-toggle-btn.is-active {
+    background-color: var(--interactive-accent-hover);
+    color: var(--text-on-accent);
+}
+
+/* Ensure hash/details are visible in mobile drawer since it's the only place to see them */
+.is-mobile .revision-top-row .revision-hash,
+.is-mobile .revision-author,
+.is-mobile .revision-size {
+    display: block;
+}
+
+/* Exclusion Pattern Textarea */
+.vault-sync-exclusion-textarea {
+    font-family: var(--font-monospace);
+    min-height: 200px;
+    width: 100%;
+    resize: vertical;
+    line-height: 1.4;
+    white-space: pre;
+    overflow-x: auto;
+}
+
+/* Respect newlines in setting descriptions */
+.vault-sync-settings-container .setting-item-description {
+    white-space: pre-wrap;
 }

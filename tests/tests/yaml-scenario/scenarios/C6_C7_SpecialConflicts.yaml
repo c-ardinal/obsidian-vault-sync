@@ -1,0 +1,54 @@
+name: "C6-C7: Binary and Edit/Delete Conflicts"
+description: "C6: Binary files create conflict files. C7: Editing a deleted file."
+setup:
+    files:
+        "notes/binary.png": "Image Data"
+        "notes/to-be-deleted.md": "Base Content"
+    devices:
+        - name: "DeviceA"
+          id: "dev_a"
+        - name: "DeviceB"
+          id: "dev_b"
+    synced: true
+
+steps:
+    # C6: Binary Conflict
+    - device: "DeviceB"
+      action: "edit"
+      path: "notes/binary.png"
+      content: "Modified Image B"
+    - device: "DeviceB"
+      action: "push"
+      path: "notes/binary.png"
+
+    - device: "DeviceA"
+      action: "edit"
+      path: "notes/binary.png"
+      content: "Modified Image A"
+    - device: "DeviceA"
+      action: "pull"
+      path: "notes/binary.png"
+      expect:
+          pulled: true
+          lastAction: "pull" # Remote prioritized for binary
+          exists: ["Conflict"] # Should create a conflict file
+
+    # C7: Edit vs Delete
+    - device: "DeviceB"
+      action: "delete"
+      path: "notes/to-be-deleted.md"
+    - device: "DeviceB"
+      action: "push"
+      path: "notes/to-be-deleted.md"
+
+    - device: "DeviceA"
+      action: "edit"
+      path: "notes/to-be-deleted.md"
+      content: "I'm still editing this!"
+
+    - device: "DeviceA"
+      action: "pull"
+      path: "notes/to-be-deleted.md"
+      expect:
+          pulled: true
+          exists: ["Conflict"] # Since it was deleted on remote, it usually creates a conflict copy of local

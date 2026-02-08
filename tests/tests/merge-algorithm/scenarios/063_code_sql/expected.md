@@ -1,0 +1,3 @@
+SELECT id
+FROM t
+WHERE 1

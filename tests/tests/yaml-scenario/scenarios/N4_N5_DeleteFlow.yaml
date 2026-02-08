@@ -1,0 +1,31 @@
+name: "N4-N5: Delete Flow"
+description: "Verifies local deletion propagating to cloud, and remote deletion propagating to local."
+setup:
+    files:
+        "notes/to-be-deleted.md": "Goodbye"
+    devices:
+        - name: "DeviceA"
+          id: "dev_a"
+        - name: "DeviceB"
+          id: "dev_b"
+    synced: true
+
+steps:
+    # N4: Local Delete -> Push
+    - device: "DeviceA"
+      action: "delete"
+      path: "notes/to-be-deleted.md"
+    - device: "DeviceA"
+      action: "push"
+      path: "notes/to-be-deleted.md"
+      expect:
+          pushed: true
+          cloudContent: null
+
+    # N5: Remote Delete -> Pull
+    - device: "DeviceB"
+      action: "pull"
+      path: "notes/to-be-deleted.md"
+      expect:
+          pulled: true
+          localContent: null

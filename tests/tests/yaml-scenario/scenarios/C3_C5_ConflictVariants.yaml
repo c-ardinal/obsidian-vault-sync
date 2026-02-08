@@ -1,0 +1,58 @@
+name: "C3-C5: Conflict Variants"
+description: "C3: Multiple conflict files. C4: Local file matches remote (False Alarm). C5: Automatic merge without user interaction."
+setup:
+    files:
+        "notes/c3.md": "Base C3\n"
+        "notes/c4.md": "Base C4\n"
+        "notes/c5.md": "Base C5\n"
+    devices:
+        - name: "DeviceA"
+          id: "dev_a"
+        - name: "DeviceB"
+          id: "dev_b"
+    synced: true
+
+steps:
+    # C4: False Alarm (A changed C4, but then reverted or changed back to match B's push)
+    - device: "DeviceB"
+      action: "edit"
+      path: "notes/c4.md"
+      content: "Base C4 Plus\n"
+    - device: "DeviceB"
+      action: "push"
+      path: "notes/c4.md"
+
+    - device: "DeviceA"
+      action: "edit"
+      path: "notes/c4.md"
+      content: "Base C4 Plus\n" # A manually typed what B did
+
+    - device: "DeviceA"
+      action: "pull"
+      path: "notes/c4.md"
+      expect:
+          pulled: true
+          lastAction: "pull"
+          isDirty: false # Should NOT be dirty because it matches remote
+
+    # C5: Clean Merge (Automatic)
+    - device: "DeviceB"
+      action: "edit"
+      path: "notes/c5.md"
+      content: "B Top\nBase C5\n"
+    - device: "DeviceB"
+      action: "push"
+      path: "notes/c5.md"
+
+    - device: "DeviceA"
+      action: "edit"
+      path: "notes/c5.md"
+      content: "Base C5\nA Bottom\n"
+
+    - device: "DeviceA"
+      action: "pull"
+      path: "notes/c5.md"
+      expect:
+          pulled: true
+          lastAction: "merge"
+          localContent: "B Top\nBase C5\nA Bottom\n"
