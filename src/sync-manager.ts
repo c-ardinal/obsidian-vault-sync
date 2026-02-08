@@ -28,6 +28,8 @@ export interface LocalFileIndex {
         mergeLock?: { holder: string; expiresAt: number };
         /** True when this device detected a conflict and is waiting for another device to resolve it */
         pendingConflict?: boolean;
+        /** If true, force upload even if hash matches (used for renaming to trigger PATCH) */
+        forcePush?: boolean;
     };
 }
 
@@ -1012,28 +1014,45 @@ export class SyncManager {
      * Called from main.ts on file rename events
      */
     markRenamed(oldPath: string, newPath: string) {
-        // Case 1: oldPath is in dirtyPaths but NOT in index
-        // This means the file was created and renamed before being synced
-        // We should just remove oldPath from dirtyPaths (no remote deletion needed)
-        if (this.dirtyPaths.has(oldPath) && !this.index[oldPath]) {
-            this.dirtyPaths.delete(oldPath);
-            this.log(`[Dirty] Removed (renamed before sync): ${oldPath}`);
-        } else {
-            // Case 2: Normal rename - file was already synced
-            // Mark old path for deletion from remote
-            this.markDeleted(oldPath);
+        if (this.shouldIgnore(newPath)) return;
+
+        const oldDir = oldPath.substring(0, oldPath.lastIndexOf("/"));
+        const newDir = newPath.substring(0, newPath.lastIndexOf("/"));
+        const isMove = oldDir !== newDir;
+
+        // If it's a move, we fall back to Delete+Upload (until Adapter supports Move)
+        if (isMove) {
+            // Case 1: oldPath is locally created but not synced -> Just remove from dirty
+            if (this.dirtyPaths.has(oldPath) && !this.index[oldPath]) {
+                this.dirtyPaths.delete(oldPath);
+                this.log(`[Dirty] Removed (renamed before sync): ${oldPath}`);
+            } else {
+                // Case 2: Synced file -> Mark for deletion
+                this.markDeleted(oldPath);
+            }
+            // Mark new path dirty (New Upload)
+            this.dirtyPaths.add(newPath);
+            this.log(`[Dirty] Marked (move): ${newPath}`);
+            return;
         }
 
-        // Always mark new path as dirty (for upload)
-        if (!this.shouldIgnore(newPath) && !this.syncingPaths.has(newPath)) {
-            // Migrate localIndex to avoid "unknown file conflict" on push
-            if (this.localIndex[oldPath]) {
-                this.localIndex[newPath] = { ...this.localIndex[oldPath] };
-                delete this.localIndex[oldPath];
-            }
-            this.dirtyPaths.add(newPath);
-            this.log(`[Dirty] Marked (renamed): ${newPath}`);
+        // It is a Rename-in-place (history preservation possible)
+        this.dirtyPaths.delete(oldPath); // Cancel any delete/upload for old name
+
+        // Migrate Index
+        if (this.index[oldPath]) {
+            this.index[newPath] = { ...this.index[oldPath], forcePush: true };
+            delete this.index[oldPath];
         }
+
+        // Migrate Local Index
+        if (this.localIndex[oldPath]) {
+            this.localIndex[newPath] = { ...this.localIndex[oldPath], forcePush: true };
+            delete this.localIndex[oldPath];
+        }
+
+        this.dirtyPaths.add(newPath);
+        this.log(`[Dirty] Marked (renamed): ${newPath} (Migrated ID)`);
     }
 
     /**
@@ -1062,9 +1081,7 @@ export class SyncManager {
                     this.log(`[Dirty] Marked for upload (folder rename): ${newPath}`);
 
                     // Migrate localIndex for new path to maintain base hash consistency
-                    if (localEntry) {
-                        this.localIndex[newPath] = { ...localEntry };
-                    }
+                    // Do not migrate localIndex. Treat as Delete + New Upload.
                 }
             }
         }
@@ -1351,6 +1368,12 @@ export class SyncManager {
         // Find files to download or cleanup
         const toDeleteRemote: Array<{ path: string; fileId: string }> = [];
 
+        // Pre-calculate ID map for rename detection
+        const localIdToPath = new Map<string, string>();
+        for (const [p, entry] of Object.entries(this.index)) {
+            if (entry.fileId) localIdToPath.set(entry.fileId, p);
+        }
+
         for (const [path, remoteEntry] of Object.entries(remoteIndex)) {
             if (path === this.pluginDataPath) continue;
             if (this.isManagedSeparately(path)) continue;
@@ -1364,6 +1387,21 @@ export class SyncManager {
             const localBaseEntry = this.localIndex[path];
 
             if (!localBaseEntry) {
+                // Check if this fileId exists locally under a different name (Rename in progress)
+                // If we renamed A -> B locally, remote still sees A.
+                // We should NOT download A if we are about to push B (which patches A -> B).
+                const renamedLocalPath = localIdToPath.get(remoteEntry.fileId);
+                if (
+                    renamedLocalPath &&
+                    renamedLocalPath !== path &&
+                    this.dirtyPaths.has(renamedLocalPath)
+                ) {
+                    await this.log(
+                        `[Smart Pull] Skipped ghost file ${path} (renamed locally to ${renamedLocalPath})`,
+                    );
+                    continue;
+                }
+
                 // New file on remote (we don't even have a base for it)
                 toDownload.push({
                     path,
@@ -1608,6 +1646,12 @@ export class SyncManager {
             const tasks: (() => Promise<void>)[] = [];
             let completed = 0;
 
+            // Pre-calculate ID map for rename detection (Ghost File Check)
+            const localIdToPath = new Map<string, string>();
+            for (const [p, entry] of Object.entries(this.index)) {
+                if (entry.fileId) localIdToPath.set(entry.fileId, p);
+            }
+
             for (const change of changes.changes) {
                 if (change.removed) {
                     // File was deleted on remote
@@ -1693,6 +1737,20 @@ export class SyncManager {
 
                     // Skip if local index hash matches (already synced by this client)
                     const localEntry = this.index[cloudFile.path];
+                    if (!localEntry && localIdToPath.has(cloudFile.id)) {
+                        const renamedLocalPath = localIdToPath.get(cloudFile.id);
+                        if (
+                            renamedLocalPath &&
+                            renamedLocalPath !== cloudFile.path &&
+                            this.dirtyPaths.has(renamedLocalPath)
+                        ) {
+                            await this.log(
+                                `[Changes API] Skipped ghost file ${cloudFile.path} (renamed locally to ${renamedLocalPath})`,
+                            );
+                            continue;
+                        }
+                    }
+
                     if (
                         localEntry?.hash &&
                         cloudFile.hash &&
@@ -2003,7 +2061,8 @@ export class SyncManager {
                             if (
                                 localIndexEntry?.hash &&
                                 localIndexEntry.hash.toLowerCase() === currentHash &&
-                                localIndexEntry.lastAction !== "merge" // Ensure pending merges are pushed
+                                localIndexEntry.lastAction !== "merge" && // Ensure pending merges are pushed
+                                !localIndexEntry.forcePush // Force push if requested (e.g. rename)
                             ) {
                                 // Local content matches our local base. No need to push.
                                 // However, let's update mtimes to avoid re-calculating hash.
@@ -2191,11 +2250,15 @@ export class SyncManager {
                         }
 
                         // Use buffered content from queue creation (no re-read)
+                        // CRITICAL FIX: Always prefer the ID from index if available (Migration/Renaming scenario)
+                        // remoteMeta might be null if lookup failed or if we skipped lookup, but we might still have a valid ID in index.
+                        const targetFileId = remoteMeta?.id || this.index[file.path]?.fileId;
+
                         const uploaded = await this.adapter.uploadFile(
                             file.path,
                             file.content,
                             file.mtime,
-                            remoteMeta?.id, // Optimized: pass the ID we already fetched to save redundant lookups
+                            targetFileId,
                         );
 
                         // SUCCESS: Update indices with REMOTE metadata
