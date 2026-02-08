@@ -250,17 +250,28 @@ export class GoogleDriveAdapter implements CloudAdapter {
             }
 
             if (!response.ok) {
-                let body = "";
+                let errorMsg = `API Error ${response.status}`;
                 try {
-                    body = await response.text();
+                    const text = await response.text();
+                    try {
+                        const json = JSON.parse(text);
+                        if (json.error && json.error.message) {
+                            errorMsg = json.error.message;
+                        } else {
+                            errorMsg = text;
+                        }
+                    } catch {
+                        errorMsg = text;
+                    }
                 } catch (e) {
-                    body = "Could not read error body";
+                    errorMsg = "Could not read error body";
                 }
-                // SEC-007: Sanitize error messages
-                console.error(`VaultSync: API Error ${response.status}: ${body}`);
-                throw new Error(
-                    `API Error ${response.status}: Request failed (See console for details)`,
-                );
+
+                // SEC-007: Sanitize error messages (logging)
+                console.error(`VaultSync: API Error ${response.status}: ${errorMsg}`);
+
+                // Throw the actual error message so callers can handle specific cases
+                throw new Error(errorMsg);
             }
 
             return response;
@@ -1047,12 +1058,23 @@ export class GoogleDriveAdapter implements CloudAdapter {
         if (!meta) throw new Error(`File not found: ${path}`);
 
         await this.fetchWithAuth(
-            `https://www.googleapis.com/drive/v3/files/${meta.id}/revisions/${revisionId}?keepForever=${keepForever}`,
+            `https://www.googleapis.com/drive/v3/files/${meta.id}/revisions/${revisionId}`,
             {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ keepForever: keepForever }),
             },
+        );
+    }
+
+    async deleteRevision(path: string, revisionId: string): Promise<void> {
+        this.validatePath(path);
+        const meta = await this.getFileMetadata(path);
+        if (!meta) throw new Error(`File not found: ${path}`);
+
+        await this.fetchWithAuth(
+            `https://www.googleapis.com/drive/v3/files/${meta.id}/revisions/${revisionId}`,
+            { method: "DELETE" },
         );
     }
 }

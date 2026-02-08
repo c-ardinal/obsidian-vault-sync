@@ -97,24 +97,32 @@ const i18n: Record<string, Record<string, string>> = {
         noticeSavedKeepForever: "📌 Saved: Keep Forever",
         noticeFailedToSave: "❌ Failed to save",
         noticeFileRestored: "✅ File restored. Syncing changes...",
+        noticeRevisionDeleted: "✅ Revision deleted",
 
         // History Modal & Browser UI
         historyTitle: "History",
         historyActions: "Menue",
         historyKeepForever: "Keep Forever (Protect)",
+        historyKeepForeverConfirm:
+            "【Warning】Do you want to enable indefinite preservation (Keep Forever) for this revision?\n\nDue to Google Drive specifications, once enabled, it cannot be disabled.\n(Only file deletion will be possible.)",
+        historyKeepForeverError:
+            "Due to Google Drive specifications, indefinite preservation for past revisions cannot be canceled once enabled.",
+        historyDeleteRevision: "Delete this revision",
+        historyDeleteConfirm:
+            "Are you sure you want to delete this revision ({0})?\n\nThere is a risk that automatic merging will not function correctly if future conflicts occur.\nThis action cannot be undone.",
         historyNoHistoryFound: "No history found.",
         historyProtectedFromDeletion: "Protected from auto-deletion",
         historyByAuthor: "by",
         historySelectRevision: "Select a revision to view details.",
-        historyRestoreVersion: "Restore this version",
+        historyRestoreVersion: "Restore this revision",
         historyRestoreConfirm:
-            "Are you sure you want to restore this version ({0})?\n\nCurrent local changes will be replaced.",
+            "Are you sure you want to restore this revision ({0})?\n\nCurrent local changes will be replaced.",
         historyCompareWith: "Compare with: ",
         historyCurrentLocalFile: "Current Local File",
         historyPreviousVersion: "Previous",
         historyInitialEmptyVersion: "Initial / Empty",
         historyAuthorUnknown: "Unknown",
-        historyRestoreAs: "Restore this version as...",
+        historyRestoreAs: "Restore as...",
         historyRestoreAsTitle: "Restore as (Path)",
         historyRestoreAsNotice: "✅ File created as {0}",
         historyRestoreAsErrorExists: "A file with this name already exists.",
@@ -212,24 +220,32 @@ const i18n: Record<string, Record<string, string>> = {
         noticeSavedKeepForever: "📌 保存完了: 無期限",
         noticeFailedToSave: "❌ 保存に失敗しました",
         noticeFileRestored: "✅ ファイルを復元しました。同期を開始します...",
+        noticeRevisionDeleted: "✅ リビジョンを削除しました",
 
         // History Modal & Browser UI
         historyTitle: "履歴",
         historyActions: "メニュー",
         historyKeepForever: "無期限保存 (保護)",
+        historyKeepForeverConfirm:
+            "【警告】このリビジョンを無期限保存(Keep Forever)しますか？\n\nGoogle Driveの仕様により、一度設定すると解除することはできません。\n（リビジョンの削除のみ可能となります）",
+        historyKeepForeverError:
+            "Google Driveの仕様により、無期限保存設定を解除することはできません。",
+        historyDeleteRevision: "このリビジョンを削除",
+        historyDeleteConfirm:
+            "このリビジョン ({0}) を【削除】してもよろしいですか？\n\n今後競合が発生した場合に、自動マージが正常に実行出来ないリスクが有ります。\nまた、この操作は取り消せません。",
         historyNoHistoryFound: "履歴が見つかりません",
         historyProtectedFromDeletion: "自動削除から保護されています",
         historyByAuthor: "更新者:",
         historySelectRevision: "リビジョンを選択すると詳細が表示されます",
-        historyRestoreVersion: "このバージョンを復元",
+        historyRestoreVersion: "このリビジョンを復元",
         historyRestoreConfirm:
-            "このバージョン ({0}) を復元してもよろしいですか？\n\n現在のローカルファイルの内容は上書きされます。",
+            "このリビジョン ({0}) を復元してもよろしいですか？\n\n現在のローカルファイルの内容は上書きされます。",
         historyCompareWith: "比較対象: ",
         historyCurrentLocalFile: "現在のローカルファイル",
-        historyPreviousVersion: "前のバージョン",
+        historyPreviousVersion: "前のリビジョン",
         historyInitialEmptyVersion: "最初（空）の状態",
         historyAuthorUnknown: "不明",
-        historyRestoreAs: "名前を付けて復元...",
+        historyRestoreAs: "別名で復元",
         historyRestoreAsTitle: "別名で復元 (パスを入力)",
         historyRestoreAsNotice: "✅ 別名で保存しました: {0}",
         historyRestoreAsErrorExists: "同じ名前のファイルが既に存在します。",

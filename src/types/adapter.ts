@@ -72,6 +72,7 @@ export interface CloudAdapter {
     listRevisions?(path: string): Promise<FileRevision[]>;
     getRevisionContent?(path: string, revisionId: string): Promise<ArrayBuffer>;
     setRevisionKeepForever?(path: string, revisionId: string, keepForever: boolean): Promise<void>;
+    deleteRevision?(path: string, revisionId: string): Promise<void>;
 }
 
 export interface FileRevision {

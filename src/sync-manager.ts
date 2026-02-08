@@ -2597,6 +2597,16 @@ export class SyncManager {
         await this.log(`[History] Set keepForever=${keepForever} for ${path} (rev: ${revisionId})`);
     }
 
+    async deleteRevision(path: string, revisionId: string): Promise<void> {
+        if (!this.adapter.supportsHistory || !this.adapter.deleteRevision) {
+            throw new Error(
+                this.t("historyNotSupported") || "Cloud adapter does not support history.",
+            );
+        }
+        await this.adapter.deleteRevision(path, revisionId);
+        await this.log(`[History] Deleted revision ${revisionId} for ${path}`);
+    }
+
     /**
      * Try to perform a 3-way merge
      * @returns Merged content as ArrayBuffer if successful, null if conflict persists
