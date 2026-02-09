@@ -414,7 +414,7 @@ export class HistoryModal extends Modal {
                                             await this.app.vault.createBinary(newPath, buffer);
                                             await this.syncManager.notify(
                                                 this.syncManager
-                                                    .t("historyRestoreAsNotice")
+                                                    .t("noticeHistoryRestoreAs")
                                                     .replace("{0}", newPath),
                                             );
                                         } catch (err) {

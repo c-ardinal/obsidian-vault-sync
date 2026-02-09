@@ -242,27 +242,53 @@ export class SyncManager {
     /**
      * Helper to show notification and log it.
      * @param message The message to display/log
-     * @param isDetailed If true, only show UI notice if showDetailedNotifications is enabled
-     * @param isSilent If true, suppress UI notice (but still log)
+     * @param isDetailed If true, only show UI notice if notificationLevel is "verbose" (Detailed)
+     * @param isSilent If true, suppress UI notice unless level is "verbose"
      */
     public async notify(message: string, isDetailed: boolean = false, isSilent: boolean = false) {
-        // notificationLevel: "verbose" | "standard" | "error"
-        // error: Only show if specifically flagged as error (we'll assume standard notify is not error)
-        // standard: Show non-detailed (standard) messages, hide detailed.
-        // verbose: Show everything.
-        if (this.settings.notificationLevel === "error") {
-            // For now, this method is mostly used for status/info.
-            // Errors usually throw or are logged.
-            // If we wanted to support explicit error notifications, we'd need an extra param.
-            // Assuming normal "notify" calls are INFO level.
+        const level = this.settings.notificationLevel;
+        if (level === "error") {
             await this.log(`[Silent Notice (ErrorLevel)] ${message}`);
             return;
         }
 
-        const showVerbose = this.settings.notificationLevel === "verbose";
-        // If message is detailed, show only if verbose.
-        // If message is standard (!isDetailed), show if standard or verbose (which is !error).
-        const shouldShow = !isSilent && (!isDetailed || showVerbose);
+        const showVerbose = level === "verbose";
+        let shouldShow = false;
+
+        if (isDetailed) {
+            // Detailed Events (File-specific: Pushing file, Pulling file, Trash file, Merging file)
+            // Identify if it's a "low priority" detailed event (Push/Pull)
+            const isLowPriority =
+                message.includes(this.t("noticeFilePulled")) ||
+                message.includes(this.t("noticeFilePushed")) ||
+                message.includes("📤") ||
+                message.includes("📥");
+
+            if (isLowPriority) {
+                // Push/Pull: Hide if silent (Startup/Auto) unless in Verbose.
+                shouldShow = showVerbose || !isSilent;
+            } else {
+                // Trash and Merge: Matrix says ALWAYS show in both Verbose and Standard.
+                shouldShow = true;
+            }
+        } else {
+            // Generic Status (Syncing..., Completed, Up to date, Scanning...)
+            // Identify messages that should be hidden in silent (background) scenarios
+            const isSilentSuppressed =
+                message.includes(this.t("noticeSyncing")) ||
+                message.includes("⚡") ||
+                message.includes(this.t("noticeScanningLocalFiles")) ||
+                message.includes("🔍") ||
+                message.includes(this.t("noticeVaultUpToDate"));
+
+            if (isSilentSuppressed) {
+                // "Syncing...", "Scanning...", "Up to date": Hide if silent (Startup/Auto).
+                shouldShow = !isSilent;
+            } else {
+                // "Completed", "Confirmation", etc.: Always show.
+                shouldShow = true;
+            }
+        }
 
         if (shouldShow) {
             new Notice(message);
@@ -1329,7 +1355,7 @@ export class SyncManager {
         }
         try {
             await this.log("=== SMART SYNC START ===");
-            await this.notify(`⚡ ${this.t("statusSyncing")}`, false, isSilent);
+            await this.notify(this.t("noticeSyncing"), false, isSilent);
 
             // Clean up recentlyDeletedFromRemote: remove entries for files that no longer exist locally
             // (they were successfully deleted, so we don't need to track them anymore)
@@ -1349,22 +1375,29 @@ export class SyncManager {
             const pulled = await this.smartPull(isSilent);
 
             // === PUSH PHASE ===
+            if (scanVault) {
+                await this.notify(this.t("noticeScanningLocalFiles"), false, isSilent);
+            }
             const pushed = await this.smartPush(isSilent, scanVault);
 
-            // === CONFIRMATION PHASE (Initial Sync) ===
-            // For initial sync (scanVault=true) and adapters with Changes API support,
+            // === CONFIRMATION PHASE (Initial Sync Only) ===
+            // For initial sync (scanVault=true, isSilent=false) with Changes API support,
             // we immediately check for our own pushes to confirm identity and update ancestor hashes.
-            // drainAll=true processes all pages in one go, overcoming any pageSize limits.
-            if (pushed && scanVault && this.adapter.supportsChangesAPI) {
+            // Skipped during startup sync (isSilent=true) since confirmation is only needed on first sync.
+            if (pushed && scanVault && !isSilent && this.adapter.supportsChangesAPI) {
                 await this.log(
                     "[Smart Sync] Initial sync push detected. Running immediate identity check...",
                 );
-                await this.notify(this.t("statusInitialSyncConfirmation"), false, isSilent);
+                await this.notify(this.t("noticeInitialSyncConfirmation"), false, isSilent);
 
                 await this.pullViaChangesAPI(isSilent, true);
 
                 // Re-confirm completion after identity check
-                await this.notify(this.t("noticePushCompleted"), false, isSilent);
+                await this.notify(
+                    this.t("noticePushCompleted").replace("{0}", "1"),
+                    false,
+                    isSilent,
+                );
             }
 
             if (!pulled && !pushed) {
@@ -1632,7 +1665,11 @@ export class SyncManager {
 
                     completed++;
                     await this.log(`[Smart Pull] [${completed}/${total}] Deleted locally: ${path}`);
-                    await this.notify(`🗑️ ${path.split("/").pop()}`, true, isSilent);
+                    await this.notify(
+                        `${this.t("noticeFileTrashed")}: ${path.split("/").pop()}`,
+                        true,
+                        isSilent,
+                    );
                 } catch (e) {
                     await this.log(`[Smart Pull] Delete failed: ${path} - ${e}`);
                 }
@@ -1725,7 +1762,11 @@ export class SyncManager {
         await this.saveIndex();
 
         if (total > 0) {
-            await this.notify(`⬇️ ${this.t("noticePullCompleted")} (${total} files)`, false, false);
+            await this.notify(
+                this.t("noticePullCompleted").replace("{0}", total.toString()),
+                false,
+                false,
+            );
             return true;
         }
         return false;
@@ -1749,6 +1790,7 @@ export class SyncManager {
         let currentPageToken = this.startPageToken;
         let confirmedCountTotal = 0;
         let pageCount = 1;
+        let totalCompleted = 0;
 
         do {
             const changes = await this.adapter.getChanges(currentPageToken);
@@ -1770,7 +1812,7 @@ export class SyncManager {
             // In confirmation mode, if we haven't confirmed anything yet, notify user about the wait
             if (drainAll && confirmedCountTotal === 0) {
                 await this.notify(
-                    `${this.t("statusWaitingForRemoteRegistration")} (Page ${pageCount++})...`,
+                    `${this.t("noticeWaitingForRemoteRegistration")} (Page ${pageCount++})...`,
                     false,
                     isSilent,
                 );
@@ -1809,7 +1851,7 @@ export class SyncManager {
                                 completed++;
                                 await this.log(`[Smart Pull] Deleted: ${pathToDelete}`);
                                 await this.notify(
-                                    `${this.t("fileRemoved")}: ${pathToDelete.split("/").pop()}`,
+                                    `${this.t("noticeFileTrashed")}: ${pathToDelete.split("/").pop()}`,
                                     true,
                                     isSilent,
                                 );
@@ -1856,13 +1898,11 @@ export class SyncManager {
                         await this.log(
                             `[Smart Pull] Waiting: ${cloudFile.path} is being merged by ${mergeLock.holder} (expires in ${Math.round((mergeLock.expiresAt - now) / 1000)}s)`,
                         );
-                        if (this.settings.notificationLevel === "verbose" || !isSilent) {
-                            await this.notify(
-                                `⏳ ${cloudFile.path.split("/").pop()}: ${this.t("noticeWaitOtherDeviceMerge") || "Waiting for other device to resolve merge..."}`,
-                                true,
-                                isSilent,
-                            );
-                        }
+                        await this.notify(
+                            `⏳ ${cloudFile.path.split("/").pop()}: ${this.t("noticeWaitOtherDeviceMerge") || "Waiting for other device to resolve merge..."}`,
+                            true,
+                            isSilent,
+                        );
                         // Mark as pending conflict so next sync shows "merge result applied"
                         if (this.localIndex[cloudFile.path]) {
                             this.localIndex[cloudFile.path].pendingConflict = true;
@@ -1905,13 +1945,11 @@ export class SyncManager {
 
                             // Notify individual confirmation if detailed notifications are on
                             confirmedCountTotal++;
-                            if (this.settings.notificationLevel === "verbose" || !isSilent) {
-                                await this.notify(
-                                    `✅ ${this.t("noticeSyncConfirmed")}: ${cloudFile.path.split("/").pop()}`,
-                                    true,
-                                    isSilent,
-                                );
-                            }
+                            await this.notify(
+                                `${this.t("noticeSyncConfirmed")}: ${cloudFile.path.split("/").pop()}`,
+                                true,
+                                isSilent,
+                            );
                         }
                         await this.log(`[Smart Pull] Skipping (hash match): ${cloudFile.path}`);
                         continue;
@@ -1935,6 +1973,7 @@ export class SyncManager {
                 this.startActivity();
                 try {
                     await this.runParallel(tasks);
+                    totalCompleted += completed;
                 } finally {
                     // endActivity is handled by executeSmartSync
                 }
@@ -1957,7 +1996,14 @@ export class SyncManager {
         } while (currentPageToken);
 
         if (hasTotalChanges) {
-            // Notification is handled once at the end in executeSmartSync if return value is true
+            // Notification for pulled files
+            if (totalCompleted > 0) {
+                await this.notify(
+                    this.t("noticePullCompleted").replace("{0}", totalCompleted.toString()),
+                    false, // isDetailed = false for summary
+                    isSilent, // Use isSilent from caller
+                );
+            }
             return true;
         }
         return false;
@@ -2577,9 +2623,9 @@ export class SyncManager {
 
             if (completed > 0) {
                 await this.notify(
-                    `⬆️ ${this.t("noticePushCompleted")} (${completed} files)`,
+                    this.t("noticePushCompleted").replace("{0}", completed.toString()),
                     false,
-                    false,
+                    isSilent,
                 );
             }
             return true;
@@ -3436,7 +3482,7 @@ export class SyncManager {
                             await this.log(`[${logPrefix}] Lock acquired successfully.`);
 
                             await this.notify(
-                                `🔄 ${this.t("noticeMergingFile") || "Merging"}: ${item.path.split("/").pop()}`,
+                                `${this.t("noticeMergingFile") || "Merging"}: ${item.path.split("/").pop()}`,
                                 true,
                                 isSilent,
                             );

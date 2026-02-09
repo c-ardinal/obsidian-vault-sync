@@ -1,11 +1,8 @@
-// Minimal Obsidian API mocks for testing SyncManager
+import { vi } from "vitest";
 
-export class Notice {
-    constructor(
-        public message: string,
-        _timeout?: number,
-    ) {}
-}
+export const Notice = vi.fn(function (message: string, _timeout?: number) {
+    return { message };
+});
 
 export class TAbstractFile {
     path: string = "";

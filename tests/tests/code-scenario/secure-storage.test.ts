@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { SecureStorage } from "../src/secure-storage";
-import { MockApp } from "./helpers/mock-vault-adapter";
+import { SecureStorage } from "../../../src/secure-storage";
+import { MockApp } from "../../helpers/mock-vault-adapter";
 import * as crypto from "node:crypto";
 
 // Polyfill window.crypto for tests

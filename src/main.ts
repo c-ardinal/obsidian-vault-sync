@@ -145,7 +145,7 @@ export default class VaultSync extends Plugin {
             id: "force-full-scan",
             name: t("labelFullAudit"),
             callback: async () => {
-                await this.syncManager.notify(t("statusScanningLocalFiles"));
+                await this.syncManager.notify(t("noticeScanningLocalFiles"));
                 await this.syncManager.requestBackgroundScan(false);
             },
         });
