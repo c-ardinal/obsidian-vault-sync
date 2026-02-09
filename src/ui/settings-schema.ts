@@ -1,7 +1,7 @@
 import { VaultSyncSettings } from "../types/settings";
 import { SETTINGS_LIMITS } from "../constants";
 import { t } from "../i18n";
-import { VaultSync } from "../main";
+import VaultSync from "../main";
 
 export type SettingType = "toggle" | "text" | "number" | "dropdown" | "textarea";
 

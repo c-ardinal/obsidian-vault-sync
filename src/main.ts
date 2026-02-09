@@ -39,6 +39,14 @@ export default class VaultSync extends Plugin {
             this.settings.cloudRootFolder,
         );
 
+        // Handle Token Expiry / Revocation
+        this.adapter.onAuthFailure = async () => {
+            console.log("VaultSync: Auth failed (token expired/revoked). Clearing credentials.");
+            new Notice(t("noticeAuthFailed") + ": Session expired. Please login again.", 0);
+            await this.secureStorage.clearCredentials();
+            this.adapter.setTokens(null, null);
+        };
+
         // MIGRATION: Move files to new layout
         await this.migrateFileLayout();
 
@@ -375,6 +383,13 @@ export default class VaultSync extends Plugin {
             this.manifest.dir || "",
             this.settings.encryptionSecret,
         );
+
+        // DEBUG: Temporary notice to help debug path issues
+        this.secureStorage.loadCredentials().then((creds) => {
+            new Notice(
+                `SecureStorage Path: ${(this.secureStorage as any).filePath}\nLoaded: ${!!creds}`,
+            );
+        });
 
         // Load credentials from Secure Storage
         const credentials = await this.secureStorage.loadCredentials();

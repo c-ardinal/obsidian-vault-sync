@@ -1,4 +1,4 @@
-import { App, Platform } from "obsidian";
+import { App, Platform, normalizePath } from "obsidian";
 
 const IV_LENGTH = 12;
 const SALT_LENGTH = 16;
@@ -14,14 +14,33 @@ export class SecureStorage {
         pluginDir: string,
         private secret: string,
     ) {
-        this.filePath = `${pluginDir}/data/local/.sync-state`;
+        this.filePath = normalizePath(`${pluginDir}/data/local/.sync-state`);
     }
 
     private async ensureDir(path: string) {
-        const parts = path.split("/");
+        const normalized = normalizePath(path);
+        const parts = normalized.split("/");
         const dir = parts.slice(0, -1).join("/");
-        if (!(await this.app.vault.adapter.exists(dir))) {
-            await this.app.vault.createFolder(dir).catch(() => {});
+
+        // Check full parent directory first
+        if (await this.app.vault.adapter.exists(dir)) return;
+
+        console.log(`[SecureStorage] Creating directory structure for: ${dir}`);
+
+        let currentPath = "";
+        for (const part of parts.slice(0, -1)) {
+            currentPath = currentPath === "" ? part : `${currentPath}/${part}`;
+            const exists = await this.app.vault.adapter.exists(currentPath);
+            if (!exists) {
+                try {
+                    await this.app.vault.createFolder(currentPath);
+                    console.log(`[SecureStorage] Created folder: ${currentPath}`);
+                } catch (e) {
+                    // Ignore error if folder already exists (race condition)
+                    // But log others
+                    console.debug(`[SecureStorage] Note: Create folder ${currentPath} result:`, e);
+                }
+            }
         }
     }
 
@@ -34,23 +53,31 @@ export class SecureStorage {
         if (adapter.getBasePath) {
             const basePath = adapter.getBasePath();
 
-            import("child_process").then((cp) => {
+            // Dynamic import to avoid bundling issues on mobile
+            // Use try-catch to prevent crashes if module resolution fails
+            try {
+                // @ts-ignore
+                const cp = require("child_process");
                 if (process.platform === "win32") {
                     // Windows: attrib +h
                     const fullPath = `${basePath}/${relativePath}`.replace(/\//g, "\\");
-                    cp.exec(`attrib +h "${fullPath}"`, (err) => {
+                    cp.exec(`attrib +h "${fullPath}"`, (err: any) => {
                         if (err)
                             console.error("VaultSync: Failed to hide .sync-state on Windows", err);
                     });
                 } else if (process.platform === "darwin") {
                     // MacOS: chflags hidden (adds redundancy to dot-prefix)
                     const fullPath = `${basePath}/${relativePath}`;
-                    cp.exec(`chflags hidden "${fullPath}"`, (err) => {
+                    cp.exec(`chflags hidden "${fullPath}"`, (err: any) => {
                         if (err) console.error("VaultSync: Failed to hide .sync-state on Mac", err);
                     });
                 }
-                // Linux: No standard system attribute for hidden files beyond dot-prefix.
-            });
+            } catch (e) {
+                console.warn(
+                    "VaultSync: Optional file hiding failed (child_process not available)",
+                    e,
+                );
+            }
         }
     }
 
@@ -83,40 +110,53 @@ export class SecureStorage {
     }
 
     async saveCredentials(data: Record<string, any>): Promise<void> {
-        const salt = window.crypto.getRandomValues(new Uint8Array(SALT_LENGTH));
-        const key = await this.getKey(salt);
-        const encoded = new TextEncoder().encode(JSON.stringify(data));
-        const iv = window.crypto.getRandomValues(new Uint8Array(IV_LENGTH));
+        console.log(`[SecureStorage] Saving credentials to ${this.filePath}`);
+        try {
+            const salt = window.crypto.getRandomValues(new Uint8Array(SALT_LENGTH));
+            const key = await this.getKey(salt);
+            const encoded = new TextEncoder().encode(JSON.stringify(data));
+            const iv = window.crypto.getRandomValues(new Uint8Array(IV_LENGTH));
 
-        const encryptedContent = await window.crypto.subtle.encrypt(
-            {
-                name: ALGORITHM,
-                iv: iv,
-            },
-            key,
-            encoded,
-        );
+            const encryptedContent = await window.crypto.subtle.encrypt(
+                {
+                    name: ALGORITHM,
+                    iv: iv,
+                },
+                key,
+                encoded,
+            );
 
-        // Format: [SALT (16)] + [IV (12)] + [Encrypted Content]
-        const buffer = new Uint8Array(SALT_LENGTH + IV_LENGTH + encryptedContent.byteLength);
-        buffer.set(salt, 0);
-        buffer.set(iv, SALT_LENGTH);
-        buffer.set(new Uint8Array(encryptedContent), SALT_LENGTH + IV_LENGTH);
+            // Format: [SALT (16)] + [IV (12)] + [Encrypted Content]
+            const buffer = new Uint8Array(SALT_LENGTH + IV_LENGTH + encryptedContent.byteLength);
+            buffer.set(salt, 0);
+            buffer.set(iv, SALT_LENGTH);
+            buffer.set(new Uint8Array(encryptedContent), SALT_LENGTH + IV_LENGTH);
 
-        // Write as binary
-        await this.ensureDir(this.filePath);
-        const exists = await this.app.vault.adapter.exists(this.filePath);
-        await this.app.vault.adapter.writeBinary(this.filePath, buffer.buffer);
+            // Write as binary
+            await this.ensureDir(this.filePath);
 
-        if (!exists) {
-            this.hideFile(this.filePath);
+            const exists = await this.app.vault.adapter.exists(this.filePath);
+            await this.app.vault.adapter.writeBinary(this.filePath, buffer.buffer);
+            console.log(`[SecureStorage] Successfully wrote to ${this.filePath}`);
+
+            if (!exists) {
+                this.hideFile(this.filePath);
+            }
+        } catch (e) {
+            console.error(`[SecureStorage] Failed to save credentials:`, e);
+            throw e;
         }
     }
 
     async loadCredentials(): Promise<Record<string, any> | null> {
         // MIGRATION: Check if legacy file exists in root and move it
+        // Check legacy path (relative to root)
         if (await this.app.vault.adapter.exists(this.legacyFilePath)) {
             try {
+                console.log(
+                    `[SecureStorage] Migrating legacy credentials from ${this.legacyFilePath} to ${this.filePath}`,
+                );
+                await this.ensureDir(this.filePath);
                 const legacyContent = await this.app.vault.adapter.readBinary(this.legacyFilePath);
                 await this.app.vault.adapter.writeBinary(this.filePath, legacyContent);
                 await this.app.vault.adapter.remove(this.legacyFilePath);
@@ -127,6 +167,7 @@ export class SecureStorage {
         }
 
         if (!(await this.app.vault.adapter.exists(this.filePath))) {
+            console.log(`[SecureStorage] No credentials file found at ${this.filePath}`);
             return null;
         }
 
@@ -156,6 +197,7 @@ export class SecureStorage {
             );
 
             const decoded = new TextDecoder().decode(decrypted);
+            console.log(`[SecureStorage] Successfully loaded credentials.`);
             return JSON.parse(decoded);
         } catch (e) {
             console.error("SecureStorage: Failed to decrypt. Key changed or file corrupted.", e);
@@ -166,6 +208,7 @@ export class SecureStorage {
     async clearCredentials(): Promise<void> {
         if (await this.app.vault.adapter.exists(this.filePath)) {
             await this.app.vault.adapter.remove(this.filePath);
+            console.log(`[SecureStorage] Cleared credentials.`);
         }
     }
 }
