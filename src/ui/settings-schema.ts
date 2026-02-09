@@ -35,6 +35,44 @@ export interface SettingSection {
 export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
     return [
         {
+            id: "performance",
+            title: t("settingPerfSection"),
+            items: [
+                {
+                    key: "conflictResolutionStrategy",
+                    type: "dropdown",
+                    label: t("settingConflictStrategy"),
+                    desc: t("settingConflictStrategyDesc"),
+                    options: {
+                        "smart-merge": t("settingConflictStrategySmart"),
+                        "always-fork": t("settingConflictStrategyFork"),
+                        "force-local": t("settingConflictStrategyLocal"),
+                        "force-remote": t("settingConflictStrategyRemote"),
+                    },
+                },
+                {
+                    key: "concurrency",
+                    type: "number",
+                    label: t("settingConcurrency"),
+                    desc:
+                        t("settingConcurrencyDesc") +
+                        `\n(Min: ${SETTINGS_LIMITS.concurrency.min}, Max: ${SETTINGS_LIMITS.concurrency.max}, Default: ${SETTINGS_LIMITS.concurrency.default})`,
+                    limits: SETTINGS_LIMITS.concurrency,
+                },
+                {
+                    key: "notificationLevel",
+                    type: "dropdown",
+                    label: t("settingNotificationLevel"),
+                    desc: t("settingNotificationLevelDesc"),
+                    options: {
+                        verbose: t("settingNotificationLevelVerbose"),
+                        standard: t("settingNotificationLevelStandard"),
+                        error: t("settingNotificationLevelError"),
+                    },
+                },
+            ],
+        },
+        {
             id: "triggers",
             title: t("settingTriggerSection"),
             items: [
@@ -89,95 +127,9 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
             ],
         },
         {
-            id: "performance",
-            title: t("settingPerfSection"),
-            items: [
-                {
-                    key: "concurrency",
-                    type: "number",
-                    label: t("settingConcurrency"),
-                    desc:
-                        t("settingConcurrencyDesc") +
-                        `\n(Min: ${SETTINGS_LIMITS.concurrency.min}, Max: ${SETTINGS_LIMITS.concurrency.max}, Default: ${SETTINGS_LIMITS.concurrency.default}, Disabled: ${SETTINGS_LIMITS.concurrency.disabled})`,
-                    limits: SETTINGS_LIMITS.concurrency,
-                },
-                {
-                    key: "notificationLevel",
-                    type: "dropdown",
-                    label: t("settingNotificationLevel"),
-                    desc: t("settingNotificationLevelDesc"),
-                    options: {
-                        verbose: t("settingNotificationLevelVerbose"),
-                        standard: t("settingNotificationLevelStandard"),
-                        error: t("settingNotificationLevelError"),
-                    },
-                },
-            ],
-        },
-        {
             id: "sync_scope",
             title: t("settingSyncScopeSection"),
             items: [
-                {
-                    key: "syncAppearance",
-                    type: "toggle",
-                    label: t("settingSyncAppearance"),
-                    desc: t("settingSyncAppearanceDesc"),
-                    onChange: async (_val, p) => p.syncManager.triggerFullCleanup(),
-                },
-                {
-                    key: "syncCommunityPlugins",
-                    type: "toggle",
-                    label: t("settingSyncCommunityPlugins"),
-                    desc: t("settingSyncCommunityPluginsDesc"),
-                    onChange: async (_val, p) => p.syncManager.triggerFullCleanup(),
-                },
-                {
-                    key: "syncCoreConfig",
-                    type: "toggle",
-                    label: t("settingSyncCoreConfig"),
-                    desc: t("settingSyncCoreConfigDesc"),
-                    onChange: async (_val, p) => p.syncManager.triggerFullCleanup(),
-                },
-                {
-                    key: "syncImagesAndMedia",
-                    type: "toggle",
-                    label: t("settingSyncImagesAndMedia"),
-                    desc: t("settingSyncImagesAndMediaDesc"),
-                    onChange: async (_val, p) => p.syncManager.triggerFullCleanup(),
-                },
-                {
-                    key: "syncDotfiles",
-                    type: "toggle",
-                    label: t("settingSyncDotfiles"),
-                    desc: t("settingSyncDotfilesDesc"),
-                    onChange: async (_val, p) => p.syncManager.triggerFullCleanup(),
-                },
-                {
-                    key: "syncPluginSettings",
-                    type: "toggle",
-                    label: t("settingSyncPluginSettings"),
-                    desc: t("settingSyncPluginSettingsDesc"),
-                    onChange: async (_val, p) => p.syncManager.triggerFullCleanup(),
-                },
-            ],
-        },
-        {
-            id: "advanced",
-            title: t("settingAdvancedSection"),
-            items: [
-                {
-                    key: "conflictResolutionStrategy",
-                    type: "dropdown",
-                    label: t("settingConflictStrategy"),
-                    desc: t("settingConflictStrategyDesc"),
-                    options: {
-                        "smart-merge": t("settingConflictStrategySmart"),
-                        "always-fork": t("settingConflictStrategyFork"),
-                        "force-local": t("settingConflictStrategyLocal"),
-                        "force-remote": t("settingConflictStrategyRemote"),
-                    },
-                },
                 {
                     key: "cloudRootFolder",
                     type: "text",
@@ -211,12 +163,55 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                         );
                     },
                 },
-            ],
-        },
-        {
-            id: "exclusion",
-            title: t("settingExclusionSection"),
-            items: [
+                {
+                    key: "syncCoreConfig",
+                    type: "toggle",
+                    label: t("settingSyncCoreConfig"),
+                    desc: t("settingSyncCoreConfigDesc"),
+                    onChange: async (_val, p) => p.syncManager.triggerFullCleanup(),
+                },
+                {
+                    key: "syncAppearance",
+                    type: "toggle",
+                    label: t("settingSyncAppearance"),
+                    desc: t("settingSyncAppearanceDesc"),
+                    onChange: async (_val, p) => p.syncManager.triggerFullCleanup(),
+                },
+                {
+                    key: "syncWorkspace",
+                    type: "toggle",
+                    label: t("settingSyncWorkspace"),
+                    desc: t("settingSyncWorkspaceDesc"),
+                    onChange: async (_val, p) => p.syncManager.triggerFullCleanup(),
+                },
+                {
+                    key: "syncCommunityPlugins",
+                    type: "toggle",
+                    label: t("settingSyncCommunityPlugins"),
+                    desc: t("settingSyncCommunityPluginsDesc"),
+                    onChange: async (_val, p) => p.syncManager.triggerFullCleanup(),
+                },
+                {
+                    key: "syncImagesAndMedia",
+                    type: "toggle",
+                    label: t("settingSyncImagesAndMedia"),
+                    desc: t("settingSyncImagesAndMediaDesc"),
+                    onChange: async (_val, p) => p.syncManager.triggerFullCleanup(),
+                },
+                {
+                    key: "syncDotfiles",
+                    type: "toggle",
+                    label: t("settingSyncDotfiles"),
+                    desc: t("settingSyncDotfilesDesc"),
+                    onChange: async (_val, p) => p.syncManager.triggerFullCleanup(),
+                },
+                {
+                    key: "syncPluginSettings",
+                    type: "toggle",
+                    label: t("settingSyncPluginSettings"),
+                    desc: t("settingSyncPluginSettingsDesc"),
+                    onChange: async (_val, p) => p.syncManager.triggerFullCleanup(),
+                },
                 {
                     key: "exclusionPatterns",
                     type: "textarea",

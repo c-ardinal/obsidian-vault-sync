@@ -21,6 +21,9 @@ export interface SyncManagerSettings {
     syncImagesAndMedia: boolean;
     syncDotfiles: boolean;
     syncPluginSettings: boolean;
+    syncFlexibleData: boolean;
+    syncDeviceLogs: boolean;
+    syncWorkspace: boolean;
 }
 
 export interface LocalFileIndex {
@@ -83,14 +86,14 @@ export class SyncManager {
     // === System-level internal files (Local only or Custom management) ===
     private static readonly PLUGIN_DIR = ".obsidian/plugins/obsidian-vault-sync/";
 
-    private static readonly INTERNAL_LOCAL_ONLY = ["logs/", "cache/", "data/local/"];
+    private static readonly INTERNAL_LOCAL_ONLY = ["cache/", "data/local/"];
 
     /** Files managed by custom logic (e.g. saveIndex), skipped by generic sync loop */
     private static readonly INTERNAL_REMOTE_MANAGED = [
         "data/remote/sync-index.json",
         "data/remote/sync-index_raw.json",
         "data/remote/communication.json",
-        "data/remote/data.json", // Settings file
+        // data/remote/data.json is removed (now handles flexible data as normal file)
     ];
 
     /** General system-level files that should be ignored and cleaned up from remote if found */
@@ -101,15 +104,15 @@ export class SyncManager {
         "Thumbs.db",
     ];
 
-    /** Obsidian internal transient files (Ignored and cleaned up from remote) */
+    /** Obsidian internal transient files (Ignored and cleaned up from remote if not synced) */
     private static readonly OBSIDIAN_SYSTEM_IGNORES = [
-        "workspace.json",
-        "workspace-mobile.json",
         "cache/",
         "indexedDB/",
         "backups/",
         ".trash/",
     ];
+
+    private static readonly OBSIDIAN_WORKSPACE_FILES = ["workspace.json", "workspace-mobile.json"];
 
     private index: LocalFileIndex = {};
     private localIndex: LocalFileIndex = {};
@@ -180,7 +183,8 @@ export class SyncManager {
         private pluginDir: string,
         public t: (key: string) => string,
     ) {
-        this.logFolder = `${this.pluginDir}/logs`;
+        // Initial log folder before device ID is known
+        this.logFolder = `${this.pluginDir}/logs/_startup`;
         this.localIndexPath = `${this.pluginDir}/data/local/local-index.json`;
         // communication.json is in the data/remote directory
         this.communicationPath = this.pluginDataPath.replace(
@@ -514,6 +518,8 @@ export class SyncManager {
                         `[Local Index] Loaded successfully. Device ID: ${this.deviceId}`,
                     );
                 }
+                // Update log folder to include device ID
+                this.logFolder = `${this.pluginDir}/logs/${this.deviceId}`;
             } else {
                 // If local-index.json doesn't exist, we might be migrating.
                 // In migration, current 'index' is our best guess for local base.
@@ -530,6 +536,8 @@ export class SyncManager {
                     `[Local Index] Not found. Initialized from shared index (Migration). Device ID: ${this.deviceId}`,
                 );
                 await this.saveLocalIndex();
+                // Update log folder to include device ID
+                this.logFolder = `${this.pluginDir}/logs/${this.deviceId}`;
             }
         } catch (e) {
             await this.log(`[Local Index] Load failed: ${e}`);
@@ -708,10 +716,32 @@ export class SyncManager {
             ? normalizedPath
             : normalizedPath + "/";
 
-        // 0. 自分のプラグイン (obsidian-vault-sync) の内部ファイルは常に除外
-        // (data, logs 以外にも、自身の update 中のファイルなどが含まれるため)
+        // 0. 自分のプラグイン (obsidian-vault-sync) の内部ファイルの制御
+        // 元の blanket ignore を削除し、条件付き除外に変更
         if (normalizedPath.startsWith(".obsidian/plugins/obsidian-vault-sync/")) {
-            return true;
+            const pluginDirPrefix = ".obsidian/plugins/obsidian-vault-sync/";
+            const subPath = normalizedPath.substring(pluginDirPrefix.length);
+            const normalizedSubPath = subPath.endsWith("/") ? subPath : subPath + "/";
+
+            // Logs: 設定により同期可否を制御
+            // "logs" ディレクトリ自体、またはその中身
+            if (normalizedSubPath.startsWith("logs/")) {
+                if (!this.settings.syncDeviceLogs) {
+                    return true;
+                }
+                // syncDeviceLogs = true の場合、logs/ 以下は同期される
+                // ただし、ルート直下のログファイル (logs/*.log) は旧仕様のため除外したほうが無難かもしれないが、
+                // 複雑さを避けるため許可するか、あるいは明示的に除外するか。
+                // logs/{deviceId}/ 以外を除外するロジックを入れると、他端末のログが見えなくなる。
+                // 共有が目的なら他端末のも見えてよい。
+            }
+
+            // Flexible Data: 設定により同期可否を制御
+            if (normalizedSubPath.startsWith("data/flexible/")) {
+                if (!this.settings.syncFlexibleData) {
+                    return true;
+                }
+            }
         }
 
         // 1. システム内部のローカル専用ファイル
@@ -778,6 +808,17 @@ export class SyncManager {
                 return true;
             }
 
+            // workspace.json / workspace-mobile.json
+            if (!this.settings.syncWorkspace) {
+                if (
+                    SyncManager.OBSIDIAN_WORKSPACE_FILES.some((f) =>
+                        normalizedPath.endsWith("/" + f.toLowerCase()),
+                    )
+                ) {
+                    return true;
+                }
+            }
+
             // --- 新しい同期設定 ---
 
             // Appearance (themes, snippets)
@@ -837,14 +878,6 @@ export class SyncManager {
                 "pdf",
             ];
             if (ext && mediaExtensions.includes(ext)) {
-                return true;
-            }
-        }
-
-        // 6. プラグイン設定 (data/remote/data.json)
-        if (!this.settings.syncPluginSettings) {
-            // data/remote/data.json は除外
-            if (normalizedPath === "data/remote/data.json") {
                 return true;
             }
         }
@@ -1222,11 +1255,6 @@ export class SyncManager {
      * @param scanVault If true, perform a full vault scan for changes (O(N)) - useful for startup
      */
     async requestSmartSync(isSilent: boolean = true, scanVault: boolean = false): Promise<void> {
-        if (this.settings.concurrency === SETTINGS_LIMITS.concurrency.disabled) {
-            await this.log("[Smart Sync] Skipped: Concurrency is disabled (-1)");
-            return;
-        }
-
         // If already smart syncing, mark that we need another pass after and wait.
         if (this.syncState === "SMART_SYNCING") {
             this.syncRequestedWhileSyncing = true;

@@ -19,6 +19,9 @@ const DEFAULT_SETTINGS: SyncManagerSettings = {
     syncImagesAndMedia: true,
     syncDotfiles: false,
     syncPluginSettings: true,
+    syncFlexibleData: true,
+    syncDeviceLogs: false,
+    syncWorkspace: false,
 };
 
 /**

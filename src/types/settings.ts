@@ -1,5 +1,6 @@
 export const DATA_LOCAL_DIR = "data/local";
 export const DATA_REMOTE_DIR = "data/remote";
+export const DATA_FLEXIBLE_DIR = "data/flexible";
 
 export interface VaultSyncSettings {
     // Sync Triggers
@@ -37,7 +38,12 @@ export interface VaultSyncSettings {
     syncCoreConfig: boolean; // .obsidian/app.json, hotkeys.json, etc.
     syncImagesAndMedia: boolean; // Images, Audio, Video, PDF
     syncDotfiles: boolean; // .git, .trash, etc. (Default: false)
-    syncPluginSettings: boolean; // this plugin's data.json
+    syncPluginSettings: boolean; // data/flexible/open-data.json (renamed from this plugin's data.json)
+
+    // New Flexible Sync Options
+    syncFlexibleData: boolean; // data/flexible/*
+    syncDeviceLogs: boolean; // logs/{deviceId}/*
+    syncWorkspace: boolean; // workspace.json, workspace-mobile.json
 
     // Security
     encryptionSecret: string;

@@ -4,7 +4,12 @@ import { SyncManager } from "./sync-manager";
 import { SecureStorage } from "./secure-storage";
 import { HistoryModal } from "./ui/history-modal";
 import { DEFAULT_SETTINGS, SETTINGS_LIMITS } from "./constants";
-import { DATA_LOCAL_DIR, DATA_REMOTE_DIR, VaultSyncSettings } from "./types/settings";
+import {
+    DATA_LOCAL_DIR,
+    DATA_REMOTE_DIR,
+    DATA_FLEXIBLE_DIR,
+    VaultSyncSettings,
+} from "./types/settings";
 import { t } from "./i18n";
 import { getSettingsSections } from "./ui/settings-schema";
 
@@ -352,22 +357,95 @@ export default class VaultSync extends Plugin {
     }
 
     async loadSettings() {
-        let loadedData: Partial<VaultSyncSettings> = {};
-        const dataPath = `${this.manifest.dir}/${DATA_REMOTE_DIR}/data.json`;
-        if (await this.app.vault.adapter.exists(dataPath)) {
-            try {
-                loadedData = JSON.parse(await this.app.vault.adapter.read(dataPath));
-            } catch (e) {
-                console.error("VaultSync: Failed to load data.json", e);
-            }
-        } else {
-            // Fallback/Migration: Try load from root
-            loadedData = (await this.loadData()) || {};
+        let loadedSettings: Partial<VaultSyncSettings> = {};
+
+        const openDataPath = `${this.manifest.dir}/${DATA_FLEXIBLE_DIR}/open-data.json`;
+        const localDataPath = `${this.manifest.dir}/${DATA_LOCAL_DIR}/local-data.json`;
+        const legacyRemoteDataPath = `${this.manifest.dir}/${DATA_REMOTE_DIR}/data.json`;
+        const legacyRootDataPath = `${this.manifest.dir}/data.json`;
+
+        // MIGRATION: Split data.json (root or remote) into open-data.json and local-data.json
+        // Check for root data.json first (Obsidian standard), then remote data.json (VaultSync legacy)
+        let legacySourcePath = null;
+        if (await this.app.vault.adapter.exists(legacyRootDataPath)) {
+            legacySourcePath = legacyRootDataPath;
+        } else if (await this.app.vault.adapter.exists(legacyRemoteDataPath)) {
+            legacySourcePath = legacyRemoteDataPath;
         }
 
-        this.settings = Object.assign({}, DEFAULT_SETTINGS, loadedData);
+        if (legacySourcePath && !(await this.app.vault.adapter.exists(openDataPath))) {
+            try {
+                console.log(`VaultSync: Migrating ${legacySourcePath} to new structure...`);
+                const legacyContent = await this.app.vault.adapter.read(legacySourcePath);
+                const legacyData = JSON.parse(legacyContent);
 
-        // SEC-001: Ensure encryption secret exists
+                // Extract Local Data
+                const localData = {
+                    encryptionSecret: legacyData.encryptionSecret,
+                    hasCompletedFirstSync: legacyData.hasCompletedFirstSync,
+                };
+                // Extract Open Data (Everything else)
+                const openData = { ...legacyData };
+                delete openData.encryptionSecret;
+                delete openData.hasCompletedFirstSync;
+                // Remove deprecated credential fields if they exist
+                delete openData.clientId;
+                delete openData.clientSecret;
+                delete openData.accessToken;
+                delete openData.refreshToken;
+
+                // Ensure directories exist
+                await this.app.vault.adapter
+                    .mkdir(`${this.manifest.dir}/${DATA_FLEXIBLE_DIR}`)
+                    .catch(() => {});
+                await this.app.vault.adapter
+                    .mkdir(`${this.manifest.dir}/${DATA_LOCAL_DIR}`)
+                    .catch(() => {});
+
+                // Write new files
+                await this.app.vault.adapter.write(
+                    localDataPath,
+                    JSON.stringify(localData, null, 2),
+                );
+                await this.app.vault.adapter.write(openDataPath, JSON.stringify(openData, null, 2));
+
+                // Remove old file
+                await this.app.vault.adapter.remove(legacySourcePath);
+                console.log("VaultSync: Migration complete.");
+            } catch (e) {
+                console.error("VaultSync: Failed to migrate data.json", e);
+            }
+        }
+
+        // Load Open Data
+        if (await this.app.vault.adapter.exists(openDataPath)) {
+            try {
+                const openData = JSON.parse(await this.app.vault.adapter.read(openDataPath));
+                loadedSettings = { ...loadedSettings, ...openData };
+            } catch (e) {
+                console.error("VaultSync: Failed to load open-data.json", e);
+            }
+        }
+
+        // Load Local Data
+        if (await this.app.vault.adapter.exists(localDataPath)) {
+            try {
+                const localData = JSON.parse(await this.app.vault.adapter.read(localDataPath));
+                loadedSettings = { ...loadedSettings, ...localData };
+            } catch (e) {
+                console.error("VaultSync: Failed to load local-data.json", e);
+            }
+        }
+
+        // Fallback: Try load from root (very old legacy)
+        if (Object.keys(loadedSettings).length === 0) {
+            const rootData = (await this.loadData()) || {};
+            loadedSettings = { ...rootData };
+        }
+
+        this.settings = Object.assign({}, DEFAULT_SETTINGS, loadedSettings);
+
+        // SEC-001: Ensure encryption secret exists (Saved to Local Data)
         if (!this.settings.encryptionSecret) {
             const array = new Uint8Array(32);
             window.crypto.getRandomValues(array);
@@ -386,9 +464,9 @@ export default class VaultSync extends Plugin {
 
         // DEBUG: Temporary notice to help debug path issues
         this.secureStorage.loadCredentials().then((creds) => {
-            new Notice(
+            /* new Notice(
                 `SecureStorage Path: ${(this.secureStorage as any).filePath}\nLoaded: ${!!creds}`,
-            );
+            ); */
         });
 
         // Load credentials from Secure Storage
@@ -407,7 +485,7 @@ export default class VaultSync extends Plugin {
             );
         }
 
-        // MIGRATION: Check if legacy credentials exist in data.json (unencrypted) and move them
+        // MIGRATION: Check if legacy credentials exist in settings (unencrypted) and move them
         const data: any = this.settings;
         if (data && (data.clientId || data.accessToken)) {
             console.log("VaultSync: Migrating credentials to secure storage...");
@@ -430,18 +508,38 @@ export default class VaultSync extends Plugin {
     }
 
     async saveSettings() {
-        // Ensure data dir exists
-        const dataDir = `${this.manifest.dir}/${DATA_REMOTE_DIR}`;
-        if (!(await this.app.vault.adapter.exists(dataDir))) {
-            await this.app.vault.createFolder(dataDir).catch(() => {});
+        // Ensure directories exist
+        const flexibleDir = `${this.manifest.dir}/${DATA_FLEXIBLE_DIR}`;
+        const localDir = `${this.manifest.dir}/${DATA_LOCAL_DIR}`;
+
+        if (!(await this.app.vault.adapter.exists(flexibleDir))) {
+            await this.app.vault.createFolder(flexibleDir).catch(() => {});
+        }
+        if (!(await this.app.vault.adapter.exists(localDir))) {
+            await this.app.vault.createFolder(localDir).catch(() => {});
         }
 
-        // Save to data.json in new layout
-        const dataPath = `${dataDir}/data.json`;
-        await this.app.vault.adapter.write(dataPath, JSON.stringify(this.settings, null, 2));
+        // Split Settings
+        const localKeys = ["encryptionSecret", "hasCompletedFirstSync"];
+        const localData: any = {};
+        const openData: any = {};
 
-        // For compatibility with VaultSync mobile/other versions that use loadData
-        await this.saveData(this.settings);
+        for (const key in this.settings) {
+            if (Object.prototype.hasOwnProperty.call(this.settings, key)) {
+                if (localKeys.includes(key)) {
+                    localData[key] = (this.settings as any)[key];
+                } else {
+                    openData[key] = (this.settings as any)[key];
+                }
+            }
+        }
+
+        // Save to respective files
+        const openDataPath = `${flexibleDir}/open-data.json`;
+        const localDataPath = `${localDir}/local-data.json`;
+
+        await this.app.vault.adapter.write(openDataPath, JSON.stringify(openData, null, 2));
+        await this.app.vault.adapter.write(localDataPath, JSON.stringify(localData, null, 2));
     }
 
     async saveCredentials(
@@ -470,7 +568,6 @@ export default class VaultSync extends Plugin {
 
     async migrateFileLayout() {
         const moves = [
-            { old: "data.json", new: `${DATA_REMOTE_DIR}/data.json` },
             { old: "sync-index.json", new: `${DATA_REMOTE_DIR}/sync-index.json` },
             { old: "sync-index_raw.json", new: `${DATA_REMOTE_DIR}/sync-index_raw.json` },
             { old: "communication.json", new: `${DATA_REMOTE_DIR}/communication.json` },
@@ -485,6 +582,7 @@ export default class VaultSync extends Plugin {
         const dirs = [
             `${this.manifest.dir}/${DATA_LOCAL_DIR}`,
             `${this.manifest.dir}/${DATA_REMOTE_DIR}`,
+            `${this.manifest.dir}/${DATA_FLEXIBLE_DIR}`,
         ];
         for (const dir of dirs) {
             if (!(await this.app.vault.adapter.exists(dir))) {
