@@ -13,6 +13,17 @@ export interface SyncManagerSettings {
     conflictResolutionStrategy: "smart-merge" | "force-local" | "force-remote" | "always-fork";
     enableLogging: boolean;
     exclusionPatterns: string;
+
+    // Sync Scope Options
+    syncAppearance: boolean;
+    syncCommunityPlugins: boolean;
+    syncCoreConfig: boolean;
+    syncImagesAndMedia: boolean;
+    syncDotfiles: boolean;
+    syncPluginSettings: boolean;
+    syncFlexibleData: boolean;
+    syncDeviceLogs: boolean;
+    syncWorkspace: boolean;
 }
 
 export interface LocalFileIndex {
@@ -75,14 +86,14 @@ export class SyncManager {
     // === System-level internal files (Local only or Custom management) ===
     private static readonly PLUGIN_DIR = ".obsidian/plugins/obsidian-vault-sync/";
 
-    private static readonly INTERNAL_LOCAL_ONLY = ["logs/", "cache/", "data/local/"];
+    private static readonly INTERNAL_LOCAL_ONLY = ["cache/", "data/local/"];
 
     /** Files managed by custom logic (e.g. saveIndex), skipped by generic sync loop */
     private static readonly INTERNAL_REMOTE_MANAGED = [
         "data/remote/sync-index.json",
         "data/remote/sync-index_raw.json",
         "data/remote/communication.json",
-        "data/remote/data.json", // Settings file
+        // data/remote/data.json is removed (now handles flexible data as normal file)
     ];
 
     /** General system-level files that should be ignored and cleaned up from remote if found */
@@ -93,15 +104,15 @@ export class SyncManager {
         "Thumbs.db",
     ];
 
-    /** Obsidian internal transient files (Ignored and cleaned up from remote) */
+    /** Obsidian internal transient files (Ignored and cleaned up from remote if not synced) */
     private static readonly OBSIDIAN_SYSTEM_IGNORES = [
-        "workspace.json",
-        "workspace-mobile.json",
         "cache/",
         "indexedDB/",
         "backups/",
         ".trash/",
     ];
+
+    private static readonly OBSIDIAN_WORKSPACE_FILES = ["workspace.json", "workspace-mobile.json"];
 
     private index: LocalFileIndex = {};
     private localIndex: LocalFileIndex = {};
@@ -172,7 +183,8 @@ export class SyncManager {
         private pluginDir: string,
         public t: (key: string) => string,
     ) {
-        this.logFolder = `${this.pluginDir}/logs`;
+        // Initial log folder before device ID is known
+        this.logFolder = `${this.pluginDir}/logs/_startup`;
         this.localIndexPath = `${this.pluginDir}/data/local/local-index.json`;
         // communication.json is in the data/remote directory
         this.communicationPath = this.pluginDataPath.replace(
@@ -230,27 +242,53 @@ export class SyncManager {
     /**
      * Helper to show notification and log it.
      * @param message The message to display/log
-     * @param isDetailed If true, only show UI notice if showDetailedNotifications is enabled
-     * @param isSilent If true, suppress UI notice (but still log)
+     * @param isDetailed If true, only show UI notice if notificationLevel is "verbose" (Detailed)
+     * @param isSilent If true, suppress UI notice unless level is "verbose"
      */
     public async notify(message: string, isDetailed: boolean = false, isSilent: boolean = false) {
-        // notificationLevel: "verbose" | "standard" | "error"
-        // error: Only show if specifically flagged as error (we'll assume standard notify is not error)
-        // standard: Show non-detailed (standard) messages, hide detailed.
-        // verbose: Show everything.
-        if (this.settings.notificationLevel === "error") {
-            // For now, this method is mostly used for status/info.
-            // Errors usually throw or are logged.
-            // If we wanted to support explicit error notifications, we'd need an extra param.
-            // Assuming normal "notify" calls are INFO level.
+        const level = this.settings.notificationLevel;
+        if (level === "error") {
             await this.log(`[Silent Notice (ErrorLevel)] ${message}`);
             return;
         }
 
-        const showVerbose = this.settings.notificationLevel === "verbose";
-        // If message is detailed, show only if verbose.
-        // If message is standard (!isDetailed), show if standard or verbose (which is !error).
-        const shouldShow = !isSilent && (!isDetailed || showVerbose);
+        const showVerbose = level === "verbose";
+        let shouldShow = false;
+
+        if (isDetailed) {
+            // Detailed Events (File-specific: Pushing file, Pulling file, Trash file, Merging file)
+            // Identify if it's a "low priority" detailed event (Push/Pull)
+            const isLowPriority =
+                message.includes(this.t("noticeFilePulled")) ||
+                message.includes(this.t("noticeFilePushed")) ||
+                message.includes("📤") ||
+                message.includes("📥");
+
+            if (isLowPriority) {
+                // Push/Pull: Hide if silent (Startup/Auto) unless in Verbose.
+                shouldShow = showVerbose || !isSilent;
+            } else {
+                // Trash and Merge: Matrix says ALWAYS show in both Verbose and Standard.
+                shouldShow = true;
+            }
+        } else {
+            // Generic Status (Syncing..., Completed, Up to date, Scanning...)
+            // Identify messages that should be hidden in silent (background) scenarios
+            const isSilentSuppressed =
+                message.includes(this.t("noticeSyncing")) ||
+                message.includes("⚡") ||
+                message.includes(this.t("noticeScanningLocalFiles")) ||
+                message.includes("🔍") ||
+                message.includes(this.t("noticeVaultUpToDate"));
+
+            if (isSilentSuppressed) {
+                // "Syncing...", "Scanning...", "Up to date": Hide if silent (Startup/Auto).
+                shouldShow = !isSilent;
+            } else {
+                // "Completed", "Confirmation", etc.: Always show.
+                shouldShow = true;
+            }
+        }
 
         if (shouldShow) {
             new Notice(message);
@@ -506,6 +544,8 @@ export class SyncManager {
                         `[Local Index] Loaded successfully. Device ID: ${this.deviceId}`,
                     );
                 }
+                // Update log folder to include device ID
+                this.logFolder = `${this.pluginDir}/logs/${this.deviceId}`;
             } else {
                 // If local-index.json doesn't exist, we might be migrating.
                 // In migration, current 'index' is our best guess for local base.
@@ -522,6 +562,8 @@ export class SyncManager {
                     `[Local Index] Not found. Initialized from shared index (Migration). Device ID: ${this.deviceId}`,
                 );
                 await this.saveLocalIndex();
+                // Update log folder to include device ID
+                this.logFolder = `${this.pluginDir}/logs/${this.deviceId}`;
             }
         } catch (e) {
             await this.log(`[Local Index] Load failed: ${e}`);
@@ -700,6 +742,34 @@ export class SyncManager {
             ? normalizedPath
             : normalizedPath + "/";
 
+        // 0. 自分のプラグイン (obsidian-vault-sync) の内部ファイルの制御
+        // 元の blanket ignore を削除し、条件付き除外に変更
+        if (normalizedPath.startsWith(".obsidian/plugins/obsidian-vault-sync/")) {
+            const pluginDirPrefix = ".obsidian/plugins/obsidian-vault-sync/";
+            const subPath = normalizedPath.substring(pluginDirPrefix.length);
+            const normalizedSubPath = subPath.endsWith("/") ? subPath : subPath + "/";
+
+            // Logs: 設定により同期可否を制御
+            // "logs" ディレクトリ自体、またはその中身
+            if (normalizedSubPath.startsWith("logs/")) {
+                if (!this.settings.syncDeviceLogs) {
+                    return true;
+                }
+                // syncDeviceLogs = true の場合、logs/ 以下は同期される
+                // ただし、ルート直下のログファイル (logs/*.log) は旧仕様のため除外したほうが無難かもしれないが、
+                // 複雑さを避けるため許可するか、あるいは明示的に除外するか。
+                // logs/{deviceId}/ 以外を除外するロジックを入れると、他端末のログが見えなくなる。
+                // 共有が目的なら他端末のも見えてよい。
+            }
+
+            // Flexible Data: 設定により同期可否を制御
+            if (normalizedSubPath.startsWith("data/flexible/")) {
+                if (!this.settings.syncFlexibleData) {
+                    return true;
+                }
+            }
+        }
+
         // 1. システム内部のローカル専用ファイル
         if (normalizedPath.startsWith(SyncManager.PLUGIN_DIR.toLowerCase())) {
             const subPath = normalizedPath.substring(SyncManager.PLUGIN_DIR.length);
@@ -748,6 +818,7 @@ export class SyncManager {
 
         // 4. Obsidian特定の除外
         if (normalizedPath.startsWith(".obsidian/")) {
+            // システム的な除外（workspace.jsonなど）は設定に関わらず常に適用
             if (
                 SyncManager.OBSIDIAN_SYSTEM_IGNORES.some((e) => {
                     const ne = e.toLowerCase();
@@ -762,6 +833,79 @@ export class SyncManager {
             ) {
                 return true;
             }
+
+            // workspace.json / workspace-mobile.json
+            if (!this.settings.syncWorkspace) {
+                if (
+                    SyncManager.OBSIDIAN_WORKSPACE_FILES.some((f) =>
+                        normalizedPath.endsWith("/" + f.toLowerCase()),
+                    )
+                ) {
+                    return true;
+                }
+            }
+
+            // --- 新しい同期設定 ---
+
+            // Appearance (themes, snippets)
+            if (!this.settings.syncAppearance) {
+                if (
+                    normalizedPath.startsWith(".obsidian/themes/") ||
+                    normalizedPath.startsWith(".obsidian/snippets/")
+                ) {
+                    return true;
+                }
+            }
+
+            // Community Plugins (plugins)
+            // ※ obsidian-vault-sync は冒頭で除外済み
+            if (!this.settings.syncCommunityPlugins) {
+                // .obsidian/plugins/ 以下のすべて
+                if (normalizedPath.startsWith(".obsidian/plugins/")) {
+                    return true;
+                }
+            }
+
+            // Core Config (app.json, hotkeys.json, etc)
+            if (!this.settings.syncCoreConfig) {
+                // これらはルート直下にあるJSON
+                const coreFiles = [
+                    ".obsidian/app.json",
+                    ".obsidian/appearance.json",
+                    ".obsidian/hotkeys.json",
+                    ".obsidian/core-plugins.json",
+                    ".obsidian/community-plugins.json",
+                    ".obsidian/graph.json",
+                ];
+                if (coreFiles.includes(normalizedPath)) {
+                    return true;
+                }
+            }
+        }
+
+        // 5. 画像・メディアファイル
+        if (!this.settings.syncImagesAndMedia) {
+            const ext = normalizedPath.split(".").pop();
+            const mediaExtensions = [
+                "png",
+                "jpg",
+                "jpeg",
+                "gif",
+                "bmp",
+                "svg",
+                "webp",
+                "mp3",
+                "wav",
+                "ogg",
+                "m4a",
+                "mp4",
+                "mov",
+                "webm",
+                "pdf",
+            ];
+            if (ext && mediaExtensions.includes(ext)) {
+                return true;
+            }
         }
 
         // 5. 競合解決ファイル
@@ -770,12 +914,15 @@ export class SyncManager {
         }
 
         // 6. ドットファイル (ただし .obsidian フォルダ自体とその中身は同期対象)
-        if (
-            normalizedPath.startsWith(".") &&
-            normalizedPath !== ".obsidian" &&
-            !normalizedPath.startsWith(".obsidian/")
-        )
-            return true;
+        // 設定により制御: syncDotfiles = false なら除外
+        if (!this.settings.syncDotfiles) {
+            if (
+                normalizedPath.startsWith(".") &&
+                normalizedPath !== ".obsidian" &&
+                !normalizedPath.startsWith(".obsidian/")
+            )
+                return true;
+        }
 
         return false;
     }
@@ -1134,11 +1281,6 @@ export class SyncManager {
      * @param scanVault If true, perform a full vault scan for changes (O(N)) - useful for startup
      */
     async requestSmartSync(isSilent: boolean = true, scanVault: boolean = false): Promise<void> {
-        if (this.settings.concurrency === SETTINGS_LIMITS.concurrency.disabled) {
-            await this.log("[Smart Sync] Skipped: Concurrency is disabled (-1)");
-            return;
-        }
-
         // If already smart syncing, mark that we need another pass after and wait.
         if (this.syncState === "SMART_SYNCING") {
             this.syncRequestedWhileSyncing = true;
@@ -1213,7 +1355,7 @@ export class SyncManager {
         }
         try {
             await this.log("=== SMART SYNC START ===");
-            await this.notify(`⚡ ${this.t("statusSyncing")}`, false, isSilent);
+            await this.notify(this.t("noticeSyncing"), false, isSilent);
 
             // Clean up recentlyDeletedFromRemote: remove entries for files that no longer exist locally
             // (they were successfully deleted, so we don't need to track them anymore)
@@ -1233,22 +1375,29 @@ export class SyncManager {
             const pulled = await this.smartPull(isSilent);
 
             // === PUSH PHASE ===
+            if (scanVault) {
+                await this.notify(this.t("noticeScanningLocalFiles"), false, isSilent);
+            }
             const pushed = await this.smartPush(isSilent, scanVault);
 
-            // === CONFIRMATION PHASE (Initial Sync) ===
-            // For initial sync (scanVault=true) and adapters with Changes API support,
+            // === CONFIRMATION PHASE (Initial Sync Only) ===
+            // For initial sync (scanVault=true, isSilent=false) with Changes API support,
             // we immediately check for our own pushes to confirm identity and update ancestor hashes.
-            // drainAll=true processes all pages in one go, overcoming any pageSize limits.
-            if (pushed && scanVault && this.adapter.supportsChangesAPI) {
+            // Skipped during startup sync (isSilent=true) since confirmation is only needed on first sync.
+            if (pushed && scanVault && !isSilent && this.adapter.supportsChangesAPI) {
                 await this.log(
                     "[Smart Sync] Initial sync push detected. Running immediate identity check...",
                 );
-                await this.notify(this.t("statusInitialSyncConfirmation"), false, isSilent);
+                await this.notify(this.t("noticeInitialSyncConfirmation"), false, isSilent);
 
                 await this.pullViaChangesAPI(isSilent, true);
 
                 // Re-confirm completion after identity check
-                await this.notify(this.t("noticePushCompleted"), false, isSilent);
+                await this.notify(
+                    this.t("noticePushCompleted").replace("{0}", "1"),
+                    false,
+                    isSilent,
+                );
             }
 
             if (!pulled && !pushed) {
@@ -1516,7 +1665,11 @@ export class SyncManager {
 
                     completed++;
                     await this.log(`[Smart Pull] [${completed}/${total}] Deleted locally: ${path}`);
-                    await this.notify(`🗑️ ${path.split("/").pop()}`, true, isSilent);
+                    await this.notify(
+                        `${this.t("noticeFileTrashed")}: ${path.split("/").pop()}`,
+                        true,
+                        isSilent,
+                    );
                 } catch (e) {
                     await this.log(`[Smart Pull] Delete failed: ${path} - ${e}`);
                 }
@@ -1609,7 +1762,11 @@ export class SyncManager {
         await this.saveIndex();
 
         if (total > 0) {
-            await this.notify(`⬇️ ${this.t("noticePullCompleted")} (${total} files)`, false, false);
+            await this.notify(
+                this.t("noticePullCompleted").replace("{0}", total.toString()),
+                false,
+                false,
+            );
             return true;
         }
         return false;
@@ -1633,6 +1790,7 @@ export class SyncManager {
         let currentPageToken = this.startPageToken;
         let confirmedCountTotal = 0;
         let pageCount = 1;
+        let totalCompleted = 0;
 
         do {
             const changes = await this.adapter.getChanges(currentPageToken);
@@ -1654,7 +1812,7 @@ export class SyncManager {
             // In confirmation mode, if we haven't confirmed anything yet, notify user about the wait
             if (drainAll && confirmedCountTotal === 0) {
                 await this.notify(
-                    `${this.t("statusWaitingForRemoteRegistration")} (Page ${pageCount++})...`,
+                    `${this.t("noticeWaitingForRemoteRegistration")} (Page ${pageCount++})...`,
                     false,
                     isSilent,
                 );
@@ -1693,7 +1851,7 @@ export class SyncManager {
                                 completed++;
                                 await this.log(`[Smart Pull] Deleted: ${pathToDelete}`);
                                 await this.notify(
-                                    `${this.t("fileRemoved")}: ${pathToDelete.split("/").pop()}`,
+                                    `${this.t("noticeFileTrashed")}: ${pathToDelete.split("/").pop()}`,
                                     true,
                                     isSilent,
                                 );
@@ -1740,13 +1898,11 @@ export class SyncManager {
                         await this.log(
                             `[Smart Pull] Waiting: ${cloudFile.path} is being merged by ${mergeLock.holder} (expires in ${Math.round((mergeLock.expiresAt - now) / 1000)}s)`,
                         );
-                        if (this.settings.notificationLevel === "verbose" || !isSilent) {
-                            await this.notify(
-                                `⏳ ${cloudFile.path.split("/").pop()}: ${this.t("noticeWaitOtherDeviceMerge") || "Waiting for other device to resolve merge..."}`,
-                                true,
-                                isSilent,
-                            );
-                        }
+                        await this.notify(
+                            `⏳ ${cloudFile.path.split("/").pop()}: ${this.t("noticeWaitOtherDeviceMerge") || "Waiting for other device to resolve merge..."}`,
+                            true,
+                            isSilent,
+                        );
                         // Mark as pending conflict so next sync shows "merge result applied"
                         if (this.localIndex[cloudFile.path]) {
                             this.localIndex[cloudFile.path].pendingConflict = true;
@@ -1789,13 +1945,11 @@ export class SyncManager {
 
                             // Notify individual confirmation if detailed notifications are on
                             confirmedCountTotal++;
-                            if (this.settings.notificationLevel === "verbose" || !isSilent) {
-                                await this.notify(
-                                    `✅ ${this.t("noticeSyncConfirmed")}: ${cloudFile.path.split("/").pop()}`,
-                                    true,
-                                    isSilent,
-                                );
-                            }
+                            await this.notify(
+                                `${this.t("noticeSyncConfirmed")}: ${cloudFile.path.split("/").pop()}`,
+                                true,
+                                isSilent,
+                            );
                         }
                         await this.log(`[Smart Pull] Skipping (hash match): ${cloudFile.path}`);
                         continue;
@@ -1819,6 +1973,7 @@ export class SyncManager {
                 this.startActivity();
                 try {
                     await this.runParallel(tasks);
+                    totalCompleted += completed;
                 } finally {
                     // endActivity is handled by executeSmartSync
                 }
@@ -1841,7 +1996,14 @@ export class SyncManager {
         } while (currentPageToken);
 
         if (hasTotalChanges) {
-            // Notification is handled once at the end in executeSmartSync if return value is true
+            // Notification for pulled files
+            if (totalCompleted > 0) {
+                await this.notify(
+                    this.t("noticePullCompleted").replace("{0}", totalCompleted.toString()),
+                    false, // isDetailed = false for summary
+                    isSilent, // Use isSilent from caller
+                );
+            }
             return true;
         }
         return false;
@@ -2461,9 +2623,9 @@ export class SyncManager {
 
             if (completed > 0) {
                 await this.notify(
-                    `⬆️ ${this.t("noticePushCompleted")} (${completed} files)`,
+                    this.t("noticePushCompleted").replace("{0}", completed.toString()),
                     false,
-                    false,
+                    isSilent,
                 );
             }
             return true;
@@ -3320,7 +3482,7 @@ export class SyncManager {
                             await this.log(`[${logPrefix}] Lock acquired successfully.`);
 
                             await this.notify(
-                                `🔄 ${this.t("noticeMergingFile") || "Merging"}: ${item.path.split("/").pop()}`,
+                                `${this.t("noticeMergingFile") || "Merging"}: ${item.path.split("/").pop()}`,
                                 true,
                                 isSilent,
                             );

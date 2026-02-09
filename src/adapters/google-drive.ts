@@ -68,6 +68,9 @@ export class GoogleDriveAdapter implements CloudAdapter {
         this.logger = logger;
     }
 
+    // Callback for fatal auth errors (e.g. invalid grant)
+    public onAuthFailure: (() => void) | null = null;
+
     private async log(msg: string) {
         console.log(`VaultSync: ${msg}`);
         if (this.logger) this.logger(msg);
@@ -325,6 +328,10 @@ export class GoogleDriveAdapter implements CloudAdapter {
     }
 
     private async refreshTokens() {
+        await this.log(
+            `Refreshing tokens... ClientID present: ${!!this.clientId}, Secret present: ${!!this.clientSecret}, RT present: ${!!this.refreshToken}`,
+        );
+
         const body = new URLSearchParams({
             client_id: this.clientId,
             client_secret: this.clientSecret,
@@ -339,8 +346,24 @@ export class GoogleDriveAdapter implements CloudAdapter {
         });
 
         const data = await response.json();
+
+        if (!response.ok) {
+            const err = data.error_description || data.error || JSON.stringify(data);
+            console.error(`VaultSync: Refresh failed (${response.status}): ${err}`);
+            // If invalid_grant, specific handling might be needed (logout), but for now just logging.
+            // Invalidating token to prevent infinite loops of 401s if callers rely on token presence
+            if (data.error === "invalid_grant" || data.error === "unauthorized_client") {
+                this.accessToken = null;
+                this.refreshToken = null;
+                // Notify main plugin to clear persisted credentials
+                if (this.onAuthFailure) this.onAuthFailure();
+            }
+            return;
+        }
+
         this.accessToken = data.access_token;
         if (data.refresh_token) this.refreshToken = data.refresh_token;
+        await this.log("Token refresh successful.");
     }
 
     private async ensureRootFolders(): Promise<string> {

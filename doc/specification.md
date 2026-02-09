@@ -1,116 +1,109 @@
-# Specification - Obsidian VaultSync Plugin
+# VaultSync - 仕様書
 
-## 1. Goal Description
+**Version**: 2.0
+**Last Updated**: 2026-02-09
 
-Obsidian向けのクラウドストレージ連携プラグイン。  
-ローカルのObsidian VaultとGoogle Drive上のフォルダを同期させ、PC/Mobileを含む全プラットフォームでのデータ一貫性を保つ。
+Obsidian向けクラウドストレージ同期プラグイン。ローカルのObsidian VaultとGoogle Drive上のフォルダを同期し、全プラットフォームでのデータ一貫性を保つ。
 
-## 2. Core System
+---
 
-### 2.1 Architecture
+## 1. アーキテクチャ概要
 
-- **SyncManager**: 同期のオーケストレーションを行うメインクラス。インデックスベースの高速差分検知と、インテリジェントな Pull/Push の分岐を管理する。
-- **CloudAdapter Interface**: Google Drive API等の実装を抽象化。
-- **GoogleDriveAdapter**: `fetch` APIを用いたREST Client実装。モバイル互換。
-- **SecureStorage**: 設定ファイル（`data.json`）ではなく、暗号化/難読化されたバイナリファイル（`.sync-state`）に認証情報を保持。
+### 1.1 コンポーネント構成
 
-### 2.2 Google Drive Structure
-
-- **App Root**: `ObsidianVaultSync/`（設定、あるいはデフォルト）
-- **Vault Root**: `ObsidianVaultSync/<VaultName>/`
-- **Global Discovery**: `VaultName` と一致するフォルダをGoogle Drive内からグローバルに検索。見つかった場合は `App Root` 配下へ自動的に移動（Adoption）して統合する。
-
-### 2.3 Index Management
-
-- **Local Index**: `sync-index.json` にてメタデータを管理。
-- **Master Index Sharing**: クラウド上にも `sync-index.json` を保存し、複数端末間で「どのファイルが正本か」の状態を共有する。
-
-## 3. Sync Logic & Workflows
-
-### 3.1 Intelligent Sync Flow
-
-同期は以下の方針で行われる：
-
-1. **Index Shortcut**: リモートのマスターインデックスのハッシュと、ローカルインデックスの記録が一致する場合、変更なしと見なして全スキャンをスキップする。
-2. **Pull (Merge)**: マスターインデックスが更新されている場合、リモートの変更を取り込む。
-3. **Push (Stabilize)**: ローカルに変更がある場合、クラウドへ反映し、マスターインデックスを更新する。
-
-### 3.2 Adoption Logic & MD5 Hashing
-
-インデックスが失われた、あるいは新規端末で同期を開始する際の冗長なダウンロードを防ぐ：
-
-- **MD5 Verification**: ローカルファイルが存在し、インデックスに記録がない場合、MD5ハッシュを計算してリモートと照合。一致すればそのままインデックスへ採用し、ダウンロードをスキップする。
-
-### 3.3 Conflict Resolution
-
-- **Strategy**: **Rename Local**
-- **Action**: ローカルファイルを `Filename (Conflict YYYY-MM-DD).ext` にリネーム。リモート版を元の名前でダウンロード。
-
-### 3.4 Detailed Workflow Diagram
-
-```mermaid
-flowchart TD
-    Start[同期開始] --> CheckIndex{Index Shortcut: リモートとローカルのインデックスハッシュは一致する？}
-    CheckIndex -->|一致| Finish[同期完了: スキップ]
-    CheckIndex -->|不一致/無| PullPhase[Pullフェーズ開始]
-
-    PullPhase --> DownloadMaster[マスターインデックス・リモートファイル一覧取得]
-    DownloadMaster --> Diff[差分抽出 & 競合判定]
-
-    Diff --> VerifyLocal{インデックスにないローカルファイルあり？}
-    VerifyLocal -->|Yes| MD5Check[MD5計算 & リモート照合]
-    MD5Check -->|一致| Adopt[インデックスへ採用]
-    MD5Check -->|不一致| ConflictCheck
-    VerifyLocal -->|No| ConflictCheck
-
-    ConflictCheck{競合確認: ローカル更新 > 前回同期時？}
-    ConflictCheck -->|Yes| Rename[ローカルファイルをリネーム保護]
-    Rename --> QueueDownload[ダウンロード対象キューへ]
-    ConflictCheck -->|No| QueueDownload
-    Adopt --> QueueDownload
-
-    QueueDownload --> ExecutePull[ダウンロード & 孤立項目の削除実行]
-    ExecutePull --> UpdateLocalIndex[ローカルインデックスの更新・保存]
-
-    UpdateLocalIndex --> PushPhase[Pushフェーズ開始]
-    PushPhase --> PushDiff[ローカルの新規・変更ファイルを抽出]
-    PushDiff --> FolderBatch[リモートフォルダの一括作成]
-    FolderBatch --> ExecuteUpload[並列アップロード & リモートの削除実行]
-    ExecuteUpload --> UpdateMaster[マスターインデックスをクラウドへ保存]
-    UpdateMaster --> Finish
+```
+┌─────────────────────────────────────────────────────────┐
+│                    main.ts (Plugin)                      │
+│  イベント監視・UIコンポーネント・設定管理                │
+└────────────────────────┬────────────────────────────────┘
+                         │
+┌────────────────────────▼────────────────────────────────┐
+│                  SyncManager                             │
+│  同期オーケストレーション・スケジューリング・状態管理     │
+│  Smart Sync / Background Full Scan / 割り込み制御        │
+│  3-way マージ / 競合解決 / 分散ロック                    │
+└────────────────────────┬────────────────────────────────┘
+                         │
+┌────────────────────────▼────────────────────────────────┐
+│             CloudAdapter Interface (抽象層)               │
+│  ┌──────────────┐  ┌──────────┐  ┌──────────┐           │
+│  │ GoogleDrive  │  │ Dropbox  │  │ OneDrive │  ...      │
+│  │ (実装済み)   │  │ (将来)   │  │ (将来)   │           │
+│  └──────────────┘  └──────────┘  └──────────┘           │
+└─────────────────────────────────────────────────────────┘
 ```
 
-## 4. Implementation Details
+### 1.2 主要モジュール
 
-### 4.1 Sync Triggers
+| モジュール             | ファイル                   | 役割                                                                                    |
+| :--------------------- | :------------------------- | :-------------------------------------------------------------------------------------- |
+| **SyncManager**        | `sync-manager.ts`          | 同期のオーケストレーション。Index管理、差分検知、Pull/Push分岐、3-wayマージ、分散ロック |
+| **CloudAdapter**       | `types/adapter.ts`         | クラウドストレージ抽象化インターフェース                                                |
+| **GoogleDriveAdapter** | `adapters/google-drive.ts` | Google Drive REST API実装。`fetch` APIベースでモバイル互換                              |
+| **SecureStorage**      | `secure-storage.ts`        | 認証情報の暗号化バイナリ保存 (`.sync-state`)                                            |
+| **RevisionCache**      | `revision-cache.ts`        | 履歴コンテンツのセッション内キャッシュ                                                  |
+| **HistoryModal**       | `ui/history-modal.ts`      | 履歴確認・Diff表示・ロールバックUI                                                      |
+| **i18n**               | `i18n.ts`                  | 多言語対応 (ja/en)                                                                      |
 
-- **Startup Sync**: 起動時に実行。`Startup Delay`（秒）による猶予期間を設け、Obsidianのインデックス完了を待つ。
-- **Auto Sync**: 指定したインターバル（秒）で実行。
-- **Event Triggers**:
-    - `modify` (Debounce 適用): 編集停止から数秒後に発火。
-    - `Ctrl+S` (Manual Save): 保存時に即時。
-    - `layout-change`: ファイル切り替え時に実行。
+### 1.3 データ構造
 
-### 4.2 Selective .obsidian Sync
+#### Google Drive上のフォルダ構造
 
-- **Included**: `plugins/`, `snippets/`, `app.json`, `hotkeys.json` 等の設定。
-- **Excluded**: `workspace.json`, `cache/`, `indexedDB/`, `backups/` 等のデバイス固有/一時ファイル。
+```
+ObsidianVaultSync/           ← App Root (設定で変更可)
+  └── <VaultName>/           ← Vault Root
+       ├── notes             ← ユーザーファイル群
+       └── .obsidian/        ← Obsidian 設定ファイル群 (選択同期)
+            └──plugins
+                 └── obsidian-vault-sync/ ← 本プラグイン配置フォルダ
+```
 
-### 4.3 Performance
+- **Global Discovery**: `VaultName` と一致するフォルダをGoogle Drive内からグローバルに検索。見つかった場合は App Root 配下へ自動的に移動（Adoption）して統合する。
 
-- **Parallel Worker**: 指定した `Concurrency` 数で並列アップロード/ダウンロードを実行。
-- **Folder Batching**: アップロード前に必要な全階層フォルダを深さ順に一括作成し、レースコンディションを回避。
+#### ローカルデータ
 
-### 4.4 Internationalization (i18n)
+| ファイル                         | 場所                 | 用途                                                            |
+| :------------------------------- | :------------------- | :-------------------------------------------------------------- |
+| `sync-index.json`                | プラグインフォルダ内 | ローカルインデックス（ファイルハッシュ・mtime・ancestorHash等） |
+| `.sync-state`                    | `data/local/`        | 暗号化認証情報（同期対象外）                                    |
+| `open-data.json/local-data.json` | プラグインフォルダ内 | プラグイン設定                                                  |
 
-- **仕組み**: Obsidianの言語設定（`window.localStorage.getItem("language")`）に応じて、表示を切り替える。
-- **対応言語**:
-    - **日本語 (ja)**
-    - **英語 (en)** (デフォルト)
+---
 
-## 5. Requirements & Security
+## 2. 詳細仕様（分冊）
 
-- **OS**: Windows, Mac, Linux, iOS, Android (All Obsidian platforms)
-- **Security**:
-    - Google Drive API `auth/drive` スコープを使用（グローバル検索・フォルダ移動のため）。
-    - 認証情報は `.obsidian/plugins/obsidian-vault-sync/.sync-state`（バイナリ）に分離して保存。
+各機能の詳細仕様は以下のドキュメントに分冊されている。
+
+| ドキュメント                                | 内容                                                                 |
+| :------------------------------------------ | :------------------------------------------------------------------- |
+| [同期エンジン仕様](spec/sync-engine.md)     | Smart Sync / Full Scan / Index管理 / 割り込み制御 / 同期トリガー     |
+| [競合解決仕様](spec/conflict-resolution.md) | 3-wayマージ / 楽観的ロック / 分散ロック / ancestorHashライフサイクル |
+| [設定仕様](spec/settings.md)                | 全設定項目 / 同期スコープ / 除外パターン                             |
+| [履歴機能仕様](spec/history.md)             | リビジョン管理 / Diff表示 / ロールバック                             |
+
+## 3. テスト仕様（分冊）
+
+| ドキュメント                                                 | 内容                                                        |
+| :----------------------------------------------------------- | :---------------------------------------------------------- |
+| [マージアルゴリズムテスト仕様](test-spec/merge-algorithm.md) | 3-wayマージの112テストケース / DMPパラメータ / 合否判定基準 |
+| [同期シナリオテスト仕様](test-spec/sync-scenarios.md)        | 基本動作 / 競合検知 / 割り込み / 複数端末テスト             |
+
+---
+
+## 4. 対応プラットフォーム
+
+- Windows / Mac / Linux / iOS / Android（全Obsidianプラットフォーム）
+
+## 5. セキュリティ
+
+- **認証スコープ**: Google Drive API `auth/drive`（グローバル検索・フォルダ移動のため）
+- **認証情報保存**: `.sync-state`（暗号化バイナリ、`data/local/` に配置、同期対象外）
+- **通信**: HTTPS のみ
+- **楽観的ロック**: Push時にリモートハッシュを検証し、競合を検知
+- **パストラバーサル防止**: 履歴API呼び出し時のパス検証
+- **整合性検証**: ダウンロード時のMD5ハッシュ照合
+
+## 6. 国際化 (i18n)
+
+- Obsidianの言語設定（`window.localStorage.getItem("language")`）に連動
+- 対応言語: 日本語 (ja) / 英語 (en, デフォルト)

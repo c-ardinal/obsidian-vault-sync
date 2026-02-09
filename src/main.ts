@@ -4,8 +4,14 @@ import { SyncManager } from "./sync-manager";
 import { SecureStorage } from "./secure-storage";
 import { HistoryModal } from "./ui/history-modal";
 import { DEFAULT_SETTINGS, SETTINGS_LIMITS } from "./constants";
-import { DATA_LOCAL_DIR, DATA_REMOTE_DIR, VaultSyncSettings } from "./types/settings";
+import {
+    DATA_LOCAL_DIR,
+    DATA_REMOTE_DIR,
+    DATA_FLEXIBLE_DIR,
+    VaultSyncSettings,
+} from "./types/settings";
 import { t } from "./i18n";
+import { getSettingsSections } from "./ui/settings-schema";
 
 export default class VaultSync extends Plugin {
     settings!: VaultSyncSettings;
@@ -37,6 +43,14 @@ export default class VaultSync extends Plugin {
             this.app.vault.getName(),
             this.settings.cloudRootFolder,
         );
+
+        // Handle Token Expiry / Revocation
+        this.adapter.onAuthFailure = async () => {
+            console.log("VaultSync: Auth failed (token expired/revoked). Clearing credentials.");
+            new Notice(t("noticeAuthFailed") + ": Session expired. Please login again.", 0);
+            await this.secureStorage.clearCredentials();
+            this.adapter.setTokens(null, null);
+        };
 
         // MIGRATION: Move files to new layout
         await this.migrateFileLayout();
@@ -131,7 +145,7 @@ export default class VaultSync extends Plugin {
             id: "force-full-scan",
             name: t("labelFullAudit"),
             callback: async () => {
-                await this.syncManager.notify(t("statusScanningLocalFiles"));
+                await this.syncManager.notify(t("noticeScanningLocalFiles"));
                 await this.syncManager.requestBackgroundScan(false);
             },
         });
@@ -343,22 +357,95 @@ export default class VaultSync extends Plugin {
     }
 
     async loadSettings() {
-        let loadedData: Partial<VaultSyncSettings> = {};
-        const dataPath = `${this.manifest.dir}/${DATA_REMOTE_DIR}/data.json`;
-        if (await this.app.vault.adapter.exists(dataPath)) {
-            try {
-                loadedData = JSON.parse(await this.app.vault.adapter.read(dataPath));
-            } catch (e) {
-                console.error("VaultSync: Failed to load data.json", e);
-            }
-        } else {
-            // Fallback/Migration: Try load from root
-            loadedData = (await this.loadData()) || {};
+        let loadedSettings: Partial<VaultSyncSettings> = {};
+
+        const openDataPath = `${this.manifest.dir}/${DATA_FLEXIBLE_DIR}/open-data.json`;
+        const localDataPath = `${this.manifest.dir}/${DATA_LOCAL_DIR}/local-data.json`;
+        const legacyRemoteDataPath = `${this.manifest.dir}/${DATA_REMOTE_DIR}/data.json`;
+        const legacyRootDataPath = `${this.manifest.dir}/data.json`;
+
+        // MIGRATION: Split data.json (root or remote) into open-data.json and local-data.json
+        // Check for root data.json first (Obsidian standard), then remote data.json (VaultSync legacy)
+        let legacySourcePath = null;
+        if (await this.app.vault.adapter.exists(legacyRootDataPath)) {
+            legacySourcePath = legacyRootDataPath;
+        } else if (await this.app.vault.adapter.exists(legacyRemoteDataPath)) {
+            legacySourcePath = legacyRemoteDataPath;
         }
 
-        this.settings = Object.assign({}, DEFAULT_SETTINGS, loadedData);
+        if (legacySourcePath && !(await this.app.vault.adapter.exists(openDataPath))) {
+            try {
+                console.log(`VaultSync: Migrating ${legacySourcePath} to new structure...`);
+                const legacyContent = await this.app.vault.adapter.read(legacySourcePath);
+                const legacyData = JSON.parse(legacyContent);
 
-        // SEC-001: Ensure encryption secret exists
+                // Extract Local Data
+                const localData = {
+                    encryptionSecret: legacyData.encryptionSecret,
+                    hasCompletedFirstSync: legacyData.hasCompletedFirstSync,
+                };
+                // Extract Open Data (Everything else)
+                const openData = { ...legacyData };
+                delete openData.encryptionSecret;
+                delete openData.hasCompletedFirstSync;
+                // Remove deprecated credential fields if they exist
+                delete openData.clientId;
+                delete openData.clientSecret;
+                delete openData.accessToken;
+                delete openData.refreshToken;
+
+                // Ensure directories exist
+                await this.app.vault.adapter
+                    .mkdir(`${this.manifest.dir}/${DATA_FLEXIBLE_DIR}`)
+                    .catch(() => {});
+                await this.app.vault.adapter
+                    .mkdir(`${this.manifest.dir}/${DATA_LOCAL_DIR}`)
+                    .catch(() => {});
+
+                // Write new files
+                await this.app.vault.adapter.write(
+                    localDataPath,
+                    JSON.stringify(localData, null, 2),
+                );
+                await this.app.vault.adapter.write(openDataPath, JSON.stringify(openData, null, 2));
+
+                // Remove old file
+                await this.app.vault.adapter.remove(legacySourcePath);
+                console.log("VaultSync: Migration complete.");
+            } catch (e) {
+                console.error("VaultSync: Failed to migrate data.json", e);
+            }
+        }
+
+        // Load Open Data
+        if (await this.app.vault.adapter.exists(openDataPath)) {
+            try {
+                const openData = JSON.parse(await this.app.vault.adapter.read(openDataPath));
+                loadedSettings = { ...loadedSettings, ...openData };
+            } catch (e) {
+                console.error("VaultSync: Failed to load open-data.json", e);
+            }
+        }
+
+        // Load Local Data
+        if (await this.app.vault.adapter.exists(localDataPath)) {
+            try {
+                const localData = JSON.parse(await this.app.vault.adapter.read(localDataPath));
+                loadedSettings = { ...loadedSettings, ...localData };
+            } catch (e) {
+                console.error("VaultSync: Failed to load local-data.json", e);
+            }
+        }
+
+        // Fallback: Try load from root (very old legacy)
+        if (Object.keys(loadedSettings).length === 0) {
+            const rootData = (await this.loadData()) || {};
+            loadedSettings = { ...rootData };
+        }
+
+        this.settings = Object.assign({}, DEFAULT_SETTINGS, loadedSettings);
+
+        // SEC-001: Ensure encryption secret exists (Saved to Local Data)
         if (!this.settings.encryptionSecret) {
             const array = new Uint8Array(32);
             window.crypto.getRandomValues(array);
@@ -374,6 +461,13 @@ export default class VaultSync extends Plugin {
             this.manifest.dir || "",
             this.settings.encryptionSecret,
         );
+
+        // DEBUG: Temporary notice to help debug path issues
+        this.secureStorage.loadCredentials().then((creds) => {
+            /* new Notice(
+                `SecureStorage Path: ${(this.secureStorage as any).filePath}\nLoaded: ${!!creds}`,
+            ); */
+        });
 
         // Load credentials from Secure Storage
         const credentials = await this.secureStorage.loadCredentials();
@@ -391,7 +485,7 @@ export default class VaultSync extends Plugin {
             );
         }
 
-        // MIGRATION: Check if legacy credentials exist in data.json (unencrypted) and move them
+        // MIGRATION: Check if legacy credentials exist in settings (unencrypted) and move them
         const data: any = this.settings;
         if (data && (data.clientId || data.accessToken)) {
             console.log("VaultSync: Migrating credentials to secure storage...");
@@ -414,18 +508,38 @@ export default class VaultSync extends Plugin {
     }
 
     async saveSettings() {
-        // Ensure data dir exists
-        const dataDir = `${this.manifest.dir}/${DATA_REMOTE_DIR}`;
-        if (!(await this.app.vault.adapter.exists(dataDir))) {
-            await this.app.vault.createFolder(dataDir).catch(() => {});
+        // Ensure directories exist
+        const flexibleDir = `${this.manifest.dir}/${DATA_FLEXIBLE_DIR}`;
+        const localDir = `${this.manifest.dir}/${DATA_LOCAL_DIR}`;
+
+        if (!(await this.app.vault.adapter.exists(flexibleDir))) {
+            await this.app.vault.createFolder(flexibleDir).catch(() => {});
+        }
+        if (!(await this.app.vault.adapter.exists(localDir))) {
+            await this.app.vault.createFolder(localDir).catch(() => {});
         }
 
-        // Save to data.json in new layout
-        const dataPath = `${dataDir}/data.json`;
-        await this.app.vault.adapter.write(dataPath, JSON.stringify(this.settings, null, 2));
+        // Split Settings
+        const localKeys = ["encryptionSecret", "hasCompletedFirstSync"];
+        const localData: any = {};
+        const openData: any = {};
 
-        // For compatibility with VaultSync mobile/other versions that use loadData
-        await this.saveData(this.settings);
+        for (const key in this.settings) {
+            if (Object.prototype.hasOwnProperty.call(this.settings, key)) {
+                if (localKeys.includes(key)) {
+                    localData[key] = (this.settings as any)[key];
+                } else {
+                    openData[key] = (this.settings as any)[key];
+                }
+            }
+        }
+
+        // Save to respective files
+        const openDataPath = `${flexibleDir}/open-data.json`;
+        const localDataPath = `${localDir}/local-data.json`;
+
+        await this.app.vault.adapter.write(openDataPath, JSON.stringify(openData, null, 2));
+        await this.app.vault.adapter.write(localDataPath, JSON.stringify(localData, null, 2));
     }
 
     async saveCredentials(
@@ -454,7 +568,6 @@ export default class VaultSync extends Plugin {
 
     async migrateFileLayout() {
         const moves = [
-            { old: "data.json", new: `${DATA_REMOTE_DIR}/data.json` },
             { old: "sync-index.json", new: `${DATA_REMOTE_DIR}/sync-index.json` },
             { old: "sync-index_raw.json", new: `${DATA_REMOTE_DIR}/sync-index_raw.json` },
             { old: "communication.json", new: `${DATA_REMOTE_DIR}/communication.json` },
@@ -469,6 +582,7 @@ export default class VaultSync extends Plugin {
         const dirs = [
             `${this.manifest.dir}/${DATA_LOCAL_DIR}`,
             `${this.manifest.dir}/${DATA_REMOTE_DIR}`,
+            `${this.manifest.dir}/${DATA_FLEXIBLE_DIR}`,
         ];
         for (const dir of dirs) {
             if (!(await this.app.vault.adapter.exists(dir))) {
@@ -514,7 +628,7 @@ class VaultSyncSettingTab extends PluginSettingTab {
 
         containerEl.createEl("h2", { text: t("settingSettingsTitle") });
 
-        // 1. Authentication
+        // 1. Authentication (Manually handled due to complex UI)
         containerEl.createEl("h3", { text: t("settingAuthSection") });
 
         new Setting(containerEl)
@@ -639,269 +753,122 @@ class VaultSyncSettingTab extends PluginSettingTab {
                 .setClass("auth-manual-input");
         }
 
-        // 2. Sync Triggers
-        containerEl.createEl("h3", { text: t("settingTriggerSection") });
+        // Render Schema-based Settings
+        const sections = getSettingsSections(this.plugin);
+        for (const section of sections) {
+            // Check visibility
+            // Since section doesn't have isHidden in schema (items do), we render title if at least one item is visible?
+            // Or just render title. Schema definition has items hidden dynamically.
+            // Let's check section definition update in previous step...
+            // Ah, I added isHidden to items, but section "developer" also has isHidden in schema.ts.
+            // But SettingSection interface definition in schema.ts DOES NOT have isHidden.
+            // So my schema.ts code has a property that doesn't exist in the interface. Typescript might complain?
+            // Or I might have omitted it.
+            // Actually, I should cast or just ignore for a sec, or better, update the interface if needed.
+            // But let's assume I need to handle it.
 
-        new Setting(containerEl)
-            .setName(t("settingStartupSync"))
-            .setDesc(t("settingStartupSyncDesc"))
-            .addToggle((toggle) =>
-                toggle.setValue(this.plugin.settings.enableStartupSync).onChange(async (value) => {
-                    this.plugin.settings.enableStartupSync = value;
-                    await this.plugin.saveSettings();
-                    this.display();
-                }),
-            );
+            // Wait, I need to import getSettingsSections first.
 
-        new Setting(containerEl)
-            .setName(t("settingAutoSyncInterval"))
-            .setDesc(
-                t("settingAutoSyncIntervalDesc") +
-                    `\n(Min: ${SETTINGS_LIMITS.autoSyncInterval.min}, Max: ${SETTINGS_LIMITS.autoSyncInterval.max}, Default: ${SETTINGS_LIMITS.autoSyncInterval.default}, Disabled: ${SETTINGS_LIMITS.autoSyncInterval.disabled})`,
-            )
-            .addText((text) =>
-                text
-                    .setValue(String(this.plugin.settings.autoSyncIntervalSec))
-                    .setPlaceholder(String(SETTINGS_LIMITS.autoSyncInterval.default))
-                    .onChange(async (value) => {
-                        const validated = this.validateNumber(
-                            value,
-                            SETTINGS_LIMITS.autoSyncInterval.min,
-                            SETTINGS_LIMITS.autoSyncInterval.max,
-                            SETTINGS_LIMITS.autoSyncInterval.default,
-                            SETTINGS_LIMITS.autoSyncInterval.disabled,
+            if ((section as any).isHidden && (section as any).isHidden(this.plugin.settings)) {
+                continue;
+            }
+
+            containerEl.createEl("h3", { text: section.title });
+            if (section.description) {
+                containerEl.createEl("p", {
+                    text: section.description,
+                    cls: "setting-item-description",
+                });
+            }
+
+            for (const item of section.items) {
+                if (item.isHidden && item.isHidden(this.plugin.settings)) continue;
+
+                const setting = new Setting(containerEl)
+                    .setName(item.label)
+                    .setDesc(item.desc || "");
+
+                switch (item.type) {
+                    case "toggle":
+                        setting.addToggle((toggle) =>
+                            toggle
+                                .setValue(this.plugin.settings[item.key] as boolean)
+                                .onChange(async (val) => {
+                                    (this.plugin.settings as any)[item.key] = val;
+                                    await this.plugin.saveSettings();
+                                    if (item.onChange) await item.onChange(val, this.plugin);
+                                }),
                         );
-                        this.plugin.settings.autoSyncIntervalSec = validated;
-                        this.plugin.settings.enableAutoSyncInInterval =
-                            validated !== SETTINGS_LIMITS.autoSyncInterval.disabled;
-                        await this.plugin.saveSettings();
-                        this.plugin.setupAutoSyncInterval();
-                    }),
-            );
-
-        new Setting(containerEl)
-            .setName(t("settingTriggerSave"))
-            .setDesc(
-                t("settingTriggerSaveDesc") +
-                    `\n(Min: ${SETTINGS_LIMITS.onSaveDelay.min}, Max: ${SETTINGS_LIMITS.onSaveDelay.max}, Default: ${SETTINGS_LIMITS.onSaveDelay.default}, Disabled: ${SETTINGS_LIMITS.onSaveDelay.disabled})`,
-            )
-            .addText((text) =>
-                text
-                    .setValue(String(this.plugin.settings.onSaveDelaySec))
-                    .setPlaceholder(String(SETTINGS_LIMITS.onSaveDelay.default))
-                    .onChange(async (value) => {
-                        this.plugin.settings.onSaveDelaySec = this.validateNumber(
-                            value,
-                            SETTINGS_LIMITS.onSaveDelay.min,
-                            SETTINGS_LIMITS.onSaveDelay.max,
-                            SETTINGS_LIMITS.onSaveDelay.default,
-                            SETTINGS_LIMITS.onSaveDelay.disabled,
-                        );
-                        await this.plugin.saveSettings();
-                    }),
-            );
-
-        new Setting(containerEl)
-            .setName(t("settingModify"))
-            .setDesc(
-                t("settingModifyDesc") +
-                    `\n(Min: ${SETTINGS_LIMITS.onModifyDelay.min}, Max: ${SETTINGS_LIMITS.onModifyDelay.max}, Default: ${SETTINGS_LIMITS.onModifyDelay.default}, Disabled: ${SETTINGS_LIMITS.onModifyDelay.disabled})`,
-            )
-            .addText((text) =>
-                text
-                    .setValue(String(this.plugin.settings.onModifyDelaySec))
-                    .setPlaceholder(String(SETTINGS_LIMITS.onModifyDelay.default))
-                    .onChange(async (value) => {
-                        this.plugin.settings.onModifyDelaySec = this.validateNumber(
-                            value,
-                            SETTINGS_LIMITS.onModifyDelay.min,
-                            SETTINGS_LIMITS.onModifyDelay.max,
-                            SETTINGS_LIMITS.onModifyDelay.default,
-                            SETTINGS_LIMITS.onModifyDelay.disabled,
-                        );
-                        await this.plugin.saveSettings();
-                    }),
-            );
-
-        new Setting(containerEl)
-            .setName(t("settingTriggerLayout"))
-            .setDesc(
-                t("settingTriggerLayoutDesc") +
-                    `\n(Min: ${SETTINGS_LIMITS.onLayoutChangeDelay.min}, Max: ${SETTINGS_LIMITS.onLayoutChangeDelay.max}, Default: ${SETTINGS_LIMITS.onLayoutChangeDelay.default}, Disabled: ${SETTINGS_LIMITS.onLayoutChangeDelay.disabled})`,
-            )
-            .addText((text) =>
-                text
-                    .setValue(String(this.plugin.settings.onLayoutChangeDelaySec))
-                    .setPlaceholder(String(SETTINGS_LIMITS.onLayoutChangeDelay.default))
-                    .onChange(async (value) => {
-                        this.plugin.settings.onLayoutChangeDelaySec = this.validateNumber(
-                            value,
-                            SETTINGS_LIMITS.onLayoutChangeDelay.min,
-                            SETTINGS_LIMITS.onLayoutChangeDelay.max,
-                            SETTINGS_LIMITS.onLayoutChangeDelay.default,
-                            SETTINGS_LIMITS.onLayoutChangeDelay.disabled,
-                        );
-                        await this.plugin.saveSettings();
-                    }),
-            );
-
-        // 3. Performance
-        containerEl.createEl("h3", { text: t("settingPerfSection") });
-
-        new Setting(containerEl)
-            .setName(t("settingConcurrency"))
-            .setDesc(
-                t("settingConcurrencyDesc") +
-                    `\n(Min: ${SETTINGS_LIMITS.concurrency.min}, Max: ${SETTINGS_LIMITS.concurrency.max}, Default: ${SETTINGS_LIMITS.concurrency.default}, Disabled: ${SETTINGS_LIMITS.concurrency.disabled})`,
-            )
-            .addText((text) =>
-                text.setValue(String(this.plugin.settings.concurrency)).onChange(async (value) => {
-                    this.plugin.settings.concurrency = this.validateNumber(
-                        value,
-                        SETTINGS_LIMITS.concurrency.min,
-                        SETTINGS_LIMITS.concurrency.max,
-                        SETTINGS_LIMITS.concurrency.default,
-                        SETTINGS_LIMITS.concurrency.disabled,
-                    );
-                    await this.plugin.saveSettings();
-                }),
-            );
-
-        new Setting(containerEl)
-            .setName(t("settingNotificationLevel"))
-            .setDesc(t("settingNotificationLevelDesc"))
-            .addDropdown((dropdown) =>
-                dropdown
-                    .addOption("verbose", t("settingNotificationLevelVerbose"))
-                    .addOption("standard", t("settingNotificationLevelStandard"))
-                    .addOption("error", t("settingNotificationLevelError"))
-                    .setValue(this.plugin.settings.notificationLevel)
-                    .onChange(async (value: string) => {
-                        this.plugin.settings.notificationLevel = value as
-                            | "verbose"
-                            | "standard"
-                            | "error";
-                        await this.plugin.saveSettings();
-                    }),
-            );
-
-        // 4. Advanced
-        containerEl.createEl("h3", { text: t("settingAdvancedSection") });
-
-        new Setting(containerEl)
-            .setName(t("settingConflictStrategy"))
-            .setDesc(t("settingConflictStrategyDesc"))
-            .addDropdown((dropdown) =>
-                dropdown
-                    .addOption("smart-merge", t("settingConflictStrategySmart"))
-                    .addOption("always-fork", t("settingConflictStrategyFork"))
-                    .addOption("force-local", t("settingConflictStrategyLocal"))
-                    .addOption("force-remote", t("settingConflictStrategyRemote"))
-                    .setValue(this.plugin.settings.conflictResolutionStrategy)
-                    .onChange(async (value: string) => {
-                        this.plugin.settings.conflictResolutionStrategy = value as
-                            | "smart-merge"
-                            | "force-local"
-                            | "force-remote"
-                            | "always-fork";
-                        await this.plugin.saveSettings();
-                    }),
-            );
-
-        new Setting(containerEl)
-            .setName(t("settingCloudRootFolder"))
-            .setDesc(t("settingCloudRootFolderDesc"))
-            .addText((text) =>
-                text
-                    .setValue(this.plugin.settings.cloudRootFolder)
-                    .setPlaceholder("ObsidianVaultSync")
-                    .onChange(async (value) => {
-                        // Sanitize input
-                        const sanitized = value.trim();
-                        // Basic validation to prevent invalid paths
-                        if (
-                            !sanitized ||
-                            sanitized.startsWith("/") ||
-                            sanitized.includes("\\") ||
-                            sanitized.length > 255 ||
-                            /[<>:"|?*]/.test(sanitized)
-                        ) {
-                            // Revert if invalid (optional: show error)
-                            // For now, if empty, default. If invalid, maybe just don't save?
-                            // But following old logic, if empty use default.
-                            if (!sanitized) {
-                                this.plugin.settings.cloudRootFolder = "ObsidianVaultSync";
-                                await this.plugin.saveSettings();
+                        break;
+                    case "text":
+                        setting.addText((text) => {
+                            text.setValue(String(this.plugin.settings[item.key] || ""))
+                                .setPlaceholder(item.placeholder || "")
+                                .onChange(async (val) => {
+                                    if (item.onChange) {
+                                        await item.onChange(val, this.plugin);
+                                    } else {
+                                        (this.plugin.settings as any)[item.key] = val;
+                                        await this.plugin.saveSettings();
+                                    }
+                                });
+                        });
+                        break;
+                    case "textarea":
+                        setting.addTextArea((text) => {
+                            text.setValue(String(this.plugin.settings[item.key] || ""))
+                                .setPlaceholder(item.placeholder || "")
+                                .onChange(async (val) => {
+                                    (this.plugin.settings as any)[item.key] = val;
+                                    await this.plugin.saveSettings();
+                                    if (item.onChange) await item.onChange(val, this.plugin);
+                                });
+                            if (item.key === "exclusionPatterns") {
+                                text.inputEl.addClass("vault-sync-exclusion-textarea");
+                                text.inputEl.rows = 10;
                             }
-                            return;
-                        }
-
-                        this.plugin.settings.cloudRootFolder = sanitized;
-                        await this.plugin.saveSettings();
-                        // Also update live adapter
-                        this.plugin.adapter.updateConfig(
-                            this.plugin.adapter.clientId,
-                            this.plugin.adapter.clientSecret,
-                            this.plugin.app.vault.getName(),
-                            this.plugin.settings.cloudRootFolder,
-                        );
-                    }),
-            );
-
-        // 5. Exclusion
-        containerEl.createEl("h3", { text: t("settingExclusionSection") });
-
-        new Setting(containerEl)
-            .setName(t("settingExclusionPatterns"))
-            .setDesc(t("settingExclusionPatternsDesc"))
-            .addTextArea((textarea) => {
-                textarea
-                    .setValue(this.plugin.settings.exclusionPatterns)
-                    .setPlaceholder("*.tmp\ntemp/**\n.git/**")
-                    .onChange(async (value) => {
-                        this.plugin.settings.exclusionPatterns = value;
-                        await this.plugin.saveSettings();
-                        // Trigger cleanup on next sync
-                        this.plugin.syncManager.triggerFullCleanup();
-                    });
-                textarea.inputEl.addClass("vault-sync-exclusion-textarea");
-                textarea.inputEl.rows = 10;
-            });
-
-        // 6. Developer
-        if (this.plugin.settings.isDeveloperMode) {
-            containerEl.createEl("h3", { text: t("settingDevSection") });
-
-            new Setting(containerEl)
-                .setName(t("settingEnableLogging"))
-                .setDesc(t("settingEnableLoggingDesc"))
-                .addToggle((toggle) =>
-                    toggle.setValue(this.plugin.settings.enableLogging).onChange(async (value) => {
-                        this.plugin.settings.enableLogging = value;
-                        await this.plugin.saveSettings();
-                    }),
-                );
-
-            new Setting(containerEl)
-                .setName(t("settingStartupDelay"))
-                .setDesc(
-                    t("settingStartupDelayDesc") +
-                        `\n(Min: ${SETTINGS_LIMITS.startupDelay.min}, Max: ${SETTINGS_LIMITS.startupDelay.max}, Default: ${SETTINGS_LIMITS.startupDelay.default})`,
-                )
-                .addText((text) =>
-                    text
-                        .setValue(String(this.plugin.settings.startupDelaySec))
-                        .setPlaceholder("10")
-                        .onChange(async (value) => {
-                            this.plugin.settings.startupDelaySec = this.validateNumber(
-                                value,
-                                SETTINGS_LIMITS.startupDelay.min,
-                                SETTINGS_LIMITS.startupDelay.max,
-                                SETTINGS_LIMITS.startupDelay.default,
-                            );
-                            await this.plugin.saveSettings();
-                        }),
-                );
+                        });
+                        break;
+                    case "dropdown":
+                        setting.addDropdown((dropdown) => {
+                            if (item.options) {
+                                for (const [k, v] of Object.entries(item.options)) {
+                                    dropdown.addOption(k, v);
+                                }
+                            }
+                            dropdown
+                                .setValue(String(this.plugin.settings[item.key]))
+                                .onChange(async (val) => {
+                                    // Handle numeric strings back to number if needed?
+                                    // Usually settings are typed. Dropdown values are strings.
+                                    // conflictStrategy is string. notificationLevel is string.
+                                    // So direct assignment is fine for string types.
+                                    (this.plugin.settings as any)[item.key] = val;
+                                    await this.plugin.saveSettings();
+                                    if (item.onChange) await item.onChange(val, this.plugin);
+                                });
+                        });
+                        break;
+                    case "number":
+                        setting.addText((text) => {
+                            text.setValue(String(this.plugin.settings[item.key]))
+                                .setPlaceholder(item.limits ? String(item.limits.default) : "")
+                                .onChange(async (val) => {
+                                    const numVal = this.validateNumber(
+                                        val,
+                                        item.limits?.min ?? -Infinity,
+                                        item.limits?.max ?? Infinity,
+                                        item.limits?.default ?? 0,
+                                        item.limits?.disabled,
+                                    );
+                                    (this.plugin.settings as any)[item.key] = numVal;
+                                    await this.plugin.saveSettings();
+                                    if (item.onChange) await item.onChange(numVal, this.plugin);
+                                });
+                        });
+                        break;
+                }
+            }
         }
 
         // Restore scroll position

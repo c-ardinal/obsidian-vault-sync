@@ -13,6 +13,15 @@ const DEFAULT_SETTINGS: SyncManagerSettings = {
     conflictResolutionStrategy: "smart-merge",
     enableLogging: false,
     exclusionPatterns: "",
+    syncAppearance: true,
+    syncCommunityPlugins: true,
+    syncCoreConfig: true,
+    syncImagesAndMedia: true,
+    syncDotfiles: false,
+    syncPluginSettings: true,
+    syncFlexibleData: true,
+    syncDeviceLogs: false,
+    syncWorkspace: false,
 };
 
 /**

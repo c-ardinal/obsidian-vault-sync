@@ -5,8 +5,8 @@ export const SETTINGS_LIMITS = {
     onSaveDelay: { min: 0, max: 60, default: 0, disabled: -1 },
     onModifyDelay: { min: 0, max: 60, default: 5, disabled: -1 },
     onLayoutChangeDelay: { min: 0, max: 60, default: 0, disabled: -1 },
-    concurrency: { min: 1, max: 10, default: 5, disabled: -1 },
-    startupDelay: { min: 0, max: 600, default: 10 },
+    concurrency: { min: 1, max: 10, default: 5 },
+    startupDelay: { min: 0, max: 600, default: 0 },
 } as const;
 
 export const DEFAULT_SETTINGS: VaultSyncSettings = {
@@ -24,6 +24,18 @@ export const DEFAULT_SETTINGS: VaultSyncSettings = {
     startupDelaySec: SETTINGS_LIMITS.startupDelay.default,
     cloudRootFolder: "ObsidianVaultSync",
     exclusionPatterns: ".git\n.svn\n.hg\n.bzr",
+
+    // Sync Scope Defaults
+    syncAppearance: true,
+    syncCommunityPlugins: true,
+    syncCoreConfig: true,
+    syncImagesAndMedia: true,
+    syncDotfiles: false,
+    syncPluginSettings: true,
+    syncFlexibleData: true,
+    syncDeviceLogs: false,
+    syncWorkspace: false,
+
     encryptionSecret: "",
     hasCompletedFirstSync: false,
 };
