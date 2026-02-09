@@ -24,6 +24,15 @@ export const DEFAULT_SETTINGS: VaultSyncSettings = {
     startupDelaySec: SETTINGS_LIMITS.startupDelay.default,
     cloudRootFolder: "ObsidianVaultSync",
     exclusionPatterns: ".git\n.svn\n.hg\n.bzr",
+
+    // Sync Scope Defaults
+    syncAppearance: true,
+    syncCommunityPlugins: true,
+    syncCoreConfig: true,
+    syncImagesAndMedia: true,
+    syncDotfiles: false,
+    syncPluginSettings: true,
+
     encryptionSecret: "",
     hasCompletedFirstSync: false,
 };

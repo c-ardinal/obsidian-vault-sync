@@ -41,6 +41,24 @@ export const i18n: Record<string, Record<string, string>> = {
         settingEnableLoggingDesc: "Developer: Write daily logs to obsidian-vault-sync/logs folder",
         settingCloudRootFolder: "Cloud Root Folder",
         settingCloudRootFolderDesc: "Root folder name on Google Drive (default: ObsidianVaultSync)",
+
+        settingSyncScopeSection: "Sync Scope",
+        settingSyncAppearance: "Sync Appearance Settings",
+        settingSyncAppearanceDesc: "Sync .obsidian/themes and .obsidian/snippets",
+        settingSyncCommunityPlugins: "Sync Community Plugins",
+        settingSyncCommunityPluginsDesc:
+            "Sync installed plugins (Caution: VaultSync itself is always excluded)",
+        settingSyncCoreConfig: "Sync Core Configuration",
+        settingSyncCoreConfigDesc: "Sync app.json, hotkeys.json, and core-plugins.json",
+        settingSyncImagesAndMedia: "Sync Images & Media",
+        settingSyncImagesAndMediaDesc: "Sync images, audio, video, and PDF files",
+        settingSyncDotfiles: "Sync Dotfiles",
+        settingSyncDotfilesDesc:
+            "Sync files starting with '.' (e.g. .git, .trash). .obsidian is always synced. (Default: OFF)",
+        settingSyncPluginSettings: "Sync This Plugin Settings",
+        settingSyncPluginSettingsDesc:
+            "Sync data/remote/data.json. If disabled, uses local settings Only.",
+
         settingExclusionSection: "Exclusion Patterns",
         settingExclusionPatterns: "Exclude Files/Folders",
         settingExclusionPatternsDesc:
@@ -177,6 +195,24 @@ export const i18n: Record<string, Record<string, string>> = {
         settingCloudRootFolder: "クラウドルートフォルダ",
         settingCloudRootFolderDesc:
             "Google Drive 上の同期先ルートフォルダ名 (デフォルト: ObsidianVaultSync)",
+
+        settingSyncScopeSection: "同期範囲",
+        settingSyncAppearance: "外観設定を同期",
+        settingSyncAppearanceDesc: ".obsidian/themes と .obsidian/snippets を同期します",
+        settingSyncCommunityPlugins: "コミュニティプラグインを同期",
+        settingSyncCommunityPluginsDesc:
+            "インストール済みプラグインを同期します (※VaultSync自体は常に除外されます)",
+        settingSyncCoreConfig: "コア設定を同期",
+        settingSyncCoreConfigDesc: "app.json, hotkeys.json, core-plugins.json 等を同期します",
+        settingSyncImagesAndMedia: "画像・メディアファイルを同期",
+        settingSyncImagesAndMediaDesc: "画像、音声、動画、PDFファイルを同期します",
+        settingSyncDotfiles: "ドットファイルを同期",
+        settingSyncDotfilesDesc:
+            ".から始まるファイル (.git, .trash等) を同期します (.obsidian は常に同期)。デフォルトはOFFです。",
+        settingSyncPluginSettings: "VaultSync設定を同期",
+        settingSyncPluginSettingsDesc:
+            "data/remote/data.json を同期します。無効の場合、設定はローカルのみとなります。",
+
         settingExclusionSection: "除外パターン",
         settingExclusionPatterns: "除外ファイル/フォルダ",
         settingExclusionPatternsDesc:

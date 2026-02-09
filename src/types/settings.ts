@@ -31,6 +31,14 @@ export interface VaultSyncSettings {
     // Exclusion
     exclusionPatterns: string;
 
+    // Sync Scope Options
+    syncAppearance: boolean; // .obsidian/themes, snippets, etc.
+    syncCommunityPlugins: boolean; // .obsidian/plugins (excluding vault-sync)
+    syncCoreConfig: boolean; // .obsidian/app.json, hotkeys.json, etc.
+    syncImagesAndMedia: boolean; // Images, Audio, Video, PDF
+    syncDotfiles: boolean; // .git, .trash, etc. (Default: false)
+    syncPluginSettings: boolean; // this plugin's data.json
+
     // Security
     encryptionSecret: string;
     // Internal State

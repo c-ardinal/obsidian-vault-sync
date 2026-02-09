@@ -13,6 +13,14 @@ export interface SyncManagerSettings {
     conflictResolutionStrategy: "smart-merge" | "force-local" | "force-remote" | "always-fork";
     enableLogging: boolean;
     exclusionPatterns: string;
+
+    // Sync Scope Options
+    syncAppearance: boolean;
+    syncCommunityPlugins: boolean;
+    syncCoreConfig: boolean;
+    syncImagesAndMedia: boolean;
+    syncDotfiles: boolean;
+    syncPluginSettings: boolean;
 }
 
 export interface LocalFileIndex {
@@ -700,6 +708,12 @@ export class SyncManager {
             ? normalizedPath
             : normalizedPath + "/";
 
+        // 0. 自分のプラグイン (obsidian-vault-sync) の内部ファイルは常に除外
+        // (data, logs 以外にも、自身の update 中のファイルなどが含まれるため)
+        if (normalizedPath.startsWith(".obsidian/plugins/obsidian-vault-sync/")) {
+            return true;
+        }
+
         // 1. システム内部のローカル専用ファイル
         if (normalizedPath.startsWith(SyncManager.PLUGIN_DIR.toLowerCase())) {
             const subPath = normalizedPath.substring(SyncManager.PLUGIN_DIR.length);
@@ -748,6 +762,7 @@ export class SyncManager {
 
         // 4. Obsidian特定の除外
         if (normalizedPath.startsWith(".obsidian/")) {
+            // システム的な除外（workspace.jsonなど）は設定に関わらず常に適用
             if (
                 SyncManager.OBSIDIAN_SYSTEM_IGNORES.some((e) => {
                     const ne = e.toLowerCase();
@@ -762,6 +777,76 @@ export class SyncManager {
             ) {
                 return true;
             }
+
+            // --- 新しい同期設定 ---
+
+            // Appearance (themes, snippets)
+            if (!this.settings.syncAppearance) {
+                if (
+                    normalizedPath.startsWith(".obsidian/themes/") ||
+                    normalizedPath.startsWith(".obsidian/snippets/")
+                ) {
+                    return true;
+                }
+            }
+
+            // Community Plugins (plugins)
+            // ※ obsidian-vault-sync は冒頭で除外済み
+            if (!this.settings.syncCommunityPlugins) {
+                // .obsidian/plugins/ 以下のすべて
+                if (normalizedPath.startsWith(".obsidian/plugins/")) {
+                    return true;
+                }
+            }
+
+            // Core Config (app.json, hotkeys.json, etc)
+            if (!this.settings.syncCoreConfig) {
+                // これらはルート直下にあるJSON
+                const coreFiles = [
+                    ".obsidian/app.json",
+                    ".obsidian/appearance.json",
+                    ".obsidian/hotkeys.json",
+                    ".obsidian/core-plugins.json",
+                    ".obsidian/community-plugins.json",
+                    ".obsidian/graph.json",
+                ];
+                if (coreFiles.includes(normalizedPath)) {
+                    return true;
+                }
+            }
+        }
+
+        // 5. 画像・メディアファイル
+        if (!this.settings.syncImagesAndMedia) {
+            const ext = normalizedPath.split(".").pop();
+            const mediaExtensions = [
+                "png",
+                "jpg",
+                "jpeg",
+                "gif",
+                "bmp",
+                "svg",
+                "webp",
+                "mp3",
+                "wav",
+                "ogg",
+                "m4a",
+                "mp4",
+                "mov",
+                "webm",
+                "pdf",
+            ];
+            if (ext && mediaExtensions.includes(ext)) {
+                return true;
+            }
+        }
+
+        // 6. プラグイン設定 (data/remote/data.json)
+        if (!this.settings.syncPluginSettings) {
+            // data/remote/data.json は除外
+            if (normalizedPath === "data/remote/data.json") {
+                return true;
+            }
         }
 
         // 5. 競合解決ファイル
@@ -770,12 +855,15 @@ export class SyncManager {
         }
 
         // 6. ドットファイル (ただし .obsidian フォルダ自体とその中身は同期対象)
-        if (
-            normalizedPath.startsWith(".") &&
-            normalizedPath !== ".obsidian" &&
-            !normalizedPath.startsWith(".obsidian/")
-        )
-            return true;
+        // 設定により制御: syncDotfiles = false なら除外
+        if (!this.settings.syncDotfiles) {
+            if (
+                normalizedPath.startsWith(".") &&
+                normalizedPath !== ".obsidian" &&
+                !normalizedPath.startsWith(".obsidian/")
+            )
+                return true;
+        }
 
         return false;
     }
