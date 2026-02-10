@@ -265,6 +265,20 @@ const MATRIX: MatrixEntry[] = [
             pullConflict: { v: "Show", s: "Show" },
         },
     },
+    {
+        // ✏️ 同期: リネーム反映 {file}
+        key: "noticeFileRenamed",
+        isDetailed: true,
+        scenarios: {
+            initialSync: { v: "Show", s: "Show" },
+            startupSync: { v: "Show", s: "Show" },
+            manualSync: { v: "Show", s: "Show" },
+            autoSync: { v: "Show", s: "Show" },
+            fullScan: { v: "Show", s: "Show" },
+            pushConflict: { v: "Show", s: "Show" },
+            pullConflict: { v: "Show", s: "Show" },
+        },
+    },
 
     // ═══ Conflict Notifications ═══
     {
@@ -442,6 +456,7 @@ describe("Notification Visibility Matrix", () => {
             "noticeInitialSyncConfirmation",
             "noticeSyncConfirmed",
             "noticeFileTrashed",
+            "noticeFileRenamed",
             // Conflict
             "noticeMergingFile",
             "noticeMergeSuccess",
@@ -469,10 +484,7 @@ describe("Notification Visibility Matrix", () => {
     // Verify all i18n keys used in MATRIX exist in the Japanese dictionary
     it("all MATRIX keys exist in i18n.ja", () => {
         for (const entry of MATRIX) {
-            expect(
-                i18nDict.ja[entry.key],
-                `i18n.ja missing key: ${entry.key}`,
-            ).toBeDefined();
+            expect(i18nDict.ja[entry.key], `i18n.ja missing key: ${entry.key}`).toBeDefined();
         }
     });
 
@@ -663,10 +675,7 @@ describe("Integration: Sync scenarios trigger correct notifications", () => {
     });
 
     /** Helper: check if any notify() call contains the i18n message for the given key */
-    const wasNotifyCalledWith = (
-        notifySpy: ReturnType<typeof vi.spyOn>,
-        key: string,
-    ): boolean => {
+    const wasNotifyCalledWith = (notifySpy: ReturnType<typeof vi.spyOn>, key: string): boolean => {
         const msg = i18nDict.ja[key];
         if (!msg) return false;
         return notifySpy.mock.calls.some(

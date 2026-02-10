@@ -1913,17 +1913,87 @@ export class SyncManager {
 
                     // Skip if local index hash matches (already synced by this client)
                     const localEntry = this.index[cloudFile.path];
-                    if (!localEntry && localIdToPath.has(cloudFile.id)) {
-                        const renamedLocalPath = localIdToPath.get(cloudFile.id);
-                        if (
-                            renamedLocalPath &&
-                            renamedLocalPath !== cloudFile.path &&
-                            this.dirtyPaths.has(renamedLocalPath)
-                        ) {
-                            await this.log(
-                                `[Changes API] Skipped ghost file ${cloudFile.path} (renamed locally to ${renamedLocalPath})`,
-                            );
-                            continue;
+                    if (localIdToPath.has(cloudFile.id)) {
+                        const prevPathForId = localIdToPath.get(cloudFile.id);
+                        if (prevPathForId && prevPathForId !== cloudFile.path) {
+                            const oldPath = prevPathForId;
+                            const newPath = cloudFile.path;
+
+                            // Detected Remote Rename (A -> B)
+                            // We should rename locally to preserve history/content.
+
+                            // Check if target already exists locally
+                            const targetExists = await this.app.vault.adapter.exists(newPath);
+
+                            if (!targetExists) {
+                                try {
+                                    // Check if source exists (it might have been deleted locally?)
+                                    const sourceExists =
+                                        await this.app.vault.adapter.exists(oldPath);
+                                    if (sourceExists) {
+                                        await this.log(
+                                            `[Changes API] Remote Rename detected: ${oldPath} -> ${newPath}. Renaming locally.`,
+                                        );
+
+                                        // Execute Rename
+                                        await this.app.vault.adapter.rename(oldPath, newPath);
+
+                                        // Migrate Index Entries
+                                        if (this.index[oldPath]) {
+                                            this.index[newPath] = { ...this.index[oldPath] };
+                                            delete this.index[oldPath];
+                                        }
+                                        if (this.localIndex[oldPath]) {
+                                            this.localIndex[newPath] = {
+                                                ...this.localIndex[oldPath],
+                                            };
+                                            delete this.localIndex[oldPath];
+                                        }
+
+                                        // Migrate Dirty State
+                                        if (this.dirtyPaths.has(oldPath)) {
+                                            this.dirtyPaths.delete(oldPath);
+                                            this.dirtyPaths.add(newPath);
+                                        }
+
+                                        // Update ID Map so we don't process this again or inconsistently
+                                        localIdToPath.set(cloudFile.id, newPath);
+
+                                        await this.notify(
+                                            `${this.t("noticeFileRenamed") || "Renamed"}: ${oldPath.split("/").pop()} -> ${newPath.split("/").pop()}`,
+                                            true,
+                                            isSilent,
+                                        );
+                                    } else {
+                                        // Source doesn't exist locally? Just removed from index/map then.
+                                        // pullFileSafely will treat as new download.
+                                        await this.log(
+                                            `[Changes API] Remote Rename: Source ${oldPath} missing locally. Skipping rename.`,
+                                        );
+                                        if (this.index[oldPath]) delete this.index[oldPath];
+                                        if (this.localIndex[oldPath])
+                                            delete this.localIndex[oldPath];
+                                    }
+                                } catch (e) {
+                                    await this.log(
+                                        `[Changes API] Failed to rename ${oldPath} -> ${newPath}: ${e}`,
+                                    );
+                                    // Fallback: Do nothing, let pullFileSafely download new file. Old file remains as ghost.
+                                }
+                            } else {
+                                await this.log(
+                                    `[Changes API] Remote Rename: Target ${newPath} exists. Skipping rename to avoid overwrite.`,
+                                );
+                                // Collision: A->B, but B exists.
+                                // We can't rename. Old A remains.
+                                // pullFileSafely will update B.
+                                // We should probably disassociate A from this ID in our index to avoid confusion?
+                                // If we leave A with ID 123, and B has ID 123...
+                                // Next time we assume 123 is A again?
+                                // localIdToPath will be rebuilt next run.
+                                // If we don't delete A from index, it stays.
+                                // Safe to leave it? Yes.
+                            }
                         }
                     }
 

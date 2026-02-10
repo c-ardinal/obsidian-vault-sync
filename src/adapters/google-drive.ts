@@ -837,14 +837,22 @@ export class GoogleDriveAdapter implements CloudAdapter {
             changes: await Promise.all(
                 (data.changes || []).map(async (c: any) => {
                     let fullPath = c.file ? c.file.name : "";
-                    if (c.file && !c.removed && c.file.parents) {
+                    if (c.file && !c.removed && c.file.parents && c.file.parents.length > 0) {
                         try {
-                            fullPath = await this.resolveFullPath(c.file.id);
+                            // Resolve Parent Path + Append Current Name
+                            // (Avoids stale cache from resolveFullPath(fileId) if file was renamed)
+                            const parentPath = await this.resolveFullPath(c.file.parents[0]);
+                            fullPath = parentPath ? `${parentPath}/${c.file.name}` : c.file.name;
                         } catch (e) {
-                            console.warn(`Failed to resolve path for ${c.fileId}:`, e);
+                            console.warn(`Failed to resolve parent path for ${c.fileId}:`, e);
                             // If resolution fails (e.g. moved out of vault), treat as removed or ignore
                             return { fileId: c.fileId, removed: true };
                         }
+                    } else if (c.file && !c.removed) {
+                        // No parents? Probably shouldn't happen for files in vault, but just in case
+                        // If it's the vault root itself, maybe? But changes are usually children.
+                        // Treat as removed if we can't place it.
+                        return { fileId: c.fileId, removed: true };
                     }
 
                     // Treat trashed files as removed
