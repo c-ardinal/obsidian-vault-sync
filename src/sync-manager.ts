@@ -1899,7 +1899,7 @@ export class SyncManager {
                             `[Smart Pull] Waiting: ${cloudFile.path} is being merged by ${mergeLock.holder} (expires in ${Math.round((mergeLock.expiresAt - now) / 1000)}s)`,
                         );
                         await this.notify(
-                            `⏳ ${cloudFile.path.split("/").pop()}: ${this.t("noticeWaitOtherDeviceMerge") || "Waiting for other device to resolve merge..."}`,
+                            `${this.t("noticeWaitOtherDeviceMerge")}: ${cloudFile.path.split("/").pop()}`,
                             true,
                             isSilent,
                         );
@@ -3376,7 +3376,7 @@ export class SyncManager {
                 `[${logPrefix}] Skipping pull: ${item.path} is being merged by ${lockStatus.holder} (expires in ${lockStatus.expiresIn}s)`,
             );
             await this.notify(
-                `⏳ ${item.path.split("/").pop()}: ${this.t("noticeWaitOtherDeviceMerge") || "Waiting for other device to resolve merge..."}`,
+                `${this.t("noticeWaitOtherDeviceMerge")}: ${item.path.split("/").pop()}`,
                 true,
                 isSilent,
             );
@@ -3443,11 +3443,7 @@ export class SyncManager {
                         await this.log(
                             `[${logPrefix}] Safety Guard: Detected remote change after our ${localBase?.lastAction}. Forcing merge check to prevent data loss.`,
                         );
-                        await this.notify(
-                            `🔄 ${item.path.split("/").pop()}: ${this.t("noticeSafetyMerge") || "Safe-merging to protect recent changes..."}`,
-                            true,
-                            isSilent,
-                        );
+                        await this.notify(`${this.t("noticeMergingFile")}`, true, isSilent);
                         isModifiedLocally = true;
                         safetyGuardTriggered = true;
                     }
@@ -3493,8 +3489,12 @@ export class SyncManager {
                             );
 
                             if (wasPendingConflict) {
-                                // We were waiting for another device to resolve the conflict
-                                await this.notify(this.t("noticeCheckOtherDevice"), true, isSilent);
+                                // The other device resolved the conflict and pushed the result
+                                await this.notify(
+                                    `${this.t("noticeRemoteMergeSynced")}: ${item.path.split("/").pop()}`,
+                                    true,
+                                    isSilent,
+                                );
                             } else {
                                 // Normal pull - remote was simply updated
                                 await this.notify(
@@ -3539,7 +3539,7 @@ export class SyncManager {
                                     `[${logPrefix}] Lock not acquired: ${item.path} is being handled by ${lockResult.holder} (expires in ${lockResult.expiresIn}s)`,
                                 );
                                 await this.notify(
-                                    `⏳ ${item.path.split("/").pop()}: ${this.t("noticeWaitOtherDeviceMerge") || "Waiting for other device to resolve merge..."}`,
+                                    `${this.t("noticeWaitOtherDeviceMerge")}: ${item.path.split("/").pop()}`,
                                     true,
                                     isSilent,
                                 );
@@ -3645,7 +3645,7 @@ export class SyncManager {
                                             ancestorHash: item.hash?.toLowerCase() || "",
                                         };
                                         await this.notify(
-                                            `📥 ${item.path.split("/").pop()}: ${this.t("noticeRemoteMergeSynced") || "Remote merge result applied"}`,
+                                            `${this.t("noticeRemoteMergeSynced")}: ${item.path.split("/").pop()}`,
                                             true,
                                             isSilent,
                                         );
@@ -3694,10 +3694,25 @@ export class SyncManager {
                                                 isSilent,
                                             );
                                         } else {
+                                            // Lock was lost (expired or stolen), but merged content
+                                            // is already written to disk. Update localIndex to reflect
+                                            // the actual disk state so next sync can push it.
                                             await this.log(
-                                                `[${logPrefix}] Lock lost during merge. Aborting.`,
+                                                `[${logPrefix}] Lock lost during merge. Content saved locally, queued for push on next cycle.`,
                                             );
-                                            return false;
+                                            const statLockLost = await this.app.vault.adapter.stat(
+                                                item.path,
+                                            );
+                                            this.localIndex[item.path] = {
+                                                fileId: fileId || "",
+                                                mtime: statLockLost?.mtime || Date.now(),
+                                                size: merged.byteLength,
+                                                hash: mergedHash,
+                                                lastAction: "merge" as const,
+                                                ancestorHash: baseHashFound,
+                                            };
+                                            this.dirtyPaths.add(item.path);
+                                            await this.saveLocalIndex();
                                         }
                                     }
 
