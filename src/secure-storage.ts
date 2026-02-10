@@ -58,18 +58,20 @@ export class SecureStorage {
             try {
                 // @ts-ignore
                 const cp = require("child_process");
+                // SEC-006: Use spawn instead of exec to prevent command injection
                 if (process.platform === "win32") {
                     // Windows: attrib +h
                     const fullPath = `${basePath}/${relativePath}`.replace(/\//g, "\\");
-                    cp.exec(`attrib +h "${fullPath}"`, (err: any) => {
-                        if (err)
-                            console.error("VaultSync: Failed to hide .sync-state on Windows", err);
+                    const child = cp.spawn("attrib", ["+h", fullPath]);
+                    child.on("error", (err: any) => {
+                        console.error("VaultSync: Failed to hide .sync-state on Windows", err);
                     });
                 } else if (process.platform === "darwin") {
                     // MacOS: chflags hidden (adds redundancy to dot-prefix)
                     const fullPath = `${basePath}/${relativePath}`;
-                    cp.exec(`chflags hidden "${fullPath}"`, (err: any) => {
-                        if (err) console.error("VaultSync: Failed to hide .sync-state on Mac", err);
+                    const child = cp.spawn("chflags", ["hidden", fullPath]);
+                    child.on("error", (err: any) => {
+                        console.error("VaultSync: Failed to hide .sync-state on Mac", err);
                     });
                 }
             } catch (e) {

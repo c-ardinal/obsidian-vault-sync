@@ -71,6 +71,8 @@ describe("SecureStorage", () => {
     });
 
     it("should fail gracefully if file corrupted", async () => {
+        const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
         await storage.saveCredentials({ a: 1 });
         // Corrupt file by writing random bytes
         await app.vault.adapter.writeBinary(
@@ -80,6 +82,9 @@ describe("SecureStorage", () => {
 
         const loaded = await storage.loadCredentials();
         expect(loaded).toBeNull();
+        expect(errorSpy).toHaveBeenCalledWith("SecureStorage: Data too short");
+
+        errorSpy.mockRestore();
     });
 
     it("should migrate legacy credentials if they exist", async () => {

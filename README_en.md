@@ -86,6 +86,7 @@ To use this plugin, you must create a Google Cloud Project and obtain your own *
 - **Direct Communication**: This plugin communicates directly with the Google Drive API without going through any third-party servers.
 - **Auth Protection**: Authentication tokens and secrets are encrypted using a device-specific key (AES-GCM) and kept in secure storage.
 - **Data Location**: Your synced data is stored exclusively in your own Google Drive storage (in the root folder you specify).
+- **Important**: Note data (Markdown files, etc.) is uploaded to Google Drive in **plain text (without encryption)**. While protected by Google Drive's security model (HTTPS transfer, server-side encryption), this plugin does NOT provide End-to-End Encryption (E2EE). Please be cautious when handling highly sensitive information.
 
 ---
 
