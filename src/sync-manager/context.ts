@@ -64,4 +64,9 @@ export interface SyncContext {
     endActivity: () => void;
     onActivityStart: () => void;
     onActivityEnd: () => void;
+
+    // === Delegate Methods (called via ctx so vi.spyOn on facade class works) ===
+    smartPull: (isSilent: boolean) => Promise<boolean>;
+    smartPush: (isSilent: boolean, scanVault: boolean) => Promise<boolean>;
+    pullViaChangesAPI: (isSilent: boolean, isIdentityCheck?: boolean) => Promise<void>;
 }
