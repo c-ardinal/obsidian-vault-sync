@@ -76,7 +76,8 @@ To use this plugin, you must create a Google Cloud Project and obtain your own *
 
 ### History and Restoration
 
-- **File History**: Right-click a file and select "View History in Cloud (VaultSync)" to see diffs against past revisions and restore them.
+- **File History**: Right-click a file and select "View History in Cloud (VaultSync)" to see diffs against past revisions.
+- **Advanced Diff Viewer**: Provides powerful comparison tools including Unified/Split view toggle, inline character-level highlighting, jump navigation between changes (with looping), and adjustable context lines.
 - **Full Scan**: If you are concerned about consistency, run `VaultSync: Audit & Fix Consistency (Full Scan)` from the command palette to perform a forced sync check.
 
 ---

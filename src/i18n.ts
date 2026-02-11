@@ -140,6 +140,11 @@ export const i18n: Record<string, Record<string, string>> = {
         historyDiffModeSplit: "Split View",
         historyError: "Error",
         historyFailedToLoadHistory: "Failed to load history",
+        historyShowAll: "Show all lines",
+        historyShowDiffOnly: "Show changes only",
+        historyNextDiff: "Next change",
+        historyPrevDiff: "Previous change",
+        historyContextLines: "Context: {0}",
 
         // Global Command/Tooltips
         labelSyncTooltip: "Sync with Cloud",
@@ -290,6 +295,11 @@ export const i18n: Record<string, Record<string, string>> = {
         historyDiffModeSplit: "左右分割表示",
         historyError: "エラー",
         historyFailedToLoadHistory: "履歴の読み込みに失敗しました",
+        historyShowAll: "全文表示",
+        historyShowDiffOnly: "差分のみ表示",
+        historyNextDiff: "次の差分",
+        historyPrevDiff: "前の差分",
+        historyContextLines: "前後行数: {0}",
 
         // Global Command/Tooltips
         labelSyncTooltip: "クラウドと同期",
