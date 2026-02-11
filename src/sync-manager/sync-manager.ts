@@ -156,8 +156,8 @@ export class SyncManager {
         private pluginDir: string,
         public t: (key: string) => string,
     ) {
-        // Initial log folder before device ID is known
-        this.logFolder = `${this.pluginDir}/logs/_startup`;
+        // Initial log folder before device ID is known (will be corrected by loadLocalIndex)
+        this.logFolder = `${this.pluginDir}/logs/identity_pending`;
         this.localIndexPath = `${this.pluginDir}/data/local/local-index.json`;
         // communication.json is in the data/remote directory
         this.communicationPath = this.pluginDataPath.replace(
@@ -288,7 +288,9 @@ export class SyncManager {
         return _saveCommunication(this as unknown as SyncContext, data);
     }
 
-    private async acquireMergeLock(path: string): Promise<{ acquired: boolean; holder?: string; expiresIn?: number }> {
+    private async acquireMergeLock(
+        path: string,
+    ): Promise<{ acquired: boolean; holder?: string; expiresIn?: number }> {
         return _acquireMergeLock(this as unknown as SyncContext, path);
     }
 
@@ -296,7 +298,9 @@ export class SyncManager {
         return _releaseMergeLock(this as unknown as SyncContext, path, logPrefix);
     }
 
-    private async checkMergeLock(path: string): Promise<{ locked: boolean; holder?: string; expiresIn?: number }> {
+    private async checkMergeLock(
+        path: string,
+    ): Promise<{ locked: boolean; holder?: string; expiresIn?: number }> {
         return _checkMergeLock(this as unknown as SyncContext, path);
     }
 
@@ -418,7 +422,10 @@ export class SyncManager {
         return _smartPull(this as unknown as SyncContext, isSilent);
     }
 
-    private async pullViaChangesAPI(isSilent: boolean, drainAll: boolean = false): Promise<boolean> {
+    private async pullViaChangesAPI(
+        isSilent: boolean,
+        drainAll: boolean = false,
+    ): Promise<boolean> {
         return _pullViaChangesAPI(this as unknown as SyncContext, isSilent, drainAll);
     }
 
@@ -452,8 +459,17 @@ export class SyncManager {
         return _getRevisionContent(this as unknown as SyncContext, path, revisionId);
     }
 
-    async setRevisionKeepForever(path: string, revisionId: string, keepForever: boolean): Promise<void> {
-        return _setRevisionKeepForever(this as unknown as SyncContext, path, revisionId, keepForever);
+    async setRevisionKeepForever(
+        path: string,
+        revisionId: string,
+        keepForever: boolean,
+    ): Promise<void> {
+        return _setRevisionKeepForever(
+            this as unknown as SyncContext,
+            path,
+            revisionId,
+            keepForever,
+        );
     }
 
     async deleteRevision(path: string, revisionId: string): Promise<void> {
@@ -466,12 +482,25 @@ export class SyncManager {
         return _linesToChars3(text1, text2, text3);
     }
     private async perform3WayMerge(
-        path: string, localContentStr: string, remoteContentStr: string, baseHash: string,
+        path: string,
+        localContentStr: string,
+        remoteContentStr: string,
+        baseHash: string,
     ): Promise<ArrayBuffer | null> {
-        return _perform3WayMerge(this as unknown as SyncContext, path, localContentStr, remoteContentStr, baseHash);
+        return _perform3WayMerge(
+            this as unknown as SyncContext,
+            path,
+            localContentStr,
+            remoteContentStr,
+            baseHash,
+        );
     }
 
-    private async findCommonAncestorHash(path: string, localHash: string, remoteHash: string): Promise<string | null> {
+    private async findCommonAncestorHash(
+        path: string,
+        localHash: string,
+        remoteHash: string,
+    ): Promise<string | null> {
         return _findCommonAncestorHash(this as unknown as SyncContext, path, localHash, remoteHash);
     }
 
@@ -491,7 +520,14 @@ export class SyncManager {
     }
 
     private async pullFileSafely(
-        item: { path: string; fileId?: string; id?: string; hash?: string; mtime?: number; size?: number },
+        item: {
+            path: string;
+            fileId?: string;
+            id?: string;
+            hash?: string;
+            mtime?: number;
+            size?: number;
+        },
         isSilent: boolean,
         logPrefix: string,
     ): Promise<boolean> {

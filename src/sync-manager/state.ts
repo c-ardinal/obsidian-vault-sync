@@ -78,21 +78,21 @@ export async function acquireMergeLock(
     }
 }
 
-export async function releaseMergeLock(ctx: SyncContext, path: string, logPrefix?: string): Promise<void> {
+export async function releaseMergeLock(
+    ctx: SyncContext,
+    path: string,
+    logPrefix?: string,
+): Promise<void> {
     try {
         const comm = await loadCommunication(ctx);
         const existing = comm.mergeLocks[path];
         if (existing && existing.holder === ctx.deviceId) {
             delete comm.mergeLocks[path];
             await saveCommunication(ctx, comm);
-            await ctx.log(
-                `[${logPrefix || "Communication"}] Merge lock released for ${path}.`,
-            );
+            await ctx.log(`[${logPrefix || "Communication"}] Merge lock released for ${path}.`);
         }
     } catch (e) {
-        await ctx.log(
-            `[${logPrefix || "Communication"}] Failed to release lock for ${path}: ${e}`,
-        );
+        await ctx.log(`[${logPrefix || "Communication"}] Failed to release lock for ${path}: ${e}`);
     }
 }
 
@@ -116,7 +116,10 @@ export async function checkMergeLock(
 
 // === Index Management ===
 
-export async function loadIndex(ctx: SyncContext, tryDecompress: (data: ArrayBuffer) => Promise<ArrayBuffer>): Promise<void> {
+export async function loadIndex(
+    ctx: SyncContext,
+    tryDecompress: (data: ArrayBuffer) => Promise<ArrayBuffer>,
+): Promise<void> {
     try {
         const data = await ctx.app.vault.adapter.readBinary(ctx.pluginDataPath);
         const decompressed = await tryDecompress(data);
@@ -126,9 +129,7 @@ export async function loadIndex(ctx: SyncContext, tryDecompress: (data: ArrayBuf
         ctx.startPageToken = parsed.startPageToken || null;
 
         if (data.byteLength !== decompressed.byteLength) {
-            await ctx.log(
-                "[Index] Detected compressed local index. Normalizing to plain text...",
-            );
+            await ctx.log("[Index] Detected compressed local index. Normalizing to plain text...");
             await saveIndex(ctx);
         }
 
@@ -178,14 +179,19 @@ export async function loadLocalIndex(ctx: SyncContext): Promise<void> {
                 ctx.deviceId = md5(
                     new TextEncoder().encode(Date.now().toString() + suffix).buffer,
                 ).substring(0, 8);
+
+                // Set folder BEFORE logging
+                ctx.logFolder = `${ctx.pluginDir}/logs/${ctx.deviceId}`;
                 await ctx.log(`[Local Index] Generated new device ID: ${ctx.deviceId}`);
                 await saveLocalIndex(ctx);
             } else {
-                await ctx.log(
-                    `[Local Index] Loaded successfully. Device ID: ${ctx.deviceId}`,
-                );
+                const isAlreadyLogged = ctx.logFolder === `${ctx.pluginDir}/logs/${ctx.deviceId}`;
+                // Set folder BEFORE logging
+                ctx.logFolder = `${ctx.pluginDir}/logs/${ctx.deviceId}`;
+                if (!isAlreadyLogged) {
+                    await ctx.log(`[Local Index] Loaded successfully. Device ID: ${ctx.deviceId}`);
+                }
             }
-            ctx.logFolder = `${ctx.pluginDir}/logs/${ctx.deviceId}`;
         } else {
             ctx.localIndex = { ...ctx.index };
             const randomArray = new Uint8Array(4);
@@ -196,18 +202,34 @@ export async function loadLocalIndex(ctx: SyncContext): Promise<void> {
             ctx.deviceId = md5(
                 new TextEncoder().encode(Date.now().toString() + suffix).buffer,
             ).substring(0, 8);
-            await ctx.log(
-                `[Local Index] Not found. Initialized from shared index (Migration). Device ID: ${ctx.deviceId}`,
-            );
-            await saveLocalIndex(ctx);
+
+            const isAlreadyLogged = ctx.logFolder === `${ctx.pluginDir}/logs/${ctx.deviceId}`;
+
+            // Set folder BEFORE logging
             ctx.logFolder = `${ctx.pluginDir}/logs/${ctx.deviceId}`;
+            if (!isAlreadyLogged) {
+                await ctx.log(
+                    `[Local Index] Not found. Initialized from shared index (Migration). Device ID: ${ctx.deviceId}`,
+                );
+            }
+            await saveLocalIndex(ctx);
         }
     } catch (e) {
-        await ctx.log(`[Local Index] Load failed: ${e}`);
+        const isAlreadyLogged =
+            ctx.deviceId && ctx.logFolder === `${ctx.pluginDir}/logs/${ctx.deviceId}`;
+
+        // Fallback device ID
+        ctx.deviceId =
+            ctx.deviceId ||
+            md5(
+                new TextEncoder().encode(Date.now().toString() + Math.random().toString()).buffer,
+            ).substring(0, 8);
+        ctx.logFolder = `${ctx.pluginDir}/logs/${ctx.deviceId}`;
+
+        if (!isAlreadyLogged) {
+            await ctx.log(`[Local Index] Load failed: ${e}`);
+        }
         ctx.localIndex = {};
-        ctx.deviceId = md5(
-            new TextEncoder().encode(Date.now().toString() + Math.random().toString()).buffer,
-        ).substring(0, 8);
     }
 }
 
@@ -323,7 +345,11 @@ export function markRenamed(ctx: SyncContext, oldPath: string, newPath: string):
     ctx.log(`[Dirty] Marked (renamed): ${newPath} (Migrated ID)`);
 }
 
-export function markFolderRenamed(ctx: SyncContext, oldFolderPath: string, newFolderPath: string): void {
+export function markFolderRenamed(
+    ctx: SyncContext,
+    oldFolderPath: string,
+    newFolderPath: string,
+): void {
     const oldPrefix = oldFolderPath + "/";
     const newPrefix = newFolderPath + "/";
 

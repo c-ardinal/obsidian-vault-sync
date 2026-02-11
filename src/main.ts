@@ -27,7 +27,7 @@ export default class VaultSync extends Plugin {
     private autoSyncInterval: number | null = null;
 
     async onload() {
-        // Initialize adapter first with defaults
+        // 1. Initialize adapter first with defaults
         this.adapter = new GoogleDriveAdapter(
             "",
             "",
@@ -35,29 +35,13 @@ export default class VaultSync extends Plugin {
             DEFAULT_SETTINGS.cloudRootFolder,
         );
 
+        // 2. Load settings (populates adapter if credentials exist, handles data.json migration)
         await this.loadSettings();
 
-        // Update adapter with loaded settings
-        this.adapter.updateConfig(
-            this.adapter.clientId, // set inside loadSettings
-            this.adapter.clientSecret, // set inside loadSettings
-            this.app.vault.getName(),
-            this.settings.cloudRootFolder,
-        );
-
-        // Handle Token Expiry / Revocation
-        this.adapter.onAuthFailure = async () => {
-            console.log("VaultSync: Auth failed (token expired/revoked). Clearing credentials.");
-            new Notice(t("noticeAuthFailed") + ": Session expired. Please login again.", 0);
-            await this.secureStorage.clearCredentials();
-            this.adapter.setTokens(null, null);
-        };
-
-        // MIGRATION: Move files to new layout
+        // 3. MIGRATION: Move files to new layout (ensures local-index.json is in the right place)
         await this.migrateFileLayout();
 
-        // Settings are loaded in onload, but we need to ensure adapter has credentials
-        // This is handled in loadSettings now.
+        // 4. Initialize SyncManager with REAL loaded settings
         this.syncManager = new SyncManager(
             this.app,
             this.adapter,
@@ -67,8 +51,22 @@ export default class VaultSync extends Plugin {
             t,
         );
 
+        // 5. Establish Identity & Log Folder (loads local-index.json)
+        // This is the earliest point where we can log to the correct device-specific folder.
+        await this.syncManager.loadLocalIndex();
+
+        console.log(`[VaultSync] === Plugin Startup: version=${this.manifest.version} ===`);
         await this.syncManager.log(`=== Plugin Startup: version=${this.manifest.version} ===`);
 
+        // Handle Token Expiry / Revocation
+        this.adapter.onAuthFailure = async () => {
+            console.log("VaultSync: Auth failed (token expired/revoked). Clearing credentials.");
+            new Notice(t("noticeAuthFailed") + ": Session expired. Please login again.", 0);
+            await this.secureStorage.clearCredentials();
+            this.adapter.setTokens(null, null);
+        };
+
+        // 6. Load shared index
         await this.syncManager.loadIndex();
 
         // Register Activity Callbacks for Auto-Sync Animation
