@@ -1,86 +1,20 @@
-import { CloudAdapter } from "./types/adapter";
+import { CloudAdapter } from "../types/adapter";
 import { App, TFile, TFolder, TAbstractFile, Notice } from "obsidian";
-import { normalizePath } from "./utils/path";
-import { matchWildcard } from "./utils/wildcard";
-import { md5 } from "./utils/md5";
-import { RevisionCache } from "./revision-cache";
+import { normalizePath } from "../utils/path";
+import { matchWildcard } from "../utils/wildcard";
+import { md5 } from "../utils/md5";
+import { RevisionCache } from "../revision-cache";
 import { diff_match_patch } from "diff-match-patch";
-import { SETTINGS_LIMITS } from "./constants";
-
-export interface SyncManagerSettings {
-    concurrency: number;
-    notificationLevel: "verbose" | "standard" | "error";
-    conflictResolutionStrategy: "smart-merge" | "force-local" | "force-remote" | "always-fork";
-    enableLogging: boolean;
-    exclusionPatterns: string;
-
-    // Sync Scope Options
-    syncAppearance: boolean;
-    syncCommunityPlugins: boolean;
-    syncCoreConfig: boolean;
-    syncImagesAndMedia: boolean;
-    syncDotfiles: boolean;
-    syncPluginSettings: boolean;
-    syncFlexibleData: boolean;
-    syncDeviceLogs: boolean;
-    syncWorkspace: boolean;
-}
-
-export interface LocalFileIndex {
-    [path: string]: {
-        fileId: string;
-        mtime: number;
-        size: number;
-        hash?: string;
-        /** Tracks last sync action: "push" = uploaded by this device, "pull" = downloaded, "merge" = locally merged (needs push) */
-        lastAction?: "push" | "pull" | "merge";
-        /** Hash of the common ancestor (last known synced state between devices).
-         *  Set on pull, preserved on push. Used as base for 3-way merge. */
-        ancestorHash?: string;
-        /** @deprecated Merge locks are now stored in communication.json, not sync-index.json */
-        mergeLock?: { holder: string; expiresAt: number };
-        /** True when this device detected a conflict and is waiting for another device to resolve it */
-        pendingConflict?: boolean;
-        /** If true, force upload even if hash matches (used for renaming to trigger PATCH) */
-        forcePush?: boolean;
-    };
-}
-
-// === Hybrid Sync Types ===
-
-/** Sync engine states for preemption control */
-export type SyncState = "IDLE" | "SMART_SYNCING" | "FULL_SCANNING" | "PAUSED";
-
-/** Progress state for resumable full scan */
-export interface FullScanProgress {
-    /** Current index in the file list being processed */
-    currentIndex: number;
-    /** Total files to process */
-    totalFiles: number;
-    /** Cached local file list (for resume) */
-    localFiles: Array<{ path: string; mtime: number; size: number }>;
-    /** Cached remote file list (for resume) */
-    remoteFiles: Array<{ id: string; path: string; mtime: number; size: number; hash?: string }>;
-    /** Timestamp when the scan started (for staleness check) */
-    startedAt: number;
-}
-
-// === Device Communication Types ===
-
-/** Merge lock entry for a specific file */
-interface MergeLockEntry {
-    holder: string;
-    expiresAt: number;
-}
-
-/** Communication data for real-time device-to-device messaging */
-export interface CommunicationData {
-    /** Active merge locks by file path */
-    mergeLocks: { [path: string]: MergeLockEntry };
-    /** Last update timestamp */
-    lastUpdated: number;
-    // Future extensions: messages, deviceStatus, etc.
-}
+import { SETTINGS_LIMITS } from "../constants";
+import type {
+    SyncManagerSettings,
+    LocalFileIndex,
+    SyncState,
+    FullScanProgress,
+    MergeLockEntry,
+    CommunicationData,
+} from "./types";
+export type { SyncManagerSettings, LocalFileIndex, SyncState, FullScanProgress, CommunicationData };
 
 export class SyncManager {
     // === System-level internal files (Local only or Custom management) ===
@@ -2300,7 +2234,7 @@ export class SyncManager {
                             // Adoption/Shortcut Check:
                             // If index has a hash and it matches current, just update mtime and skip.
                             // If it's a NEW file (!indexEntry), check remote to see if we can adopt it without uploading.
-                            let alreadyOnRemoteFile: import("./types/adapter").CloudFile | null =
+                            let alreadyOnRemoteFile: import("../types/adapter").CloudFile | null =
                                 null;
                             if (!localIndexEntry) {
                                 try {
@@ -2423,7 +2357,7 @@ export class SyncManager {
                         // === CONFLICT CHECK (Optimistic Locking) ===
                         // Before uploading, check if remote has changed since our last sync.
                         // If remote hash != index hash, someone else pushed. We MUST NOT overwrite.
-                        let remoteMeta: import("./types/adapter").CloudFile | null = null;
+                        let remoteMeta: import("../types/adapter").CloudFile | null = null;
                         try {
                             const params = {
                                 fileId: this.index[file.path]?.fileId,
@@ -2868,7 +2802,7 @@ export class SyncManager {
         return this.adapter.supportsHistory ?? false;
     }
 
-    async listRevisions(path: string): Promise<import("./types/adapter").FileRevision[]> {
+    async listRevisions(path: string): Promise<import("../types/adapter").FileRevision[]> {
         if (!this.adapter.supportsHistory || !this.adapter.listRevisions) {
             throw new Error(
                 this.t("historyNotSupported") || "Cloud adapter does not support history.",
@@ -3310,7 +3244,7 @@ export class SyncManager {
 
     async restoreRevision(
         path: string,
-        revision: import("./types/adapter").FileRevision,
+        revision: import("../types/adapter").FileRevision,
     ): Promise<void> {
         await this.log(`[History] Starting rollback for ${path} to revision ${revision.id}`);
         try {
