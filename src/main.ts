@@ -543,32 +543,49 @@ export default class VaultSync extends Plugin {
 
         this.settings = Object.assign({}, DEFAULT_SETTINGS, loadedSettings);
 
-        // SEC-001: Ensure encryption secret exists (Saved to Local Data)
-        if (!this.settings.encryptionSecret) {
-            const array = new Uint8Array(32);
-            window.crypto.getRandomValues(array);
-            this.settings.encryptionSecret = Array.from(array, (b) =>
-                b.toString(16).padStart(2, "0"),
-            ).join("");
-            await this.saveSettings();
-        }
-
-        // Initialize SecureStorage with the secret
+        // SEC-010: Initialize SecureStorage early to use its Keychain methods
         this.secureStorage = new SecureStorage(
             this.app,
             this.manifest.dir || "",
-            this.settings.encryptionSecret,
+            this.settings.encryptionSecret || "temp-key",
         );
 
-        // DEBUG: Temporary notice to help debug path issues
-        this.secureStorage.loadCredentials().then((creds) => {
-            /* new Notice(
-                `SecureStorage Path: ${(this.secureStorage as any).filePath}\nLoaded: ${!!creds}`,
-            ); */
-        });
+        // SEC-011: Prioritize encryptionSecret from Keychain
+        if (this.app.secretStorage) {
+            const keychainSecret = await this.secureStorage.getExtraSecret("encryption-secret");
+            if (keychainSecret) {
+                this.settings.encryptionSecret = keychainSecret;
+                // Update internal secret for file-based fallback support
+                this.secureStorage.setMasterSecret(keychainSecret);
+            } else if (this.settings.encryptionSecret) {
+                // Migrate from file to Keychain
+                console.log("VaultSync: Migrating encryptionSecret to Keychain...");
+                await this.secureStorage.setExtraSecret(
+                    "encryption-secret",
+                    this.settings.encryptionSecret,
+                );
+                // After migration, we save settings to clean up the local file
+                await this.saveSettings();
+            }
+        }
+
+        // SEC-001: Ensure encryption secret exists (if not found in file or Keychain)
+        if (!this.settings.encryptionSecret) {
+            const array = new Uint8Array(32);
+            window.crypto.getRandomValues(array);
+            const newSecret = Array.from(array, (b) => b.toString(16).padStart(2, "0")).join("");
+            this.settings.encryptionSecret = newSecret;
+            this.secureStorage.setMasterSecret(newSecret);
+
+            if (this.app.secretStorage) {
+                await this.secureStorage.setExtraSecret("encryption-secret", newSecret);
+            }
+            await this.saveSettings();
+        }
 
         // Load credentials from Secure Storage
         const credentials = await this.secureStorage.loadCredentials();
+
         if (credentials) {
             this.adapter.setCredentials(credentials.clientId || "", credentials.clientSecret || "");
             this.adapter.setTokens(
@@ -625,6 +642,10 @@ export default class VaultSync extends Plugin {
         for (const key in this.settings) {
             if (Object.prototype.hasOwnProperty.call(this.settings, key)) {
                 if (localKeys.includes(key)) {
+                    // SEC-012: Do not save encryptionSecret to file if Keychain is active
+                    if (key === "encryptionSecret" && this.app.secretStorage) {
+                        continue;
+                    }
                     localData[key] = (this.settings as any)[key];
                 } else {
                     openData[key] = (this.settings as any)[key];

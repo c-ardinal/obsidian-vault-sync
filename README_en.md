@@ -15,7 +15,7 @@ Leveraging Google Drive, it provides robust data consistency and a fast synchron
 - **Revision History & Diff View**: Retrieves file revisions from Google Drive, allowing for diff visualization against the local version and restoration of past versions.
 - **Mobile Optimized**: Built on the `fetch` API to run on both desktop and mobile. Features include auto-sync on edit-stop or save, and layout change triggers (e.g., when switching tabs).
 - **Granular Sync Settings**: Selectively sync settings, plugins, themes, and hotkeys within `.obsidian`. Cache and temporary files are automatically excluded.
-- **Secure Authentication & Storage**: OAuth2 authentication using PKCE. Credentials are separated from the main settings and saved in dedicated secure storage (encrypted with a device-specific key).
+- **Secure Authentication & Storage**: OAuth2 authentication using PKCE. Credentials are separated from the main settings and saved using system-standard secure storage (Keychain/Credential Manager).
 
 ---
 
@@ -84,7 +84,7 @@ To use this plugin, you must create a Google Cloud Project and obtain your own *
 ## 🔒 Privacy and Security
 
 - **Direct Communication**: This plugin communicates directly with the Google Drive API without going through any third-party servers.
-- **Auth Protection**: Authentication tokens and secrets are encrypted using a device-specific key (AES-GCM) and kept in secure storage.
+- **Auth Protection**: Sensitive information such as Client IDs, tokens, and encryption secrets are stored directly in the OS-standard secure storage (Keychain/Credential Manager) via Obsidian's Secret Storage API. This minimizes the presence of sensitive files within the Vault. In environments where Secret Storage is unavailable, the plugin automatically falls back to local file storage encrypted with a device-specific key (AES-GCM) to maintain high security.
 - **Data Location**: Your synced data is stored exclusively in your own Google Drive storage (in the root folder you specify).
 - **Important**: Note data (Markdown files, etc.) is uploaded to Google Drive in **plain text (without encryption)**. While protected by Google Drive's security model (HTTPS transfer, server-side encryption), this plugin does NOT provide End-to-End Encryption (E2EE). Please be cautious when handling highly sensitive information.
 

@@ -36,49 +36,73 @@ describe("SecureStorage", () => {
         expect((storage as any).filePath).toBe("data/local/.sync-state");
     });
 
-    it("should create directories and save credentials recursively", async () => {
+    it("should NOT create directories or file if Keychain is active", async () => {
         const data = { token: "abc", refresh: "def" };
 
         // Initial state: data/local does not exist
         expect(await app.vault.adapter.exists("data")).toBe(false);
-        expect(await app.vault.adapter.exists("data/local")).toBe(false);
 
         await storage.saveCredentials(data);
 
-        // Verify directories created
-        // MockVaultAdapter's mkdir simply adds to a Set.
-        // My secure-storage calls createFolder which calls mkdir.
-        // And my ensuresDir logic explicitly calls createFolder.
+        // Verify directories NOT created (we no longer need them if Keychain works)
+        expect(await app.vault.adapter.exists("data")).toBe(false);
 
-        // Verify folder structure exists in mock adapter
-        expect(await app.vault.adapter.exists("data")).toBe(true);
-        expect(await app.vault.adapter.exists("data/local")).toBe(true);
+        // Verify file does NOT exist
+        expect(await app.vault.adapter.exists("data/local/.sync-state")).toBe(false);
 
-        // Verify file exists
-        expect(await app.vault.adapter.exists("data/local/.sync-state")).toBe(true);
-
-        // Verify content encrypted
-        const content = await app.vault.adapter.readBinary("data/local/.sync-state");
-        expect(content.byteLength).toBeGreaterThan(0);
+        // Verify it IS in Keychain
+        const secretId = (storage as any).secretId;
+        expect(app.secretStorage.getSecret(secretId)).toBe(JSON.stringify(data));
     });
 
     it("should load saved credentials", async () => {
         const data = { foo: "bar" };
         await storage.saveCredentials(data);
 
+        // Should load from secretStorage first
         const loaded = await storage.loadCredentials();
         expect(loaded).toEqual(data);
+
+        // Verify it was indeed in secretStorage
+        const secretId = (storage as any).secretId;
+        expect(app.secretStorage.getSecret(secretId)).toBe(JSON.stringify(data));
     });
 
-    it("should fail gracefully if file corrupted", async () => {
+    it("should fallback to file if secretStorage is empty", async () => {
+        const data = { secret: "file-only" };
+
+        // Bypass secretStorage for saving to test fallback
+        const originalSecretStorage = app.secretStorage;
+        (app as any).secretStorage = null;
+        await storage.saveCredentials(data);
+        (app as any).secretStorage = originalSecretStorage;
+
+        // secretStorage is empty, should load from file
+        const loaded = await storage.loadCredentials();
+        expect(loaded).toEqual(data);
+
+        // After loading, it should have migrated to secretStorage
+        const secretId = (storage as any).secretId;
+        expect(app.secretStorage.getSecret(secretId)).toBe(JSON.stringify(data));
+    });
+
+    it("should fail gracefully if file corrupted and secretStorage empty", async () => {
         const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
+        // Save to file only
+        const originalSecretStorage = app.secretStorage;
+        (app as any).secretStorage = null;
         await storage.saveCredentials({ a: 1 });
-        // Corrupt file by writing random bytes
+
+        // Corrupt file
         await app.vault.adapter.writeBinary(
             "data/local/.sync-state",
             new Uint8Array([1, 2, 3]).buffer,
         );
+
+        (app as any).secretStorage = originalSecretStorage;
+        // secretStorage is still empty (from before)
+        app.secretStorage.setSecret((storage as any).secretId, "");
 
         const loaded = await storage.loadCredentials();
         expect(loaded).toBeNull();
@@ -87,48 +111,40 @@ describe("SecureStorage", () => {
         errorSpy.mockRestore();
     });
 
-    it("should migrate legacy credentials if they exist", async () => {
+    it("should migrate legacy credentials to secretStorage and delete local file", async () => {
         const legacyPath = ".sync-state";
         const targetPath = "data/local/.sync-state";
         const legacyData = { legacy: true };
 
-        // We need to create a valid legacy file first.
-        // To do this, we can cheat and use storage to generate encrypted content,
-        // then move it to legacy location.
-        // This simulates a "valid encrypted legacy file".
-        // If legacy file was unencrypted, it would fail load, which is expected behavior for major version upgrades
-        // unless I handled unencrypted migration. But let's assume valid encrypted legacy.
-
+        // Save to file (simulating legacy)
+        const originalSecretStorage = app.secretStorage;
+        (app as any).secretStorage = null;
         await storage.saveCredentials(legacyData);
+        (app as any).secretStorage = originalSecretStorage;
+
         const content = await app.vault.adapter.readBinary(targetPath);
-
-        // Clear target
         await app.vault.adapter.remove(targetPath);
-        // Clear folders to test ensureDir during migration
-        // Note: adapter.remove doesn't remove parent folders automatically unless empty? Mock doesn't track folder content.
-        // We can manually remove folders from mock set.
-        (app.vaultAdapter as any).folders.clear();
-
-        // Place at legacy location
         await app.vault.adapter.writeBinary(legacyPath, content);
 
-        expect(await app.vault.adapter.exists(legacyPath)).toBe(true);
-        expect(await app.vault.adapter.exists(targetPath)).toBe(false);
-
-        // Load should trigger migration
-        console.log("Migrating...");
         const loaded = await storage.loadCredentials();
 
         expect(loaded).toEqual(legacyData);
+        // Verify migration and deletion
         expect(await app.vault.adapter.exists(legacyPath)).toBe(false);
-        expect(await app.vault.adapter.exists(targetPath)).toBe(true);
+        expect(await app.vault.adapter.exists(targetPath)).toBe(false); // Should be deleted now!
+        const secretId = (storage as any).secretId;
+        expect(app.secretStorage.getSecret(secretId)).toBe(JSON.stringify(legacyData));
     });
 
-    it("should handle directory creation race condition (simulated)", async () => {
+    it("should handle directory creation race condition in fallback mode", async () => {
         // Spy on createFolder
         const createSpy = vi.spyOn(app.vault, "createFolder");
 
+        // Bypass secretStorage to trigger ensureDir via file-save fallback
+        const originalSecretStorage = app.secretStorage;
+        (app as any).secretStorage = null;
         await storage.saveCredentials({ test: 1 });
+        (app as any).secretStorage = originalSecretStorage;
 
         // ensureDir logic:
         // 1. Check full dir "data/local". In mock, initially false.
