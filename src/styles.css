@@ -8,8 +8,22 @@
     }
 }
 
+@keyframes pulse {
+    0% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.4;
+    }
+    100% {
+        opacity: 1;
+    }
+}
+
 .vault-sync-spinning svg {
-    animation: spin 1s linear infinite;
+    animation:
+        spin 1s linear infinite,
+        pulse 1.5s ease-in-out infinite;
     color: var(--text-accent);
 }
 
@@ -512,4 +526,45 @@
 /* Respect newlines in setting descriptions */
 .vault-sync-settings-container .setting-item-description {
     white-space: pre-wrap;
+}
+
+/* Mobile Floating Action Button (FAB) */
+.vault-sync-mobile-fab {
+    display: none;
+}
+
+.is-mobile .vault-sync-mobile-fab {
+    display: flex;
+    position: fixed;
+    top: calc(60px + env(safe-area-inset-top)); /* Moved lower to clear status bar */
+    left: 50%;
+    transform: translateX(-50%) scale(0.7); /* Smaller and centered */
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background-color: var(--interactive-accent);
+    color: var(--text-on-accent);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    z-index: 9999;
+    justify-content: center;
+    align-items: center;
+    touch-action: manipulation;
+
+    /* Initial state: hidden */
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    pointer-events: none;
+}
+
+.is-mobile .vault-sync-mobile-fab.is-active {
+    opacity: 0.9;
+    visibility: visible;
+    transform: translateX(-50%) scale(0.9); /* Subtle appearance */
+    pointer-events: none; /* Changed from auto to none */
+}
+
+.is-mobile .vault-sync-mobile-fab svg {
+    width: 20px;
+    height: 20px;
 }

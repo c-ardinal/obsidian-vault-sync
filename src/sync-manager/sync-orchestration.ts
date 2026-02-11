@@ -14,12 +14,7 @@ import {
     shouldNotBeOnRemote,
     shouldIgnore,
 } from "./file-utils";
-import {
-    loadCommunication,
-    saveIndex,
-    saveLocalIndex,
-    clearPendingPushStates,
-} from "./state";
+import { loadCommunication, saveIndex, saveLocalIndex, clearPendingPushStates } from "./state";
 import { pullFileSafely } from "./merge";
 
 // ==========================================================================
@@ -347,11 +342,7 @@ export async function executeSmartSync(
             await ctx.pullViaChangesAPI(isSilent, true);
 
             // Re-confirm completion after identity check
-            await ctx.notify(
-                ctx.t("noticePushCompleted").replace("{0}", "1"),
-                false,
-                isSilent,
-            );
+            await ctx.notify(ctx.t("noticePushCompleted").replace("{0}", "1"), false, isSilent);
         }
 
         if (!pulled && !pushed) {
@@ -416,9 +407,7 @@ export async function smartPull(ctx: SyncContext, isSilent: boolean): Promise<bo
             await ctx.log("[Smart Pull] Using Changes API (fast path)");
             return await pullViaChangesAPI(ctx, isSilent);
         } else {
-            await ctx.log(
-                "[Smart Pull] Initializing Changes API token (will be used next time)",
-            );
+            await ctx.log("[Smart Pull] Initializing Changes API token (will be used next time)");
             try {
                 ctx.startPageToken = await ctx.adapter.getStartPageToken();
                 await saveIndex(ctx);
@@ -663,9 +652,7 @@ export async function smartPull(ctx: SyncContext, isSilent: boolean): Promise<bo
                     const meta = await ctx.adapter.getFileMetadata(folder);
                     if (meta?.id) {
                         await ctx.adapter.deleteFile(meta.id);
-                        await ctx.log(
-                            `[Smart Pull] [Cleanup] Wiped forbidden folder: ${folder}`,
-                        );
+                        await ctx.log(`[Smart Pull] [Cleanup] Wiped forbidden folder: ${folder}`);
                         // Cleanup index entries
                         const prefix = folder + "/";
                         for (const path of Object.keys(ctx.index)) {
@@ -676,9 +663,7 @@ export async function smartPull(ctx: SyncContext, isSilent: boolean): Promise<bo
                         }
                     }
                 } catch (e) {
-                    await ctx.log(
-                        `[Smart Pull] [Cleanup] Folder wipe failed: ${folder} - ${e}`,
-                    );
+                    await ctx.log(`[Smart Pull] [Cleanup] Folder wipe failed: ${folder} - ${e}`);
                 }
             });
         }
@@ -687,15 +672,11 @@ export async function smartPull(ctx: SyncContext, isSilent: boolean): Promise<bo
             tasks.push(async () => {
                 try {
                     await ctx.adapter.deleteFile(file.fileId);
-                    await ctx.log(
-                        `[Smart Pull] [Cleanup] Deleted forbidden file: ${file.path}`,
-                    );
+                    await ctx.log(`[Smart Pull] [Cleanup] Deleted forbidden file: ${file.path}`);
                     delete ctx.index[file.path];
                     delete ctx.localIndex[file.path];
                 } catch (e) {
-                    await ctx.log(
-                        `[Smart Pull] [Cleanup] File delete failed: ${file.path} - ${e}`,
-                    );
+                    await ctx.log(`[Smart Pull] [Cleanup] File delete failed: ${file.path} - ${e}`);
                 }
             });
         }
@@ -763,9 +744,7 @@ export async function pullViaChangesAPI(
             break; // No more changes
         }
 
-        await ctx.log(
-            `[Smart Pull] Changes API page processed (${changes.changes.length} items)`,
-        );
+        await ctx.log(`[Smart Pull] Changes API page processed (${changes.changes.length} items)`);
         hasTotalChanges = true;
 
         // In confirmation mode, if we haven't confirmed anything yet, notify user about the wait
@@ -815,9 +794,7 @@ export async function pullViaChangesAPI(
                                 isSilent,
                             );
                         } catch (e) {
-                            await ctx.log(
-                                `[Smart Pull] Delete failed: ${pathToDelete} - ${e}`,
-                            );
+                            await ctx.log(`[Smart Pull] Delete failed: ${pathToDelete} - ${e}`);
                         }
                     });
                 }
@@ -849,11 +826,7 @@ export async function pullViaChangesAPI(
                 // Check if another device is merging this file
                 const mergeLock = commData.mergeLocks[cloudFile.path];
                 const now = Date.now();
-                if (
-                    mergeLock &&
-                    mergeLock.holder !== ctx.deviceId &&
-                    mergeLock.expiresAt > now
-                ) {
+                if (mergeLock && mergeLock.holder !== ctx.deviceId && mergeLock.expiresAt > now) {
                     await ctx.log(
                         `[Smart Pull] Waiting: ${cloudFile.path} is being merged by ${mergeLock.holder} (expires in ${Math.round((mergeLock.expiresAt - now) / 1000)}s)`,
                     );
@@ -887,8 +860,7 @@ export async function pullViaChangesAPI(
                         if (!targetExists) {
                             try {
                                 // Check if source exists (it might have been deleted locally?)
-                                const sourceExists =
-                                    await ctx.app.vault.adapter.exists(oldPath);
+                                const sourceExists = await ctx.app.vault.adapter.exists(oldPath);
                                 if (sourceExists) {
                                     await ctx.log(
                                         `[Changes API] Remote Rename detected: ${oldPath} -> ${newPath}. Renaming locally.`,
@@ -930,8 +902,7 @@ export async function pullViaChangesAPI(
                                         `[Changes API] Remote Rename: Source ${oldPath} missing locally. Skipping rename.`,
                                     );
                                     if (ctx.index[oldPath]) delete ctx.index[oldPath];
-                                    if (ctx.localIndex[oldPath])
-                                        delete ctx.localIndex[oldPath];
+                                    if (ctx.localIndex[oldPath]) delete ctx.localIndex[oldPath];
                                 }
                             } catch (e) {
                                 await ctx.log(
@@ -985,12 +956,7 @@ export async function pullViaChangesAPI(
                 }
 
                 tasks.push(async () => {
-                    const success = await pullFileSafely(
-                        ctx,
-                        cloudFile,
-                        isSilent,
-                        "Changes API",
-                    );
+                    const success = await pullFileSafely(ctx, cloudFile, isSilent, "Changes API");
                     if (success) {
                         completed++;
                         await ctx.log(`[Changes API] Synced: ${cloudFile.path}`);
@@ -1123,9 +1089,7 @@ export async function smartPush(
     let folderDeletedCount = 0;
     if (ctx.deletedFolders.size > 0) {
         ctx.startActivity(); // Spin if folder deletion needed
-        await ctx.log(
-            `[Smart Push] Processing ${ctx.deletedFolders.size} deleted folder(s)...`,
-        );
+        await ctx.log(`[Smart Push] Processing ${ctx.deletedFolders.size} deleted folder(s)...`);
 
         // Sort by depth (deepest first) to handle nested deletions cleanly
         const folders = Array.from(ctx.deletedFolders).sort((a, b) => b.length - a.length);
@@ -1268,8 +1232,7 @@ export async function smartPush(
                         // Adoption/Shortcut Check:
                         // If index has a hash and it matches current, just update mtime and skip.
                         // If it's a NEW file (!indexEntry), check remote to see if we can adopt it without uploading.
-                        let alreadyOnRemoteFile: CloudFile | null =
-                            null;
+                        let alreadyOnRemoteFile: CloudFile | null = null;
                         if (!localIndexEntry) {
                             try {
                                 alreadyOnRemoteFile = await ctx.adapter.getFileMetadata(path);
@@ -1311,9 +1274,7 @@ export async function smartPush(
                             ctx.index[path] = entry;
                             ctx.localIndex[path] = { ...entry };
                             ctx.dirtyPaths.delete(path);
-                            await ctx.log(
-                                `[Smart Push] Adopted existing remote file: ${path}`,
-                            );
+                            await ctx.log(`[Smart Push] Adopted existing remote file: ${path}`);
                             return;
                         }
 
@@ -1325,9 +1286,7 @@ export async function smartPush(
                             content,
                         });
                     } catch (e) {
-                        await ctx.log(
-                            `[Smart Push] Failed to read ${path} for hash check: ${e}`,
-                        );
+                        await ctx.log(`[Smart Push] Failed to read ${path} for hash check: ${e}`);
                     }
                 }
             } else {
@@ -1364,9 +1323,7 @@ export async function smartPush(
         }
 
         if (foldersToCreate.size > 0) {
-            const sortedFolders = Array.from(foldersToCreate).sort(
-                (a, b) => a.length - b.length,
-            );
+            const sortedFolders = Array.from(foldersToCreate).sort((a, b) => a.length - b.length);
             await ctx.adapter.ensureFoldersExist(sortedFolders);
         }
 
@@ -1382,9 +1339,7 @@ export async function smartPush(
                     if (currentStat && currentStat.mtime !== file.mtime) {
                         // File was modified after queue creation - re-mark as dirty and skip
                         ctx.dirtyPaths.add(file.path);
-                        await ctx.log(
-                            `[Smart Push] Skipped (modified during sync): ${file.path}`,
-                        );
+                        await ctx.log(`[Smart Push] Skipped (modified during sync): ${file.path}`);
                         return;
                     }
 
@@ -1505,9 +1460,7 @@ export async function smartPush(
                     ctx.dirtyPaths.delete(file.path);
 
                     completed++;
-                    await ctx.log(
-                        `[Smart Push] [${completed}/${totalOps}] Pushed: ${file.path}`,
-                    );
+                    await ctx.log(`[Smart Push] [${completed}/${totalOps}] Pushed: ${file.path}`);
                     await ctx.notify(
                         `${ctx.t("noticeFilePushed")}: ${file.path.split("/").pop()}`,
                         true,
@@ -1603,9 +1556,7 @@ export async function smartPush(
                         // Already "deleted" on remote by others or previous run.
                         delete ctx.localIndex[path];
                         ctx.dirtyPaths.delete(path);
-                        await ctx.log(
-                            `[Smart Push] Cleaned up zombie entry (local only): ${path}`,
-                        );
+                        await ctx.log(`[Smart Push] Cleaned up zombie entry (local only): ${path}`);
                     }
                 } catch (e) {
                     await ctx.log(`[Smart Push] Delete failed: ${path} - ${e}`);
@@ -1798,9 +1749,7 @@ export async function executeFullScan(ctx: SyncContext): Promise<void> {
                 } else if (localFile && !indexEntry && remoteFile.hash) {
                     // File exists locally but not in index - check if it matches remote
                     try {
-                        const content = await ctx.app.vault.adapter.readBinary(
-                            remoteFile.path,
-                        );
+                        const content = await ctx.app.vault.adapter.readBinary(remoteFile.path);
                         const localHash = md5(content);
                         if (localHash === remoteFile.hash.toLowerCase()) {
                             // Adopt into index - treat as "pull" since we're accepting remote state

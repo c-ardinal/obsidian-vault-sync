@@ -23,6 +23,7 @@ export default class VaultSync extends Plugin {
     private manualSyncInProgress = false;
     private lastSaveRequestTime = 0;
     private lastModifyTime = 0;
+    private mobileSyncFabEl: HTMLElement | null = null;
     private autoSyncInterval: number | null = null;
 
     async onload() {
@@ -73,15 +74,31 @@ export default class VaultSync extends Plugin {
         // Register Activity Callbacks for Auto-Sync Animation
         this.syncManager.setActivityCallbacks(
             () => {
-                if (!this.manualSyncInProgress && this.syncRibbonIconEl) {
-                    setIcon(this.syncRibbonIconEl, "sync");
-                    this.syncRibbonIconEl.addClass("vault-sync-spinning");
+                const targets = [];
+                if (!this.manualSyncInProgress && this.syncRibbonIconEl)
+                    targets.push(this.syncRibbonIconEl);
+                if (this.mobileSyncFabEl) {
+                    targets.push(this.mobileSyncFabEl);
+                    this.mobileSyncFabEl.addClass("is-active");
+                }
+
+                for (const el of targets) {
+                    setIcon(el, "sync");
+                    el.addClass("vault-sync-spinning");
                 }
             },
             () => {
-                if (!this.manualSyncInProgress && this.syncRibbonIconEl) {
-                    this.syncRibbonIconEl.removeClass("vault-sync-spinning");
-                    setIcon(this.syncRibbonIconEl, "sync");
+                const targets = [];
+                if (!this.manualSyncInProgress && this.syncRibbonIconEl)
+                    targets.push(this.syncRibbonIconEl);
+                if (this.mobileSyncFabEl) {
+                    targets.push(this.mobileSyncFabEl);
+                    this.mobileSyncFabEl.removeClass("is-active");
+                }
+
+                for (const el of targets) {
+                    el.removeClass("vault-sync-spinning");
+                    setIcon(el, "sync");
                 }
             },
         );
@@ -150,6 +167,15 @@ export default class VaultSync extends Plugin {
             },
         });
 
+        // 3. Mobile Floating Action Button (FAB) -> Fixed Top Center Indicator
+        if (Platform.isMobile) {
+            this.app.workspace.onLayoutReady(() => {
+                this.mobileSyncFabEl = document.body.createDiv("vault-sync-mobile-fab");
+                setIcon(this.mobileSyncFabEl, "sync");
+                this.mobileSyncFabEl.setAttribute("aria-label", t("labelSyncTooltip"));
+            });
+        }
+
         this.addSettingTab(new VaultSyncSettingTab(this.app, this));
 
         this.setupAutoSyncInterval();
@@ -177,6 +203,25 @@ export default class VaultSync extends Plugin {
         if (this.autoSyncInterval) {
             window.clearInterval(this.autoSyncInterval);
         }
+        if (this.mobileSyncFabEl) {
+            this.mobileSyncFabEl.remove();
+        }
+    }
+
+    private async manualSyncTrigger() {
+        const targets = [];
+        if (this.syncRibbonIconEl)
+            targets.push({ element: this.syncRibbonIconEl, originalIcon: "sync" });
+        if (this.mobileSyncFabEl)
+            targets.push({ element: this.mobileSyncFabEl, originalIcon: "sync" });
+
+        if (targets.length > 0) {
+            await this.performSyncOperation(targets, () =>
+                this.syncManager.requestSmartSync(false),
+            );
+        } else {
+            await this.syncManager.requestSmartSync(false);
+        }
     }
 
     async performSyncOperation(
@@ -191,6 +236,9 @@ export default class VaultSync extends Plugin {
         for (const target of targets) {
             setIcon(target.element, "sync");
             target.element.addClass("vault-sync-spinning");
+            if (target.element.classList.contains("vault-sync-mobile-fab")) {
+                target.element.addClass("is-active");
+            }
         }
 
         try {
@@ -198,6 +246,9 @@ export default class VaultSync extends Plugin {
         } finally {
             for (const target of targets) {
                 target.element.removeClass("vault-sync-spinning");
+                if (target.element.classList.contains("vault-sync-mobile-fab")) {
+                    target.element.removeClass("is-active");
+                }
                 // Revert to original icon
                 setIcon(target.element, target.originalIcon);
             }
