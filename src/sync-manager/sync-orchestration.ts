@@ -329,20 +329,11 @@ export async function executeSmartSync(
         }
         const pushed = await ctx.smartPush(isSilent, scanVault);
 
-        // === CONFIRMATION PHASE (Initial Sync Only) ===
-        // For initial sync (scanVault=true, isSilent=false) with Changes API support,
-        // we immediately check for our own pushes to confirm identity and update ancestor hashes.
-        // Skipped during startup sync (isSilent=true) since confirmation is only needed on first sync.
-        if (pushed && scanVault && !isSilent && ctx.adapter.supportsChangesAPI) {
-            await ctx.log(
-                "[Smart Sync] Initial sync push detected. Running immediate identity check...",
-            );
-            await ctx.notify(ctx.t("noticeInitialSyncConfirmation"), false, isSilent);
-
-            await ctx.pullViaChangesAPI(isSilent, true);
-
-            // Re-confirm completion after identity check
-            await ctx.notify(ctx.t("noticePushCompleted").replace("{0}", "1"), false, isSilent);
+        // === POST-PUSH PULL PHASE ===
+        // After pushing, immediately pull again to detect conflicts from other devices
+        // and confirm sync state (ancestorHash update).
+        if (pushed) {
+            await postPushPull(ctx, isSilent);
         }
 
         if (!pulled && !pushed) {
@@ -355,6 +346,39 @@ export async function executeSmartSync(
         throw e;
     } finally {
         ctx.endActivity();
+    }
+}
+
+// ==========================================================================
+// Post-Push Pull (with retry)
+// ==========================================================================
+
+/**
+ * Execute a pull after push to immediately detect conflicts and confirm sync state.
+ * Uses the same logic as the first pull (smartPull or pullViaChangesAPI).
+ * Retries on failure since the push already succeeded - this is confirmation only.
+ */
+async function postPushPull(
+    ctx: SyncContext,
+    isSilent: boolean,
+    maxRetries: number = 2,
+): Promise<void> {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+            await ctx.log(`[Post-Push Pull] Starting confirmation pull (attempt ${attempt + 1}/${maxRetries + 1})...`);
+            if (ctx.adapter.supportsChangesAPI) {
+                await ctx.pullViaChangesAPI(isSilent, true);
+            } else {
+                await ctx.smartPull(isSilent);
+            }
+            await ctx.log("[Post-Push Pull] Confirmation pull completed.");
+            return;
+        } catch (e) {
+            await ctx.log(`[Post-Push Pull] Attempt ${attempt + 1}/${maxRetries + 1} failed: ${e}`);
+            if (attempt === maxRetries) {
+                await ctx.log("[Post-Push Pull] All retries exhausted. Skipping confirmation pull.");
+            }
+        }
     }
 }
 
