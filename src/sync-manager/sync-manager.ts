@@ -14,39 +14,63 @@ import type {
     MergeLockEntry,
     CommunicationData,
 } from "./types";
+import {
+    PLUGIN_DIR,
+    INTERNAL_LOCAL_ONLY,
+    INTERNAL_REMOTE_MANAGED,
+    SYSTEM_IGNORES,
+    OBSIDIAN_SYSTEM_IGNORES,
+    OBSIDIAN_WORKSPACE_FILES,
+    ensureLocalFolder as _ensureLocalFolder,
+    listFilesRecursive as _listFilesRecursive,
+    getLocalFiles as _getLocalFiles,
+    compress as _compress,
+    tryDecompress as _tryDecompress,
+    runParallel as _runParallel,
+    isManagedSeparately as _isManagedSeparately,
+    shouldNotBeOnRemote as _shouldNotBeOnRemote,
+    shouldIgnore as _shouldIgnore,
+} from "./file-utils";
+import type { SyncContext } from "./context";
+import {
+    loadCommunication as _loadCommunication,
+    saveCommunication as _saveCommunication,
+    acquireMergeLock as _acquireMergeLock,
+    releaseMergeLock as _releaseMergeLock,
+    checkMergeLock as _checkMergeLock,
+    loadIndex as _loadIndex,
+    loadLocalIndex as _loadLocalIndex,
+    saveIndex as _saveIndex,
+    saveLocalIndex as _saveLocalIndex,
+    resetIndex as _resetIndex,
+    clearPendingPushStates as _clearPendingPushStates,
+    markDirty as _markDirty,
+    markDeleted as _markDeleted,
+    markFolderDeleted as _markFolderDeleted,
+    markRenamed as _markRenamed,
+    markFolderRenamed as _markFolderRenamed,
+    getSyncState as _getSyncState,
+    hasDirtyFiles as _hasDirtyFiles,
+    isFreshStart as _isFreshStart,
+} from "./state";
+import {
+    supportsHistory as _supportsHistory,
+    listRevisions as _listRevisions,
+    getRevisionContent as _getRevisionContent,
+    setRevisionKeepForever as _setRevisionKeepForever,
+    deleteRevision as _deleteRevision,
+    restoreRevision as _restoreRevision,
+} from "./history";
 export type { SyncManagerSettings, LocalFileIndex, SyncState, FullScanProgress, CommunicationData };
 
 export class SyncManager {
-    // === System-level internal files (Local only or Custom management) ===
-    private static readonly PLUGIN_DIR = ".obsidian/plugins/obsidian-vault-sync/";
-
-    private static readonly INTERNAL_LOCAL_ONLY = ["cache/", "data/local/"];
-
-    /** Files managed by custom logic (e.g. saveIndex), skipped by generic sync loop */
-    private static readonly INTERNAL_REMOTE_MANAGED = [
-        "data/remote/sync-index.json",
-        "data/remote/sync-index_raw.json",
-        "data/remote/communication.json",
-        // data/remote/data.json is removed (now handles flexible data as normal file)
-    ];
-
-    /** General system-level files that should be ignored and cleaned up from remote if found */
-    private static readonly SYSTEM_IGNORES = [
-        "_VaultSync_Debug.log",
-        "_VaultSync_Orphans/",
-        ".DS_Store",
-        "Thumbs.db",
-    ];
-
-    /** Obsidian internal transient files (Ignored and cleaned up from remote if not synced) */
-    private static readonly OBSIDIAN_SYSTEM_IGNORES = [
-        "cache/",
-        "indexedDB/",
-        "backups/",
-        ".trash/",
-    ];
-
-    private static readonly OBSIDIAN_WORKSPACE_FILES = ["workspace.json", "workspace-mobile.json"];
+    // Constants delegated to file-utils.ts
+    private static readonly PLUGIN_DIR = PLUGIN_DIR;
+    private static readonly INTERNAL_LOCAL_ONLY = INTERNAL_LOCAL_ONLY;
+    private static readonly INTERNAL_REMOTE_MANAGED = INTERNAL_REMOTE_MANAGED;
+    private static readonly SYSTEM_IGNORES = SYSTEM_IGNORES;
+    private static readonly OBSIDIAN_SYSTEM_IGNORES = OBSIDIAN_SYSTEM_IGNORES;
+    private static readonly OBSIDIAN_WORKSPACE_FILES = OBSIDIAN_WORKSPACE_FILES;
 
     private index: LocalFileIndex = {};
     private localIndex: LocalFileIndex = {};
@@ -233,655 +257,98 @@ export class SyncManager {
     }
 
     private async ensureLocalFolder(filePath: string) {
-        // Ensure path uses forward slashes regardless of OS
-        filePath = normalizePath(filePath);
-        const parts = filePath.split("/");
-        if (parts.length <= 1) return;
-
-        const folderPath = parts.slice(0, -1).join("/");
-        if (await this.app.vault.adapter.exists(folderPath)) return;
-
-        // Iterate and create each segment if needed
-        let currentPath = "";
-        for (const part of parts.slice(0, -1)) {
-            currentPath += (currentPath ? "/" : "") + part;
-            if (!(await this.app.vault.adapter.exists(currentPath))) {
-                try {
-                    await this.app.vault.createFolder(currentPath);
-                } catch (e) {
-                    // Ignore race conditions
-                    console.debug("VaultSync: Race condition in mkdir ignored", e);
-                }
-            }
-        }
+        return _ensureLocalFolder(this as unknown as SyncContext, filePath);
     }
 
-    /**
-     * Clear pending push/merge states since sync is confirmed.
-     * This prevents Safety Guard from triggering on subsequent remote updates.
-     */
     private clearPendingPushStates(): void {
-        for (const path of Object.keys(this.localIndex)) {
-            const entry = this.localIndex[path];
-            if (entry.lastAction === "push" || entry.lastAction === "merge") {
-                entry.lastAction = "pull";
-            }
-        }
+        _clearPendingPushStates(this as unknown as SyncContext);
     }
 
-    // === Communication.json Management ===
-
-    /**
-     * Load communication data from remote.
-     * Returns empty structure if file doesn't exist or can't be read.
-     */
+    // === Communication.json Management (delegated to state.ts) ===
     private async loadCommunication(): Promise<CommunicationData> {
-        try {
-            const meta = await this.adapter.getFileMetadata(this.communicationPath);
-            if (!meta) {
-                return { mergeLocks: {}, lastUpdated: 0 };
-            }
-            const content = await this.adapter.downloadFile(meta.id);
-            const text = new TextDecoder().decode(content);
-            const data = JSON.parse(text) as CommunicationData;
-            // Clean up expired locks
-            const now = Date.now();
-            for (const [path, lock] of Object.entries(data.mergeLocks)) {
-                if (lock.expiresAt < now) {
-                    delete data.mergeLocks[path];
-                }
-            }
-            return data;
-        } catch (e) {
-            await this.log(`[Communication] Failed to load: ${e}`);
-            return { mergeLocks: {}, lastUpdated: 0 };
-        }
+        return _loadCommunication(this as unknown as SyncContext);
     }
 
-    /**
-     * Save communication data to remote.
-     * uploadFile handles both create and update (PATCH for existing files).
-     */
     private async saveCommunication(data: CommunicationData): Promise<void> {
-        try {
-            data.lastUpdated = Date.now();
-            const content = new TextEncoder().encode(JSON.stringify(data, null, 2));
-            await this.adapter.uploadFile(
-                this.communicationPath,
-                content.buffer as ArrayBuffer,
-                Date.now(),
-            );
-        } catch (e) {
-            await this.log(`[Communication] Failed to save: ${e}`);
-            throw e;
-        }
+        return _saveCommunication(this as unknown as SyncContext, data);
     }
 
-    /**
-     * Acquire a merge lock for a file path.
-     * Returns true if lock acquired, false if another device holds the lock.
-     */
-    private async acquireMergeLock(
-        path: string,
-    ): Promise<{ acquired: boolean; holder?: string; expiresIn?: number }> {
-        const comm = await this.loadCommunication();
-        const existing = comm.mergeLocks[path];
-        const now = Date.now();
-
-        // Check if another device holds a valid lock
-        if (existing && existing.expiresAt > now && existing.holder !== this.deviceId) {
-            return {
-                acquired: false,
-                holder: existing.holder,
-                expiresIn: Math.floor((existing.expiresAt - now) / 1000),
-            };
-        }
-
-        // Acquire or refresh lock
-        comm.mergeLocks[path] = {
-            holder: this.deviceId,
-            expiresAt: now + 60000, // 60 seconds
-        };
-        await this.saveCommunication(comm);
-
-        // Verify lock was acquired (re-read to check for race)
-        const verify = await this.loadCommunication();
-        const verifyLock = verify.mergeLocks[path];
-        if (verifyLock && verifyLock.holder === this.deviceId) {
-            return { acquired: true };
-        } else {
-            return {
-                acquired: false,
-                holder: verifyLock?.holder,
-                expiresIn: verifyLock ? Math.floor((verifyLock.expiresAt - now) / 1000) : 0,
-            };
-        }
+    private async acquireMergeLock(path: string): Promise<{ acquired: boolean; holder?: string; expiresIn?: number }> {
+        return _acquireMergeLock(this as unknown as SyncContext, path);
     }
 
-    /**
-     * Release a merge lock for a file path.
-     */
     private async releaseMergeLock(path: string, logPrefix?: string): Promise<void> {
-        try {
-            const comm = await this.loadCommunication();
-            const existing = comm.mergeLocks[path];
-            // Only release if we own the lock
-            if (existing && existing.holder === this.deviceId) {
-                delete comm.mergeLocks[path];
-                await this.saveCommunication(comm);
-                await this.log(
-                    `[${logPrefix || "Communication"}] Merge lock released for ${path}.`,
-                );
-            }
-        } catch (e) {
-            await this.log(
-                `[${logPrefix || "Communication"}] Failed to release lock for ${path}: ${e}`,
-            );
-        }
+        return _releaseMergeLock(this as unknown as SyncContext, path, logPrefix);
     }
 
-    /**
-     * Check if a file has an active merge lock from another device.
-     */
-    private async checkMergeLock(
-        path: string,
-    ): Promise<{ locked: boolean; holder?: string; expiresIn?: number }> {
-        const comm = await this.loadCommunication();
-        const existing = comm.mergeLocks[path];
-        const now = Date.now();
-
-        if (existing && existing.expiresAt > now && existing.holder !== this.deviceId) {
-            return {
-                locked: true,
-                holder: existing.holder,
-                expiresIn: Math.floor((existing.expiresAt - now) / 1000),
-            };
-        }
-        return { locked: false };
+    private async checkMergeLock(path: string): Promise<{ locked: boolean; holder?: string; expiresIn?: number }> {
+        return _checkMergeLock(this as unknown as SyncContext, path);
     }
 
+    // === Index Management (delegated to state.ts) ===
     async loadIndex() {
-        try {
-            // Read as binary to support potential Gzip content (e.g. manual restore from cloud)
-            const data = await this.app.vault.adapter.readBinary(this.pluginDataPath);
-            const decompressed = await this.tryDecompress(data);
-            const text = new TextDecoder().decode(decompressed);
-            const parsed = JSON.parse(text);
-            this.index = parsed.index || {};
-            this.startPageToken = parsed.startPageToken || null;
-
-            // If we successfully loaded a compressed file, rewrite it as plain text immediately
-            // to normalize the state
-            if (data.byteLength !== decompressed.byteLength) {
-                await this.log(
-                    "[Index] Detected compressed local index. Normalizing to plain text...",
-                );
-                await this.saveIndex();
-            }
-
-            // Init & Cleanup revision cache
-            await this.revisionCache.init();
-
-            // Load local index (base state for this device)
-            await this.loadLocalIndex();
-        } catch (e) {
-            // FALLBACK TO RAW INDEX
-            const rawPath = this.pluginDataPath.replace(".json", "_raw.json");
-            try {
-                await this.log(
-                    `[Index] Main load failed (${e}). Attempting fallback to raw index: ${rawPath}`,
-                );
-                if (await this.app.vault.adapter.exists(rawPath)) {
-                    const data = await this.app.vault.adapter.read(rawPath);
-                    const parsed = JSON.parse(data);
-                    this.index = parsed.index || {};
-                    this.startPageToken = parsed.startPageToken || null;
-                    await this.log("[Index] Successfully recovered from raw index.");
-
-                    // Save back to main file to restore normalcy
-                    await this.saveIndex();
-                    return;
-                }
-            } catch (rawErr) {
-                await this.log(`[Index] Raw fallback also failed: ${rawErr}`);
-            }
-
-            await this.log(`[Index] Fatal load failure. Starting fresh.`);
-            this.indexLoadFailed = true;
-            this.index = {};
-            this.localIndex = {};
-            this.startPageToken = null;
-        }
+        return _loadIndex(this as unknown as SyncContext, (data) => this.tryDecompress(data));
     }
 
     async loadLocalIndex() {
-        try {
-            if (await this.app.vault.adapter.exists(this.localIndexPath)) {
-                const data = await this.app.vault.adapter.read(this.localIndexPath);
-                const parsed = JSON.parse(data);
-                this.localIndex = parsed.index || {};
-                this.deviceId = parsed.deviceId || "";
-
-                if (!this.deviceId) {
-                    const randomArray = new Uint8Array(4);
-                    if (typeof crypto !== "undefined") crypto.getRandomValues(randomArray);
-                    const suffix = Array.from(randomArray)
-                        .map((b) => b.toString(16).padStart(2, "0"))
-                        .join("");
-                    this.deviceId = md5(
-                        new TextEncoder().encode(Date.now().toString() + suffix).buffer,
-                    ).substring(0, 8);
-                    await this.log(`[Local Index] Generated new device ID: ${this.deviceId}`);
-                    await this.saveLocalIndex();
-                } else {
-                    await this.log(
-                        `[Local Index] Loaded successfully. Device ID: ${this.deviceId}`,
-                    );
-                }
-                // Update log folder to include device ID
-                this.logFolder = `${this.pluginDir}/logs/${this.deviceId}`;
-            } else {
-                // If local-index.json doesn't exist, we might be migrating.
-                // In migration, current 'index' is our best guess for local base.
-                this.localIndex = { ...this.index };
-                const randomArray = new Uint8Array(4);
-                if (typeof crypto !== "undefined") crypto.getRandomValues(randomArray);
-                const suffix = Array.from(randomArray)
-                    .map((b) => b.toString(16).padStart(2, "0"))
-                    .join("");
-                this.deviceId = md5(
-                    new TextEncoder().encode(Date.now().toString() + suffix).buffer,
-                ).substring(0, 8);
-                await this.log(
-                    `[Local Index] Not found. Initialized from shared index (Migration). Device ID: ${this.deviceId}`,
-                );
-                await this.saveLocalIndex();
-                // Update log folder to include device ID
-                this.logFolder = `${this.pluginDir}/logs/${this.deviceId}`;
-            }
-        } catch (e) {
-            await this.log(`[Local Index] Load failed: ${e}`);
-            this.localIndex = {};
-            this.deviceId = md5(
-                new TextEncoder().encode(Date.now().toString() + Math.random().toString()).buffer,
-            ).substring(0, 8);
-        }
+        return _loadLocalIndex(this as unknown as SyncContext);
     }
 
     async saveIndex() {
-        const data = JSON.stringify({
-            index: this.index,
-            startPageToken: this.startPageToken,
-        });
-
-        // Save main file
-        await this.app.vault.adapter.write(this.pluginDataPath, data);
-
-        // Save raw backup (local only, for recovery)
-        const rawPath = this.pluginDataPath.replace(".json", "_raw.json");
-        try {
-            await this.app.vault.adapter.write(rawPath, data);
-        } catch (e) {
-            console.error("VaultSync: Failed to save raw index backup", e);
-        }
-
-        // Save local-only index
-        await this.saveLocalIndex();
+        return _saveIndex(this as unknown as SyncContext);
     }
 
     async saveLocalIndex() {
-        try {
-            const data = JSON.stringify({
-                index: this.localIndex,
-                deviceId: this.deviceId,
-            });
-            await this.app.vault.adapter.write(this.localIndexPath, data);
-        } catch (e) {
-            console.error("VaultSync: Failed to save local index", e);
-        }
+        return _saveLocalIndex(this as unknown as SyncContext);
     }
 
     async resetIndex() {
-        this.index = {};
-        this.localIndex = {};
-        this.startPageToken = null;
-        await this.saveIndex();
+        return _resetIndex(this as unknown as SyncContext);
     }
 
     private async runParallel<T>(
         tasks: (() => Promise<T>)[],
         concurrency: number = this.settings.concurrency,
     ): Promise<T[]> {
-        const results: T[] = [];
-        const queue = [...tasks];
-
-        // Handle invalid concurrency (e.g. -1 for disabled) to avoid RangeError
-        const workerCount = Math.max(0, Math.min(concurrency, queue.length));
-        if (workerCount === 0) return [];
-
-        const workers = Array(workerCount)
-            .fill(null)
-            .map(async () => {
-                while (queue.length > 0) {
-                    const task = queue.shift();
-                    if (task) {
-                        results.push(await task());
-                    }
-                }
-            });
-        await Promise.all(workers);
-        return results;
+        return _runParallel(tasks, concurrency);
     }
 
     private async listFilesRecursive(path: string): Promise<string[]> {
-        const result: string[] = [];
-        const listed = await this.app.vault.adapter.list(path);
-
-        for (const file of listed.files) {
-            result.push(file);
-        }
-
-        for (const folder of listed.folders) {
-            const subFiles = await this.listFilesRecursive(folder);
-            result.push(...subFiles);
-        }
-
-        return result;
+        return _listFilesRecursive(this as unknown as SyncContext, path);
     }
 
     private async getLocalFiles() {
-        // Standard vault files
-        const standardFiles = this.app.vault.getFiles().map((f) => ({
-            path: f.path,
-            mtime: f.stat.mtime,
-            size: f.stat.size,
-            name: f.name,
-        }));
-
-        // Hidden .obsidian files
-        const obsidianFiles: { path: string; mtime: number; size: number; name: string }[] = [];
-        try {
-            const files = await this.listFilesRecursive(".obsidian");
-            for (const path of files) {
-                const stat = await this.app.vault.adapter.stat(path);
-                if (stat) {
-                    obsidianFiles.push({
-                        path,
-                        mtime: stat.mtime,
-                        size: stat.size,
-                        name: path.split("/").pop() || "",
-                    });
-                }
-            }
-        } catch (e) {
-            await this.log(`  Failed to list .obsidian: ${e}`);
-        }
-
-        return [...standardFiles, ...obsidianFiles];
+        return _getLocalFiles(this as unknown as SyncContext);
     }
 
-    // === Compression Helpers ===
+    // === Compression Helpers (delegated to file-utils.ts) ===
     private async compress(data: ArrayBuffer): Promise<ArrayBuffer> {
-        try {
-            const stream = new Blob([data]).stream().pipeThrough(new CompressionStream("gzip"));
-            return await new Response(stream).arrayBuffer();
-        } catch (e) {
-            console.error("Compression failed:", e);
-            return data;
-        }
+        return _compress(data);
     }
 
     private async tryDecompress(data: ArrayBuffer): Promise<ArrayBuffer> {
-        try {
-            const view = new Uint8Array(data);
-            // GZIP magic number: 1F 8B
-            if (view.length > 2 && view[0] === 0x1f && view[1] === 0x8b) {
-                const stream = new Blob([data])
-                    .stream()
-                    .pipeThrough(new DecompressionStream("gzip"));
-                return await new Response(stream).arrayBuffer();
-            }
-        } catch (e) {
-            // If it looked like GZIP but failed, we MUST throw, otherwise we pass binary to JSON.parse
-            if (e instanceof Error) {
-                // Check if it was definitely GZIP
-                const view = new Uint8Array(data);
-                if (view.length > 2 && view[0] === 0x1f && view[1] === 0x8b) {
-                    throw new Error(`Gzip decompression failed: ${e.message}`);
-                }
-            }
-        }
-        return data;
+        return _tryDecompress(data);
     }
 
-    /**
-     * リモートでも管理するデータだが、汎用同期ループ（Push/Pull）ではなく、
-     * saveIndex などの専用ロジックで直接制御されるファイル。
-     * これらは汎用ループからは完全に無視され、クリーンアップ（削除）もされない。
-     */
+    // === Path Filtering (delegated to file-utils.ts) ===
     private isManagedSeparately(path: string): boolean {
-        if (!path.startsWith(SyncManager.PLUGIN_DIR)) return false;
-        const subPath = path.substring(SyncManager.PLUGIN_DIR.length);
-        return SyncManager.INTERNAL_REMOTE_MANAGED.includes(subPath);
+        return _isManagedSeparately(path);
     }
 
-    /**
-     * リモートに存在してはいけない（クリーンアップ対象）ファイルかどうかを判定。
-     * これらがインデックスに存在する場合、リモートから削除される。
-     */
     private shouldNotBeOnRemote(path: string): boolean {
-        // Normalize path first to handle Windows backslashes correctly
-        const normalizedPath = normalizePath(path).toLowerCase();
-        const normalizedWithSlash = normalizedPath.endsWith("/")
-            ? normalizedPath
-            : normalizedPath + "/";
-
-        // 0. 自分のプラグイン (obsidian-vault-sync) の内部ファイルの制御
-        // 元の blanket ignore を削除し、条件付き除外に変更
-        if (normalizedPath.startsWith(".obsidian/plugins/obsidian-vault-sync/")) {
-            const pluginDirPrefix = ".obsidian/plugins/obsidian-vault-sync/";
-            const subPath = normalizedPath.substring(pluginDirPrefix.length);
-            const normalizedSubPath = subPath.endsWith("/") ? subPath : subPath + "/";
-
-            // Logs: 設定により同期可否を制御
-            // "logs" ディレクトリ自体、またはその中身
-            if (normalizedSubPath.startsWith("logs/")) {
-                if (!this.settings.syncDeviceLogs) {
-                    return true;
-                }
-                // syncDeviceLogs = true の場合、logs/ 以下は同期される
-                // ただし、ルート直下のログファイル (logs/*.log) は旧仕様のため除外したほうが無難かもしれないが、
-                // 複雑さを避けるため許可するか、あるいは明示的に除外するか。
-                // logs/{deviceId}/ 以外を除外するロジックを入れると、他端末のログが見えなくなる。
-                // 共有が目的なら他端末のも見えてよい。
-            }
-
-            // Flexible Data: 設定により同期可否を制御
-            if (normalizedSubPath.startsWith("data/flexible/")) {
-                if (!this.settings.syncFlexibleData) {
-                    return true;
-                }
-            }
-        }
-
-        // 1. システム内部のローカル専用ファイル
-        if (normalizedPath.startsWith(SyncManager.PLUGIN_DIR.toLowerCase())) {
-            const subPath = normalizedPath.substring(SyncManager.PLUGIN_DIR.length);
-            const normalizedSubPath = subPath.endsWith("/") ? subPath : subPath + "/";
-
-            if (
-                SyncManager.INTERNAL_LOCAL_ONLY.some((p) => {
-                    const np = p.toLowerCase();
-                    return normalizedSubPath.startsWith(np.endsWith("/") ? np : np + "/");
-                })
-            ) {
-                return true;
-            }
-        }
-
-        // 2. ユーザー設定による除外
-        if (this.settings.exclusionPatterns) {
-            const patterns = this.settings.exclusionPatterns
-                .split("\n")
-                .map((p) => p.trim())
-                .filter((p) => p);
-            for (const pattern of patterns) {
-                // matchWildcard should handle case-insensitivity if implementated correctly,
-                // but we pass normalized path to be sure.
-                if (
-                    matchWildcard(pattern.toLowerCase(), normalizedPath) ||
-                    matchWildcard(pattern.toLowerCase(), normalizedWithSlash)
-                )
-                    return true;
-            }
-        }
-        // 3. システムレベルの除外ファイル（ゴミ等）
-        if (
-            SyncManager.SYSTEM_IGNORES.some((p) => {
-                const np = p.toLowerCase();
-                if (np.endsWith("/")) {
-                    return (
-                        normalizedWithSlash.startsWith(np) || normalizedWithSlash.includes("/" + np)
-                    );
-                }
-                return normalizedPath === np || normalizedPath.endsWith("/" + np);
-            })
-        ) {
-            return true;
-        }
-
-        // 4. Obsidian特定の除外
-        if (normalizedPath.startsWith(".obsidian/")) {
-            // システム的な除外（workspace.jsonなど）は設定に関わらず常に適用
-            if (
-                SyncManager.OBSIDIAN_SYSTEM_IGNORES.some((e) => {
-                    const ne = e.toLowerCase();
-                    if (ne.endsWith("/")) {
-                        return (
-                            normalizedWithSlash.includes("/" + ne) ||
-                            normalizedWithSlash.endsWith("/" + ne)
-                        );
-                    }
-                    return normalizedPath.endsWith("/" + ne);
-                })
-            ) {
-                return true;
-            }
-
-            // workspace.json / workspace-mobile.json
-            if (!this.settings.syncWorkspace) {
-                if (
-                    SyncManager.OBSIDIAN_WORKSPACE_FILES.some((f) =>
-                        normalizedPath.endsWith("/" + f.toLowerCase()),
-                    )
-                ) {
-                    return true;
-                }
-            }
-
-            // --- 新しい同期設定 ---
-
-            // Appearance (themes, snippets)
-            if (!this.settings.syncAppearance) {
-                if (
-                    normalizedPath.startsWith(".obsidian/themes/") ||
-                    normalizedPath.startsWith(".obsidian/snippets/")
-                ) {
-                    return true;
-                }
-            }
-
-            // Community Plugins (plugins)
-            // ※ obsidian-vault-sync は冒頭で除外済み
-            if (!this.settings.syncCommunityPlugins) {
-                // .obsidian/plugins/ 以下のすべて
-                if (normalizedPath.startsWith(".obsidian/plugins/")) {
-                    return true;
-                }
-            }
-
-            // Core Config (app.json, hotkeys.json, etc)
-            if (!this.settings.syncCoreConfig) {
-                // これらはルート直下にあるJSON
-                const coreFiles = [
-                    ".obsidian/app.json",
-                    ".obsidian/appearance.json",
-                    ".obsidian/hotkeys.json",
-                    ".obsidian/core-plugins.json",
-                    ".obsidian/community-plugins.json",
-                    ".obsidian/graph.json",
-                ];
-                if (coreFiles.includes(normalizedPath)) {
-                    return true;
-                }
-            }
-        }
-
-        // 5. 画像・メディアファイル
-        if (!this.settings.syncImagesAndMedia) {
-            const ext = normalizedPath.split(".").pop();
-            const mediaExtensions = [
-                "png",
-                "jpg",
-                "jpeg",
-                "gif",
-                "bmp",
-                "svg",
-                "webp",
-                "mp3",
-                "wav",
-                "ogg",
-                "m4a",
-                "mp4",
-                "mov",
-                "webm",
-                "pdf",
-            ];
-            if (ext && mediaExtensions.includes(ext)) {
-                return true;
-            }
-        }
-
-        // 5. 競合解決ファイル
-        if (/\(conflict \d{4}-\d{2}-\d{2}t\d{2}-\d{2}-\d{2}\)/.test(normalizedPath)) {
-            return true;
-        }
-
-        // 6. ドットファイル (ただし .obsidian フォルダ自体とその中身は同期対象)
-        // 設定により制御: syncDotfiles = false なら除外
-        if (!this.settings.syncDotfiles) {
-            if (
-                normalizedPath.startsWith(".") &&
-                normalizedPath !== ".obsidian" &&
-                !normalizedPath.startsWith(".obsidian/")
-            )
-                return true;
-        }
-
-        return false;
+        return _shouldNotBeOnRemote(this as unknown as SyncContext, path);
     }
 
     public shouldIgnore(path: string): boolean {
-        // 個別管理ファイル、あるいはリモート禁止ファイルの両方を「スキャン対象外」とする
-        return this.isManagedSeparately(path) || this.shouldNotBeOnRemote(path);
+        return _shouldIgnore(this as unknown as SyncContext, path);
     }
 
     // ==========================================================================
     // Hybrid Sync Implementation (Smart Sync + Interruptible Background Scan)
     // ==========================================================================
 
-    /**
-     * Mark a file as dirty (modified locally, needs push)
-     * Called from main.ts on file modify/create events
-     */
     markDirty(path: string) {
-        // Ensure consistent path format across OS
-        path = normalizePath(path);
-        if (this.shouldIgnore(path)) return;
-        if (this.syncingPaths.has(path)) return;
-
-        this.dirtyPaths.add(path);
-        // this.log(`[Dirty] Marked: ${path}`);
+        _markDirty(this as unknown as SyncContext, path);
     }
 
     /**
@@ -1073,135 +540,33 @@ export class SyncManager {
         }
     }
 
-    /**
-     * Mark a file as deleted locally (needs remote deletion)
-     * Called from main.ts on file delete events
-     */
+    // === Dirty Tracking & State Queries (delegated to state.ts) ===
     markDeleted(path: string) {
-        if (this.shouldIgnore(path)) return;
-        // Keep in dirtyPaths so smartPush can detect and delete from remote
-        // (smartPush checks if file exists, and if not + in index, adds to deleteQueue)
-        if (this.index[path]) {
-            this.dirtyPaths.add(path);
-            this.log(`[Dirty] Marked for deletion: ${path}`);
-        }
+        _markDeleted(this as unknown as SyncContext, path);
     }
 
-    /**
-     * Mark all files in a folder as deleted locally
-     * Called from main.ts on folder delete events
-     */
     markFolderDeleted(folderPath: string) {
-        if (this.shouldIgnore(folderPath)) return;
-        this.deletedFolders.add(folderPath); // Track folder for efficient remote deletion
-        this.log(`[Dirty] Marked for deletion (folder root): ${folderPath}`);
-
-        const prefix = folderPath + "/";
-        for (const path of Object.keys(this.index)) {
-            if (path.startsWith(prefix) && !this.shouldIgnore(path)) {
-                this.dirtyPaths.add(path);
-                this.log(`[Dirty] Marked for deletion (child): ${path}`);
-            }
-        }
+        _markFolderDeleted(this as unknown as SyncContext, folderPath);
     }
 
-    /**
-     * Mark a file as renamed (handles both regular renames and "create then rename" cases)
-     * Called from main.ts on file rename events
-     */
     markRenamed(oldPath: string, newPath: string) {
-        if (this.shouldIgnore(newPath)) return;
-
-        const oldDir = oldPath.substring(0, oldPath.lastIndexOf("/"));
-        const newDir = newPath.substring(0, newPath.lastIndexOf("/"));
-        const isMove = oldDir !== newDir;
-
-        // If it's a move, we fall back to Delete+Upload (until Adapter supports Move)
-        if (isMove) {
-            // Case 1: oldPath is locally created but not synced -> Just remove from dirty
-            if (this.dirtyPaths.has(oldPath) && !this.index[oldPath]) {
-                this.dirtyPaths.delete(oldPath);
-                this.log(`[Dirty] Removed (renamed before sync): ${oldPath}`);
-            } else {
-                // Case 2: Synced file -> Mark for deletion
-                this.markDeleted(oldPath);
-            }
-            // Mark new path dirty (New Upload)
-            this.dirtyPaths.add(newPath);
-            this.log(`[Dirty] Marked (move): ${newPath}`);
-            return;
-        }
-
-        // It is a Rename-in-place (history preservation possible)
-        this.dirtyPaths.delete(oldPath); // Cancel any delete/upload for old name
-
-        // Migrate Index
-        if (this.index[oldPath]) {
-            this.index[newPath] = { ...this.index[oldPath], forcePush: true };
-            delete this.index[oldPath];
-        }
-
-        // Migrate Local Index
-        if (this.localIndex[oldPath]) {
-            this.localIndex[newPath] = { ...this.localIndex[oldPath], forcePush: true };
-            delete this.localIndex[oldPath];
-        }
-
-        this.dirtyPaths.add(newPath);
-        this.log(`[Dirty] Marked (renamed): ${newPath} (Migrated ID)`);
+        _markRenamed(this as unknown as SyncContext, oldPath, newPath);
     }
 
-    /**
-     * Mark all files in a renamed folder for update
-     * Called from main.ts on folder rename events
-     */
     markFolderRenamed(oldFolderPath: string, newFolderPath: string) {
-        const oldPrefix = oldFolderPath + "/";
-        const newPrefix = newFolderPath + "/";
-
-        for (const oldPath of Object.keys(this.index)) {
-            if (oldPath.startsWith(oldPrefix)) {
-                if (this.shouldIgnore(oldPath)) continue;
-
-                // Track if we had a local entry to migrate it
-                const localEntry = this.localIndex[oldPath];
-
-                // Mark old path for deletion
-                this.dirtyPaths.add(oldPath);
-                this.log(`[Dirty] Marked for deletion (folder rename): ${oldPath}`);
-
-                // Mark new path for upload
-                const newPath = newPrefix + oldPath.slice(oldPrefix.length);
-                if (!this.shouldIgnore(newPath)) {
-                    this.dirtyPaths.add(newPath);
-                    this.log(`[Dirty] Marked for upload (folder rename): ${newPath}`);
-
-                    // Migrate localIndex for new path to maintain base hash consistency
-                    // Do not migrate localIndex. Treat as Delete + New Upload.
-                }
-            }
-        }
+        _markFolderRenamed(this as unknown as SyncContext, oldFolderPath, newFolderPath);
     }
 
-    /**
-     * Get current sync state
-     */
     getSyncState(): SyncState {
-        return this.syncState;
+        return _getSyncState(this as unknown as SyncContext);
     }
 
-    /**
-     * Check if there are pending dirty files
-     */
     hasDirtyFiles(): boolean {
-        return this.dirtyPaths.size > 0;
+        return _hasDirtyFiles(this as unknown as SyncContext);
     }
 
-    /**
-     * Check if this is a fresh start (index failed to load or is empty)
-     */
     isFreshStart(): boolean {
-        return this.indexLoadFailed || Object.keys(this.index).length === 0;
+        return _isFreshStart(this as unknown as SyncContext);
     }
 
     /**
@@ -2794,66 +2159,26 @@ export class SyncManager {
         }
     }
 
-    // =========================================================================================
-    // History Management
-    // =========================================================================================
+    // === History Management (delegated to history.ts) ===
 
     get supportsHistory(): boolean {
-        return this.adapter.supportsHistory ?? false;
+        return _supportsHistory(this as unknown as SyncContext);
     }
 
     async listRevisions(path: string): Promise<import("../types/adapter").FileRevision[]> {
-        if (!this.adapter.supportsHistory || !this.adapter.listRevisions) {
-            throw new Error(
-                this.t("historyNotSupported") || "Cloud adapter does not support history.",
-            );
-        }
-        return await this.adapter.listRevisions(path);
+        return _listRevisions(this as unknown as SyncContext, path);
     }
 
     async getRevisionContent(path: string, revisionId: string): Promise<ArrayBuffer> {
-        if (!this.adapter.supportsHistory || !this.adapter.getRevisionContent) {
-            throw new Error(
-                this.t("historyNotSupported") || "Cloud adapter does not support history.",
-            );
-        }
-
-        // Try cache first
-        const cached = await this.revisionCache.get(path, revisionId);
-        if (cached) {
-            return cached;
-        }
-
-        const content = await this.adapter.getRevisionContent(path, revisionId);
-
-        // Save to cache
-        await this.revisionCache.set(path, revisionId, content);
-
-        return content;
+        return _getRevisionContent(this as unknown as SyncContext, path, revisionId);
     }
 
-    async setRevisionKeepForever(
-        path: string,
-        revisionId: string,
-        keepForever: boolean,
-    ): Promise<void> {
-        if (!this.adapter.supportsHistory || !this.adapter.setRevisionKeepForever) {
-            throw new Error(
-                this.t("historyNotSupported") || "Cloud adapter does not support history.",
-            );
-        }
-        await this.adapter.setRevisionKeepForever(path, revisionId, keepForever);
-        await this.log(`[History] Set keepForever=${keepForever} for ${path} (rev: ${revisionId})`);
+    async setRevisionKeepForever(path: string, revisionId: string, keepForever: boolean): Promise<void> {
+        return _setRevisionKeepForever(this as unknown as SyncContext, path, revisionId, keepForever);
     }
 
     async deleteRevision(path: string, revisionId: string): Promise<void> {
-        if (!this.adapter.supportsHistory || !this.adapter.deleteRevision) {
-            throw new Error(
-                this.t("historyNotSupported") || "Cloud adapter does not support history.",
-            );
-        }
-        await this.adapter.deleteRevision(path, revisionId);
-        await this.log(`[History] Deleted revision ${revisionId} for ${path}`);
+        return _deleteRevision(this as unknown as SyncContext, path, revisionId);
     }
 
     /**
@@ -3246,33 +2571,7 @@ export class SyncManager {
         path: string,
         revision: import("../types/adapter").FileRevision,
     ): Promise<void> {
-        await this.log(`[History] Starting rollback for ${path} to revision ${revision.id}`);
-        try {
-            const content = await this.getRevisionContent(path, revision.id);
-
-            // Overwrite local file
-            // TFileを取得してmodifyBinaryを使うのがObsidianのお作法
-            const file = this.app.vault.getAbstractFileByPath(path);
-            if (file instanceof TFile) {
-                await this.app.vault.modifyBinary(file, content);
-            } else {
-                // ファイルが存在しない（削除された）場合は再作成
-                await this.app.vault.createBinary(path, content);
-            }
-
-            // Logging (Audit)
-            const timestamp = new Date().toISOString();
-            await this.log(
-                `[History] Rollback executed: File=${path}, Revision=${revision.id}, Time=${timestamp}`,
-            );
-
-            // Note: modifyBinary triggers 'modify' event, which calls markDirty via main.ts listener.
-            // So we don't need to manually call markDirty.
-            await this.notify(this.t("noticeFileRestored"));
-        } catch (e) {
-            await this.log(`[History] Rollback failed: ${e}`);
-            throw e;
-        }
+        return _restoreRevision(this as unknown as SyncContext, path, revision);
     }
 
     /**
