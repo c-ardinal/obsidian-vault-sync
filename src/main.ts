@@ -251,46 +251,95 @@ export default class VaultSync extends Plugin {
         }
 
         await this.syncManager.log(`[Trigger] Activated via ${source}`);
-        // Helper for user-initiated actions that shouldn't lock UI immediately (like save/modify)
+
+        // Set all background/implicit triggers (save, modify, layout, interval) to silent.
+        // This ensures consistent behavior where sync runs quietly without "Syncing..." notices.
+        const isSilent = true;
+
         // Animation is handled via Activity Callbacks if changes are found
-        await this.syncManager.requestSmartSync(true);
+        await this.syncManager.requestSmartSync(isSilent);
     }
 
     private registerTriggers() {
-        // 2. Save Trigger (Ctrl+S)
-        this.registerDomEvent(document, "keydown", (evt: KeyboardEvent) => {
-            if (this.settings.onSaveDelaySec === SETTINGS_LIMITS.onSaveDelay.disabled) return;
-            if ((evt.ctrlKey || evt.metaKey) && evt.key === "s") {
-                this.lastSaveRequestTime = Date.now();
-                if (this.settings.onSaveDelaySec === 0) {
-                    this.triggerSmartSync("save");
-                } else {
-                    window.setTimeout(() => {
-                        this.triggerSmartSync("save");
-                    }, this.settings.onSaveDelaySec * 1000);
+        // 2. Save Trigger (Obsidian Command Hook)
+        this.app.workspace.onLayoutReady(async () => {
+            const commands = (this.app as any).commands?.commands;
+            if (!commands) return;
+
+            // Broad discovery: catch editor:save and any other custom save commands
+            const targetIds = Object.keys(commands).filter(
+                (id) => id === "editor:save" || id.includes(":save") || id.includes("save-"),
+            );
+
+            targetIds.forEach((id) => {
+                const cmd = commands[id];
+                if (cmd && !cmd._isVaultSyncHooked) {
+                    cmd._isVaultSyncHooked = true;
+
+                    if (cmd.callback) {
+                        const originalCallback = cmd.callback;
+                        cmd.callback = async (...args: any[]) => {
+                            this.lastSaveRequestTime = Date.now();
+                            await this.syncManager.log(`[Trigger] Manual save detected: ${id}`);
+
+                            if (this.settings.onSaveDelaySec === 0) {
+                                this.triggerSmartSync("save");
+                            } else {
+                                window.setTimeout(() => {
+                                    this.triggerSmartSync("save");
+                                }, this.settings.onSaveDelaySec * 1000);
+                            }
+                            return originalCallback.apply(cmd, args);
+                        };
+                    } else if (cmd.checkCallback) {
+                        const originalCheckCallback = cmd.checkCallback;
+                        cmd.checkCallback = (checking: boolean) => {
+                            if (!checking) {
+                                this.lastSaveRequestTime = Date.now();
+                                this.syncManager.log(
+                                    `[Trigger] Manual save detected (check): ${id}`,
+                                );
+
+                                if (this.settings.onSaveDelaySec === 0) {
+                                    this.triggerSmartSync("save");
+                                } else {
+                                    window.setTimeout(() => {
+                                        this.triggerSmartSync("save");
+                                    }, this.settings.onSaveDelaySec * 1000);
+                                }
+                            }
+                            return originalCheckCallback.call(cmd, checking);
+                        };
+                    }
                 }
-            }
+            });
         });
 
         // 3. Modify trigger with debounce - marks dirty and triggers Smart Sync
         let modifyTimeout: number | null = null;
         this.registerEvent(
-            this.app.vault.on("modify", (file) => {
+            this.app.vault.on("modify", async (file) => {
                 if (!this.isReady) return;
                 if (!(file instanceof TFile)) return;
+
                 if (this.syncManager.shouldIgnore(file.path)) return;
+
                 // Track modification time for debounce protection
                 this.lastModifyTime = Date.now();
                 // Mark file as dirty immediately
                 this.syncManager.markDirty(file.path);
+
                 // Check if this modify is result of explicit save (happened closely after Ctrl+S)
                 // If so, trigger immediately (bypass debounce)
-                if (Date.now() - this.lastSaveRequestTime < 2000) {
+                const timeSinceLastSave = Date.now() - this.lastSaveRequestTime;
+                if (timeSinceLastSave < 5000) {
+                    await this.syncManager.log(`[Trigger] Fast-tracking sync due to recent save`);
                     if (modifyTimeout) window.clearTimeout(modifyTimeout);
                     this.triggerSmartSync("save");
                     return;
                 }
-                // Debounce the actual sync
+
+                // Debounce the actual sync for auto-saves
                 if (this.settings.onModifyDelaySec === SETTINGS_LIMITS.onModifyDelay.disabled)
                     return;
                 if (modifyTimeout) window.clearTimeout(modifyTimeout);
