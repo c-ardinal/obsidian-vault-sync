@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { SyncManager, SyncManagerSettings } from "../../../src/sync-manager";
+import { SyncManager, SyncManagerSettings, type SyncTrigger } from "../../../src/sync-manager";
 import { MockApp } from "../../helpers/mock-vault-adapter";
 import { CloudAdapter } from "../../../src/types/adapter";
 import { Notice } from "obsidian";
@@ -82,52 +82,44 @@ const DEFAULT_SETTINGS: SyncManagerSettings = {
     syncFlexibleData: true,
     syncDeviceLogs: true,
     syncWorkspace: true,
+
+    hasCompletedFirstSync: false,
 };
 
 // ════════════════════════════════════════════════════════════════
 // Notification Visibility Matrix
 // Maps directly to: doc/notification-case-matrix.md
 //
-// Test approach: Call notify() directly with the same parameters
-// (isDetailed, isSilent) used in production code paths.
-// This validates the notify() filtering logic for every cell
-// in the matrix document.
-//
-// Visibility rules in notify():
-//   isDetailed=true + low-priority (📥/📤): Show if verbose OR not silent
-//   isDetailed=true + other (trash/merge/conflict): Always show
-//   isDetailed=false + starting (⚡): Show only if not silent
-//   isDetailed=false + other (completed/scanning/status): Always show
-//   level="error": Never show (not tested here, trivially suppresses all)
+// Test approach: Set currentTrigger on SyncManager, then call
+// notify(key). The matrix lookup in notify() determines visibility
+// using (key, currentTrigger, notificationLevel).
+// This validates every cell in the matrix document.
 // ════════════════════════════════════════════════════════════════
 
 type Exp = "Show" | "Hide";
 
 /**
- * Scenario isSilent mapping:
- *   - initialSync/manualSync/fullScan: User-triggered → isSilent=false
- *   - startupSync/autoSync: Background → isSilent=true
- *   - pushConflict/pullConflict: isSilent=true (models conflict during background sync,
- *     which is the more restrictive case matching standard-mode Hide expectations)
- *   - auth/historyModal: User-triggered actions → isSilent=false
+ * Scenario → SyncTrigger mapping.
+ * Each test scenario maps to exactly one SyncTrigger value.
  */
-const SCENARIO_CONFIG: Record<string, { isSilent: boolean }> = {
-    initialSync: { isSilent: false },
-    startupSync: { isSilent: true },
-    manualSync: { isSilent: false },
-    autoSync: { isSilent: true },
-    fullScan: { isSilent: false },
-    pushConflict: { isSilent: true },
-    pullConflict: { isSilent: true },
-    auth: { isSilent: false },
-    historyModal: { isSilent: false },
+const SCENARIO_TRIGGERS: Record<string, SyncTrigger> = {
+    initialSync: "initial-sync",
+    startupSync: "startup-sync",
+    manualSync: "manual-sync",
+    timerSync: "timer-sync",
+    saveSync: "save-sync",
+    modifySync: "modify-sync",
+    layoutSync: "layout-sync",
+    fullScan: "full-scan",
+    pushConflict: "push-conflict",
+    pullConflict: "pull-conflict",
+    auth: "auth",
+    historyModal: "history-modal",
 };
 
 interface MatrixEntry {
     /** i18n key for the notification */
     key: string;
-    /** isDetailed parameter passed to notify() in production code */
-    isDetailed: boolean;
     /** Expected visibility per scenario. Omit or set undefined for "-" (no care / not applicable) */
     scenarios: Record<string, { v?: Exp; s?: Exp }>;
 }
@@ -141,19 +133,20 @@ const MATRIX: MatrixEntry[] = [
     {
         // ⚡ 同期: 処理開始...
         key: "noticeSyncing",
-        isDetailed: false,
         scenarios: {
             initialSync: { v: "Show", s: "Show" },
             startupSync: { v: "Hide", s: "Hide" },
             manualSync: { v: "Show", s: "Show" },
-            autoSync: { v: "Hide", s: "Hide" },
+            timerSync: { v: "Hide", s: "Hide" },
+            saveSync: { v: "Hide", s: "Hide" },
+            modifySync: { v: "Hide", s: "Hide" },
+            layoutSync: { v: "Hide", s: "Hide" },
             fullScan: { v: "Show", s: "Show" },
         },
     },
     {
         // 🔍️ 同期: ローカルファイルを走査中...
         key: "noticeScanningLocalFiles",
-        isDetailed: false,
         scenarios: {
             initialSync: { v: "Show", s: "Show" },
             startupSync: { v: "Hide", s: "Hide" },
@@ -163,20 +156,30 @@ const MATRIX: MatrixEntry[] = [
     {
         // 💤 同期: リモート側の反映完了を待機中...
         key: "noticeWaitingForRemoteRegistration",
-        isDetailed: false,
         scenarios: {
             initialSync: { v: "Show", s: "Show" },
+            startupSync: { v: "Hide", s: "Hide" },
+            manualSync: { v: "Hide", s: "Hide" },
+            timerSync: { v: "Hide", s: "Hide" },
+            saveSync: { v: "Hide", s: "Hide" },
+            modifySync: { v: "Hide", s: "Hide" },
+            layoutSync: { v: "Hide", s: "Hide" },
+            fullScan: { v: "Hide", s: "Hide" },
+            pushConflict: { v: "Hide", s: "Hide" },
+            pullConflict: { v: "Hide", s: "Hide" },
         },
     },
     {
         // 📥 同期: ダウンロード中 {file}
         key: "noticeFilePulled",
-        isDetailed: true,
         scenarios: {
             initialSync: { v: "Show", s: "Show" },
             startupSync: { v: "Show", s: "Hide" },
-            manualSync: { v: "Show", s: "Show" },
-            autoSync: { v: "Show", s: "Hide" },
+            manualSync: { v: "Show", s: "Hide" },
+            timerSync: { v: "Show", s: "Hide" },
+            saveSync: { v: "Show", s: "Hide" },
+            modifySync: { v: "Show", s: "Hide" },
+            layoutSync: { v: "Show", s: "Hide" },
             fullScan: { v: "Show", s: "Show" },
             pushConflict: { v: "Show", s: "Hide" },
             pullConflict: { v: "Show", s: "Hide" },
@@ -185,12 +188,14 @@ const MATRIX: MatrixEntry[] = [
     {
         // ✅ 同期: ダウンロード完了 (x files)
         key: "noticePullCompleted",
-        isDetailed: false,
         scenarios: {
             initialSync: { v: "Show", s: "Show" },
             startupSync: { v: "Show", s: "Show" },
             manualSync: { v: "Show", s: "Show" },
-            autoSync: { v: "Show", s: "Show" },
+            timerSync: { v: "Show", s: "Show" },
+            saveSync: { v: "Show", s: "Show" },
+            modifySync: { v: "Show", s: "Show" },
+            layoutSync: { v: "Show", s: "Show" },
             fullScan: { v: "Show", s: "Show" },
             pushConflict: { v: "Show", s: "Show" },
             pullConflict: { v: "Show", s: "Show" },
@@ -199,26 +204,30 @@ const MATRIX: MatrixEntry[] = [
     {
         // 📤 同期: アップロード中 {file}
         key: "noticeFilePushed",
-        isDetailed: true,
         scenarios: {
             initialSync: { v: "Show", s: "Show" },
             startupSync: { v: "Show", s: "Hide" },
-            manualSync: { v: "Show", s: "Show" },
-            autoSync: { v: "Show", s: "Hide" },
+            manualSync: { v: "Show", s: "Hide" },
+            timerSync: { v: "Show", s: "Hide" },
+            saveSync: { v: "Show", s: "Hide" },
+            modifySync: { v: "Show", s: "Hide" },
+            layoutSync: { v: "Show", s: "Hide" },
             fullScan: { v: "Show", s: "Show" },
             pushConflict: { v: "Show", s: "Hide" },
-            pullConflict: { s: "Hide" }, // verbose="-" (no care), standard=非表示
+            pullConflict: { v: "Show", s: "Hide" },
         },
     },
     {
         // ✅ 同期: アップロード完了 (x files)
         key: "noticePushCompleted",
-        isDetailed: false,
         scenarios: {
             initialSync: { v: "Show", s: "Show" },
             startupSync: { v: "Show", s: "Show" },
             manualSync: { v: "Show", s: "Show" },
-            autoSync: { v: "Show", s: "Show" },
+            timerSync: { v: "Show", s: "Show" },
+            saveSync: { v: "Show", s: "Show" },
+            modifySync: { v: "Show", s: "Show" },
+            layoutSync: { v: "Show", s: "Show" },
             fullScan: { v: "Show", s: "Show" },
             pushConflict: { v: "Show", s: "Show" },
         },
@@ -226,40 +235,60 @@ const MATRIX: MatrixEntry[] = [
     {
         // ✅ 同期: すべて最新の状態です
         key: "noticeVaultUpToDate",
-        isDetailed: false,
         scenarios: {
             initialSync: { v: "Show", s: "Show" },
-            startupSync: { v: "Hide", s: "Hide" },
+            startupSync: { v: "Show", s: "Show" },
             manualSync: { v: "Show", s: "Show" },
-            autoSync: { v: "Hide", s: "Hide" },
+            timerSync: { v: "Hide", s: "Hide" },
+            saveSync: { v: "Hide", s: "Hide" },
+            modifySync: { v: "Hide", s: "Hide" },
+            layoutSync: { v: "Hide", s: "Hide" },
             fullScan: { v: "Show", s: "Show" },
         },
     },
     {
         // 📝 同期: 正常にアップロード出来たか確認中...
         key: "noticeInitialSyncConfirmation",
-        isDetailed: false,
         scenarios: {
             initialSync: { v: "Show", s: "Show" },
+            startupSync: { v: "Hide", s: "Hide" },
+            manualSync: { v: "Hide", s: "Hide" },
+            timerSync: { v: "Hide", s: "Hide" },
+            saveSync: { v: "Hide", s: "Hide" },
+            modifySync: { v: "Hide", s: "Hide" },
+            layoutSync: { v: "Hide", s: "Hide" },
+            fullScan: { v: "Hide", s: "Hide" },
+            pushConflict: { v: "Hide", s: "Hide" },
+            pullConflict: { v: "Hide", s: "Hide" },
         },
     },
     {
         // ✅ 同期: 成功 {file}
         key: "noticeSyncConfirmed",
-        isDetailed: true,
         scenarios: {
             initialSync: { v: "Show", s: "Show" },
+            startupSync: { v: "Hide", s: "Hide" },
+            manualSync: { v: "Hide", s: "Hide" },
+            timerSync: { v: "Hide", s: "Hide" },
+            saveSync: { v: "Hide", s: "Hide" },
+            modifySync: { v: "Hide", s: "Hide" },
+            layoutSync: { v: "Hide", s: "Hide" },
+            fullScan: { v: "Hide", s: "Hide" },
+            pushConflict: { v: "Hide", s: "Hide" },
+            pullConflict: { v: "Hide", s: "Hide" },
         },
     },
     {
         // 🗑️ 同期: 削除 {file}
         key: "noticeFileTrashed",
-        isDetailed: true,
         scenarios: {
             initialSync: { v: "Show", s: "Show" },
             startupSync: { v: "Show", s: "Show" },
             manualSync: { v: "Show", s: "Show" },
-            autoSync: { v: "Show", s: "Show" },
+            timerSync: { v: "Show", s: "Show" },
+            saveSync: { v: "Show", s: "Show" },
+            modifySync: { v: "Show", s: "Show" },
+            layoutSync: { v: "Show", s: "Show" },
             fullScan: { v: "Show", s: "Show" },
             pushConflict: { v: "Show", s: "Show" },
             pullConflict: { v: "Show", s: "Show" },
@@ -268,12 +297,14 @@ const MATRIX: MatrixEntry[] = [
     {
         // ✏️ 同期: リネーム反映 {file}
         key: "noticeFileRenamed",
-        isDetailed: true,
         scenarios: {
             initialSync: { v: "Show", s: "Show" },
             startupSync: { v: "Show", s: "Show" },
             manualSync: { v: "Show", s: "Show" },
-            autoSync: { v: "Show", s: "Show" },
+            timerSync: { v: "Show", s: "Show" },
+            saveSync: { v: "Show", s: "Show" },
+            modifySync: { v: "Show", s: "Show" },
+            layoutSync: { v: "Show", s: "Show" },
             fullScan: { v: "Show", s: "Show" },
             pushConflict: { v: "Show", s: "Show" },
             pullConflict: { v: "Show", s: "Show" },
@@ -284,12 +315,14 @@ const MATRIX: MatrixEntry[] = [
     {
         // 📝 競合: マージ中: {file}
         key: "noticeMergingFile",
-        isDetailed: true,
         scenarios: {
             initialSync: { v: "Show", s: "Show" },
             startupSync: { v: "Show", s: "Show" },
             manualSync: { v: "Show", s: "Show" },
-            autoSync: { v: "Show", s: "Show" },
+            timerSync: { v: "Show", s: "Show" },
+            saveSync: { v: "Show", s: "Show" },
+            modifySync: { v: "Show", s: "Show" },
+            layoutSync: { v: "Show", s: "Show" },
             fullScan: { v: "Show", s: "Show" },
             pushConflict: { v: "Show", s: "Show" },
             pullConflict: { v: "Show", s: "Show" },
@@ -298,12 +331,14 @@ const MATRIX: MatrixEntry[] = [
     {
         // ✅ 競合: 自動解決されました: {file}
         key: "noticeMergeSuccess",
-        isDetailed: true,
         scenarios: {
             initialSync: { v: "Show", s: "Show" },
             startupSync: { v: "Show", s: "Show" },
             manualSync: { v: "Show", s: "Show" },
-            autoSync: { v: "Show", s: "Show" },
+            timerSync: { v: "Show", s: "Show" },
+            saveSync: { v: "Show", s: "Show" },
+            modifySync: { v: "Show", s: "Show" },
+            layoutSync: { v: "Show", s: "Show" },
             fullScan: { v: "Show", s: "Show" },
             pushConflict: { v: "Show", s: "Show" },
             pullConflict: { v: "Show", s: "Show" },
@@ -312,7 +347,6 @@ const MATRIX: MatrixEntry[] = [
     {
         // ⚠️ 競合: ローカル版を保護し、リモート版を反映しました: {file}
         key: "noticeConflictSaved",
-        isDetailed: true,
         scenarios: {
             pushConflict: { v: "Show", s: "Show" },
             pullConflict: { v: "Show", s: "Show" },
@@ -321,7 +355,6 @@ const MATRIX: MatrixEntry[] = [
     {
         // ⚠️ 競合: リモート版を保護し、ローカル版を反映しました: {file}
         key: "noticeConflictRemoteSaved",
-        isDetailed: true,
         scenarios: {
             pushConflict: { v: "Show", s: "Show" },
             pullConflict: { v: "Show", s: "Show" },
@@ -330,7 +363,6 @@ const MATRIX: MatrixEntry[] = [
     {
         // ⚠️ 競合: マージに失敗した可能性が有ります。詳細は他デバイスを確認してください
         key: "noticeCheckOtherDevice",
-        isDetailed: true,
         scenarios: {
             pushConflict: { v: "Show", s: "Show" },
             pullConflict: { v: "Show", s: "Show" },
@@ -339,7 +371,6 @@ const MATRIX: MatrixEntry[] = [
     {
         // 💤 競合: 他デバイスが解決するのを待機しています...: {file}
         key: "noticeWaitOtherDeviceMerge",
-        isDetailed: true,
         scenarios: {
             pushConflict: { v: "Show", s: "Show" },
             pullConflict: { v: "Show", s: "Show" },
@@ -348,7 +379,6 @@ const MATRIX: MatrixEntry[] = [
     {
         // ✅ 競合: 他デバイスの解決結果を反映しました: {file}
         key: "noticeRemoteMergeSynced",
-        isDetailed: true,
         scenarios: {
             pushConflict: { v: "Show", s: "Show" },
             pullConflict: { v: "Show", s: "Show" },
@@ -359,7 +389,6 @@ const MATRIX: MatrixEntry[] = [
     {
         // ✅ 認証: 成功！
         key: "noticeAuthSuccess",
-        isDetailed: false,
         scenarios: {
             auth: { v: "Show", s: "Show" },
         },
@@ -367,7 +396,6 @@ const MATRIX: MatrixEntry[] = [
     {
         // ❌ 認証: 失敗
         key: "noticeAuthFailed",
-        isDetailed: false,
         scenarios: {
             auth: { v: "Show", s: "Show" },
         },
@@ -377,7 +405,6 @@ const MATRIX: MatrixEntry[] = [
     {
         // ✅ 履歴: 無期限保護設定完了
         key: "noticeSavedKeepForever",
-        isDetailed: false,
         scenarios: {
             historyModal: { v: "Show", s: "Show" },
         },
@@ -385,7 +412,6 @@ const MATRIX: MatrixEntry[] = [
     {
         // ❌ 履歴: クラウド側の仕様により、無期限保存設定を解除することはできません。
         key: "historyKeepForeverError",
-        isDetailed: false,
         scenarios: {
             historyModal: { v: "Show", s: "Show" },
         },
@@ -393,7 +419,6 @@ const MATRIX: MatrixEntry[] = [
     {
         // 📝 履歴: ファイルを復元しました。同期を開始します...
         key: "noticeFileRestored",
-        isDetailed: false,
         scenarios: {
             historyModal: { v: "Show", s: "Show" },
         },
@@ -401,7 +426,6 @@ const MATRIX: MatrixEntry[] = [
     {
         // ✅ 履歴: ファイルを別名で復元しました: {file}
         key: "noticeHistoryRestoreAs",
-        isDetailed: false,
         scenarios: {
             historyModal: { v: "Show", s: "Show" },
         },
@@ -409,7 +433,6 @@ const MATRIX: MatrixEntry[] = [
     {
         // 🗑️ 履歴: リビジョンを削除しました
         key: "noticeRevisionDeleted",
-        isDetailed: false,
         scenarios: {
             historyModal: { v: "Show", s: "Show" },
         },
@@ -565,6 +588,8 @@ describe("Notification Visibility Matrix", () => {
     });
 
     // Matrix-driven visibility tests
+    // For each notification key × scenario × level, set currentTrigger and call notify(key).
+    // Verify Notice is shown/hidden according to the matrix.
     (["verbose", "standard"] as const).forEach((level) => {
         describe(`Level: ${level}`, () => {
             MATRIX.forEach((entry) => {
@@ -574,13 +599,10 @@ describe("Notification Visibility Matrix", () => {
 
                     it(`[${scenario}] ${entry.key} → ${expected}`, async () => {
                         syncManager["settings"].notificationLevel = level;
-                        const { isSilent } = SCENARIO_CONFIG[scenario];
-
-                        // Construct message from i18n (replace {0} placeholder if present)
-                        const msg = (i18nDict.ja[entry.key] || entry.key).replace("{0}", "1");
+                        syncManager.currentTrigger = SCENARIO_TRIGGERS[scenario];
 
                         (Notice as any).mockClear();
-                        await syncManager.notify(msg, entry.isDetailed, isSilent);
+                        await syncManager.notify(entry.key);
 
                         const calls = (Notice as any).mock.calls;
                         if (expected === "Show") {
@@ -602,13 +624,13 @@ describe("Notification Visibility Matrix", () => {
 
     // Error level: all notifications suppressed
     describe("Level: error", () => {
-        it("suppresses all notifications regardless of parameters", async () => {
+        it("suppresses all notifications regardless of trigger", async () => {
             syncManager["settings"].notificationLevel = "error" as any;
+            syncManager.currentTrigger = "manual-sync";
 
             for (const entry of MATRIX) {
-                const msg = (i18nDict.ja[entry.key] || entry.key).replace("{0}", "1");
                 (Notice as any).mockClear();
-                await syncManager.notify(msg, entry.isDetailed, false);
+                await syncManager.notify(entry.key);
                 expect(
                     (Notice as any).mock.calls.length,
                     `${entry.key} should be suppressed at error level`,
@@ -723,22 +745,28 @@ describe("Notification Message Format Validation", () => {
 //   2. Notifications that should NOT appear are NOT triggered
 //
 // This catches bugs where code incorrectly calls notify() in wrong scenarios
-// (e.g., noticeScanningLocalFiles during autoSync when scanVault=false)
+// (e.g., noticeScanningLocalFiles during timerSync when scanVault=false)
 // ════════════════════════════════════════════════════════════════
 
-/** Sync scenario parameters for requestSmartSync(isSilent, scanVault) */
-const SYNC_SCENARIOS: Record<string, { isSilent: boolean; scanVault: boolean }> = {
-    manualSync: { isSilent: false, scanVault: false },
-    autoSync: { isSilent: true, scanVault: false },
-    startupSync: { isSilent: true, scanVault: true },
-    fullScan: { isSilent: false, scanVault: true },
+const SYNC_SCENARIOS: Record<
+    string,
+    { trigger: SyncTrigger; scanVault: boolean; isInitial?: boolean }
+> = {
+    manualSync: { trigger: "manual-sync", scanVault: false },
+    timerSync: { trigger: "timer-sync", scanVault: false },
+    saveSync: { trigger: "save-sync", scanVault: false },
+    modifySync: { trigger: "modify-sync", scanVault: false },
+    layoutSync: { trigger: "layout-sync", scanVault: false },
+    startupSync: { trigger: "startup-sync", scanVault: true },
+    fullScan: { trigger: "full-scan", scanVault: true },
+    initialSync: { trigger: "initial-sync", scanVault: true, isInitial: true },
 };
 
 /**
  * Notifications that must NOT be triggered (notify() must not be called) per scenario.
  * Derived from matrix document "-" entries where the code path should not reach notify().
  *
- * This is distinct from "Hide" (notify is called but filtered out by level/isSilent).
+ * This is distinct from "Hide" (notify is called but filtered out by level/trigger).
  * These are cases where notify() itself must never be invoked.
  */
 const MUST_NOT_TRIGGER: Record<string, string[]> = {
@@ -748,14 +776,32 @@ const MUST_NOT_TRIGGER: Record<string, string[]> = {
         "noticeInitialSyncConfirmation", // only during initial sync confirmation
         "noticeSyncConfirmed", // only during initial sync confirmation
     ],
-    autoSync: [
-        "noticeScanningLocalFiles", // scanVault=false → if(scanVault) branch not entered
+    timerSync: [
+        "noticeScanningLocalFiles", // scanVault=false
+        "noticeWaitingForRemoteRegistration",
+        "noticeInitialSyncConfirmation",
+        "noticeSyncConfirmed",
+    ],
+    saveSync: [
+        "noticeScanningLocalFiles", // scanVault=false
+        "noticeWaitingForRemoteRegistration",
+        "noticeInitialSyncConfirmation",
+        "noticeSyncConfirmed",
+    ],
+    modifySync: [
+        "noticeScanningLocalFiles", // scanVault=false
+        "noticeWaitingForRemoteRegistration",
+        "noticeInitialSyncConfirmation",
+        "noticeSyncConfirmed",
+    ],
+    layoutSync: [
+        "noticeScanningLocalFiles", // scanVault=false
         "noticeWaitingForRemoteRegistration",
         "noticeInitialSyncConfirmation",
         "noticeSyncConfirmed",
     ],
     startupSync: [
-        "noticeWaitingForRemoteRegistration", // not initial sync (smartPull returns false)
+        "noticeWaitingForRemoteRegistration", // not initial sync
         "noticeInitialSyncConfirmation",
         "noticeSyncConfirmed",
     ],
@@ -764,6 +810,7 @@ const MUST_NOT_TRIGGER: Record<string, string[]> = {
         "noticeInitialSyncConfirmation",
         "noticeSyncConfirmed",
     ],
+    initialSync: [], // All sync-related notifications are potentially reachable
 };
 
 /** Notifications that should never appear during any sync scenario (clean sync, no conflicts) */
@@ -789,20 +836,54 @@ const NEVER_DURING_CLEAN_SYNC: string[] = [
 
 /**
  * Notifications that must NOT appear as Notice (user-visible) per scenario in standard mode.
- * Combines "-" (code path unreachable) and "非表示" (Hide, filtered by notify()).
+ * Combines "-" (code path unreachable) and "Hide" (filtered by matrix lookup).
  * Unlike MUST_NOT_TRIGGER (which checks notify() calls), this checks the actual
  * Notice constructor to verify end-to-end behavior: production code → notify() → Notice.
  */
 const MUST_NOT_SHOW_NOTICE: Record<string, string[]> = {
     manualSync: [
         "noticeScanningLocalFiles", // "-": scanVault=false
+        "noticeFilePulled", // "Hide": standard mode hides individual files
+        "noticeFilePushed", // "Hide": standard mode hides individual files
         "noticeWaitingForRemoteRegistration", // "-": not initial sync
         "noticeInitialSyncConfirmation", // "-": not initial sync
         "noticeSyncConfirmed", // "-": not initial sync
     ],
-    autoSync: [
+    timerSync: [
         "noticeSyncing", // "Hide": silent background sync
         "noticeScanningLocalFiles", // "-": scanVault=false
+        "noticeFilePulled", // "Hide": standard mode hides individual files
+        "noticeFilePushed", // "Hide": standard mode hides individual files
+        "noticeVaultUpToDate", // "Hide": silent background sync
+        "noticeWaitingForRemoteRegistration", // "-": not initial sync
+        "noticeInitialSyncConfirmation", // "-": not initial sync
+        "noticeSyncConfirmed", // "-": not initial sync
+    ],
+    saveSync: [
+        "noticeSyncing", // "Hide": silent background sync
+        "noticeScanningLocalFiles", // "-": scanVault=false
+        "noticeFilePulled", // "Hide": standard mode hides individual files
+        "noticeFilePushed", // "Hide": standard mode hides individual files
+        "noticeVaultUpToDate", // "Hide": silent background sync
+        "noticeWaitingForRemoteRegistration", // "-": not initial sync
+        "noticeInitialSyncConfirmation", // "-": not initial sync
+        "noticeSyncConfirmed", // "-": not initial sync
+    ],
+    modifySync: [
+        "noticeSyncing", // "Hide": silent background sync
+        "noticeScanningLocalFiles", // "-": scanVault=false
+        "noticeFilePulled", // "Hide": standard mode hides individual files
+        "noticeFilePushed", // "Hide": standard mode hides individual files
+        "noticeVaultUpToDate", // "Hide": silent background sync
+        "noticeWaitingForRemoteRegistration", // "-": not initial sync
+        "noticeInitialSyncConfirmation", // "-": not initial sync
+        "noticeSyncConfirmed", // "-": not initial sync
+    ],
+    layoutSync: [
+        "noticeSyncing", // "Hide": silent background sync
+        "noticeScanningLocalFiles", // "-": scanVault=false
+        "noticeFilePulled", // "Hide": standard mode hides individual files
+        "noticeFilePushed", // "Hide": standard mode hides individual files
         "noticeVaultUpToDate", // "Hide": silent background sync
         "noticeWaitingForRemoteRegistration", // "-": not initial sync
         "noticeInitialSyncConfirmation", // "-": not initial sync
@@ -811,7 +892,8 @@ const MUST_NOT_SHOW_NOTICE: Record<string, string[]> = {
     startupSync: [
         "noticeSyncing", // "Hide": silent background sync
         "noticeScanningLocalFiles", // "Hide": startup sync
-        "noticeVaultUpToDate", // "Hide": silent background sync
+        "noticeFilePulled", // "Hide": standard mode hides individual files
+        "noticeFilePushed", // "Hide": standard mode hides individual files
         "noticeWaitingForRemoteRegistration", // "-": not initial sync
         "noticeInitialSyncConfirmation", // "-": not initial sync
         "noticeSyncConfirmed", // "-": not initial sync
@@ -846,13 +928,9 @@ describe("Integration: Sync scenarios trigger correct notifications", () => {
         vi.spyOn(syncManager as any, "smartPush").mockResolvedValue(false);
     });
 
-    /** Helper: check if any notify() call contains the i18n message for the given key */
+    /** Helper: check if any notify() call used the given i18n key */
     const wasNotifyCalledWith = (notifySpy: ReturnType<typeof vi.spyOn>, key: string): boolean => {
-        const msg = i18nDict.ja[key];
-        if (!msg) return false;
-        return notifySpy.mock.calls.some(
-            ([m]: [unknown]) => typeof m === "string" && m.includes(msg),
-        );
+        return notifySpy.mock.calls.some(([k]: [unknown]) => k === key);
     };
 
     /** Helper: check if Notice constructor was called with a message containing the i18n text */
@@ -865,11 +943,15 @@ describe("Integration: Sync scenarios trigger correct notifications", () => {
     };
 
     Object.entries(SYNC_SCENARIOS).forEach(([scenario, params]) => {
-        describe(`${scenario} (isSilent=${params.isSilent}, scanVault=${params.scanVault})`, () => {
+        describe(`${scenario} (trigger=${params.trigger}, scanVault=${params.scanVault})`, () => {
+            beforeEach(() => {
+                syncManager["settings"].hasCompletedFirstSync = !params.isInitial;
+            });
+
             it("scenario-specific forbidden notifications are NOT triggered", async () => {
                 const notifySpy = vi.spyOn(syncManager, "notify");
                 try {
-                    await syncManager.requestSmartSync(params.isSilent, params.scanVault);
+                    await syncManager.requestSmartSync(params.trigger, params.scanVault);
                 } catch {
                     // ignore sync errors
                 }
@@ -886,7 +968,7 @@ describe("Integration: Sync scenarios trigger correct notifications", () => {
             it("conflict/auth/history notifications are NOT triggered in clean sync", async () => {
                 const notifySpy = vi.spyOn(syncManager, "notify");
                 try {
-                    await syncManager.requestSmartSync(params.isSilent, params.scanVault);
+                    await syncManager.requestSmartSync(params.trigger, params.scanVault);
                 } catch {
                     // ignore sync errors
                 }
@@ -903,7 +985,7 @@ describe("Integration: Sync scenarios trigger correct notifications", () => {
                 syncManager["settings"].notificationLevel = "verbose";
                 const notifySpy = vi.spyOn(syncManager, "notify");
                 try {
-                    await syncManager.requestSmartSync(params.isSilent, params.scanVault);
+                    await syncManager.requestSmartSync(params.trigger, params.scanVault);
                 } catch {
                     // ignore sync errors
                 }
@@ -931,7 +1013,7 @@ describe("Integration: Sync scenarios trigger correct notifications", () => {
                 syncManager["settings"].notificationLevel = "standard";
                 (Notice as any).mockClear();
                 try {
-                    await syncManager.requestSmartSync(params.isSilent, params.scanVault);
+                    await syncManager.requestSmartSync(params.trigger, params.scanVault);
                 } catch {
                     // ignore sync errors
                 }
@@ -948,16 +1030,18 @@ describe("Integration: Sync scenarios trigger correct notifications", () => {
     });
 
     // Startup sync with pushed files: confirmation flow must not trigger
-    describe("startupSync with push (isSilent=true, scanVault=true, pushed=true)", () => {
+    describe("startupSync with push (trigger=startup-sync, scanVault=true, pushed=true)", () => {
         it("initial sync confirmation notifications are NOT shown as Notice", async () => {
             // Override smartPush to return true (simulates dirty files being pushed)
             vi.spyOn(syncManager as any, "smartPush").mockResolvedValue(true);
             vi.spyOn(syncManager as any, "pullViaChangesAPI").mockResolvedValue(undefined);
 
+            // Startup sync (not initial) → hasCompletedFirstSync = true
+            syncManager["settings"].hasCompletedFirstSync = true;
             syncManager["settings"].notificationLevel = "standard";
             (Notice as any).mockClear();
             try {
-                await syncManager.requestSmartSync(true, true); // startup sync
+                await syncManager.requestSmartSync("startup-sync", true);
             } catch {
                 // ignore sync errors
             }
@@ -980,10 +1064,11 @@ describe("Integration: Sync scenarios trigger correct notifications", () => {
             vi.spyOn(syncManager as any, "smartPush").mockResolvedValue(true);
             vi.spyOn(syncManager as any, "pullViaChangesAPI").mockResolvedValue(undefined);
 
+            syncManager["settings"].hasCompletedFirstSync = true;
             syncManager["settings"].notificationLevel = "standard";
             (Notice as any).mockClear();
             try {
-                await syncManager.requestSmartSync(true, true); // startup sync
+                await syncManager.requestSmartSync("startup-sync", true);
             } catch {
                 // ignore sync errors
             }

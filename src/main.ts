@@ -1,6 +1,6 @@
 import { App, Plugin, PluginSettingTab, Setting, TFile, setIcon, Platform, Notice } from "obsidian";
 import { GoogleDriveAdapter } from "./adapters/google-drive";
-import { SyncManager } from "./sync-manager";
+import { SyncManager, type SyncTrigger } from "./sync-manager";
 import { SecureStorage } from "./secure-storage";
 import { HistoryModal } from "./ui/history-modal";
 import { DEFAULT_SETTINGS, SETTINGS_LIMITS } from "./constants";
@@ -105,17 +105,17 @@ export default class VaultSync extends Plugin {
         this.app.workspace.onLayoutReady(() => {
             if (this.settings.enableStartupSync) {
                 window.setTimeout(async () => {
-                    this.isReady = true;
                     this.syncManager.log(
                         "Startup grace period ended. Triggering initial Smart Sync.",
                     );
 
-                    // First time sync OR fresh start -> Loud (notify + icon spin). Subsequent -> Silent.
+                    // First time sync -> "initial-sync" (loud). Subsequent -> "startup-sync" (quiet).
                     const isFirstSync = !this.settings.hasCompletedFirstSync;
-                    const isFreshStart = this.syncManager.isFreshStart();
-                    const shouldBeLoud = isFirstSync || isFreshStart;
+                    const trigger: SyncTrigger = isFirstSync ? "initial-sync" : "startup-sync";
 
-                    await this.syncManager.requestSmartSync(!shouldBeLoud, true);
+                    await this.syncManager.requestSmartSync(trigger, true);
+
+                    this.isReady = true;
 
                     if (isFirstSync) {
                         this.settings.hasCompletedFirstSync = true;
@@ -134,7 +134,7 @@ export default class VaultSync extends Plugin {
             if (this.syncRibbonIconEl) {
                 await this.performSyncOperation(
                     [{ element: this.syncRibbonIconEl, originalIcon: "sync" }],
-                    () => this.syncManager.requestSmartSync(false),
+                    () => this.syncManager.requestSmartSync("manual-sync"),
                 );
             }
         });
@@ -147,11 +147,11 @@ export default class VaultSync extends Plugin {
                     await this.performSyncOperation(
                         [{ element: this.syncRibbonIconEl, originalIcon: "sync" }],
                         async () => {
-                            await this.syncManager.requestSmartSync(false);
+                            await this.syncManager.requestSmartSync("manual-sync");
                         },
                     );
                 } else {
-                    await this.syncManager.requestSmartSync(false);
+                    await this.syncManager.requestSmartSync("manual-sync");
                 }
             },
         });
@@ -160,7 +160,8 @@ export default class VaultSync extends Plugin {
             id: "force-full-scan",
             name: t("labelFullAudit"),
             callback: async () => {
-                await this.syncManager.notify(t("noticeScanningLocalFiles"));
+                this.syncManager.currentTrigger = "full-scan";
+                await this.syncManager.notify("noticeScanningLocalFiles");
                 await this.syncManager.requestBackgroundScan(false);
             },
         });
@@ -247,10 +248,10 @@ export default class VaultSync extends Plugin {
 
         if (targets.length > 0) {
             await this.performSyncOperation(targets, () =>
-                this.syncManager.requestSmartSync(false),
+                this.syncManager.requestSmartSync("manual-sync"),
             );
         } else {
-            await this.syncManager.requestSmartSync(false);
+            await this.syncManager.requestSmartSync("manual-sync");
         }
     }
 
@@ -305,13 +306,23 @@ export default class VaultSync extends Plugin {
         }
     }
 
+    /** Map source strings to SyncTrigger values */
+    private static readonly TRIGGER_MAP: Record<string, SyncTrigger> = {
+        interval: "timer-sync",
+        save: "save-sync",
+        modify: "modify-sync",
+        "layout-change": "layout-sync",
+    };
+
     /**
      * Trigger Smart Sync - high priority, O(1) check via sync-index.json
-     * Used for user-initiated actions (save, modify, layout change)
+     * Used for background/implicit actions (save, modify, layout change, interval)
      * @param source The source of the trigger for debugging and priority handling
      */
     private async triggerSmartSync(source: string = "unknown") {
         if (!this.isReady) return;
+
+        const trigger: SyncTrigger = VaultSync.TRIGGER_MAP[source] || "timer-sync";
 
         // Respect debounce: If user is actively editing, suppressed triggers (layout, interval)
         // should NOT interrupt. The 'modify' trigger (debounced) will handle it eventually.
@@ -326,19 +337,15 @@ export default class VaultSync extends Plugin {
         }
 
         if (source === "interval" && this.syncManager.isSyncing()) {
-            // Already syncing, interval trigger should be quiet
-            await this.syncManager.requestSmartSync(true);
+            // Already syncing, interval trigger queues with low priority
+            await this.syncManager.requestSmartSync(trigger);
             return;
         }
 
         await this.syncManager.log(`[Trigger] Activated via ${source}`);
 
-        // Set all background/implicit triggers (save, modify, layout, interval) to silent.
-        // This ensures consistent behavior where sync runs quietly without "Syncing..." notices.
-        const isSilent = true;
-
         // Animation is handled via Activity Callbacks if changes are found
-        await this.syncManager.requestSmartSync(isSilent);
+        await this.syncManager.requestSmartSync(trigger);
     }
 
     private registerTriggers() {
@@ -837,72 +844,8 @@ class VaultSyncSettingTab extends PluginSettingTab {
                     .setCta()
                     .onClick(async () => {
                         await this.plugin.adapter.login();
-                        if (!Platform.isMobile) {
-                            const tokens = this.plugin.adapter.getTokens();
-                            await this.plugin.saveCredentials(
-                                this.plugin.adapter.clientId,
-                                this.plugin.adapter.clientSecret,
-                                tokens.accessToken,
-                                tokens.refreshToken,
-                            );
-                            await this.plugin.syncManager.notify(t("noticeAuthSuccess"));
-                            this.display();
-                        }
                     }),
             );
-
-        // Mobile/Manual Auth
-        if (Platform.isMobile) {
-            containerEl.createEl("h4", { text: t("settingManualAuthSection") });
-            containerEl.createEl("p", {
-                text: t("settingManualAuthDesc"),
-                cls: "setting-item-description",
-            });
-
-            let textComponent: any;
-            new Setting(containerEl)
-                .setName(t("settingAuthorize"))
-                .addText((text) => {
-                    textComponent = text;
-                    text.setPlaceholder(t("settingManualAuthPlaceholder")).inputEl.style.width =
-                        "100%";
-                })
-                .addButton((button) =>
-                    button.setButtonText(t("settingManualAuthVerify")).onClick(async () => {
-                        const val = textComponent.getValue().trim();
-                        if (!val) return;
-
-                        let code = val;
-                        // Extract code from URL if full URL is pasted
-                        if (val.includes("code=")) {
-                            try {
-                                const url = new window.URL(val);
-                                code = url.searchParams.get("code") || val;
-                            } catch (e) {
-                                // ignore
-                            }
-                        }
-
-                        try {
-                            await this.plugin.adapter.exchangeCodeForToken(code);
-                            const tokens = this.plugin.adapter.getTokens();
-                            await this.plugin.saveCredentials(
-                                this.plugin.adapter.clientId,
-                                this.plugin.adapter.clientSecret,
-                                tokens.accessToken,
-                                tokens.refreshToken,
-                            );
-                            await this.plugin.syncManager.notify(t("noticeAuthSuccess"));
-                            this.display();
-                        } catch (e) {
-                            await this.plugin.syncManager.notify(
-                                `${t("noticeAuthFailed")}: ${e instanceof Error ? e.message : String(e)}`,
-                            );
-                        }
-                    }),
-                )
-                .setClass("auth-manual-input");
-        }
 
         // Render Schema-based Settings
         const sections = getSettingsSections(this.plugin);

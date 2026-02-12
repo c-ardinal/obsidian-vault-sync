@@ -22,6 +22,8 @@ const DEFAULT_SETTINGS: SyncManagerSettings = {
     syncFlexibleData: true,
     syncDeviceLogs: false,
     syncWorkspace: false,
+
+    hasCompletedFirstSync: false,
 };
 
 /**
@@ -66,6 +68,9 @@ export class DeviceSimulator {
         this.sm.log = async (msg: string) => {
             this.logs.push(`[${this.name}] ${msg}`);
         };
+
+        // Set default trigger for tests
+        this.sm.currentTrigger = "manual-sync";
     }
 
     // ─── State Setup ───
@@ -127,7 +132,6 @@ export class DeviceSimulator {
      */
     async pushFile(
         path: string,
-        isSilent = true,
     ): Promise<{ pushed: boolean; conflictDetected: boolean }> {
         const exists = await this.app.vaultAdapter.exists(path);
 
@@ -184,7 +188,7 @@ export class DeviceSimulator {
                     this.logs.push(`[${this.name}] PUSH CONFLICT: Remote changed for ${path}`);
 
                     // Deadlock breaking: immediate pull/merge
-                    await this.sm.pullFileSafely(remoteMeta, isSilent, "Push Conflict");
+                    await this.sm.pullFileSafely(remoteMeta, "Push Conflict");
                     return { pushed: false, conflictDetected: true };
                 }
             }
@@ -243,7 +247,7 @@ export class DeviceSimulator {
      * Pull a specific file from cloud (conflict detection and auto-merge).
      * Calls pullFileSafely directly — bypasses Changes API pre-check.
      */
-    async pullFile(path: string, isSilent = true): Promise<boolean> {
+    async pullFile(path: string): Promise<boolean> {
         const remoteMeta = await this.cloud.getFileMetadata(path);
 
         // Handle remote deletion (similar to smartPull:1372-1392)
@@ -262,7 +266,7 @@ export class DeviceSimulator {
             }
             return false;
         }
-        return await this.sm.pullFileSafely(remoteMeta, isSilent, "Pull");
+        return await this.sm.pullFileSafely(remoteMeta, "Pull");
     }
 
     /**
@@ -276,7 +280,6 @@ export class DeviceSimulator {
      */
     async syncPull(
         path: string,
-        isSilent = true,
     ): Promise<"skipped_hash_match" | "pulled" | "no_change" | "no_remote"> {
         const remoteMeta = await this.cloud.getFileMetadata(path);
         if (!remoteMeta) return "no_remote";
@@ -307,7 +310,7 @@ export class DeviceSimulator {
         }
 
         // ── No pre-check match → call pullFileSafely ──
-        const success = await this.sm.pullFileSafely(remoteMeta, isSilent, "Changes API");
+        const success = await this.sm.pullFileSafely(remoteMeta, "Changes API");
         return success ? "pulled" : "no_change";
     }
 
