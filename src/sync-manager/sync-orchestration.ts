@@ -439,10 +439,8 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
     // Check if adapter supports Changes API for faster detection
     if (ctx.adapter.supportsChangesAPI) {
         if (ctx.startPageToken) {
-            await ctx.log("[Smart Pull] Using Changes API (fast path)");
             return await pullViaChangesAPI(ctx);
         } else {
-            await ctx.log("[Smart Pull] Initializing Changes API token (will be used next time)");
             try {
                 ctx.startPageToken = await ctx.adapter.getStartPageToken();
                 await saveIndex(ctx);
@@ -452,9 +450,6 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
             // Fall through to standard hash check for this run
         }
     }
-
-    // Core path: sync-index.json hash comparison
-    await ctx.log("[Smart Pull] Using sync-index.json hash comparison (core path)");
 
     // Get remote index metadata (O(1) operation)
     const remoteIndexMeta = await ctx.adapter.getFileMetadata(ctx.pluginDataPath);
@@ -559,7 +554,8 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
                 fileId: remoteEntry.fileId,
                 hash: remoteEntry.hash,
                 mergeLock: remoteEntry.mergeLock,
-            });
+                ancestorHash: remoteEntry.ancestorHash,
+            } as any);
         } else if (
             remoteEntry.hash &&
             localBaseEntry.hash &&
@@ -571,7 +567,8 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
                 fileId: remoteEntry.fileId,
                 hash: remoteEntry.hash,
                 mergeLock: remoteEntry.mergeLock,
-            });
+                ancestorHash: remoteEntry.ancestorHash,
+            } as any);
         }
     }
 
@@ -780,6 +777,20 @@ export async function pullViaChangesAPI(
         // Load communication data for mergeLock checks
         const commData = await loadCommunication(ctx);
 
+        // Load Remote Index for ancestorHash lookups (Safety Guard)
+        let remoteIndex: LocalFileIndex = {};
+        try {
+            const remoteIndexMeta = await ctx.adapter.getFileMetadata(ctx.pluginDataPath);
+            if (remoteIndexMeta?.id) {
+                const remoteIndexContent = await ctx.adapter.downloadFile(remoteIndexMeta.id);
+                const decompressed = await tryDecompress(remoteIndexContent);
+                const remoteIndexData = JSON.parse(new TextDecoder().decode(decompressed));
+                remoteIndex = remoteIndexData.index || {};
+            }
+        } catch (e) {
+            await ctx.log(`[Smart Pull] [Changes API] Failed to download remote index: ${e}`);
+        }
+
         const tasks: (() => Promise<void>)[] = [];
         let completed = 0;
 
@@ -817,9 +828,15 @@ export async function pullViaChangesAPI(
                 }
             } else if (change.file && change.file.kind === "file") {
                 // File was added or modified
-                const cloudFile = change.file;
+                const cloudFile: any = change.file;
                 if (cloudFile.path === ctx.pluginDataPath) continue;
                 if (isManagedSeparately(cloudFile.path)) continue;
+
+                // Populate ancestorHash from remote index for Safety Guard
+                const remoteEntry = remoteIndex[cloudFile.path];
+                if (remoteEntry) {
+                    cloudFile.ancestorHash = remoteEntry.ancestorHash;
+                }
 
                 // NEW: もしリモート禁止対象ファイルが上がってきたら、即座に削除
                 if (shouldNotBeOnRemote(ctx, cloudFile.path)) {
@@ -1411,9 +1428,58 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                         `[Smart Push] [Deadlock Breaking] Attempting immediate pull/merge for ${file.path}...`,
                                     );
                                     await pullFileSafely(ctx, remoteMeta, "Push Conflict");
-                                    // Critical: return here to skip uploading the OLD content in this closure.
-                                    // The file remains in dirtyPaths (or is re-added by pullFileSafely),
-                                    // so it will be picked up in the next sync cycle.
+
+                                    // After merge, immediately upload the merged file.
+                                    // We cannot defer to the next cycle because the index is uploaded
+                                    // at the end of this cycle, leaving remote in an inconsistent state
+                                    // (index updated but file still old).
+                                    if (ctx.localIndex[file.path]?.lastAction === "merge") {
+                                        try {
+                                            const mergedContent =
+                                                await ctx.app.vault.adapter.readBinary(file.path);
+                                            const mergedStat = await ctx.app.vault.adapter.stat(
+                                                file.path,
+                                            );
+                                            const mergedFileId =
+                                                ctx.index[file.path]?.fileId || remoteMeta.id;
+
+                                            const mergedUploaded = await ctx.adapter.uploadFile(
+                                                file.path,
+                                                mergedContent,
+                                                mergedStat?.mtime || Date.now(),
+                                                mergedFileId,
+                                            );
+
+                                            const previousAncestorHash =
+                                                ctx.localIndex[file.path]?.ancestorHash;
+                                            const mergedEntry = {
+                                                fileId: mergedUploaded.id,
+                                                mtime: mergedStat?.mtime || Date.now(),
+                                                size: mergedUploaded.size,
+                                                hash: mergedUploaded.hash,
+                                                lastAction: "push" as const,
+                                                ancestorHash:
+                                                    previousAncestorHash || mergedUploaded.hash,
+                                            };
+                                            ctx.index[file.path] = mergedEntry;
+                                            ctx.localIndex[file.path] = { ...mergedEntry };
+                                            ctx.dirtyPaths.delete(file.path);
+                                            completed++;
+
+                                            await ctx.log(
+                                                `[Smart Push] [Deadlock Breaking] Merged file uploaded: ${file.path}`,
+                                            );
+                                            await ctx.notify(
+                                                "noticeFilePushed",
+                                                file.path.split("/").pop(),
+                                            );
+                                        } catch (uploadErr) {
+                                            await ctx.log(
+                                                `[Smart Push] [Deadlock Breaking] Failed to upload merged file: ${file.path} - ${uploadErr}`,
+                                            );
+                                            // File remains in dirtyPaths for next cycle
+                                        }
+                                    }
                                     return;
                                 }
                             }
