@@ -296,10 +296,7 @@ export async function requestSmartSync(
  * - Pull: Check remote changes via sync-index.json hash comparison (or Changes API)
  * - Push: Upload dirty files
  */
-export async function executeSmartSync(
-    ctx: SyncContext,
-    scanVault: boolean,
-): Promise<void> {
+export async function executeSmartSync(ctx: SyncContext, scanVault: boolean): Promise<void> {
     if (ALWAYS_SHOW_ACTIVITY.has(ctx.currentTrigger)) {
         ctx.startActivity();
     }
@@ -360,10 +357,7 @@ export async function executeSmartSync(
  * Uses the same logic as the first pull (smartPull or pullViaChangesAPI).
  * Retries on failure since the push already succeeded - this is confirmation only.
  */
-async function postPushPull(
-    ctx: SyncContext,
-    maxRetries: number = 2,
-): Promise<void> {
+async function postPushPull(ctx: SyncContext, maxRetries: number = 2): Promise<void> {
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
         try {
             await ctx.log(
@@ -404,12 +398,21 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
     // This prevents race conditions where Changes API hasn't caught up yet
     const commData = await loadCommunication(ctx);
     const now = Date.now();
+    let localIndexChanged = false;
     for (const [path, lock] of Object.entries(commData.mergeLocks)) {
         if (lock.holder !== ctx.deviceId && lock.expiresAt > now) {
             await ctx.log(
                 `[Smart Pull] Active merge lock detected: ${path} by ${lock.holder} (expires in ${Math.round((lock.expiresAt - now) / 1000)}s)`,
             );
+            await ctx.notify("noticeWaitOtherDeviceMerge", path.split("/").pop());
+            if (ctx.localIndex[path] && !ctx.localIndex[path].pendingConflict) {
+                ctx.localIndex[path].pendingConflict = true;
+                localIndexChanged = true;
+            }
         }
+    }
+    if (localIndexChanged) {
+        await saveLocalIndex(ctx);
     }
 
     // --- FORCED CLEANUP: Wipe forbidden system directories ---
@@ -900,7 +903,10 @@ export async function pullViaChangesAPI(
                                     // Update ID Map so we don't process this again or inconsistently
                                     localIdToPath.set(cloudFile.id, newPath);
 
-                                    await ctx.notify("noticeFileRenamed", `${oldPath.split("/").pop()} -> ${newPath.split("/").pop()}`);
+                                    await ctx.notify(
+                                        "noticeFileRenamed",
+                                        `${oldPath.split("/").pop()} -> ${newPath.split("/").pop()}`,
+                                    );
                                 } else {
                                     // Source doesn't exist locally? Just removed from index/map then.
                                     // pullFileSafely will treat as new download.
@@ -953,6 +959,17 @@ export async function pullViaChangesAPI(
                         confirmedCountTotal++;
                         await ctx.notify("noticeSyncConfirmed", cloudFile.path.split("/").pop());
                     }
+
+                    // Strategy B: 他デバイスのマージ結果を適用済み（ハッシュ一致）であることを通知
+                    if (ctx.localIndex[cloudFile.path]?.pendingConflict) {
+                        delete ctx.localIndex[cloudFile.path].pendingConflict;
+                        await saveLocalIndex(ctx);
+                        await ctx.notify(
+                            "noticeRemoteMergeSynced",
+                            cloudFile.path.split("/").pop(),
+                        );
+                    }
+
                     await ctx.log(`[Smart Pull] Skipping (hash match): ${cloudFile.path}`);
                     continue;
                 }
@@ -1012,10 +1029,7 @@ export async function pullViaChangesAPI(
  * O(1) when no dirty files, O(dirty count + .obsidian scan) otherwise
  * If scanVault is true, performs O(N) full vault scan before pushing
  */
-export async function smartPush(
-    ctx: SyncContext,
-    scanVault: boolean,
-): Promise<boolean> {
+export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<boolean> {
     // Optional complete vault scan (for startup)
     if (scanVault) {
         await scanVaultChanges(ctx);
@@ -1396,11 +1410,7 @@ export async function smartPush(
                                     await ctx.log(
                                         `[Smart Push] [Deadlock Breaking] Attempting immediate pull/merge for ${file.path}...`,
                                     );
-                                    await pullFileSafely(
-                                        ctx,
-                                        remoteMeta,
-                                        "Push Conflict",
-                                    );
+                                    await pullFileSafely(ctx, remoteMeta, "Push Conflict");
                                     // Critical: return here to skip uploading the OLD content in this closure.
                                     // The file remains in dirtyPaths (or is re-added by pullFileSafely),
                                     // so it will be picked up in the next sync cycle.

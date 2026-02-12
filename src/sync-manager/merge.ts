@@ -445,7 +445,15 @@ export async function pullFileSafely(
                         ctx.index[item.path] = entry;
                         ctx.localIndex[item.path] = { ...entry };
                         ctx.dirtyPaths.delete(item.path);
-                        await saveLocalIndex(ctx);
+
+                        if (localBase?.pendingConflict) {
+                            delete ctx.localIndex[item.path].pendingConflict;
+                            await saveLocalIndex(ctx);
+                            await ctx.notify("noticeRemoteMergeSynced", item.path.split("/").pop());
+                        } else {
+                            await saveLocalIndex(ctx);
+                        }
+
                         if (!ctx.settings.hasCompletedFirstSync) {
                             await ctx.notify("noticeSyncConfirmed", item.path.split("/").pop());
                         }
@@ -478,10 +486,10 @@ export async function pullFileSafely(
                             hash: item.hash,
                             lastAction: "pull" as const,
                             ancestorHash: item.hash,
-                            pendingConflict: false,
                         };
                         ctx.index[item.path] = entry;
                         ctx.localIndex[item.path] = { ...entry };
+                        await saveLocalIndex(ctx);
                         return true;
                     }
 
@@ -496,7 +504,10 @@ export async function pullFileSafely(
                             await ctx.log(
                                 `[${logPrefix}] Lock not acquired: ${item.path} is being handled by ${lockResult.holder} (expires in ${lockResult.expiresIn}s)`,
                             );
-                            await ctx.notify("noticeWaitOtherDeviceMerge", item.path.split("/").pop());
+                            await ctx.notify(
+                                "noticeWaitOtherDeviceMerge",
+                                item.path.split("/").pop(),
+                            );
                             if (ctx.localIndex[item.path]) {
                                 ctx.localIndex[item.path].pendingConflict = true;
                             }
@@ -584,7 +595,10 @@ export async function pullFileSafely(
                                         lastAction: "pull" as const,
                                         ancestorHash: item.hash?.toLowerCase() || "",
                                     };
-                                    await ctx.notify("noticeRemoteMergeSynced", item.path.split("/").pop());
+                                    await ctx.notify(
+                                        "noticeRemoteMergeSynced",
+                                        item.path.split("/").pop(),
+                                    );
                                     ctx.index[item.path] = entry;
                                     ctx.localIndex[item.path] = { ...entry };
                                     ctx.dirtyPaths.delete(item.path);
@@ -616,7 +630,21 @@ export async function pullFileSafely(
                                         await ctx.log(
                                             `[${logPrefix}] Merged successfully. Queued for push.`,
                                         );
-                                        await ctx.notify("noticeMergeSuccess", item.path.split("/").pop());
+
+                                        if (localBase?.pendingConflict) {
+                                            // Successfully merged our changes on top of a remote merge result from another device
+                                            await ctx.notify(
+                                                "noticeRemoteMergeSynced",
+                                                item.path.split("/").pop(),
+                                            );
+                                            delete ctx.localIndex[item.path].pendingConflict;
+                                            await saveLocalIndex(ctx);
+                                        } else {
+                                            await ctx.notify(
+                                                "noticeMergeSuccess",
+                                                item.path.split("/").pop(),
+                                            );
+                                        }
                                     } else {
                                         await ctx.log(
                                             `[${logPrefix}] Lock lost during merge. Content saved locally, queued for push on next cycle.`,
