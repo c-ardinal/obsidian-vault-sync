@@ -78,7 +78,7 @@ export async function restoreRevision(
             `[History] Rollback executed: File=${path}, Revision=${revision.id}, Time=${timestamp}`,
         );
 
-        await ctx.notify(ctx.t("noticeFileRestored"));
+        await ctx.notify("noticeFileRestored");
     } catch (e) {
         await ctx.log(`[History] Rollback failed: ${e}`);
         throw e;

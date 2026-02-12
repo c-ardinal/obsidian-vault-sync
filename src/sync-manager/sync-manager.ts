@@ -10,6 +10,12 @@ import type {
     CommunicationData,
 } from "./types";
 import {
+    type SyncTrigger,
+    shouldShowNotification,
+    ALWAYS_SHOW_ACTIVITY,
+    TRIGGER_PRIORITY,
+} from "./notification-matrix";
+import {
     PLUGIN_DIR,
     INTERNAL_LOCAL_ONLY,
     INTERNAL_REMOTE_MANAGED,
@@ -77,6 +83,7 @@ import {
     executeFullScan as _executeFullScan,
 } from "./sync-orchestration";
 export type { SyncManagerSettings, LocalFileIndex, SyncState, FullScanProgress, CommunicationData };
+export type { SyncTrigger } from "./notification-matrix";
 
 export class SyncManager {
     // Constants delegated to file-utils.ts
@@ -122,6 +129,9 @@ export class SyncManager {
     private forceCleanupNextSync: boolean = false;
     private indexLoadFailed = false;
 
+    /** Current sync trigger — controls notification visibility via matrix lookup */
+    public currentTrigger: SyncTrigger = "manual-sync";
+
     public isSyncing(): boolean {
         return this.syncState !== "IDLE";
     }
@@ -145,7 +155,7 @@ export class SyncManager {
     }
 
     private syncRequestedWhileSyncing: boolean = false;
-    private nextSyncParams: { isSilent: boolean; scanVault: boolean } | null = null;
+    private nextSyncParams: { trigger: SyncTrigger; scanVault: boolean } | null = null;
 
     constructor(
         private app: App,
@@ -213,61 +223,32 @@ export class SyncManager {
     }
 
     /**
-     * Helper to show notification and log it.
-     * @param message The message to display/log
-     * @param isDetailed If true, only show UI notice if notificationLevel is "verbose" (Detailed)
-     * @param isSilent If true, suppress UI notice unless level is "verbose"
+     * Show notification using table-driven visibility control.
+     *
+     * Visibility is determined by looking up (key, currentTrigger, notificationLevel)
+     * in the notification matrix (notification-matrix.ts), which mirrors
+     * doc/spec/notification-case-matrix.md.
+     *
+     * @param key    i18n message key (e.g. "noticeSyncing")
+     * @param suffix Optional text: appended as ": {suffix}" or replaces {0} placeholder
      */
-    public async notify(message: string, isDetailed: boolean = false, isSilent: boolean = false) {
+    public async notify(key: string, suffix?: string) {
         const level = this.settings.notificationLevel;
-        if (level === "error") {
-            await this.log(`[Silent Notice (ErrorLevel)] ${message}`);
-            return;
+
+        let message = this.t(key);
+        if (suffix) {
+            message = message.includes("{0}")
+                ? message.replace("{0}", suffix)
+                : `${message}: ${suffix}`;
         }
 
-        const showVerbose = level === "verbose";
-        let shouldShow = false;
+        const show = shouldShowNotification(key, this.currentTrigger, level);
 
-        if (isDetailed) {
-            // Detailed Events (File-specific: Pushing file, Pulling file, Trash file, Merging file)
-            // Identify if it's a "low priority" detailed event (Push/Pull)
-            const isLowPriority =
-                message.includes(this.t("noticeFilePulled")) ||
-                message.includes(this.t("noticeFilePushed")) ||
-                message.includes("📤") ||
-                message.includes("📥");
-
-            if (isLowPriority) {
-                // Push/Pull: Hide if silent (Startup/Auto) unless in Verbose.
-                shouldShow = showVerbose || !isSilent;
-            } else {
-                // Trash and Merge: Matrix says ALWAYS show in both Verbose and Standard.
-                shouldShow = true;
-            }
-        } else {
-            // Generic Status (Syncing..., Completed, Up to date, Scanning...)
-            // Identify messages that should be hidden in silent (background) scenarios
-            const isSilentSuppressed =
-                message.includes(this.t("noticeSyncing")) ||
-                message.includes("⚡") ||
-                message.includes(this.t("noticeScanningLocalFiles")) ||
-                message.includes("🔍") ||
-                message.includes(this.t("noticeVaultUpToDate"));
-
-            if (isSilentSuppressed) {
-                // "Syncing...", "Scanning...", "Up to date": Hide if silent (Startup/Auto).
-                shouldShow = !isSilent;
-            } else {
-                // "Completed", "Confirmation", etc.: Always show.
-                shouldShow = true;
-            }
-        }
-
-        if (shouldShow) {
+        if (show) {
             new Notice(message);
             await this.log(`[Notice] ${message}`);
         } else {
-            await this.log(`[Silent Notice] ${message}`);
+            await this.log(`[Silent] ${message}`);
         }
     }
 
@@ -410,30 +391,28 @@ export class SyncManager {
 
     // === Sync Orchestration (delegated to sync-orchestration.ts) ===
 
-    async requestSmartSync(isSilent: boolean = true, scanVault: boolean = false): Promise<void> {
-        return _requestSmartSync(this as unknown as SyncContext, isSilent, scanVault);
+    async requestSmartSync(trigger: SyncTrigger = "manual-sync", scanVault: boolean = false): Promise<void> {
+        this.currentTrigger = trigger;
+        return _requestSmartSync(this as unknown as SyncContext, scanVault);
     }
 
-    private async executeSmartSync(isSilent: boolean, scanVault: boolean): Promise<void> {
-        return _executeSmartSync(this as unknown as SyncContext, isSilent, scanVault);
+    private async executeSmartSync(scanVault: boolean): Promise<void> {
+        return _executeSmartSync(this as unknown as SyncContext, scanVault);
     }
 
-    private async smartPull(isSilent: boolean): Promise<boolean> {
-        return _smartPull(this as unknown as SyncContext, isSilent);
+    private async smartPull(): Promise<boolean> {
+        return _smartPull(this as unknown as SyncContext);
     }
 
-    private async pullViaChangesAPI(
-        isSilent: boolean,
-        drainAll: boolean = false,
-    ): Promise<boolean> {
-        return _pullViaChangesAPI(this as unknown as SyncContext, isSilent, drainAll);
+    private async pullViaChangesAPI(drainAll: boolean = false): Promise<boolean> {
+        return _pullViaChangesAPI(this as unknown as SyncContext, drainAll);
     }
 
-    private async smartPush(isSilent: boolean, scanVault: boolean): Promise<boolean> {
-        return _smartPush(this as unknown as SyncContext, isSilent, scanVault);
+    private async smartPush(scanVault: boolean): Promise<boolean> {
+        return _smartPush(this as unknown as SyncContext, scanVault);
     }
 
-    async requestBackgroundScan(resume: boolean = false): Promise<void> {
+    public async requestBackgroundScan(resume: boolean = false): Promise<void> {
         return _requestBackgroundScan(this as unknown as SyncContext, resume);
     }
 
@@ -528,9 +507,8 @@ export class SyncManager {
             mtime?: number;
             size?: number;
         },
-        isSilent: boolean,
         logPrefix: string,
     ): Promise<boolean> {
-        return _pullFileSafely(this as unknown as SyncContext, item, isSilent, logPrefix);
+        return _pullFileSafely(this as unknown as SyncContext, item, logPrefix);
     }
 }

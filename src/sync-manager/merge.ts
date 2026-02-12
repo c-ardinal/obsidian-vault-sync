@@ -3,12 +3,7 @@ import { md5 } from "../utils/md5";
 import { diff_match_patch } from "diff-match-patch";
 import type { SyncContext } from "./context";
 import { ensureLocalFolder } from "./file-utils";
-import {
-    checkMergeLock,
-    acquireMergeLock,
-    releaseMergeLock,
-    saveLocalIndex,
-} from "./state";
+import { checkMergeLock, acquireMergeLock, releaseMergeLock, saveLocalIndex } from "./state";
 import { listRevisions, getRevisionContent } from "./history";
 
 // === Pure Functions ===
@@ -154,9 +149,7 @@ export async function findCommonAncestorHash(
             if (localIdx !== -1 && remoteIdx !== -1) break;
         }
 
-        await ctx.log(
-            `[Merge] localIdx=${localIdx}, remoteIdx=${remoteIdx} (Latest Occurrences)`,
-        );
+        await ctx.log(`[Merge] localIdx=${localIdx}, remoteIdx=${remoteIdx} (Latest Occurrences)`);
 
         if (localIdx === -1 || remoteIdx === -1) {
             await ctx.log(`[Merge] Could not find both versions in history`);
@@ -334,9 +327,7 @@ export async function perform3WayMerge(
             }
 
             if (!validationFailed) {
-                await ctx.log(
-                    `[Merge] SUCCESS: Auto-merged ${path} with Patch_Margin=${margin}`,
-                );
+                await ctx.log(`[Merge] SUCCESS: Auto-merged ${path} with Patch_Margin=${margin}`);
                 return new TextEncoder().encode(mergedText).buffer;
             }
         }
@@ -365,7 +356,6 @@ export async function pullFileSafely(
         mtime?: number;
         size?: number;
     },
-    isSilent: boolean,
     logPrefix: string,
 ): Promise<boolean> {
     if (!item) return false;
@@ -381,11 +371,7 @@ export async function pullFileSafely(
         await ctx.log(
             `[${logPrefix}] Skipping pull: ${item.path} is being merged by ${lockStatus.holder} (expires in ${lockStatus.expiresIn}s)`,
         );
-        await ctx.notify(
-            `${ctx.t("noticeWaitOtherDeviceMerge")}: ${item.path.split("/").pop()}`,
-            true,
-            isSilent,
-        );
+        await ctx.notify("noticeWaitOtherDeviceMerge", item.path.split("/").pop());
         if (ctx.localIndex[item.path]) {
             ctx.localIndex[item.path].pendingConflict = true;
             await saveLocalIndex(ctx);
@@ -416,9 +402,7 @@ export async function pullFileSafely(
                     isRemoteDeleted;
 
                 const isActuallyModified =
-                    !localBase ||
-                    !localBase.hash ||
-                    localBase.hash.toLowerCase() !== currentHash;
+                    !localBase || !localBase.hash || localBase.hash.toLowerCase() !== currentHash;
                 let isModifiedLocally = isActuallyModified || ctx.dirtyPaths.has(item.path);
 
                 const hasRemoteUpdate =
@@ -437,7 +421,7 @@ export async function pullFileSafely(
                     await ctx.log(
                         `[${logPrefix}] Safety Guard: Detected remote change after our ${localBase?.lastAction}. Forcing merge check to prevent data loss.`,
                     );
-                    await ctx.notify(`${ctx.t("noticeMergingFile")}`, true, isSilent);
+                    await ctx.notify("noticeMergingFile");
                     isModifiedLocally = true;
                     safetyGuardTriggered = true;
                 }
@@ -462,6 +446,9 @@ export async function pullFileSafely(
                         ctx.localIndex[item.path] = { ...entry };
                         ctx.dirtyPaths.delete(item.path);
                         await saveLocalIndex(ctx);
+                        if (!ctx.settings.hasCompletedFirstSync) {
+                            await ctx.notify("noticeSyncConfirmed", item.path.split("/").pop());
+                        }
                         await ctx.log(`[${logPrefix}] Skipped (content match): ${item.path}`);
                         return true;
                     }
@@ -475,17 +462,9 @@ export async function pullFileSafely(
                         );
 
                         if (wasPendingConflict) {
-                            await ctx.notify(
-                                `${ctx.t("noticeRemoteMergeSynced")}: ${item.path.split("/").pop()}`,
-                                true,
-                                isSilent,
-                            );
+                            await ctx.notify("noticeRemoteMergeSynced", item.path.split("/").pop());
                         } else {
-                            await ctx.notify(
-                                `${ctx.t("noticeFilePulled") || "📥 Pulled"}: ${item.path.split("/").pop()}`,
-                                true,
-                                isSilent,
-                            );
+                            await ctx.notify("noticeFilePulled", item.path.split("/").pop());
                         }
                         ctx.syncingPaths.add(item.path);
                         const remoteContent = await ctx.adapter.downloadFile(fileId || "");
@@ -517,11 +496,7 @@ export async function pullFileSafely(
                             await ctx.log(
                                 `[${logPrefix}] Lock not acquired: ${item.path} is being handled by ${lockResult.holder} (expires in ${lockResult.expiresIn}s)`,
                             );
-                            await ctx.notify(
-                                `${ctx.t("noticeWaitOtherDeviceMerge")}: ${item.path.split("/").pop()}`,
-                                true,
-                                isSilent,
-                            );
+                            await ctx.notify("noticeWaitOtherDeviceMerge", item.path.split("/").pop());
                             if (ctx.localIndex[item.path]) {
                                 ctx.localIndex[item.path].pendingConflict = true;
                             }
@@ -529,11 +504,7 @@ export async function pullFileSafely(
                         }
                         await ctx.log(`[${logPrefix}] Lock acquired successfully.`);
 
-                        await ctx.notify(
-                            `${ctx.t("noticeMergingFile") || "Merging"}: ${item.path.split("/").pop()}`,
-                            true,
-                            isSilent,
-                        );
+                        await ctx.notify("noticeMergingFile", item.path.split("/").pop());
 
                         let baseHash = localBase.ancestorHash;
                         let origin = "ancestorHash";
@@ -613,20 +584,14 @@ export async function pullFileSafely(
                                         lastAction: "pull" as const,
                                         ancestorHash: item.hash?.toLowerCase() || "",
                                     };
-                                    await ctx.notify(
-                                        `${ctx.t("noticeRemoteMergeSynced")}: ${item.path.split("/").pop()}`,
-                                        true,
-                                        isSilent,
-                                    );
+                                    await ctx.notify("noticeRemoteMergeSynced", item.path.split("/").pop());
                                     ctx.index[item.path] = entry;
                                     ctx.localIndex[item.path] = { ...entry };
                                     ctx.dirtyPaths.delete(item.path);
                                 } else {
                                     const lockCheck = await checkMergeLock(ctx, item.path);
                                     if (!lockCheck.locked) {
-                                        const stat = await ctx.app.vault.adapter.stat(
-                                            item.path,
-                                        );
+                                        const stat = await ctx.app.vault.adapter.stat(item.path);
                                         const entryLocal = {
                                             fileId: fileId || "",
                                             mtime: stat?.mtime || Date.now(),
@@ -651,11 +616,7 @@ export async function pullFileSafely(
                                         await ctx.log(
                                             `[${logPrefix}] Merged successfully. Queued for push.`,
                                         );
-                                        await ctx.notify(
-                                            `${ctx.t("noticeMergeSuccess")}: ${item.path.split("/").pop()}`,
-                                            true,
-                                            isSilent,
-                                        );
+                                        await ctx.notify("noticeMergeSuccess", item.path.split("/").pop());
                                     } else {
                                         await ctx.log(
                                             `[${logPrefix}] Lock lost during merge. Content saved locally, queued for push on next cycle.`,
@@ -685,10 +646,7 @@ export async function pullFileSafely(
                     }
 
                     // CONFLICT FALLBACK
-                    const timestamp = new Date()
-                        .toISOString()
-                        .replace(/[:.]/g, "-")
-                        .slice(0, 19);
+                    const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
                     const ext = item.path.split(".").pop();
                     const baseName = item.path.substring(0, item.path.lastIndexOf("."));
                     const conflictPath = `${baseName} (Conflict ${timestamp}).${ext}`;
@@ -742,11 +700,7 @@ export async function pullFileSafely(
                         await releaseMergeLock(ctx, item.path, logPrefix);
                     }
 
-                    await ctx.notify(
-                        `${ctx.t("noticeConflictSaved") || "Conflict detected. Local file moved to"}: ${conflictPath.split("/").pop()}`,
-                        true,
-                        isSilent,
-                    );
+                    await ctx.notify("noticeConflictSaved", conflictPath.split("/").pop());
                     return true;
                 } else {
                     await ctx.log(
@@ -757,11 +711,7 @@ export async function pullFileSafely(
                         delete ctx.localIndex[item.path].pendingConflict;
                         await saveLocalIndex(ctx);
 
-                        await ctx.notify(
-                            `${ctx.t("noticeRemoteMergeSynced")}: ${item.path.split("/").pop()}`,
-                            true,
-                            isSilent,
-                        );
+                        await ctx.notify("noticeRemoteMergeSynced", item.path.split("/").pop());
                     }
 
                     if (isRemoteDeleted) {
@@ -803,11 +753,7 @@ export async function pullFileSafely(
         ctx.localIndex[item.path] = { ...entry };
         await saveLocalIndex(ctx);
 
-        await ctx.notify(
-            `${ctx.t("noticeFilePulled")}: ${item.path.split("/").pop()}`,
-            true,
-            isSilent,
-        );
+        await ctx.notify("noticeFilePulled", item.path.split("/").pop());
         return true;
     } catch (e) {
         await ctx.log(`[${logPrefix}] Pull failed: ${item.path} - ${e}`);

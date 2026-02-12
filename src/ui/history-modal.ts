@@ -42,6 +42,7 @@ export class HistoryModal extends Modal {
     }
 
     async onOpen() {
+        this.syncManager.currentTrigger = "history-modal";
         const { contentEl, modalEl } = this;
         modalEl.addClass("mod-history-modal");
 
@@ -422,9 +423,7 @@ export class HistoryModal extends Modal {
                                     this.selectedRevision!.id,
                                     newVal,
                                 );
-                                await this.syncManager.notify(
-                                    `${this.syncManager.t("noticeSavedKeepForever")}: ${newVal}`,
-                                );
+                                await this.syncManager.notify("noticeSavedKeepForever", String(newVal));
                                 this.render();
                             } catch (err: any) {
                                 const msg = err instanceof Error ? err.message : String(err);
@@ -432,13 +431,9 @@ export class HistoryModal extends Modal {
                                     msg.includes("illegalKeepForeverModification") ||
                                     msg.includes("Cannot update a revision to false")
                                 ) {
-                                    await this.syncManager.notify(
-                                        this.syncManager.t("historyKeepForeverError"),
-                                    );
+                                    await this.syncManager.notify("historyKeepForeverError");
                                 } else {
-                                    await this.syncManager.notify(
-                                        `${this.syncManager.t("noticeFailedToSave")}: ${err}`,
-                                    );
+                                    await this.syncManager.notify("noticeFailedToSave", String(err));
                                 }
                                 this.selectedRevision!.keepForever = !newVal; // Revert
                                 this.render();
@@ -471,15 +466,9 @@ export class HistoryModal extends Modal {
                                                     this.selectedRevision!.id,
                                                 );
                                             await this.app.vault.createBinary(newPath, buffer);
-                                            await this.syncManager.notify(
-                                                this.syncManager
-                                                    .t("noticeHistoryRestoreAs")
-                                                    .replace("{0}", newPath),
-                                            );
+                                            await this.syncManager.notify("noticeHistoryRestoreAs", newPath);
                                         } catch (err) {
-                                            await this.syncManager.notify(
-                                                `${this.syncManager.t("noticeFailedToSave")}: ${err}`,
-                                            );
+                                            await this.syncManager.notify("noticeFailedToSave", String(err));
                                         }
                                     }
                                 },
@@ -539,9 +528,7 @@ export class HistoryModal extends Modal {
                                     this.file.path,
                                     this.selectedRevision!.id,
                                 );
-                                await this.syncManager.notify(
-                                    this.syncManager.t("noticeRevisionDeleted"),
-                                );
+                                await this.syncManager.notify("noticeRevisionDeleted");
 
                                 // Remove from local list and update cache
                                 this.revisions = this.revisions.filter(
@@ -570,9 +557,7 @@ export class HistoryModal extends Modal {
 
                                 this.render();
                             } catch (err) {
-                                await this.syncManager.notify(
-                                    `${this.syncManager.t("noticeFailedToSave")}: ${err}`,
-                                );
+                                await this.syncManager.notify("noticeFailedToSave", String(err));
                             }
                         });
                 });

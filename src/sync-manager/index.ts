@@ -5,4 +5,5 @@ export type {
     SyncState,
     FullScanProgress,
     CommunicationData,
+    SyncTrigger,
 } from "./types";

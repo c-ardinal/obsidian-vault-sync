@@ -24,47 +24,53 @@ describe("Icon Rotation Behavior Scenarios", () => {
         sm.onActivityEnd = activityEndSpy;
     });
 
-    it("Scenario 1: 初回起動後の同期 (isSilent=false) - Should spin from start to finish", async () => {
-        // isSilent=false, scanVault=true
-        await device.syncManager.requestSmartSync(false, true);
+    it("Scenario 1: 初回起動後の同期 (initial-sync) - Should spin from start to finish", async () => {
+        // initial-sync: ALWAYS_SHOW_ACTIVITY triggers startActivity immediately
+        await device.syncManager.requestSmartSync("initial-sync", true);
         expect(activityStartSpy).toHaveBeenCalled();
     });
 
-    it("Scenario 2: 通常起動後の同期 (isSilent=true) - Should spin ONLY if changes found", async () => {
-        // isSilent=true, scanVault=true
-
-        // 2a. No changes
-        await device.syncManager.requestSmartSync(true, true);
-        expect(activityStartSpy).not.toHaveBeenCalled();
-
-        // 2b. With changes (Push)
-        activityStartSpy.mockClear();
-        device.editFile("new-file.md", "content");
-        await device.syncManager.requestSmartSync(true, true);
+    it("Scenario 2: 通常起動後の同期 (startup-sync) - Should spin from start to finish", async () => {
+        // startup-sync: ALWAYS_SHOW_ACTIVITY triggers startActivity immediately
+        await device.syncManager.requestSmartSync("startup-sync", true);
         expect(activityStartSpy).toHaveBeenCalled();
     });
 
-    it("Scenario 3: 定期同期 (isSilent=true) - Should spin ONLY if changes found", async () => {
-        // isSilent=true, scanVault=false
+    it("Scenario 3: 定期同期 (timer-sync) - Should spin ONLY if changes found", async () => {
+        // timer-sync: NOT in ALWAYS_SHOW_ACTIVITY, spin only on changes
 
         // 3a. No changes
-        await device.syncManager.requestSmartSync(true, false);
+        await device.syncManager.requestSmartSync("timer-sync", false);
         expect(activityStartSpy).not.toHaveBeenCalled();
 
         // 3b. With changes (Pull)
         activityStartSpy.mockClear();
         const deviceB = new DeviceSimulator("DeviceB", cloud);
         deviceB.editFile("remote.md", "content");
-        await deviceB.syncManager.requestSmartSync(false, false);
+        await deviceB.syncManager.requestSmartSync("manual-sync", false);
 
-        await device.syncManager.requestSmartSync(true, false);
+        await device.syncManager.requestSmartSync("timer-sync", false);
 
         expect(activityStartSpy).toHaveBeenCalled();
     });
 
-    it("Scenario 4: 手動同期 (isSilent=false) - Should spin from start to finish", async () => {
-        // isSilent=false, scanVault=false
-        await device.syncManager.requestSmartSync(false, false);
+    it("Scenario 4: 手動同期 (manual-sync) - Should spin from start to finish", async () => {
+        // manual-sync: ALWAYS_SHOW_ACTIVITY triggers startActivity immediately
+        await device.syncManager.requestSmartSync("manual-sync", false);
+        expect(activityStartSpy).toHaveBeenCalled();
+    });
+
+    it("Scenario 5: 保存時同期 (save-sync) - Should spin ONLY if changes found", async () => {
+        // save-sync: NOT in ALWAYS_SHOW_ACTIVITY
+
+        // 5a. No changes
+        await device.syncManager.requestSmartSync("save-sync", false);
+        expect(activityStartSpy).not.toHaveBeenCalled();
+
+        // 5b. With changes (Push)
+        activityStartSpy.mockClear();
+        device.editFile("new-file.md", "content");
+        await device.syncManager.requestSmartSync("save-sync", false);
         expect(activityStartSpy).toHaveBeenCalled();
     });
 });

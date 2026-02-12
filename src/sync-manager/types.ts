@@ -15,6 +15,7 @@ export interface SyncManagerSettings {
     syncFlexibleData: boolean;
     syncDeviceLogs: boolean;
     syncWorkspace: boolean;
+    hasCompletedFirstSync: boolean;
 }
 
 export interface LocalFileIndex {
@@ -36,6 +37,9 @@ export interface LocalFileIndex {
         forcePush?: boolean;
     };
 }
+
+// === Notification / Trigger Types ===
+export type { SyncTrigger } from "./notification-matrix";
 
 // === Hybrid Sync Types ===
 

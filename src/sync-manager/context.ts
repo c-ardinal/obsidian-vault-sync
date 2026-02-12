@@ -8,6 +8,7 @@ import type {
     FullScanProgress,
     CommunicationData,
 } from "./types";
+import type { SyncTrigger } from "./notification-matrix";
 
 /**
  * Shared context interface for extracted sync-manager sub-modules.
@@ -46,8 +47,11 @@ export interface SyncContext {
     fullScanProgress: FullScanProgress | null;
     currentSyncPromise: Promise<void> | null;
     syncRequestedWhileSyncing: boolean;
-    nextSyncParams: { isSilent: boolean; scanVault: boolean } | null;
+    nextSyncParams: { trigger: SyncTrigger; scanVault: boolean } | null;
     readonly FULL_SCAN_MAX_AGE_MS: number;
+
+    // === Notification / Trigger ===
+    currentTrigger: SyncTrigger;
 
     // === Flags ===
     forceCleanupNextSync: boolean;
@@ -59,14 +63,14 @@ export interface SyncContext {
 
     // === Utility Methods (remain on SyncManager, called via ctx) ===
     log: (message: string) => Promise<void>;
-    notify: (message: string, isDetailed?: boolean, isSilent?: boolean) => Promise<void>;
+    notify: (key: string, suffix?: string) => Promise<void>;
     startActivity: () => void;
     endActivity: () => void;
     onActivityStart: () => void;
     onActivityEnd: () => void;
 
     // === Delegate Methods (called via ctx so vi.spyOn on facade class works) ===
-    smartPull: (isSilent: boolean) => Promise<boolean>;
-    smartPush: (isSilent: boolean, scanVault: boolean) => Promise<boolean>;
-    pullViaChangesAPI: (isSilent: boolean, isIdentityCheck?: boolean) => Promise<void>;
+    smartPull: () => Promise<boolean>;
+    smartPush: (scanVault: boolean) => Promise<boolean>;
+    pullViaChangesAPI: (drainAll?: boolean) => Promise<void>;
 }

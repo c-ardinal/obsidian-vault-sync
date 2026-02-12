@@ -1,7 +1,8 @@
 import { md5 } from "../utils/md5";
 import type { CloudFile } from "../types/adapter";
 import type { SyncContext } from "./context";
-import type { LocalFileIndex, SyncState } from "./types";
+import type { LocalFileIndex, SyncState, SyncTrigger } from "./types";
+import { ALWAYS_SHOW_ACTIVITY, TRIGGER_PRIORITY } from "./notification-matrix";
 import {
     PLUGIN_DIR,
     INTERNAL_LOCAL_ONLY,
@@ -216,24 +217,27 @@ export async function scanVaultChanges(ctx: SyncContext): Promise<void> {
 
 /**
  * Request Smart Sync - high priority, interrupts full scan
- * This is the main entry point for user-triggered syncs
- * @param isSilent If true, suppress initial notifications (errors still shown)
+ * This is the main entry point for user-triggered syncs.
+ * Trigger is read from ctx.currentTrigger (set by caller before invoking).
  * @param scanVault If true, perform a full vault scan for changes (O(N)) - useful for startup
  */
 export async function requestSmartSync(
     ctx: SyncContext,
-    isSilent: boolean = true,
     scanVault: boolean = false,
 ): Promise<void> {
     // If already smart syncing, mark that we need another pass after and wait.
     if (ctx.syncState === "SMART_SYNCING") {
         ctx.syncRequestedWhileSyncing = true;
         if (!ctx.nextSyncParams) {
-            ctx.nextSyncParams = { isSilent, scanVault };
+            ctx.nextSyncParams = { trigger: ctx.currentTrigger, scanVault };
         } else {
-            // Merge requirements: if any request is NOT silent, the next pass should not be silent.
+            // Merge requirements: pick the "loudest" trigger (highest priority).
             // If any request wants a full scan, the next pass should scan.
-            ctx.nextSyncParams.isSilent = ctx.nextSyncParams.isSilent && isSilent;
+            const incoming = TRIGGER_PRIORITY[ctx.currentTrigger] ?? 0;
+            const queued = TRIGGER_PRIORITY[ctx.nextSyncParams.trigger] ?? 0;
+            if (incoming > queued) {
+                ctx.nextSyncParams.trigger = ctx.currentTrigger;
+            }
             ctx.nextSyncParams.scanVault = ctx.nextSyncParams.scanVault || scanVault;
         }
 
@@ -263,14 +267,13 @@ export async function requestSmartSync(
         }
     }
 
-    let currentIsSilent = isSilent;
     let currentScanVault = scanVault;
 
     // Execute smart sync with re-queueing support
     do {
         ctx.syncRequestedWhileSyncing = false;
         ctx.syncState = "SMART_SYNCING";
-        ctx.currentSyncPromise = executeSmartSync(ctx, currentIsSilent, currentScanVault);
+        ctx.currentSyncPromise = executeSmartSync(ctx, currentScanVault);
 
         try {
             await ctx.currentSyncPromise;
@@ -281,7 +284,7 @@ export async function requestSmartSync(
 
         // If another request came in, prepare parameters for the next pass
         if (ctx.syncRequestedWhileSyncing && ctx.nextSyncParams) {
-            currentIsSilent = ctx.nextSyncParams.isSilent;
+            ctx.currentTrigger = ctx.nextSyncParams.trigger;
             currentScanVault = ctx.nextSyncParams.scanVault;
             ctx.nextSyncParams = null;
         }
@@ -295,15 +298,14 @@ export async function requestSmartSync(
  */
 export async function executeSmartSync(
     ctx: SyncContext,
-    isSilent: boolean,
     scanVault: boolean,
 ): Promise<void> {
-    if (!isSilent) {
+    if (ALWAYS_SHOW_ACTIVITY.has(ctx.currentTrigger)) {
         ctx.startActivity();
     }
     try {
         await ctx.log("=== SMART SYNC START ===");
-        await ctx.notify(ctx.t("noticeSyncing"), false, isSilent);
+        await ctx.notify("noticeSyncing");
 
         // Clean up recentlyDeletedFromRemote: remove entries for files that no longer exist locally
         // (they were successfully deleted, so we don't need to track them anymore)
@@ -321,23 +323,23 @@ export async function executeSmartSync(
 
         // === PULL PHASE ===
         // Call via ctx so vi.spyOn on SyncManager instance methods works in tests
-        const pulled = await ctx.smartPull(isSilent);
+        const pulled = await ctx.smartPull();
 
         // === PUSH PHASE ===
         if (scanVault) {
-            await ctx.notify(ctx.t("noticeScanningLocalFiles"), false, isSilent);
+            await ctx.notify("noticeScanningLocalFiles");
         }
-        const pushed = await ctx.smartPush(isSilent, scanVault);
+        const pushed = await ctx.smartPush(scanVault);
 
         // === POST-PUSH PULL PHASE ===
         // After pushing, immediately pull again to detect conflicts from other devices
         // and confirm sync state (ancestorHash update).
         if (pushed) {
-            await postPushPull(ctx, isSilent);
+            await postPushPull(ctx);
         }
 
         if (!pulled && !pushed) {
-            await ctx.notify(ctx.t("noticeVaultUpToDate"), false, isSilent);
+            await ctx.notify("noticeVaultUpToDate");
         }
 
         await ctx.log("=== SMART SYNC COMPLETED ===");
@@ -360,23 +362,29 @@ export async function executeSmartSync(
  */
 async function postPushPull(
     ctx: SyncContext,
-    isSilent: boolean,
     maxRetries: number = 2,
 ): Promise<void> {
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
         try {
-            await ctx.log(`[Post-Push Pull] Starting confirmation pull (attempt ${attempt + 1}/${maxRetries + 1})...`);
+            await ctx.log(
+                `[Post-Push Pull] Starting confirmation pull (attempt ${attempt + 1}/${maxRetries + 1})...`,
+            );
+            if (attempt === 0 && !ctx.settings.hasCompletedFirstSync) {
+                await ctx.notify("noticeInitialSyncConfirmation");
+            }
             if (ctx.adapter.supportsChangesAPI) {
-                await ctx.pullViaChangesAPI(isSilent, true);
+                await ctx.pullViaChangesAPI(true);
             } else {
-                await ctx.smartPull(isSilent);
+                await ctx.smartPull();
             }
             await ctx.log("[Post-Push Pull] Confirmation pull completed.");
             return;
         } catch (e) {
             await ctx.log(`[Post-Push Pull] Attempt ${attempt + 1}/${maxRetries + 1} failed: ${e}`);
             if (attempt === maxRetries) {
-                await ctx.log("[Post-Push Pull] All retries exhausted. Skipping confirmation pull.");
+                await ctx.log(
+                    "[Post-Push Pull] All retries exhausted. Skipping confirmation pull.",
+                );
             }
         }
     }
@@ -389,7 +397,7 @@ async function postPushPull(
 /**
  * Smart Pull - O(1) check for remote changes using sync-index.json hash
  */
-export async function smartPull(ctx: SyncContext, isSilent: boolean): Promise<boolean> {
+export async function smartPull(ctx: SyncContext): Promise<boolean> {
     await ctx.log("[Smart Pull] Checking for remote changes...");
 
     // Check for active merge locks from other devices FIRST
@@ -429,7 +437,7 @@ export async function smartPull(ctx: SyncContext, isSilent: boolean): Promise<bo
     if (ctx.adapter.supportsChangesAPI) {
         if (ctx.startPageToken) {
             await ctx.log("[Smart Pull] Using Changes API (fast path)");
-            return await pullViaChangesAPI(ctx, isSilent);
+            return await pullViaChangesAPI(ctx);
         } else {
             await ctx.log("[Smart Pull] Initializing Changes API token (will be used next time)");
             try {
@@ -613,7 +621,7 @@ export async function smartPull(ctx: SyncContext, isSilent: boolean): Promise<bo
 
     for (const item of toDownload) {
         tasks.push(async () => {
-            const success = await pullFileSafely(ctx, item, isSilent, "Smart Pull");
+            const success = await pullFileSafely(ctx, item, "Smart Pull");
             if (success) {
                 completed++;
                 await ctx.log(`[Smart Pull] [${completed}/${total}] Synced: ${item.path}`);
@@ -636,11 +644,7 @@ export async function smartPull(ctx: SyncContext, isSilent: boolean): Promise<bo
 
                 completed++;
                 await ctx.log(`[Smart Pull] [${completed}/${total}] Deleted locally: ${path}`);
-                await ctx.notify(
-                    `${ctx.t("noticeFileTrashed")}: ${path.split("/").pop()}`,
-                    true,
-                    isSilent,
-                );
+                await ctx.notify("noticeFileTrashed", path.split("/").pop());
             } catch (e) {
                 await ctx.log(`[Smart Pull] Delete failed: ${path} - ${e}`);
             }
@@ -725,11 +729,7 @@ export async function smartPull(ctx: SyncContext, isSilent: boolean): Promise<bo
     await saveIndex(ctx);
 
     if (total > 0) {
-        await ctx.notify(
-            ctx.t("noticePullCompleted").replace("{0}", total.toString()),
-            false,
-            false,
-        );
+        await ctx.notify("noticePullCompleted", total.toString());
         return true;
     }
     return false;
@@ -737,12 +737,10 @@ export async function smartPull(ctx: SyncContext, isSilent: boolean): Promise<bo
 
 /**
  * Pull via Changes API (for adapters that support it)
- * @param isSilent Suppress notifications
  * @param drainAll If true, process all available pages of changes (useful after initial push)
  */
 export async function pullViaChangesAPI(
     ctx: SyncContext,
-    isSilent: boolean,
     drainAll: boolean = false,
 ): Promise<boolean> {
     if (!ctx.startPageToken) {
@@ -773,11 +771,7 @@ export async function pullViaChangesAPI(
 
         // In confirmation mode, if we haven't confirmed anything yet, notify user about the wait
         if (drainAll && confirmedCountTotal === 0) {
-            await ctx.notify(
-                `${ctx.t("noticeWaitingForRemoteRegistration")} (Page ${pageCount++})...`,
-                false,
-                isSilent,
-            );
+            await ctx.notify("noticeWaitingForRemoteRegistration", `(Page ${pageCount++})...`);
         }
 
         // Load communication data for mergeLock checks
@@ -812,11 +806,7 @@ export async function pullViaChangesAPI(
                             delete ctx.localIndex[pathToDelete]; // Added for consistency
                             completed++;
                             await ctx.log(`[Smart Pull] Deleted: ${pathToDelete}`);
-                            await ctx.notify(
-                                `${ctx.t("noticeFileTrashed")}: ${pathToDelete.split("/").pop()}`,
-                                true,
-                                isSilent,
-                            );
+                            await ctx.notify("noticeFileTrashed", pathToDelete.split("/").pop());
                         } catch (e) {
                             await ctx.log(`[Smart Pull] Delete failed: ${pathToDelete} - ${e}`);
                         }
@@ -854,11 +844,7 @@ export async function pullViaChangesAPI(
                     await ctx.log(
                         `[Smart Pull] Waiting: ${cloudFile.path} is being merged by ${mergeLock.holder} (expires in ${Math.round((mergeLock.expiresAt - now) / 1000)}s)`,
                     );
-                    await ctx.notify(
-                        `${ctx.t("noticeWaitOtherDeviceMerge")}: ${cloudFile.path.split("/").pop()}`,
-                        true,
-                        isSilent,
-                    );
+                    await ctx.notify("noticeWaitOtherDeviceMerge", cloudFile.path.split("/").pop());
                     // Mark as pending conflict so next sync shows "merge result applied"
                     if (ctx.localIndex[cloudFile.path]) {
                         ctx.localIndex[cloudFile.path].pendingConflict = true;
@@ -914,11 +900,7 @@ export async function pullViaChangesAPI(
                                     // Update ID Map so we don't process this again or inconsistently
                                     localIdToPath.set(cloudFile.id, newPath);
 
-                                    await ctx.notify(
-                                        `${ctx.t("noticeFileRenamed") || "Renamed"}: ${oldPath.split("/").pop()} -> ${newPath.split("/").pop()}`,
-                                        true,
-                                        isSilent,
-                                    );
+                                    await ctx.notify("noticeFileRenamed", `${oldPath.split("/").pop()} -> ${newPath.split("/").pop()}`);
                                 } else {
                                     // Source doesn't exist locally? Just removed from index/map then.
                                     // pullFileSafely will treat as new download.
@@ -967,20 +949,16 @@ export async function pullViaChangesAPI(
                             `[Smart Pull] Sync confirmed for ${cloudFile.path}. ancestorHash updated to ${cloudFile.hash?.substring(0, 8)}`,
                         );
 
-                        // Notify individual confirmation if detailed notifications are on
+                        // Notify individual confirmation
                         confirmedCountTotal++;
-                        await ctx.notify(
-                            `${ctx.t("noticeSyncConfirmed")}: ${cloudFile.path.split("/").pop()}`,
-                            true,
-                            isSilent,
-                        );
+                        await ctx.notify("noticeSyncConfirmed", cloudFile.path.split("/").pop());
                     }
                     await ctx.log(`[Smart Pull] Skipping (hash match): ${cloudFile.path}`);
                     continue;
                 }
 
                 tasks.push(async () => {
-                    const success = await pullFileSafely(ctx, cloudFile, isSilent, "Changes API");
+                    const success = await pullFileSafely(ctx, cloudFile, "Changes API");
                     if (success) {
                         completed++;
                         await ctx.log(`[Changes API] Synced: ${cloudFile.path}`);
@@ -1018,11 +996,7 @@ export async function pullViaChangesAPI(
     if (hasTotalChanges) {
         // Notification for pulled files
         if (totalCompleted > 0) {
-            await ctx.notify(
-                ctx.t("noticePullCompleted").replace("{0}", totalCompleted.toString()),
-                false, // isDetailed = false for summary
-                isSilent, // Use isSilent from caller
-            );
+            await ctx.notify("noticePullCompleted", totalCompleted.toString());
         }
         return true;
     }
@@ -1040,7 +1014,6 @@ export async function pullViaChangesAPI(
  */
 export async function smartPush(
     ctx: SyncContext,
-    isSilent: boolean,
     scanVault: boolean,
 ): Promise<boolean> {
     // Optional complete vault scan (for startup)
@@ -1127,11 +1100,7 @@ export async function smartPush(
                         await ctx.adapter.deleteFile(meta.id);
                         folderDeletedCount++;
                         await ctx.log(`[Smart Push] Deleted remote folder: ${folderPath}`);
-                        await ctx.notify(
-                            `${ctx.t("noticeFileTrashed")}: ${folderPath.split("/").pop()}`,
-                            true,
-                            isSilent,
-                        );
+                        await ctx.notify("noticeFileTrashed", folderPath.split("/").pop());
                     }
                 } else {
                     await ctx.log(
@@ -1430,7 +1399,6 @@ export async function smartPush(
                                     await pullFileSafely(
                                         ctx,
                                         remoteMeta,
-                                        isSilent,
                                         "Push Conflict",
                                     );
                                     // Critical: return here to skip uploading the OLD content in this closure.
@@ -1485,11 +1453,7 @@ export async function smartPush(
 
                     completed++;
                     await ctx.log(`[Smart Push] [${completed}/${totalOps}] Pushed: ${file.path}`);
-                    await ctx.notify(
-                        `${ctx.t("noticeFilePushed")}: ${file.path.split("/").pop()}`,
-                        true,
-                        isSilent,
-                    );
+                    await ctx.notify("noticeFilePushed", file.path.split("/").pop());
                 } catch (e) {
                     await ctx.log(`[Smart Push] Upload failed: ${file.path} - ${e}`);
                 }
@@ -1570,11 +1534,7 @@ export async function smartPush(
                         await ctx.log(
                             `[Smart Push] [${completed}/${totalOps}] Deleted remote: ${path}`,
                         );
-                        await ctx.notify(
-                            `${ctx.t("noticeFileTrashed")}: ${path.split("/").pop()}`,
-                            true,
-                            isSilent,
-                        );
+                        await ctx.notify("noticeFileTrashed", path.split("/").pop());
                     } else {
                         // Zombie entry: in localIndex but not in shared index.
                         // Already "deleted" on remote by others or previous run.
@@ -1636,11 +1596,7 @@ export async function smartPush(
         }
 
         if (completed > 0) {
-            await ctx.notify(
-                ctx.t("noticePushCompleted").replace("{0}", completed.toString()),
-                false,
-                isSilent,
-            );
+            await ctx.notify("noticePushCompleted", completed.toString());
         }
         return true;
     } finally {
