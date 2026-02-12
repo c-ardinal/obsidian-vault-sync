@@ -8,8 +8,22 @@
     }
 }
 
+@keyframes pulse {
+    0% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.4;
+    }
+    100% {
+        opacity: 1;
+    }
+}
+
 .vault-sync-spinning svg {
-    animation: spin 1s linear infinite;
+    animation:
+        spin 1s linear infinite,
+        pulse 1.5s ease-in-out infinite;
     color: var(--text-accent);
 }
 
@@ -312,18 +326,82 @@
     margin-left: auto; /* Push toggle and menu to the right */
 }
 
-/* Diff Content Styling - Matching Old Design */
-.diff-line {
+/* Split View Pains - Refactored for single-container sync scroll */
+.revision-diff-view {
+    grid-area: diff;
+    overflow: auto;
+    padding: 0;
+    position: relative;
+    background-color: var(--background-primary);
+    user-select: text;
+    -webkit-user-select: text;
+}
+
+.diff-table {
     display: flex;
-    align-items: stretch;
+    flex-direction: column;
     width: 100%;
     font-family: var(--font-monospace);
     font-size: 0.9em;
     line-height: 1.5;
 }
 
-.diff-line-number {
-    width: 40px;
+.diff-row {
+    display: flex;
+    width: 100%;
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    border: none;
+    background-color: var(--background-primary);
+    position: relative;
+}
+
+/* Use pseudo-element for highlighting to ensure it's on top of EVERYTHING */
+.diff-row.is-highlighted {
+    background-color: hsla(263, 70%, 50%, 0.15) !important;
+    z-index: 10;
+}
+
+.diff-row.is-highlighted::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    pointer-events: none;
+    border-left: 2px solid var(--text-accent);
+    border-right: 2px solid var(--text-accent);
+    z-index: 20;
+}
+
+.diff-row.is-highlighted-start::after {
+    border-top: 2px solid var(--text-accent);
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
+}
+
+.diff-row.is-highlighted-end::after {
+    border-bottom: 2px solid var(--text-accent);
+    border-bottom-left-radius: 4px;
+    border-bottom-right-radius: 4px;
+}
+
+/* Mixed states (e.g. single line blocks) */
+.diff-row.is-highlighted-start.is-highlighted-end {
+    box-shadow: inset 0 0 0 2px var(--text-accent);
+}
+
+.diff-cell {
+    flex: 1;
+    display: flex;
+    align-items: stretch;
+    min-width: 0;
+}
+
+.diff-ln {
+    width: 45px;
     padding: 0 5px;
     text-align: right;
     color: var(--text-faint);
@@ -331,38 +409,104 @@
     user-select: none;
     background-color: var(--background-secondary);
     flex-shrink: 0;
+    font-size: 0.8em;
 }
 
-.diff-line-content {
+.diff-cn {
     flex: 1;
     padding: 0 10px;
     white-space: pre-wrap;
     word-break: break-all;
+    min-height: 1.5em;
 }
 
-/* Diff Colors - Refined to match image */
-.diff-added {
-    background-color: transparent; /* Remove block background */
-    color: var(--text-success); /* Green text */
+/* Unified View Specific */
+.diff-row-unified .diff-cell {
+    width: 100%;
 }
 
-.diff-removed {
-    background-color: transparent; /* Remove block background */
-    color: var(--text-error); /* Red text */
+/* Split View Specific */
+.diff-row-split .diff-cell-left {
+    border-right: 1px solid var(--background-modifier-border);
+}
+
+/* Operation Colors */
+.diff-op-added {
+    background-color: hsla(140, 70%, 50%, 0.1);
+}
+.diff-op-added .diff-cn {
+    color: var(--text-success);
+}
+.diff-op-removed {
+    background-color: hsla(0, 70%, 50%, 0.1);
+}
+.diff-op-removed .diff-cn {
+    color: var(--text-error);
     text-decoration: line-through;
 }
 
-/* Unified diff specific background for line context */
-/* If we want the whole line to be subtly tinted, we'd need to target the parent .diff-line or wrap content */
-/* For now, stick to text color as requested */
-
-/* Split View Pains */
-.diff-pane {
-    flex: 1;
-    overflow-y: auto;
+/* Inline Diff Styles */
+.diff-op-modified {
+    background-color: hsla(263, 70%, 50%, 0.05);
 }
-.diff-pane-left {
-    border-right: 1px solid var(--background-modifier-border);
+.diff-added-inline {
+    background-color: hsla(140, 70%, 50%, 0.25);
+    color: var(--text-success);
+    border-radius: 2px;
+    padding: 0 1px;
+}
+.diff-removed-inline {
+    background-color: hsla(0, 70%, 50%, 0.25);
+    color: var(--text-error);
+    text-decoration: line-through;
+    border-radius: 2px;
+    padding: 0 1px;
+}
+
+.diff-op-spacer {
+    background-color: var(--background-secondary-alt);
+    opacity: 0.3;
+}
+
+/* Gap / Ellipsis between diff blocks */
+.diff-gap {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 10px 0;
+    background-color: var(--background-secondary);
+    color: var(--text-muted);
+    font-style: italic;
+    border-top: 1px dashed var(--background-modifier-border);
+    border-bottom: 1px dashed var(--background-modifier-border);
+    margin: 10px 0;
+}
+
+/* Controls */
+.diff-control-group {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0;
+}
+
+.diff-context-input {
+    width: 70px;
+    text-align: center;
+    padding: 2px;
+}
+
+.diff-nav-buttons {
+    display: flex;
+    gap: 0;
+}
+
+/* Navigation button styling (matching premium look) */
+.vault-sync-info-header .clickable-icon {
+    transition: transform 0.1s ease;
+}
+.vault-sync-info-header .clickable-icon:active {
+    transform: scale(0.9);
 }
 
 /* === MOBILE STYLES === */
@@ -512,4 +656,45 @@
 /* Respect newlines in setting descriptions */
 .vault-sync-settings-container .setting-item-description {
     white-space: pre-wrap;
+}
+
+/* Mobile Floating Action Button (FAB) */
+.vault-sync-mobile-fab {
+    display: none;
+}
+
+.is-mobile .vault-sync-mobile-fab {
+    display: flex;
+    position: fixed;
+    top: calc(60px + env(safe-area-inset-top)); /* Moved lower to clear status bar */
+    left: 50%;
+    transform: translateX(-50%) scale(0.7); /* Smaller and centered */
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background-color: var(--interactive-accent);
+    color: var(--text-on-accent);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    z-index: 9999;
+    justify-content: center;
+    align-items: center;
+    touch-action: manipulation;
+
+    /* Initial state: hidden */
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    pointer-events: none;
+}
+
+.is-mobile .vault-sync-mobile-fab.is-active {
+    opacity: 0.9;
+    visibility: visible;
+    transform: translateX(-50%) scale(0.9); /* Subtle appearance */
+    pointer-events: none; /* Changed from auto to none */
+}
+
+.is-mobile .vault-sync-mobile-fab svg {
+    width: 20px;
+    height: 20px;
 }

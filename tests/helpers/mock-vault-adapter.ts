@@ -139,6 +139,10 @@ export class MockVault {
         }
         return files;
     }
+
+    getName(): string {
+        return "mock-vault";
+    }
 }
 
 /**
@@ -146,11 +150,30 @@ export class MockVault {
  */
 export class MockApp {
     vault: MockVault;
+    secretStorage: {
+        secrets: Map<string, string>;
+        getSecret(id: string): string | null;
+        setSecret(id: string, secret: string): void;
+        listSecrets(): string[];
+    };
     private _adapter: MockVaultAdapter;
 
     constructor() {
         this._adapter = new MockVaultAdapter();
         this.vault = new MockVault(this._adapter);
+        const secrets = new Map<string, string>();
+        this.secretStorage = {
+            secrets,
+            getSecret(id: string) {
+                return secrets.get(id) || null;
+            },
+            setSecret(id: string, secret: string) {
+                secrets.set(id, secret);
+            },
+            listSecrets() {
+                return Array.from(secrets.keys());
+            },
+        };
     }
 
     get vaultAdapter(): MockVaultAdapter {

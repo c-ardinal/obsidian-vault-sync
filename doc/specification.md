@@ -35,15 +35,15 @@ Obsidian向けクラウドストレージ同期プラグイン。ローカルの
 
 ### 1.2 主要モジュール
 
-| モジュール             | ファイル                   | 役割                                                                                    |
-| :--------------------- | :------------------------- | :-------------------------------------------------------------------------------------- |
-| **SyncManager**        | `sync-manager.ts`          | 同期のオーケストレーション。Index管理、差分検知、Pull/Push分岐、3-wayマージ、分散ロック |
-| **CloudAdapter**       | `types/adapter.ts`         | クラウドストレージ抽象化インターフェース                                                |
-| **GoogleDriveAdapter** | `adapters/google-drive.ts` | Google Drive REST API実装。`fetch` APIベースでモバイル互換                              |
-| **SecureStorage**      | `secure-storage.ts`        | 認証情報の暗号化バイナリ保存 (`.sync-state`)                                            |
-| **RevisionCache**      | `revision-cache.ts`        | 履歴コンテンツのセッション内キャッシュ                                                  |
-| **HistoryModal**       | `ui/history-modal.ts`      | 履歴確認・Diff表示・ロールバックUI                                                      |
-| **i18n**               | `i18n.ts`                  | 多言語対応 (ja/en)                                                                      |
+| モジュール             | ファイル                   | 役割                                                                                                             |
+| :--------------------- | :------------------------- | :--------------------------------------------------------------------------------------------------------------- |
+| **SyncManager**        | `sync-manager.ts`          | 同期のオーケストレーション。Index管理、差分検知、Pull/Push分岐、3-wayマージ、分散ロック                          |
+| **CloudAdapter**       | `types/adapter.ts`         | クラウドストレージ抽象化インターフェース                                                                         |
+| **GoogleDriveAdapter** | `adapters/google-drive.ts` | Google Drive REST API実装。`fetch` APIベースでモバイル互換                                                       |
+| **SecureStorage**      | `secure-storage.ts`        | 認証情報の保存。Obsidian Secret Storage (Keychain) を優先し、未対応環境では暗号化バイナリ (`.sync-state`) で保存 |
+| **RevisionCache**      | `revision-cache.ts`        | 履歴コンテンツのセッション内キャッシュ                                                                           |
+| **HistoryModal**       | `ui/history-modal.ts`      | 履歴確認・Diff表示・ロールバックUI                                                                               |
+| **i18n**               | `i18n.ts`                  | 多言語対応 (ja/en)                                                                                               |
 
 ### 1.3 データ構造
 
@@ -62,11 +62,11 @@ ObsidianVaultSync/           ← App Root (設定で変更可)
 
 #### ローカルデータ
 
-| ファイル                         | 場所                 | 用途                                                            |
-| :------------------------------- | :------------------- | :-------------------------------------------------------------- |
-| `sync-index.json`                | プラグインフォルダ内 | ローカルインデックス（ファイルハッシュ・mtime・ancestorHash等） |
-| `.sync-state`                    | `data/local/`        | 暗号化認証情報（同期対象外）                                    |
-| `open-data.json/local-data.json` | プラグインフォルダ内 | プラグイン設定                                                  |
+| ファイル                         | 場所                 | 用途                                                                       |
+| :------------------------------- | :------------------- | :------------------------------------------------------------------------- |
+| `sync-index.json`                | プラグインフォルダ内 | ローカルインデックス（ファイルハッシュ・mtime・ancestorHash等）            |
+| `.sync-state`                    | `data/local/`        | 暗号化認証情報（Keychain未対応時のフォールバック。移行後は自動削除される） |
+| `open-data.json/local-data.json` | プラグインフォルダ内 | プラグイン設定                                                             |
 
 ---
 
@@ -97,7 +97,7 @@ ObsidianVaultSync/           ← App Root (設定で変更可)
 ## 5. セキュリティ
 
 - **認証スコープ**: Google Drive API `auth/drive`（グローバル検索・フォルダ移動のため）
-- **認証情報保存**: `.sync-state`（暗号化バイナリ、`data/local/` に配置、同期対象外）
+- **認証情報保存**: Obsidian Secret Storage API (Keychain) を優先使用。未対応環境では `.sync-state`（AES-GCM暗号化バイナリ）に保存し、機密性を確保。
 - **通信**: HTTPS のみ
 - **楽観的ロック**: Push時にリモートハッシュを検証し、競合を検知
 - **パストラバーサル防止**: 履歴API呼び出し時のパス検証

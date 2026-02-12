@@ -7,6 +7,7 @@ import {
     DropdownComponent,
     ExtraButtonComponent,
     Menu,
+    TextComponent,
 } from "obsidian";
 import { SyncManager } from "../sync-manager";
 import { FileRevision } from "../types/adapter";
@@ -21,6 +22,10 @@ export class HistoryModal extends Modal {
     private listScrollLeft: number = 0; // Preserve horizontal scroll position
     private listScrollTop: number = 0; // Preserve vertical scroll position
     private diffMode: "unified" | "split" = "unified";
+    private showAllLines: boolean = true;
+    private contextLines: number = 3;
+    private diffBlocks: HTMLElement[][] = [];
+    private currentDiffIndex: number = -1;
     private isDrawerOpen: boolean = false;
 
     // Cache: revisionId -> content string (Persistent across modal instances)
@@ -318,7 +323,61 @@ export class HistoryModal extends Modal {
             this.render(); // Re-render diff
         });
 
-        // Toggle View Mode
+        // Spacer to push subsequent buttons to the right
+        controlRow.createSpan({ cls: "vault-sync-control-spacer" }).style.flex = "1";
+
+        // 1. Context Lines Input (Only if not showing all)
+        if (!this.showAllLines) {
+            const contextGroup = controlRow.createDiv({ cls: "diff-control-group" });
+            contextGroup.createSpan({
+                text: this.syncManager.t("historyContextLines").replace("{0}", ""),
+            });
+            const contextInput = new TextComponent(contextGroup)
+                .setValue(String(this.contextLines))
+                .onChange((val) => {
+                    const num = parseInt(val);
+                    if (!isNaN(num) && num >= 0) {
+                        this.contextLines = num;
+                        // Surgical update: Only refresh the diff area to keep focus
+                        const diffView = this.contentEl.querySelector(
+                            ".revision-diff-view",
+                        ) as HTMLElement;
+                        if (diffView && this.selectedRevision) {
+                            this.loadDiff(diffView, this.selectedRevision, this.baseRevision);
+                        }
+                    }
+                });
+            contextInput.inputEl.addClass("diff-context-input");
+            contextInput.inputEl.type = "number";
+            contextInput.inputEl.min = "0";
+        }
+
+        // 2. Toggle Show All / Diff Only
+        new ExtraButtonComponent(controlRow)
+            .setIcon(this.showAllLines ? "eye" : "eye-off")
+            .setTooltip(
+                this.showAllLines
+                    ? this.syncManager.t("historyShowDiffOnly")
+                    : this.syncManager.t("historyShowAll"),
+            )
+            .onClick(() => {
+                this.showAllLines = !this.showAllLines;
+                this.render();
+            })
+            .extraSettingsEl.toggleClass("is-active", !this.showAllLines);
+
+        // 3. Jump Buttons (Prev / Next)
+        new ExtraButtonComponent(controlRow)
+            .setIcon("chevron-up")
+            .setTooltip(this.syncManager.t("historyPrevDiff"))
+            .onClick(() => this.jumpToDiff(-1));
+
+        new ExtraButtonComponent(controlRow)
+            .setIcon("chevron-down")
+            .setTooltip(this.syncManager.t("historyNextDiff"))
+            .onClick(() => this.jumpToDiff(1));
+
+        // 4. Toggle View Mode (Split / Unified)
         const modeBtn = new ExtraButtonComponent(controlRow)
             .setIcon(this.diffMode === "unified" ? "rows" : "columns")
             .setTooltip(
@@ -335,7 +394,7 @@ export class HistoryModal extends Modal {
             modeBtn.extraSettingsEl.addClass("is-active");
         }
 
-        // Menu Button
+        // 5. Menu Button
         const menuBtn = new ExtraButtonComponent(controlRow)
             .setIcon("vertical-three-dots")
             .setTooltip(this.syncManager.t("historyActions"))
@@ -592,22 +651,68 @@ export class HistoryModal extends Modal {
             const diffs = dmp.diff_main(baseContent, targetContent);
             dmp.diff_cleanupSemantic(diffs);
 
-            if (this.diffMode === "unified") {
-                this.renderLineDiff(container, diffs, true);
-            } else {
-                // Split View
-                container.style.display = "flex";
-                container.style.gap = "0";
-                container.style.padding = "0";
+            const lines = this.processDiffToLines(diffs);
 
-                const leftPane = container.createDiv({ cls: "diff-pane diff-pane-left" });
-                const rightPane = container.createDiv({ cls: "diff-pane diff-pane-right" });
+            // Validation: context lines cannot exceed max file lines
+            if (this.contextLines > lines.length) {
+                this.contextLines = lines.length;
+            }
 
-                const leftDiffs = diffs.filter(([op]) => op !== 1);
-                const rightDiffs = diffs.filter(([op]) => op !== -1);
+            container.empty();
+            const table = container.createDiv({ cls: "diff-table" });
+            this.diffBlocks = [];
+            this.currentDiffIndex = -1;
 
-                this.renderLineDiff(leftPane, leftDiffs, true);
-                this.renderLineDiff(rightPane, rightDiffs, true);
+            let currentOmitted = false;
+            let currentBlock: HTMLElement[] = [];
+
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+
+                // Check if line should be displayed
+                let shouldShow = this.showAllLines;
+                if (!shouldShow) {
+                    // Check neighbors within contextLines
+                    for (let j = i - this.contextLines; j <= i + this.contextLines; j++) {
+                        if (lines[j] && lines[j].isDiff) {
+                            shouldShow = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (shouldShow) {
+                    if (currentOmitted) {
+                        table.createDiv({ cls: "diff-gap", text: "..." });
+                        currentOmitted = false;
+                    }
+                    const row = this.renderDiffRow(table, line);
+                    if (line.isDiff) {
+                        if (line.isStartOfBlock) {
+                            if (currentBlock.length > 0) this.diffBlocks.push(currentBlock);
+                            currentBlock = [row];
+                        } else {
+                            currentBlock.push(row);
+                        }
+                    } else {
+                        if (currentBlock.length > 0) {
+                            this.diffBlocks.push(currentBlock);
+                            currentBlock = [];
+                        }
+                    }
+                } else {
+                    currentOmitted = true;
+                    if (currentBlock.length > 0) {
+                        this.diffBlocks.push(currentBlock);
+                        currentBlock = [];
+                    }
+                }
+            }
+            if (currentBlock.length > 0) this.diffBlocks.push(currentBlock);
+
+            // Auto-highlight first diff
+            if (this.diffBlocks.length > 0) {
+                setTimeout(() => this.jumpToDiff(0), 50);
             }
         } catch (e) {
             container.empty();
@@ -619,33 +724,165 @@ export class HistoryModal extends Modal {
         }
     }
 
-    /**
-     * Helper to render diffs as a vertical list of lines with line numbers
-     */
-    private renderLineDiff(container: HTMLElement, diffs: [number, string][], showLineNo: boolean) {
-        let lineNo = 1;
-        let lineDiv = container.createDiv({ cls: "diff-line" });
-        if (showLineNo) lineDiv.createDiv({ cls: "diff-line-number", text: String(lineNo++) });
-        let contentDiv = lineDiv.createDiv({ cls: "diff-line-content" });
+    private jumpToDiff(direction: number) {
+        if (this.diffBlocks.length === 0) return;
+
+        if (direction === 0) {
+            this.currentDiffIndex = 0;
+        } else {
+            // Cycle/Wrap around navigation
+            this.currentDiffIndex =
+                (this.currentDiffIndex + direction + this.diffBlocks.length) %
+                this.diffBlocks.length;
+        }
+
+        const targetBlock = this.diffBlocks[this.currentDiffIndex];
+        if (targetBlock && targetBlock.length > 0) {
+            // Remove previous highlights
+            this.diffBlocks.flat().forEach((b) => {
+                b.removeClass("is-highlighted");
+                b.removeClass("is-highlighted-start");
+                b.removeClass("is-highlighted-end");
+            });
+
+            // Highlight all rows in the block with start/end styling
+            targetBlock.forEach((row, idx) => {
+                row.addClass("is-highlighted");
+                if (idx === 0) row.addClass("is-highlighted-start");
+                if (idx === targetBlock.length - 1) row.addClass("is-highlighted-end");
+            });
+
+            // Scroll to the first row of the block
+            targetBlock[0].scrollIntoView({ block: "center", behavior: "smooth" });
+        }
+    }
+
+    private processDiffToLines(diffs: [number, string][]) {
+        interface Row {
+            segments: { op: number; text: string }[];
+            lNo?: number;
+            rNo?: number;
+            isDiff: boolean;
+            isStartOfBlock?: boolean;
+        }
+
+        const rows: Row[] = [];
+        let cur: Row = { segments: [], isDiff: false };
 
         diffs.forEach(([op, text]) => {
-            const lines = text.split("\n");
-            for (let i = 0; i < lines.length; i++) {
+            const parts = text.split("\n");
+            parts.forEach((part, i) => {
                 if (i > 0) {
-                    lineDiv = container.createDiv({ cls: "diff-line" });
-                    if (showLineNo)
-                        lineDiv.createDiv({ cls: "diff-line-number", text: String(lineNo++) });
-                    contentDiv = lineDiv.createDiv({ cls: "diff-line-content" });
+                    rows.push(cur);
+                    cur = { segments: [], isDiff: false };
                 }
+                if (part || i < parts.length - 1) {
+                    cur.segments.push({ op, text: part });
+                    if (op !== 0) cur.isDiff = true;
+                }
+            });
+        });
+        if (cur.segments.length > 0) rows.push(cur);
 
-                if (lines[i]) {
-                    const colorClass =
-                        op === 1 ? "diff-added" : op === -1 ? "diff-removed" : "diff-neutral";
-                    const span = contentDiv.createSpan({ cls: colorClass });
-                    span.setText(lines[i]);
+        let lNo = 1;
+        let rNo = 1;
+        let inDiffBlock = false;
+
+        rows.forEach((row) => {
+            const hasLeft = row.segments.some((s) => s.op <= 0);
+            const hasRight = row.segments.some((s) => s.op >= 0);
+            if (hasLeft) row.lNo = lNo++;
+            if (hasRight) row.rNo = rNo++;
+
+            if (row.isDiff) {
+                if (!inDiffBlock) {
+                    row.isStartOfBlock = true;
+                    inDiffBlock = true;
                 }
+            } else {
+                inDiffBlock = false;
             }
         });
+
+        return rows;
+    }
+
+    private renderDiffRow(container: HTMLElement, row: any) {
+        const rowEl = container.createDiv({
+            cls: `diff-row diff-row-${this.diffMode}`,
+        });
+
+        if (this.diffMode === "unified") {
+            const cell = rowEl.createDiv({ cls: "diff-cell" });
+
+            // Determine row color
+            const ops = new Set(row.segments.map((s: any) => s.op));
+            if (ops.has(1) && !ops.has(-1)) rowEl.addClass("diff-op-added");
+            else if (ops.has(-1) && !ops.has(1)) rowEl.addClass("diff-op-removed");
+            else if (ops.has(1) || ops.has(-1)) rowEl.addClass("diff-op-modified");
+
+            cell.createDiv({ cls: "diff-ln", text: String(row.lNo || "") });
+            cell.createDiv({ cls: "diff-ln", text: String(row.rNo || "") });
+            const content = cell.createDiv({ cls: "diff-cn" });
+
+            row.segments.forEach((seg: any) => {
+                const s = content.createSpan({ text: seg.text });
+                if (seg.op === 1) s.addClass("diff-added-inline");
+                if (seg.op === -1) s.addClass("diff-removed-inline");
+            });
+        } else {
+            // Split View
+            const leftCell = rowEl.createDiv({ cls: "diff-cell diff-cell-left" });
+            const rightCell = rowEl.createDiv({ cls: "diff-cell diff-cell-right" });
+
+            const leftSegments = row.segments.filter((s: any) => s.op <= 0);
+            const rightSegments = row.segments.filter((s: any) => s.op >= 0);
+
+            // Left Side
+            if (leftSegments.length > 0) {
+                const hasRemoved = leftSegments.some((s: any) => s.op === -1);
+                if (hasRemoved && !rightSegments.some((s: any) => s.op === 1)) {
+                    leftCell.addClass("diff-op-removed");
+                } else if (hasRemoved) {
+                    leftCell.addClass("diff-op-modified");
+                }
+                leftCell.createDiv({ cls: "diff-ln", text: String(row.lNo || "") });
+                const content = leftCell.createDiv({ cls: "diff-cn" });
+                leftSegments.forEach((seg: any) => {
+                    const s = content.createSpan({ text: seg.text });
+                    if (seg.op === -1) s.addClass("diff-removed-inline");
+                });
+            } else {
+                leftCell.addClass("diff-op-spacer");
+                leftCell.createDiv({ cls: "diff-ln", text: "" });
+                leftCell.createDiv({ cls: "diff-cn", text: "" });
+            }
+
+            // Right Side
+            if (rightSegments.length > 0) {
+                const hasAdded = rightSegments.some((s: any) => s.op === 1);
+                if (hasAdded && !leftSegments.some((s: any) => s.op === -1)) {
+                    rightCell.addClass("diff-op-added");
+                } else if (hasAdded) {
+                    rightCell.addClass("diff-op-modified");
+                }
+                rightCell.createDiv({ cls: "diff-ln", text: String(row.rNo || "") });
+                const content = rightCell.createDiv({ cls: "diff-cn" });
+                rightSegments.forEach((seg: any) => {
+                    const s = content.createSpan({ text: seg.text });
+                    if (seg.op === 1) s.addClass("diff-added-inline");
+                });
+            } else {
+                rightCell.addClass("diff-op-spacer");
+                rightCell.createDiv({ cls: "diff-ln", text: "" });
+                rightCell.createDiv({ cls: "diff-cn", text: "" });
+            }
+        }
+        return rowEl;
+    }
+
+    private renderLineDiff(container: HTMLElement, diffs: [number, string][], showLineNo: boolean) {
+        // Obsolete but kept for signature compatibility if needed
     }
     formatSize(bytes: number): string {
         if (bytes < 1024) return `${bytes} B`;

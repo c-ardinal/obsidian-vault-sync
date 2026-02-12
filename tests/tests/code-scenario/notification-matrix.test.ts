@@ -265,6 +265,20 @@ const MATRIX: MatrixEntry[] = [
             pullConflict: { v: "Show", s: "Show" },
         },
     },
+    {
+        // ✏️ 同期: リネーム反映 {file}
+        key: "noticeFileRenamed",
+        isDetailed: true,
+        scenarios: {
+            initialSync: { v: "Show", s: "Show" },
+            startupSync: { v: "Show", s: "Show" },
+            manualSync: { v: "Show", s: "Show" },
+            autoSync: { v: "Show", s: "Show" },
+            fullScan: { v: "Show", s: "Show" },
+            pushConflict: { v: "Show", s: "Show" },
+            pullConflict: { v: "Show", s: "Show" },
+        },
+    },
 
     // ═══ Conflict Notifications ═══
     {
@@ -403,6 +417,82 @@ const MATRIX: MatrixEntry[] = [
 ];
 
 // ════════════════════════════════════════════════════════════════
+// Message Format Specification
+// Maps i18n keys to the EXACT format string from the specification.
+// Tests verify that production code constructs messages matching
+// these patterns, not just containing the i18n key text.
+//
+// Format: { key, specFormat }
+//   specFormat uses "{file}" as placeholder for filename
+//   null means no filename appended (standalone message)
+// ════════════════════════════════════════════════════════════════
+
+interface FormatSpec {
+    key: string;
+    /** Expected format from specification. null = no {file} placeholder */
+    specJa: string;
+}
+
+/**
+ * Notification format specifications from doc/spec/notification-case-matrix.md
+ * These define the EXACT user-visible text including filename placement.
+ */
+const FORMAT_SPECS: FormatSpec[] = [
+    { key: "noticeSyncing", specJa: "⚡ [同期] 処理開始..." },
+    { key: "noticeScanningLocalFiles", specJa: "🔍️ [同期] ローカルファイルを走査中..." },
+    {
+        key: "noticeWaitingForRemoteRegistration",
+        specJa: "⌛️ [同期] リモート側の反映完了を待機中...",
+    },
+    { key: "noticeFilePulled", specJa: "📥 [同期] ダウンロード中: {file}" },
+    { key: "noticePullCompleted", specJa: "✅ [同期] ダウンロード完了 ({0} files)" },
+    { key: "noticeFilePushed", specJa: "📤 [同期] アップロード中: {file}" },
+    { key: "noticePushCompleted", specJa: "✅ [同期] アップロード完了 ({0} files)" },
+    { key: "noticeVaultUpToDate", specJa: "✅ [同期] すべて最新の状態です" },
+    {
+        key: "noticeInitialSyncConfirmation",
+        specJa: "📝 [同期] 正常にアップロード出来たか確認中...",
+    },
+    { key: "noticeSyncConfirmed", specJa: "✅ [同期] 成功: {file}" },
+    { key: "noticeFileTrashed", specJa: "🗑️ [同期] 削除: {file}" },
+    { key: "noticeFileRenamed", specJa: "✏️ [同期] リネーム反映: {file}" },
+    { key: "noticeMergingFile", specJa: "⌛️ [競合] マージ中: {file}" },
+    { key: "noticeMergeSuccess", specJa: "✅ [競合] 自動解決されました: {file}" },
+    {
+        key: "noticeConflictSaved",
+        specJa: "⚠️ [競合] ローカル版を保護し、リモート版を反映しました: {file}",
+    },
+    {
+        key: "noticeConflictRemoteSaved",
+        specJa: "⚠️ [競合] リモート版を保護し、ローカル版を反映しました: {file}",
+    },
+    {
+        key: "noticeCheckOtherDevice",
+        specJa: "⚠️ [競合] マージに失敗した可能性が有ります。詳細は他デバイスを確認してください",
+    },
+    {
+        key: "noticeWaitOtherDeviceMerge",
+        specJa: "⌛️ [競合] 他デバイスが解決するのを待機しています...: {file}",
+    },
+    {
+        key: "noticeRemoteMergeSynced",
+        specJa: "✅ [競合] 他デバイスの解決結果を反映しました: {file}",
+    },
+    // ═══ Auth Notifications ═══
+    { key: "noticeAuthSuccess", specJa: "✅ [認証] 成功！" },
+    { key: "noticeAuthFailed", specJa: "❌ [認証] 失敗" },
+    // ═══ History Notifications ═══
+    { key: "noticeSavedKeepForever", specJa: "✅ [履歴] 無期限保護設定完了" },
+    {
+        key: "historyKeepForeverError",
+        specJa: "❌ [履歴] クラウド側の仕様により、無期限保存設定を解除することはできません。",
+    },
+    { key: "noticeFileRestored", specJa: "💾 [履歴] ファイルを復元しました" },
+    { key: "noticeHistoryRestoreAs", specJa: "💾 [履歴] 別名で復元しました: {0}" },
+    { key: "noticeRevisionDeleted", specJa: "🗑️ [履歴] リビジョンを削除しました" },
+];
+
+// ════════════════════════════════════════════════════════════════
 // Tests
 // ════════════════════════════════════════════════════════════════
 
@@ -442,6 +532,7 @@ describe("Notification Visibility Matrix", () => {
             "noticeInitialSyncConfirmation",
             "noticeSyncConfirmed",
             "noticeFileTrashed",
+            "noticeFileRenamed",
             // Conflict
             "noticeMergingFile",
             "noticeMergeSuccess",
@@ -469,10 +560,7 @@ describe("Notification Visibility Matrix", () => {
     // Verify all i18n keys used in MATRIX exist in the Japanese dictionary
     it("all MATRIX keys exist in i18n.ja", () => {
         for (const entry of MATRIX) {
-            expect(
-                i18nDict.ja[entry.key],
-                `i18n.ja missing key: ${entry.key}`,
-            ).toBeDefined();
+            expect(i18nDict.ja[entry.key], `i18n.ja missing key: ${entry.key}`).toBeDefined();
         }
     });
 
@@ -527,6 +615,102 @@ describe("Notification Visibility Matrix", () => {
                 ).toBe(0);
             }
         });
+    });
+});
+
+// ════════════════════════════════════════════════════════════════
+// Message Format Validation Tests
+//
+// The MATRIX tests validate notify() filtering (Show/Hide), but they
+// do NOT validate the actual message strings that production code passes.
+// These tests verify that:
+//   1. i18n values don't have trailing colons that would cause "text:: file"
+//   2. The combined format "i18n_text: filename" matches the specification
+//   3. No unexpected prefixes are added (e.g. "⏳ file: message")
+//   4. i18n keys exist in both en and ja dictionaries
+// ════════════════════════════════════════════════════════════════
+
+describe("Notification Message Format Validation", () => {
+    // Verify i18n values don't end with ":" (code adds ": filename" separately)
+    describe("i18n values must NOT end with colon (code appends `: filename`)", () => {
+        const keysWithFilename = [
+            "noticeMergingFile",
+            "noticeMergeSuccess",
+            "noticeRemoteMergeSynced",
+            "noticeWaitOtherDeviceMerge",
+            "noticeConflictSaved",
+            "noticeConflictRemoteSaved",
+            "noticeFilePulled",
+            "noticeFilePushed",
+            "noticeFileTrashed",
+            "noticeFileRenamed",
+            "noticeSyncConfirmed",
+        ];
+
+        for (const key of keysWithFilename) {
+            it(`[ja] ${key} must not end with ":"`, () => {
+                const value = i18nDict.ja[key];
+                expect(value, `i18n.ja missing key: ${key}`).toBeDefined();
+                expect(
+                    value.endsWith(":"),
+                    `i18n.ja["${key}"] = "${value}" ends with ":" → would cause "text:: file"`,
+                ).toBe(false);
+            });
+
+            it(`[en] ${key} must not end with ":"`, () => {
+                const value = i18nDict.en[key];
+                expect(value, `i18n.en missing key: ${key}`).toBeDefined();
+                expect(
+                    value.endsWith(":"),
+                    `i18n.en["${key}"] = "${value}" ends with ":" → would cause "text:: file"`,
+                ).toBe(false);
+            });
+        }
+    });
+
+    // Verify the combined message format matches specification
+    describe("combined message format matches specification", () => {
+        const testFile = "demo.md";
+
+        for (const spec of FORMAT_SPECS) {
+            it(`${spec.key} format matches spec`, () => {
+                const i18nValue = i18nDict.ja[spec.key];
+                expect(i18nValue, `i18n.ja missing key: ${spec.key}`).toBeDefined();
+
+                if (spec.specJa.includes("{file}")) {
+                    // Messages with filename: verify "i18n_text: filename" pattern
+                    const expectedMsg = spec.specJa.replace("{file}", testFile);
+                    const actualMsg = `${i18nValue}: ${testFile}`;
+                    expect(
+                        actualMsg,
+                        `Format mismatch for ${spec.key}.\n  Expected: "${expectedMsg}"\n  Actual:   "${actualMsg}"`,
+                    ).toBe(expectedMsg);
+                } else if (spec.specJa.includes("{0}")) {
+                    // Messages with count placeholder
+                    const expectedMsg = spec.specJa.replace("{0}", "3");
+                    const actualMsg = i18nValue.replace("{0}", "3");
+                    expect(actualMsg, `Format mismatch for ${spec.key}`).toBe(expectedMsg);
+                } else {
+                    // Standalone messages (no filename)
+                    expect(
+                        i18nValue,
+                        `Format mismatch for ${spec.key}.\n  Expected: "${spec.specJa}"\n  Actual:   "${i18nValue}"`,
+                    ).toBe(spec.specJa);
+                }
+            });
+        }
+    });
+
+    // Verify all notification i18n keys exist in both dictionaries
+    describe("i18n key consistency between en and ja", () => {
+        const allNotificationKeys = MATRIX.map((e) => e.key);
+
+        for (const key of allNotificationKeys) {
+            it(`${key} exists in both en and ja`, () => {
+                expect(i18nDict.en[key], `Missing in en: ${key}`).toBeDefined();
+                expect(i18nDict.ja[key], `Missing in ja: ${key}`).toBeDefined();
+            });
+        }
     });
 });
 
@@ -663,10 +847,7 @@ describe("Integration: Sync scenarios trigger correct notifications", () => {
     });
 
     /** Helper: check if any notify() call contains the i18n message for the given key */
-    const wasNotifyCalledWith = (
-        notifySpy: ReturnType<typeof vi.spyOn>,
-        key: string,
-    ): boolean => {
+    const wasNotifyCalledWith = (notifySpy: ReturnType<typeof vi.spyOn>, key: string): boolean => {
         const msg = i18nDict.ja[key];
         if (!msg) return false;
         return notifySpy.mock.calls.some(

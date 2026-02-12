@@ -23,10 +23,11 @@ export default class VaultSync extends Plugin {
     private manualSyncInProgress = false;
     private lastSaveRequestTime = 0;
     private lastModifyTime = 0;
+    private mobileSyncFabEl: HTMLElement | null = null;
     private autoSyncInterval: number | null = null;
 
     async onload() {
-        // Initialize adapter first with defaults
+        // 1. Initialize adapter first with defaults
         this.adapter = new GoogleDriveAdapter(
             "",
             "",
@@ -34,29 +35,13 @@ export default class VaultSync extends Plugin {
             DEFAULT_SETTINGS.cloudRootFolder,
         );
 
+        // 2. Load settings (populates adapter if credentials exist, handles data.json migration)
         await this.loadSettings();
 
-        // Update adapter with loaded settings
-        this.adapter.updateConfig(
-            this.adapter.clientId, // set inside loadSettings
-            this.adapter.clientSecret, // set inside loadSettings
-            this.app.vault.getName(),
-            this.settings.cloudRootFolder,
-        );
-
-        // Handle Token Expiry / Revocation
-        this.adapter.onAuthFailure = async () => {
-            console.log("VaultSync: Auth failed (token expired/revoked). Clearing credentials.");
-            new Notice(t("noticeAuthFailed") + ": Session expired. Please login again.", 0);
-            await this.secureStorage.clearCredentials();
-            this.adapter.setTokens(null, null);
-        };
-
-        // MIGRATION: Move files to new layout
+        // 3. MIGRATION: Move files to new layout (ensures local-index.json is in the right place)
         await this.migrateFileLayout();
 
-        // Settings are loaded in onload, but we need to ensure adapter has credentials
-        // This is handled in loadSettings now.
+        // 4. Initialize SyncManager with REAL loaded settings
         this.syncManager = new SyncManager(
             this.app,
             this.adapter,
@@ -66,22 +51,52 @@ export default class VaultSync extends Plugin {
             t,
         );
 
+        // 5. Establish Identity & Log Folder (loads local-index.json)
+        // This is the earliest point where we can log to the correct device-specific folder.
+        await this.syncManager.loadLocalIndex();
+
+        console.log(`[VaultSync] === Plugin Startup: version=${this.manifest.version} ===`);
         await this.syncManager.log(`=== Plugin Startup: version=${this.manifest.version} ===`);
 
+        // Handle Token Expiry / Revocation
+        this.adapter.onAuthFailure = async () => {
+            console.log("VaultSync: Auth failed (token expired/revoked). Clearing credentials.");
+            new Notice(t("noticeAuthFailed") + ": Session expired. Please login again.", 0);
+            await this.secureStorage.clearCredentials();
+            this.adapter.setTokens(null, null);
+        };
+
+        // 6. Load shared index
         await this.syncManager.loadIndex();
 
         // Register Activity Callbacks for Auto-Sync Animation
         this.syncManager.setActivityCallbacks(
             () => {
-                if (!this.manualSyncInProgress && this.syncRibbonIconEl) {
-                    setIcon(this.syncRibbonIconEl, "sync");
-                    this.syncRibbonIconEl.addClass("vault-sync-spinning");
+                const targets = [];
+                if (!this.manualSyncInProgress && this.syncRibbonIconEl)
+                    targets.push(this.syncRibbonIconEl);
+                if (this.mobileSyncFabEl) {
+                    targets.push(this.mobileSyncFabEl);
+                    this.mobileSyncFabEl.addClass("is-active");
+                }
+
+                for (const el of targets) {
+                    setIcon(el, "sync");
+                    el.addClass("vault-sync-spinning");
                 }
             },
             () => {
-                if (!this.manualSyncInProgress && this.syncRibbonIconEl) {
-                    this.syncRibbonIconEl.removeClass("vault-sync-spinning");
-                    setIcon(this.syncRibbonIconEl, "sync");
+                const targets = [];
+                if (!this.manualSyncInProgress && this.syncRibbonIconEl)
+                    targets.push(this.syncRibbonIconEl);
+                if (this.mobileSyncFabEl) {
+                    targets.push(this.mobileSyncFabEl);
+                    this.mobileSyncFabEl.removeClass("is-active");
+                }
+
+                for (const el of targets) {
+                    el.removeClass("vault-sync-spinning");
+                    setIcon(el, "sync");
                 }
             },
         );
@@ -150,6 +165,15 @@ export default class VaultSync extends Plugin {
             },
         });
 
+        // 3. Mobile Floating Action Button (FAB) -> Fixed Top Center Indicator
+        if (Platform.isMobile) {
+            this.app.workspace.onLayoutReady(() => {
+                this.mobileSyncFabEl = document.body.createDiv("vault-sync-mobile-fab");
+                setIcon(this.mobileSyncFabEl, "sync");
+                this.mobileSyncFabEl.setAttribute("aria-label", t("labelSyncTooltip"));
+            });
+        }
+
         this.addSettingTab(new VaultSyncSettingTab(this.app, this));
 
         this.setupAutoSyncInterval();
@@ -171,11 +195,62 @@ export default class VaultSync extends Plugin {
                 }
             }),
         );
+
+        // 6. Protocol Handler for OAuth Callback (vault-sync-auth)
+        this.registerObsidianProtocolHandler("vault-sync-auth", async (params) => {
+            // Verify state
+            if (params.state && !this.adapter.verifyState(params.state)) {
+                new Notice(t("noticeAuthFailed") + ": Invalid state");
+                return;
+            }
+
+            if (params.code) {
+                try {
+                    await this.adapter.exchangeCodeForToken(params.code);
+                    const tokens = this.adapter.getTokens();
+                    await this.saveCredentials(
+                        this.adapter.clientId,
+                        this.adapter.clientSecret,
+                        tokens.accessToken,
+                        tokens.refreshToken,
+                    );
+                    new Notice(t("noticeAuthSuccess"));
+
+                    // Cleanup storage
+                    window.localStorage.removeItem("vault-sync-verifier");
+                    window.localStorage.removeItem("vault-sync-state");
+                } catch (e: any) {
+                    new Notice(`${t("noticeAuthFailed")}: ${e.message}`);
+                    console.error("VaultSync: Auth failed via protocol handler", e);
+                }
+            } else if (params.error) {
+                new Notice(`${t("noticeAuthFailed")}: ${params.error}`);
+            }
+        });
     }
 
     onunload() {
         if (this.autoSyncInterval) {
             window.clearInterval(this.autoSyncInterval);
+        }
+        if (this.mobileSyncFabEl) {
+            this.mobileSyncFabEl.remove();
+        }
+    }
+
+    private async manualSyncTrigger() {
+        const targets = [];
+        if (this.syncRibbonIconEl)
+            targets.push({ element: this.syncRibbonIconEl, originalIcon: "sync" });
+        if (this.mobileSyncFabEl)
+            targets.push({ element: this.mobileSyncFabEl, originalIcon: "sync" });
+
+        if (targets.length > 0) {
+            await this.performSyncOperation(targets, () =>
+                this.syncManager.requestSmartSync(false),
+            );
+        } else {
+            await this.syncManager.requestSmartSync(false);
         }
     }
 
@@ -191,6 +266,9 @@ export default class VaultSync extends Plugin {
         for (const target of targets) {
             setIcon(target.element, "sync");
             target.element.addClass("vault-sync-spinning");
+            if (target.element.classList.contains("vault-sync-mobile-fab")) {
+                target.element.addClass("is-active");
+            }
         }
 
         try {
@@ -198,6 +276,9 @@ export default class VaultSync extends Plugin {
         } finally {
             for (const target of targets) {
                 target.element.removeClass("vault-sync-spinning");
+                if (target.element.classList.contains("vault-sync-mobile-fab")) {
+                    target.element.removeClass("is-active");
+                }
                 // Revert to original icon
                 setIcon(target.element, target.originalIcon);
             }
@@ -251,46 +332,95 @@ export default class VaultSync extends Plugin {
         }
 
         await this.syncManager.log(`[Trigger] Activated via ${source}`);
-        // Helper for user-initiated actions that shouldn't lock UI immediately (like save/modify)
+
+        // Set all background/implicit triggers (save, modify, layout, interval) to silent.
+        // This ensures consistent behavior where sync runs quietly without "Syncing..." notices.
+        const isSilent = true;
+
         // Animation is handled via Activity Callbacks if changes are found
-        await this.syncManager.requestSmartSync(true);
+        await this.syncManager.requestSmartSync(isSilent);
     }
 
     private registerTriggers() {
-        // 2. Save Trigger (Ctrl+S)
-        this.registerDomEvent(document, "keydown", (evt: KeyboardEvent) => {
-            if (this.settings.onSaveDelaySec === SETTINGS_LIMITS.onSaveDelay.disabled) return;
-            if ((evt.ctrlKey || evt.metaKey) && evt.key === "s") {
-                this.lastSaveRequestTime = Date.now();
-                if (this.settings.onSaveDelaySec === 0) {
-                    this.triggerSmartSync("save");
-                } else {
-                    window.setTimeout(() => {
-                        this.triggerSmartSync("save");
-                    }, this.settings.onSaveDelaySec * 1000);
+        // 2. Save Trigger (Obsidian Command Hook)
+        this.app.workspace.onLayoutReady(async () => {
+            const commands = (this.app as any).commands?.commands;
+            if (!commands) return;
+
+            // Broad discovery: catch editor:save and any other custom save commands
+            const targetIds = Object.keys(commands).filter(
+                (id) => id === "editor:save" || id.includes(":save") || id.includes("save-"),
+            );
+
+            targetIds.forEach((id) => {
+                const cmd = commands[id];
+                if (cmd && !cmd._isVaultSyncHooked) {
+                    cmd._isVaultSyncHooked = true;
+
+                    if (cmd.callback) {
+                        const originalCallback = cmd.callback;
+                        cmd.callback = async (...args: any[]) => {
+                            this.lastSaveRequestTime = Date.now();
+                            await this.syncManager.log(`[Trigger] Manual save detected: ${id}`);
+
+                            if (this.settings.onSaveDelaySec === 0) {
+                                this.triggerSmartSync("save");
+                            } else {
+                                window.setTimeout(() => {
+                                    this.triggerSmartSync("save");
+                                }, this.settings.onSaveDelaySec * 1000);
+                            }
+                            return originalCallback.apply(cmd, args);
+                        };
+                    } else if (cmd.checkCallback) {
+                        const originalCheckCallback = cmd.checkCallback;
+                        cmd.checkCallback = (checking: boolean) => {
+                            if (!checking) {
+                                this.lastSaveRequestTime = Date.now();
+                                this.syncManager.log(
+                                    `[Trigger] Manual save detected (check): ${id}`,
+                                );
+
+                                if (this.settings.onSaveDelaySec === 0) {
+                                    this.triggerSmartSync("save");
+                                } else {
+                                    window.setTimeout(() => {
+                                        this.triggerSmartSync("save");
+                                    }, this.settings.onSaveDelaySec * 1000);
+                                }
+                            }
+                            return originalCheckCallback.call(cmd, checking);
+                        };
+                    }
                 }
-            }
+            });
         });
 
         // 3. Modify trigger with debounce - marks dirty and triggers Smart Sync
         let modifyTimeout: number | null = null;
         this.registerEvent(
-            this.app.vault.on("modify", (file) => {
+            this.app.vault.on("modify", async (file) => {
                 if (!this.isReady) return;
                 if (!(file instanceof TFile)) return;
+
                 if (this.syncManager.shouldIgnore(file.path)) return;
+
                 // Track modification time for debounce protection
                 this.lastModifyTime = Date.now();
                 // Mark file as dirty immediately
                 this.syncManager.markDirty(file.path);
+
                 // Check if this modify is result of explicit save (happened closely after Ctrl+S)
                 // If so, trigger immediately (bypass debounce)
-                if (Date.now() - this.lastSaveRequestTime < 2000) {
+                const timeSinceLastSave = Date.now() - this.lastSaveRequestTime;
+                if (timeSinceLastSave < 5000) {
+                    await this.syncManager.log(`[Trigger] Fast-tracking sync due to recent save`);
                     if (modifyTimeout) window.clearTimeout(modifyTimeout);
                     this.triggerSmartSync("save");
                     return;
                 }
-                // Debounce the actual sync
+
+                // Debounce the actual sync for auto-saves
                 if (this.settings.onModifyDelaySec === SETTINGS_LIMITS.onModifyDelay.disabled)
                     return;
                 if (modifyTimeout) window.clearTimeout(modifyTimeout);
@@ -445,32 +575,49 @@ export default class VaultSync extends Plugin {
 
         this.settings = Object.assign({}, DEFAULT_SETTINGS, loadedSettings);
 
-        // SEC-001: Ensure encryption secret exists (Saved to Local Data)
-        if (!this.settings.encryptionSecret) {
-            const array = new Uint8Array(32);
-            window.crypto.getRandomValues(array);
-            this.settings.encryptionSecret = Array.from(array, (b) =>
-                b.toString(16).padStart(2, "0"),
-            ).join("");
-            await this.saveSettings();
-        }
-
-        // Initialize SecureStorage with the secret
+        // SEC-010: Initialize SecureStorage early to use its Keychain methods
         this.secureStorage = new SecureStorage(
             this.app,
             this.manifest.dir || "",
-            this.settings.encryptionSecret,
+            this.settings.encryptionSecret || "temp-key",
         );
 
-        // DEBUG: Temporary notice to help debug path issues
-        this.secureStorage.loadCredentials().then((creds) => {
-            /* new Notice(
-                `SecureStorage Path: ${(this.secureStorage as any).filePath}\nLoaded: ${!!creds}`,
-            ); */
-        });
+        // SEC-011: Prioritize encryptionSecret from Keychain
+        if (this.app.secretStorage) {
+            const keychainSecret = await this.secureStorage.getExtraSecret("encryption-secret");
+            if (keychainSecret) {
+                this.settings.encryptionSecret = keychainSecret;
+                // Update internal secret for file-based fallback support
+                this.secureStorage.setMasterSecret(keychainSecret);
+            } else if (this.settings.encryptionSecret) {
+                // Migrate from file to Keychain
+                console.log("VaultSync: Migrating encryptionSecret to Keychain...");
+                await this.secureStorage.setExtraSecret(
+                    "encryption-secret",
+                    this.settings.encryptionSecret,
+                );
+                // After migration, we save settings to clean up the local file
+                await this.saveSettings();
+            }
+        }
+
+        // SEC-001: Ensure encryption secret exists (if not found in file or Keychain)
+        if (!this.settings.encryptionSecret) {
+            const array = new Uint8Array(32);
+            window.crypto.getRandomValues(array);
+            const newSecret = Array.from(array, (b) => b.toString(16).padStart(2, "0")).join("");
+            this.settings.encryptionSecret = newSecret;
+            this.secureStorage.setMasterSecret(newSecret);
+
+            if (this.app.secretStorage) {
+                await this.secureStorage.setExtraSecret("encryption-secret", newSecret);
+            }
+            await this.saveSettings();
+        }
 
         // Load credentials from Secure Storage
         const credentials = await this.secureStorage.loadCredentials();
+
         if (credentials) {
             this.adapter.setCredentials(credentials.clientId || "", credentials.clientSecret || "");
             this.adapter.setTokens(
@@ -527,6 +674,10 @@ export default class VaultSync extends Plugin {
         for (const key in this.settings) {
             if (Object.prototype.hasOwnProperty.call(this.settings, key)) {
                 if (localKeys.includes(key)) {
+                    // SEC-012: Do not save encryptionSecret to file if Keychain is active
+                    if (key === "encryptionSecret" && this.app.secretStorage) {
+                        continue;
+                    }
                     localData[key] = (this.settings as any)[key];
                 } else {
                     openData[key] = (this.settings as any)[key];
