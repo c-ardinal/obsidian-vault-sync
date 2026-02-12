@@ -837,72 +837,8 @@ class VaultSyncSettingTab extends PluginSettingTab {
                     .setCta()
                     .onClick(async () => {
                         await this.plugin.adapter.login();
-                        if (!Platform.isMobile) {
-                            const tokens = this.plugin.adapter.getTokens();
-                            await this.plugin.saveCredentials(
-                                this.plugin.adapter.clientId,
-                                this.plugin.adapter.clientSecret,
-                                tokens.accessToken,
-                                tokens.refreshToken,
-                            );
-                            await this.plugin.syncManager.notify(t("noticeAuthSuccess"));
-                            this.display();
-                        }
                     }),
             );
-
-        // Mobile/Manual Auth
-        if (Platform.isMobile) {
-            containerEl.createEl("h4", { text: t("settingManualAuthSection") });
-            containerEl.createEl("p", {
-                text: t("settingManualAuthDesc"),
-                cls: "setting-item-description",
-            });
-
-            let textComponent: any;
-            new Setting(containerEl)
-                .setName(t("settingAuthorize"))
-                .addText((text) => {
-                    textComponent = text;
-                    text.setPlaceholder(t("settingManualAuthPlaceholder")).inputEl.style.width =
-                        "100%";
-                })
-                .addButton((button) =>
-                    button.setButtonText(t("settingManualAuthVerify")).onClick(async () => {
-                        const val = textComponent.getValue().trim();
-                        if (!val) return;
-
-                        let code = val;
-                        // Extract code from URL if full URL is pasted
-                        if (val.includes("code=")) {
-                            try {
-                                const url = new window.URL(val);
-                                code = url.searchParams.get("code") || val;
-                            } catch (e) {
-                                // ignore
-                            }
-                        }
-
-                        try {
-                            await this.plugin.adapter.exchangeCodeForToken(code);
-                            const tokens = this.plugin.adapter.getTokens();
-                            await this.plugin.saveCredentials(
-                                this.plugin.adapter.clientId,
-                                this.plugin.adapter.clientSecret,
-                                tokens.accessToken,
-                                tokens.refreshToken,
-                            );
-                            await this.plugin.syncManager.notify(t("noticeAuthSuccess"));
-                            this.display();
-                        } catch (e) {
-                            await this.plugin.syncManager.notify(
-                                `${t("noticeAuthFailed")}: ${e instanceof Error ? e.message : String(e)}`,
-                            );
-                        }
-                    }),
-                )
-                .setClass("auth-manual-input");
-        }
 
         // Render Schema-based Settings
         const sections = getSettingsSections(this.plugin);

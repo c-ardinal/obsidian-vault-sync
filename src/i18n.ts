@@ -11,12 +11,7 @@ export const i18n: Record<string, Record<string, string>> = {
         settingLogin: "Login",
         settingRelogin: "Re-login",
         settingLoginDesc: "Authorize with Google Drive.",
-        settingManualAuthSection: "Manual Authentication (Mobile)",
-        settingManualAuthDesc:
-            "If automatic redirect fails (localhost error), copy the browser URL and paste it below:",
-        settingManualAuthPlaceholder: "Enter the resulting URL or code",
-        settingManualAuthVerify: "Verify and Login",
-        settingAuthorize: "Authorize",
+
         settingTriggerSection: "Sync Triggers",
         settingStartupSync: "Trigger: Enable Startup Sync",
         settingStartupSyncDesc: "Sync with cloud automatically upon starting Obsidian.",
@@ -163,12 +158,7 @@ export const i18n: Record<string, Record<string, string>> = {
         settingLogin: "ログイン",
         settingRelogin: "再ログイン",
         settingLoginDesc: "Google Drive と連携します。",
-        settingManualAuthSection: "手動認証 (モバイル用)",
-        settingManualAuthDesc:
-            "自動リダイレクトに失敗する場合（localhostエラー）、ブラウザのURLをコピーして以下に貼り付けてください：",
-        settingManualAuthPlaceholder: "リダイレクト先のURLまたはコードを入力",
-        settingManualAuthVerify: "検証してログイン",
-        settingAuthorize: "認証",
+
         settingTriggerSection: "同期トリガー (⚠注意: 時間を短くした場合、通信量も増加します。)",
         settingStartupSync: "トリガー: 起動時",
         settingStartupSyncDesc: "Obsidian 起動時に自動でクラウドと同期します。",
