@@ -25,6 +25,7 @@
 
 - リモートハッシュがローカルのインデックス記録と不一致 → 他デバイスが先に更新
 - アップロードを中止し、`pullFileSafely` を呼び出してマージを試行
+- **マージ成功後、同一サイクル内でマージ済みファイルを即座にアップロードする**（Deadlock Breaking Immediate Upload）。これにより、インデックスとファイル本体の不整合を防止する
 
 ### 2.2 Pull時検知 (C2)
 
@@ -70,7 +71,7 @@ sequenceDiagram
 
     B->>Cloud: getFileMetadataById (hash確認)
     Note over B: hash不一致 → 他者が更新済み
-    B->>B: Upload中止 → 次サイクルでPull&Merge
+    B->>B: Upload中止 → Merge実行 → マージ済みファイルを即座にUpload
 ```
 
 **制約**: チェックとPushが非原子的なため、数秒以内の同時Pushでは検知できない場合がある。
@@ -157,26 +158,47 @@ sequenceDiagram
   Local: B, Remote: B, ancestorHash: B (★更新: Push成功時点のハッシュ)
 
 [競合発生・マージ]
-  Local: D(merged), Remote: C, ancestorHash: A (★baseHashを維持)
+  Local: D(merged), Remote: C, ancestorHash: C (★リモートのハッシュを設定)
+  ※ cloudIndex側: hash=C, ancestorHash=C（リモートの最新状態を記録）
+  ※ localIndex側: hash=D(merged), ancestorHash=C（マージ元リモートを記録）
 
 [マージ結果をPush成功]
-  Local: D, Remote: D, ancestorHash: D (★更新)
+  Local: D, Remote: D, ancestorHash: C (★Pushでは更新しない)
+
+[他デバイスがPull → ancestorHash照合]
+  ancestorHash=C がローカルハッシュと一致 → リモートは子孫 → Pull安全
 ```
 
 **重要**:
 
-- マージ直後（Push前）は元のbaseHashを維持する。Push前に再Pullした場合も正しいBaseが使われるため。
-- Push成功後はアップロードしたハッシュでancestorHashを更新する。更新しないと「ゾンビ競合」（解決済み変更の再出現）が発生する。
+- マージ直後、`ancestorHash` には**取り込んだリモート側のハッシュ**を設定する。これにより、他デバイスが次回Pullした際にリモートが自分の変更を包含した「子孫」であることを高速に検証できる（循環マージ防止）。
+- Push時は `ancestorHash` を更新しない（上書きすると子孫関係が破壊される）。
+- Push成功確認（Post-Push Pull でハッシュ一致）時にのみ `ancestorHash` を最新ハッシュに更新する。
 
-#### findCommonAncestorHash（履歴検索）
+#### findCommonAncestorHash（履歴検索フォールバック）
 
-ancestorHashがlocalHashまたはremoteHashと一致する場合（汚染状態）、Google Drive Revisions APIから履歴を取得し、正しい共通祖先を検索する。
+`ancestorHash` が存在しない場合（古いアダプター、インデックス移行時等）のフォールバック。Google Drive Revisions APIから履歴を取得し、正しい共通祖先を検索する。
 
 - `localHash` と `remoteHash` の両方より前のリビジョンを探索
 - どちらのハッシュとも異なるリビジョンを祖先として採用
 - 有効な祖先が見つからない場合はマージを諦め、Conflictファイルを作成
 
-### 4.5 安全機構
+### 4.5 Safety Guard（Pull時の子孫検証）
+
+`lastAction` が `push` または `merge` のファイルに対してリモート更新が検出された場合、Safety Guardが発動する。
+
+#### 検証フロー
+
+1. **高速チェック（O(1)）**: リモートの `ancestorHash` と自端末の `localBase.hash` を比較
+    - **一致** → リモートは自端末の変更を含む子孫 → **安全にPull可能**
+    - **不一致** → リモートが自端末の変更を無視している可能性 → **マージを強制**
+2. **フォールバック**: `ancestorHash` が存在しない場合、`findCommonAncestorHash` で履歴検索に回る
+
+#### 循環マージ防止
+
+Device Aがマージ結果をPushした場合、そのインデックスの `ancestorHash` にはDevice Bの変更ハッシュが記録される。Device BがPullすると、Safety Guardは `ancestorHash` と自分の `localBase.hash` が一致することを確認し、マージ済みの結果を安全にPullする。これによりマージ→Pull→再マージの無限ループを防止する。
+
+### 4.6 マージ品質保護
 
 | 機構                           | 内容                                                         |
 | :----------------------------- | :----------------------------------------------------------- |
@@ -185,7 +207,7 @@ ancestorHashがlocalHashまたはremoteHashと一致する場合（汚染状態�
 | **Merge Result Validation**    | マージ結果がLocal/Remoteの行を不当に欠損していないか検証     |
 | **Semantic Equivalence Check** | マージループ（ピンポン）検出のための意味的等価性チェック     |
 
-### 4.6 動的パラメータ調整
+### 4.7 動的パラメータ調整
 
 `Patch_Margin` を段階的に縮小してリトライすることで、安全性と自動マージ成功率を両立。
 

@@ -148,6 +148,7 @@ type SyncIndex = Record<string, SyncIndexEntry>;
 2. リモートフォルダの一括作成（深さ順、レースコンディション回避）
 3. 並列アップロード（`concurrency` 設定に基づく）
 4. アップロード直前にリモートハッシュを検証（楽観的ロック）
+    - 競合検知時は `pullFileSafely` でマージし、**同一サイクル内でマージ済みファイルを即座にアップロード**（Deadlock Breaking Immediate Upload）
 5. マスターインデックスをクラウドへ保存
 
 ## 7. エラーハンドリングとリトライ

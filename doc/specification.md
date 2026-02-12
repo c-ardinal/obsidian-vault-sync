@@ -1,7 +1,7 @@
 # VaultSync - 仕様書
 
-**Version**: 2.0
-**Last Updated**: 2026-02-09
+**Version**: 2.1
+**Last Updated**: 2026-02-13
 
 Obsidian向けクラウドストレージ同期プラグイン。ローカルのObsidian VaultとGoogle Drive上のフォルダを同期し、全プラットフォームでのデータ一貫性を保つ。
 
