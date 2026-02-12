@@ -1,5 +1,7 @@
 import { VaultSyncSettings } from "./types/settings";
 
+export const OAUTH_REDIRECT_URI = "https://c-ardinal.github.io/obsidian-vault-sync/callback/";
+
 export const SETTINGS_LIMITS = {
     autoSyncInterval: { min: 1, max: 86400, default: 1800, disabled: -1 },
     onSaveDelay: { min: 0, max: 60, default: 0, disabled: -1 },

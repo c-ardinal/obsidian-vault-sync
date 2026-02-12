@@ -1,5 +1,6 @@
 import { CloudAdapter, CloudChanges, CloudFile } from "../types/adapter";
 import { generateCodeChallenge, generateCodeVerifier } from "../auth/pkce";
+import { DEFAULT_SETTINGS, SETTINGS_LIMITS, OAUTH_REDIRECT_URI } from "../constants";
 import { Platform } from "obsidian";
 
 const DEFAULT_ROOT_FOLDER = "ObsidianVaultSync";
@@ -136,10 +137,11 @@ export class GoogleDriveAdapter implements CloudAdapter {
     }
 
     private getRedirectUri(): string {
-        // Use loopback even on mobile to satisfy Google's "Desktop App" / "Web App" validation.
-        // On mobile, Obsidian doesn't run a server, so the browser will fail to redirect,
-        // but the user can then manually copy the code from the address bar.
-        return "http://localhost:42813";
+        // Use GitHub Pages as the intermediate server (bouncer)
+        // This allows the browser to receive the code and redirect to obsidian:// URI scheme
+        // solving the issue where localhost is not accessible on mobile.
+        // Users must configure their Google Cloud "Web Application" credentials with this URI.
+        return OAUTH_REDIRECT_URI;
     }
 
     async getAuthUrl(): Promise<string> {
@@ -151,9 +153,14 @@ export class GoogleDriveAdapter implements CloudAdapter {
         window.crypto.getRandomValues(array);
         this.currentAuthState = Array.from(array, (b) => b.toString(16).padStart(2, "0")).join("");
 
+        // Persist state/verifier for mobile/background survivability
+        window.localStorage.setItem("vault-sync-verifier", this.codeVerifier);
+        window.localStorage.setItem("vault-sync-state", this.currentAuthState);
+
         const params = new URLSearchParams({
             client_id: this.clientId,
             redirect_uri: this.getRedirectUri(),
+            // Must be 'response_type=code' for authorization code flow
             response_type: "code",
             scope: "https://www.googleapis.com/auth/drive.file",
             code_challenge: challenge,
@@ -166,23 +173,26 @@ export class GoogleDriveAdapter implements CloudAdapter {
         return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
     }
 
+    verifyState(state: string): boolean {
+        const savedState = this.currentAuthState || window.localStorage.getItem("vault-sync-state");
+        return state === savedState;
+    }
+
     async login(): Promise<void> {
         const authUrl = await this.getAuthUrl();
+        // Just open the URL. The callback will be handled via obsidian:// protocol handler
+        // which triggers the exchangeCodeForToken flow in the main plugin class.
         window.open(authUrl);
-
-        if (!Platform.isMobile) {
-            const { startReceiverServer } = await import("../auth/receiver");
-            try {
-                const code = await startReceiverServer(42813, this.currentAuthState!);
-                await this.exchangeCodeForToken(code);
-            } catch (e) {
-                console.error("Auth failed", e);
-                throw e;
-            }
-        }
     }
 
     async exchangeCodeForToken(code: string): Promise<void> {
+        if (!this.codeVerifier) {
+            this.codeVerifier = window.localStorage.getItem("vault-sync-verifier");
+        }
+        if (!this.codeVerifier) {
+            throw new Error("Code verifier missing. Did you start the login flow?");
+        }
+
         const body = new URLSearchParams({
             client_id: this.clientId,
             client_secret: this.clientSecret,
@@ -207,6 +217,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
     }
 
     async handleCallback(url: string | URL): Promise<void> {
+        // Legacy: Not used in new flow, but kept for interface compatibility if needed
         const urlObj = typeof url === "string" ? new URL(url) : url;
         const code = urlObj.searchParams.get("code");
         const state = urlObj.searchParams.get("state");

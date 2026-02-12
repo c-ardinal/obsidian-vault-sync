@@ -195,6 +195,38 @@ export default class VaultSync extends Plugin {
                 }
             }),
         );
+
+        // 6. Protocol Handler for OAuth Callback (vault-sync-auth)
+        this.registerObsidianProtocolHandler("vault-sync-auth", async (params) => {
+            // Verify state
+            if (params.state && !this.adapter.verifyState(params.state)) {
+                new Notice(t("noticeAuthFailed") + ": Invalid state");
+                return;
+            }
+
+            if (params.code) {
+                try {
+                    await this.adapter.exchangeCodeForToken(params.code);
+                    const tokens = this.adapter.getTokens();
+                    await this.saveCredentials(
+                        this.adapter.clientId,
+                        this.adapter.clientSecret,
+                        tokens.accessToken,
+                        tokens.refreshToken,
+                    );
+                    new Notice(t("noticeAuthSuccess"));
+
+                    // Cleanup storage
+                    window.localStorage.removeItem("vault-sync-verifier");
+                    window.localStorage.removeItem("vault-sync-state");
+                } catch (e: any) {
+                    new Notice(`${t("noticeAuthFailed")}: ${e.message}`);
+                    console.error("VaultSync: Auth failed via protocol handler", e);
+                }
+            } else if (params.error) {
+                new Notice(`${t("noticeAuthFailed")}: ${params.error}`);
+            }
+        });
     }
 
     onunload() {
