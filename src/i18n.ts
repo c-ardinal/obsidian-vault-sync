@@ -23,14 +23,14 @@ export const i18n: Record<string, Record<string, string>> = {
         settingTriggerSection: "Sync Triggers",
         settingStartupSync: "Trigger: Enable Startup Sync",
         settingStartupSyncDesc: "Sync with cloud automatically upon starting Obsidian.",
-        settingAutoSyncInterval: "Trigger: Auto-sync Interval (Seconds)",
+        settingAutoSyncInterval: "Trigger: Auto-sync Interval",
         settingAutoSyncIntervalDesc:
             "Sync periodically in background.\nNote: To prevent data loss, sync is skipped while you are actively editing.",
-        settingTriggerSave: "Trigger: Save [Ctrl+S] (Seconds)",
+        settingTriggerSave: "Trigger: Save [Ctrl+S]",
         settingTriggerSaveDesc: "Sync when you explicitly save a file.",
-        settingModify: "Trigger: Modify Delay (Seconds)",
+        settingModify: "Trigger: Modify Delay",
         settingModifyDesc: "Seconds of inactivity before syncing.",
-        settingTriggerLayout: "Trigger: Layout Change Delay (Seconds)",
+        settingTriggerLayout: "Trigger: Layout Change Delay",
         settingTriggerLayoutDesc: "Sync delay after switching files/tabs.",
         settingPerfSection: "Performance",
         settingConcurrency: "Simultaneous Sync Files",
@@ -81,7 +81,7 @@ export const i18n: Record<string, Record<string, string>> = {
         settingAdvancedSection: "Advanced Settings",
         settingAdvancedSectionDesc: "Advanced settings for power users.",
         settingDevSection: "Developer Settings",
-        settingStartupDelay: "Trigger: Startup Delay (Seconds)",
+        settingStartupDelay: "Trigger: Startup Delay",
         settingStartupDelayDesc: "Wait for Obsidian to index files before starting sync.",
 
         // Notifications (Notice)
@@ -184,14 +184,14 @@ export const i18n: Record<string, Record<string, string>> = {
         settingTriggerSection: "同期トリガー設定",
         settingStartupSync: "トリガー: 起動時",
         settingStartupSyncDesc: "Obsidian 起動時に自動でクラウドと同期します。",
-        settingAutoSyncInterval: "トリガー: タイマー (単位:秒)",
+        settingAutoSyncInterval: "トリガー: タイマー",
         settingAutoSyncIntervalDesc:
             "バックグラウンドで定期的に同期します。\n注意: データ損失を防ぐため、編集操作中は同期をスキップします。",
-        settingTriggerSave: "トリガー: 保存時 [Ctrl+S押下時] (単位:秒)",
+        settingTriggerSave: "トリガー: 保存時 [Ctrl+S押下時]",
         settingTriggerSaveDesc: "明示的にファイルを保存した際に、一定時間後に同期を実行。",
-        settingModify: "トリガー: 編集時 (単位:秒)",
+        settingModify: "トリガー: 編集時",
         settingModifyDesc: "ファイル編集後、一定時間後に同期を実行。",
-        settingTriggerLayout: "トリガー: レイアウト変更時 (単位:秒)",
+        settingTriggerLayout: "トリガー: レイアウト変更時",
         settingTriggerLayoutDesc:
             "ウィンドウの切替など表示を切り替えた際に、一定時間後に同期を実行。",
         settingPerfSection: "パフォーマンス",
@@ -244,7 +244,7 @@ export const i18n: Record<string, Record<string, string>> = {
         settingAdvancedSection: "高度な設定",
         settingAdvancedSectionDesc: "高度な設定とデバッグツールを有効にします。",
         settingDevSection: "開発者向け設定",
-        settingStartupDelay: "起動時の遅延 (単位:秒)",
+        settingStartupDelay: "起動時の遅延",
         settingStartupDelayDesc: "Obsidian 起動後、同期を開始するまでの待機時間。",
 
         // Notifications (Notice)

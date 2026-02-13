@@ -13,6 +13,7 @@ export interface SettingItem {
     desc?: string;
     placeholder?: string;
     options?: Record<string, string>; // For dropdown: value -> label
+    unit?: string;
     // Number type specific
     limits?: {
         min: number;
@@ -48,6 +49,7 @@ const getTriggerItems = (prefix: string): SettingItem[] => [
             t("settingAutoSyncIntervalDesc") +
             `\n(Min: ${SETTINGS_LIMITS.autoSyncInterval.min}, Max: ${SETTINGS_LIMITS.autoSyncInterval.max}, Default: ${SETTINGS_LIMITS.autoSyncInterval.default}, Disabled: ${SETTINGS_LIMITS.autoSyncInterval.disabled})`,
         limits: SETTINGS_LIMITS.autoSyncInterval,
+        unit: "SEC",
         onChange: async (val, p) => {
             p.settings.enableAutoSyncInInterval = val !== SETTINGS_LIMITS.autoSyncInterval.disabled;
             await p.saveSettings();
@@ -62,6 +64,7 @@ const getTriggerItems = (prefix: string): SettingItem[] => [
             t("settingTriggerSaveDesc") +
             `\n(Min: ${SETTINGS_LIMITS.onSaveDelay.min}, Max: ${SETTINGS_LIMITS.onSaveDelay.max}, Default: ${SETTINGS_LIMITS.onSaveDelay.default}, Disabled: ${SETTINGS_LIMITS.onSaveDelay.disabled})`,
         limits: SETTINGS_LIMITS.onSaveDelay,
+        unit: "SEC",
     },
     {
         key: `${prefix}.onModifyDelaySec`,
@@ -71,6 +74,7 @@ const getTriggerItems = (prefix: string): SettingItem[] => [
             t("settingModifyDesc") +
             `\n(Min: ${SETTINGS_LIMITS.onModifyDelay.min}, Max: ${SETTINGS_LIMITS.onModifyDelay.max}, Default: ${SETTINGS_LIMITS.onModifyDelay.default}, Disabled: ${SETTINGS_LIMITS.onModifyDelay.disabled})`,
         limits: SETTINGS_LIMITS.onModifyDelay,
+        unit: "SEC",
     },
     {
         key: `${prefix}.onLayoutChangeDelaySec`,
@@ -80,6 +84,7 @@ const getTriggerItems = (prefix: string): SettingItem[] => [
             t("settingTriggerLayoutDesc") +
             `\n(Min: ${SETTINGS_LIMITS.onLayoutChangeDelay.min}, Max: ${SETTINGS_LIMITS.onLayoutChangeDelay.max}, Default: ${SETTINGS_LIMITS.onLayoutChangeDelay.default}, Disabled: ${SETTINGS_LIMITS.onLayoutChangeDelay.disabled})`,
         limits: SETTINGS_LIMITS.onLayoutChangeDelay,
+        unit: "SEC",
     },
 ];
 
@@ -110,6 +115,7 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                         `\n(Min: ${SETTINGS_LIMITS.concurrency.min}, Max: ${SETTINGS_LIMITS.concurrency.max}, Default: ${SETTINGS_LIMITS.concurrency.default})`,
                     limits: SETTINGS_LIMITS.concurrency,
                 },
+
                 {
                     key: "notificationLevel",
                     type: "dropdown",
@@ -290,6 +296,7 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                         t("settingStartupDelayDesc") +
                         `\n(Min: ${SETTINGS_LIMITS.startupDelay.min}, Max: ${SETTINGS_LIMITS.startupDelay.max}, Default: ${SETTINGS_LIMITS.startupDelay.default})`,
                     limits: SETTINGS_LIMITS.startupDelay,
+                    unit: "SEC",
                 },
             ],
         },

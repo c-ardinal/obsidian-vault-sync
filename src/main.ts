@@ -1022,6 +1022,21 @@ class VaultSyncSettingTab extends PluginSettingTab {
                                     await this.plugin.saveSettings();
                                     if (item.onChange) await item.onChange(numVal, this.plugin);
                                 });
+
+                            if (item.unit) {
+                                const inputEl = text.inputEl;
+                                inputEl.addClass("vault-sync-number-input-with-unit");
+
+                                const wrapper = document.createElement("div");
+                                wrapper.addClass("vault-sync-number-wrapper");
+                                inputEl.parentNode?.insertBefore(wrapper, inputEl);
+                                wrapper.appendChild(inputEl);
+
+                                wrapper.createDiv({
+                                    cls: "vault-sync-unit-addon",
+                                    text: item.unit,
+                                });
+                            }
                         });
                         break;
                 }
