@@ -129,6 +129,7 @@ export async function findCommonAncestorHash(
 ): Promise<string | null> {
     try {
         const revisions = await listRevisions(ctx, path);
+
         await ctx.log(
             `[Merge] Finding common ancestor for ${path}: local=${localHash.substring(0, 8)}, remote=${remoteHash.substring(0, 8)}`,
         );
@@ -355,6 +356,7 @@ export async function pullFileSafely(
         hash?: string;
         mtime?: number;
         size?: number;
+        ancestorHash?: string;
     },
     logPrefix: string,
 ): Promise<boolean> {
@@ -385,7 +387,10 @@ export async function pullFileSafely(
             ctx.syncingPaths.add(item.path);
             try {
                 const localContent = await ctx.app.vault.adapter.readBinary(item.path);
-                const currentHash = md5(localContent);
+                // Normalize line endings for consistent hash calculation across platforms
+                const localContentStr = new TextDecoder().decode(localContent);
+                const normalizedContent = localContentStr.replace(/\r\n/g, "\n");
+                const currentHash = md5(new TextEncoder().encode(normalizedContent).buffer);
                 const localBase = ctx.localIndex[item.path];
 
                 await ctx.log(
@@ -411,25 +416,6 @@ export async function pullFileSafely(
                         localBase.hash.toLowerCase() !== item.hash.toLowerCase()) ||
                     isRemoteDeleted;
 
-                let safetyGuardTriggered = false;
-                if (
-                    isModifiedLocally &&
-                    (localBase?.lastAction === "push" || localBase?.lastAction === "merge") &&
-                    hasRemoteUpdate &&
-                    !localBase?.pendingConflict
-                ) {
-                    await ctx.log(
-                        `[${logPrefix}] Safety Guard: Detected remote change after our ${localBase?.lastAction}. Forcing merge check to prevent data loss.`,
-                    );
-                    await ctx.notify("noticeMergingFile");
-                    isModifiedLocally = true;
-                    safetyGuardTriggered = true;
-                }
-
-                await ctx.log(
-                    `[${logPrefix}] isModifiedLocally=${isModifiedLocally}, hasRemoteConflict=${hasRemoteConflict}, lastAction=${localBase?.lastAction || "none"} for ${item.path}`,
-                );
-
                 if (isModifiedLocally || hasRemoteConflict) {
                     // Content match check
                     if (item.hash && currentHash === item.hash.toLowerCase()) {
@@ -445,7 +431,15 @@ export async function pullFileSafely(
                         ctx.index[item.path] = entry;
                         ctx.localIndex[item.path] = { ...entry };
                         ctx.dirtyPaths.delete(item.path);
-                        await saveLocalIndex(ctx);
+
+                        if (localBase?.pendingConflict) {
+                            delete ctx.localIndex[item.path].pendingConflict;
+                            await saveLocalIndex(ctx);
+                            await ctx.notify("noticeRemoteMergeSynced", item.path.split("/").pop());
+                        } else {
+                            await saveLocalIndex(ctx);
+                        }
+
                         if (!ctx.settings.hasCompletedFirstSync) {
                             await ctx.notify("noticeSyncConfirmed", item.path.split("/").pop());
                         }
@@ -454,35 +448,94 @@ export async function pullFileSafely(
                     }
 
                     // REMOTE UPDATED, LOCAL UNMODIFIED
-                    if (hasRemoteConflict && !isActuallyModified && !safetyGuardTriggered) {
-                        const wasPendingConflict = localBase?.pendingConflict === true;
+                    if (hasRemoteConflict && !isActuallyModified) {
+                        const isRecentlyPushed =
+                            localBase?.lastAction === "push" || localBase?.lastAction === "merge";
 
-                        await ctx.log(
-                            `[${logPrefix}] Remote updated, local unmodified. Accepting remote version. (wasPendingConflict=${wasPendingConflict})`,
-                        );
+                        let safeToAcceptRemote = !isRecentlyPushed;
 
-                        if (wasPendingConflict) {
-                            await ctx.notify("noticeRemoteMergeSynced", item.path.split("/").pop());
-                        } else {
-                            await ctx.notify("noticeFilePulled", item.path.split("/").pop());
+                        if (isRecentlyPushed && localBase?.hash && item.hash) {
+                            if (item.ancestorHash !== undefined) {
+                                // Prefer explicit ancestor annotation from remote index
+                                const remoteIncludesOurChanges =
+                                    item.ancestorHash.toLowerCase() ===
+                                    localBase.hash.toLowerCase();
+
+                                if (remoteIncludesOurChanges) {
+                                    await ctx.log(
+                                        `[${logPrefix}] Quick check: Confirmed that remote is a descendant via ancestorHash. Safe to pull.`,
+                                    );
+                                    safeToAcceptRemote = true;
+                                } else {
+                                    await ctx.log(
+                                        `[${logPrefix}] Safety Warning: Remote version ignores our ${localBase.lastAction} (Remote.ancestor=${item.ancestorHash.substring(0, 8)}, Local.hash=${localBase.hash.substring(0, 8)}). Forcing merge check.`,
+                                    );
+                                    safeToAcceptRemote = false;
+                                }
+                            } else {
+                                // Fallback for adapters/indices that don't provide ancestorHash
+                                await ctx.log(
+                                    `[${logPrefix}] Missing ancestorHash. Searching history for ${localBase.hash.substring(0, 8)}...`,
+                                );
+                                const common = await findCommonAncestorHash(
+                                    ctx,
+                                    item.path,
+                                    localBase.hash,
+                                    item.hash,
+                                );
+                                if (common?.toLowerCase() === localBase.hash.toLowerCase()) {
+                                    await ctx.log(
+                                        `[${logPrefix}] Confirmed via history: Remote is a descendant. Safe to pull.`,
+                                    );
+                                    safeToAcceptRemote = true;
+                                } else {
+                                    await ctx.log(
+                                        `[${logPrefix}] Warning: Remote version seems to have overwritten our ${localBase.lastAction}. Forcing merge.`,
+                                    );
+                                    safeToAcceptRemote = false;
+                                }
+                            }
                         }
-                        ctx.syncingPaths.add(item.path);
-                        const remoteContent = await ctx.adapter.downloadFile(fileId || "");
-                        await ctx.app.vault.adapter.writeBinary(item.path, remoteContent);
 
-                        const stat = await ctx.app.vault.adapter.stat(item.path);
-                        const entry = {
-                            fileId: fileId || "",
-                            mtime: stat?.mtime || Date.now(),
-                            size: remoteContent.byteLength,
-                            hash: item.hash,
-                            lastAction: "pull" as const,
-                            ancestorHash: item.hash,
-                            pendingConflict: false,
-                        };
-                        ctx.index[item.path] = entry;
-                        ctx.localIndex[item.path] = { ...entry };
-                        return true;
+                        if (safeToAcceptRemote) {
+                            const wasPendingConflict = localBase?.pendingConflict === true;
+
+                            await ctx.log(
+                                `[${logPrefix}] Remote updated, local unmodified. Accepting remote version. (wasPendingConflict=${wasPendingConflict})`,
+                            );
+
+                            if (wasPendingConflict) {
+                                await ctx.notify(
+                                    "noticeRemoteMergeSynced",
+                                    item.path.split("/").pop(),
+                                );
+                            } else {
+                                await ctx.notify("noticeFilePulled", item.path.split("/").pop());
+                            }
+                            ctx.syncingPaths.add(item.path);
+                            const remoteContent = await ctx.adapter.downloadFile(fileId || "");
+                            await ctx.app.vault.adapter.writeBinary(item.path, remoteContent);
+
+                            // Detect if this is the plugin's own settings file
+                            if (item.path.endsWith("/open-data.json")) {
+                                ctx.settingsUpdated = true;
+                            }
+
+                            const stat = await ctx.app.vault.adapter.stat(item.path);
+                            const entry = {
+                                fileId: fileId || "",
+                                mtime: stat?.mtime || Date.now(),
+                                size: remoteContent.byteLength,
+                                hash: item.hash,
+                                lastAction: "pull" as const,
+                                ancestorHash: item.hash,
+                            };
+                            ctx.index[item.path] = entry;
+                            ctx.localIndex[item.path] = { ...entry };
+                            await saveLocalIndex(ctx);
+                            ctx.logger.markActionTaken();
+                            return true;
+                        }
                     }
 
                     // CONFLICT (Both Modified) -> Merge with lock
@@ -496,7 +549,10 @@ export async function pullFileSafely(
                             await ctx.log(
                                 `[${logPrefix}] Lock not acquired: ${item.path} is being handled by ${lockResult.holder} (expires in ${lockResult.expiresIn}s)`,
                             );
-                            await ctx.notify("noticeWaitOtherDeviceMerge", item.path.split("/").pop());
+                            await ctx.notify(
+                                "noticeWaitOtherDeviceMerge",
+                                item.path.split("/").pop(),
+                            );
                             if (ctx.localIndex[item.path]) {
                                 ctx.localIndex[item.path].pendingConflict = true;
                             }
@@ -549,13 +605,16 @@ export async function pullFileSafely(
                             );
                         } else {
                             const baseHashFound = baseHash;
-                            const remoteContent = await ctx.adapter.downloadFile(fileId || "");
-                            const localContentStr = new TextDecoder().decode(localContent);
-                            const remoteContentStr = new TextDecoder().decode(remoteContent);
+                            const remoteContentBuffer = await ctx.adapter.downloadFile(
+                                fileId || "",
+                            );
+                            const remoteContentStr = new TextDecoder().decode(remoteContentBuffer);
+                            const currentContentStr = new TextDecoder().decode(localContent);
+
                             const merged = await perform3WayMerge(
                                 ctx,
                                 item.path,
-                                localContentStr,
+                                currentContentStr,
                                 remoteContentStr,
                                 baseHashFound,
                             );
@@ -563,13 +622,25 @@ export async function pullFileSafely(
                             if (merged) {
                                 const mergedStr = new TextDecoder().decode(merged);
                                 const normalizedMerged = mergedStr.replace(/\r\n/g, "\n");
-                                await ctx.app.vault.adapter.writeBinary(item.path, merged);
-                                const mergedHash = md5(
-                                    new TextEncoder().encode(normalizedMerged).buffer,
+                                const normalizedBuffer = new TextEncoder().encode(
+                                    normalizedMerged,
+                                ).buffer;
+                                await ctx.app.vault.adapter.writeBinary(
+                                    item.path,
+                                    normalizedBuffer,
                                 );
 
+                                // Detect if this is the plugin's own settings file
+                                if (item.path.endsWith("/open-data.json")) {
+                                    ctx.settingsUpdated = true;
+                                }
+
+                                const mergedHash = md5(normalizedBuffer);
+                                const remoteNorm = remoteContentStr.replace(/\r\n/g, "\n");
+
                                 const isIdenticalToRemote =
-                                    item.hash && mergedHash === item.hash.toLowerCase();
+                                    (item.hash && mergedHash === item.hash.toLowerCase()) ||
+                                    normalizedMerged === remoteNorm;
 
                                 if (isIdenticalToRemote) {
                                     await ctx.log(
@@ -584,7 +655,10 @@ export async function pullFileSafely(
                                         lastAction: "pull" as const,
                                         ancestorHash: item.hash?.toLowerCase() || "",
                                     };
-                                    await ctx.notify("noticeRemoteMergeSynced", item.path.split("/").pop());
+                                    await ctx.notify(
+                                        "noticeRemoteMergeSynced",
+                                        item.path.split("/").pop(),
+                                    );
                                     ctx.index[item.path] = entry;
                                     ctx.localIndex[item.path] = { ...entry };
                                     ctx.dirtyPaths.delete(item.path);
@@ -598,7 +672,7 @@ export async function pullFileSafely(
                                             size: merged.byteLength,
                                             hash: mergedHash,
                                             lastAction: "merge" as const,
-                                            ancestorHash: baseHashFound,
+                                            ancestorHash: item.hash?.toLowerCase() || "",
                                         };
                                         const entryCloud = {
                                             fileId: fileId || "",
@@ -616,7 +690,21 @@ export async function pullFileSafely(
                                         await ctx.log(
                                             `[${logPrefix}] Merged successfully. Queued for push.`,
                                         );
-                                        await ctx.notify("noticeMergeSuccess", item.path.split("/").pop());
+
+                                        if (localBase?.pendingConflict) {
+                                            // Successfully merged our changes on top of a remote merge result from another device
+                                            await ctx.notify(
+                                                "noticeRemoteMergeSynced",
+                                                item.path.split("/").pop(),
+                                            );
+                                            delete ctx.localIndex[item.path].pendingConflict;
+                                            await saveLocalIndex(ctx);
+                                        } else {
+                                            await ctx.notify(
+                                                "noticeMergeSuccess",
+                                                item.path.split("/").pop(),
+                                            );
+                                        }
                                     } else {
                                         await ctx.log(
                                             `[${logPrefix}] Lock lost during merge. Content saved locally, queued for push on next cycle.`,
@@ -630,7 +718,7 @@ export async function pullFileSafely(
                                             size: merged.byteLength,
                                             hash: mergedHash,
                                             lastAction: "merge" as const,
-                                            ancestorHash: baseHashFound,
+                                            ancestorHash: item.hash?.toLowerCase() || "",
                                         };
                                         ctx.dirtyPaths.add(item.path);
                                         await saveLocalIndex(ctx);
@@ -638,6 +726,7 @@ export async function pullFileSafely(
                                 }
 
                                 await releaseMergeLock(ctx, item.path, logPrefix);
+                                ctx.logger.markActionTaken();
                                 return true;
                             }
                         }
@@ -675,6 +764,11 @@ export async function pullFileSafely(
                         await ensureLocalFolder(ctx, item.path);
                         await ctx.app.vault.adapter.writeBinary(item.path, remoteContent);
                         remoteSize = remoteContent.byteLength;
+
+                        // Detect if this is the plugin's own settings file
+                        if (item.path.endsWith("/open-data.json")) {
+                            ctx.settingsUpdated = true;
+                        }
                     } else {
                         const exists = await ctx.app.vault.adapter.exists(item.path);
                         if (exists) {
@@ -701,10 +795,12 @@ export async function pullFileSafely(
                     }
 
                     await ctx.notify("noticeConflictSaved", conflictPath.split("/").pop());
+                    ctx.logger.markActionTaken();
                     return true;
                 } else {
                     await ctx.log(
                         `[${logPrefix}] Skipping redundant update (already in sync): ${item.path}`,
+                        "debug",
                     );
 
                     if (ctx.localIndex[item.path]?.pendingConflict) {
@@ -722,13 +818,17 @@ export async function pullFileSafely(
                         delete ctx.localIndex[item.path];
                         ctx.dirtyPaths.delete(item.path);
                         await saveLocalIndex(ctx);
+                        ctx.logger.markActionTaken();
                         return true;
                     }
 
                     return true;
                 }
             } catch (err) {
-                await ctx.log(`[${logPrefix}] Conflict check error for ${item.path}: ${err}`);
+                await ctx.log(
+                    `[${logPrefix}] Conflict check error for ${item.path}: ${err}`,
+                    "error",
+                );
                 return false;
             }
         }
@@ -754,9 +854,10 @@ export async function pullFileSafely(
         await saveLocalIndex(ctx);
 
         await ctx.notify("noticeFilePulled", item.path.split("/").pop());
+        ctx.logger.markActionTaken();
         return true;
     } catch (e) {
-        await ctx.log(`[${logPrefix}] Pull failed: ${item.path} - ${e}`);
+        await ctx.log(`[${logPrefix}] Pull failed: ${item.path} - ${e}`, "error");
         return false;
     } finally {
         ctx.syncingPaths.delete(item.path);

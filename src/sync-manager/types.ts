@@ -3,6 +3,7 @@ export interface SyncManagerSettings {
     notificationLevel: "verbose" | "standard" | "error";
     conflictResolutionStrategy: "smart-merge" | "force-local" | "force-remote" | "always-fork";
     enableLogging: boolean;
+    isDeveloperMode: boolean;
     exclusionPatterns: string;
 
     // Sync Scope Options
@@ -35,6 +36,11 @@ export interface LocalFileIndex {
         pendingConflict?: boolean;
         /** If true, force upload even if hash matches (used for renaming to trigger PATCH) */
         forcePush?: boolean;
+        /** If set, this file should be moved on remote instead of re-uploaded.
+         *  Contains the old path from which the file was moved. */
+        pendingMove?: {
+            oldPath: string;
+        };
     };
 }
 

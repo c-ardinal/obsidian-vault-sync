@@ -12,19 +12,25 @@ export const i18n: Record<string, Record<string, string>> = {
         settingRelogin: "Re-login",
         settingLoginDesc: "Authorize with Google Drive.",
 
+        settingTriggerStrategy: "Sync Trigger Strategy",
+        settingTriggerStrategyDesc: "Choose how sync triggers are configured across devices.",
+        settingTriggerStrategyUnified: "Unified (Same for all devices)",
+        settingTriggerStrategyPerPlatform: "Per Platform (PC/Mobile separately)",
+        settingTriggerSectionUnified: "Sync Triggers Settings",
+        settingTriggerSectionDesktop: "Desktop Sync Triggers",
+        settingTriggerSectionMobile: "Mobile Sync Triggers",
+
         settingTriggerSection: "Sync Triggers",
         settingStartupSync: "Trigger: Enable Startup Sync",
         settingStartupSyncDesc: "Sync with cloud automatically upon starting Obsidian.",
-        settingStartupDelay: "Trigger: Startup Delay (Seconds)",
-        settingStartupDelayDesc: "Wait for Obsidian to index files before starting sync.",
-        settingAutoSyncInterval: "Trigger: Auto-sync Interval (Seconds)",
+        settingAutoSyncInterval: "Trigger: Auto-sync Interval",
         settingAutoSyncIntervalDesc:
             "Sync periodically in background.\nNote: To prevent data loss, sync is skipped while you are actively editing.",
-        settingTriggerSave: "Trigger: Save [Ctrl+S] (Seconds)",
+        settingTriggerSave: "Trigger: Save [Ctrl+S]",
         settingTriggerSaveDesc: "Sync when you explicitly save a file.",
-        settingModify: "Trigger: Modify Delay (Seconds)",
+        settingModify: "Trigger: Modify Delay",
         settingModifyDesc: "Seconds of inactivity before syncing.",
-        settingTriggerLayout: "Trigger: Layout Change Delay (Seconds)",
+        settingTriggerLayout: "Trigger: Layout Change Delay",
         settingTriggerLayoutDesc: "Sync delay after switching files/tabs.",
         settingPerfSection: "Performance",
         settingConcurrency: "Simultaneous Sync Files",
@@ -32,8 +38,9 @@ export const i18n: Record<string, Record<string, string>> = {
         settingDetailedNotifications: "Show Detailed Notifications",
         settingDetailedNotificationsDesc:
             "Show progress notifications for each file pushed/pulled.",
-        settingEnableLogging: "Enable Logging",
-        settingEnableLoggingDesc: "Developer: Write daily logs to obsidian-vault-sync/logs folder.",
+        settingEnableLogging: "Enable Detailed Logging",
+        settingEnableLoggingDesc:
+            "Developer: Write detailed logs to obsidian-vault-sync/logs folder.",
         settingCloudRootFolder: "Cloud Root Folder",
         settingCloudRootFolderDesc: "Root folder name on Cloud.\n(default: ObsidianVaultSync)",
 
@@ -71,9 +78,11 @@ export const i18n: Record<string, Record<string, string>> = {
         settingConflictStrategyFork: "Always Fork (Create Conflict File)",
         settingConflictStrategyLocal: "Force Local (Overwrite Remote)",
         settingConflictStrategyRemote: "Force Remote (Overwrite Local)",
+        settingAdvancedSection: "Advanced Settings",
+        settingAdvancedSectionDesc: "Advanced settings for power users.",
         settingDevSection: "Developer Settings",
-        settingDevMode: "Developer Mode",
-        settingDevModeDesc: "Enable advanced settings and debugging tools.",
+        settingStartupDelay: "Trigger: Startup Delay",
+        settingStartupDelayDesc: "Wait for Obsidian to index files before starting sync.",
 
         // Notifications (Notice)
         noticeAuthSuccess: "✅ [Auth] Successfully authenticated!",
@@ -88,6 +97,7 @@ export const i18n: Record<string, Record<string, string>> = {
         noticeFilePushed: "📤 [Sync] Uploading",
         noticeFilePulled: "📥 [Sync] Downloading",
         noticeFileRenamed: "✏️ [Sync] Renamed",
+        noticeFileMoved: "📂 [Sync] Moved",
         noticeFileTrashed: "🗑️ [Sync] Deleted",
         noticeSyncConfirmed: "✅ [Sync] Success",
         noticeWaitOtherDeviceMerge: "⌛️ [Conflict] Waiting for other device to resolve...",
@@ -159,19 +169,29 @@ export const i18n: Record<string, Record<string, string>> = {
         settingRelogin: "再ログイン",
         settingLoginDesc: "Google Drive と連携します。",
 
-        settingTriggerSection: "同期トリガー (⚠注意: 時間を短くした場合、通信量も増加します。)",
+        settingTriggerStrategy: "同期トリガーの設定方式",
+        settingTriggerStrategyDesc:
+            "デバイス間で同期トリガーの設定を共有するか、プラットフォームごとに分けるかを選択します。",
+        settingTriggerStrategyUnified: "一括設定 (全デバイス共通)",
+        settingTriggerStrategyPerPlatform: "環境別設定 (PC/モバイルで個別に設定)",
+        settingTriggerSectionUnified:
+            "同期トリガー詳細設定 (⚠注意: 時間を短くした場合、通信量も増加します。)",
+        settingTriggerSectionDesktop:
+            "PC用同期トリガー詳細設定 (⚠注意: 時間を短くした場合、通信量も増加します。)",
+        settingTriggerSectionMobile:
+            "モバイル用同期トリガー詳細設定 (⚠注意: 時間を短くした場合、通信量も増加します。)",
+
+        settingTriggerSection: "同期トリガー設定",
         settingStartupSync: "トリガー: 起動時",
         settingStartupSyncDesc: "Obsidian 起動時に自動でクラウドと同期します。",
-        settingStartupDelay: "起動時の遅延 (単位:秒)",
-        settingStartupDelayDesc: "Obsidian 起動後、同期を開始するまでの待機時間。",
-        settingAutoSyncInterval: "トリガー: タイマー (単位:秒)",
+        settingAutoSyncInterval: "トリガー: タイマー",
         settingAutoSyncIntervalDesc:
             "バックグラウンドで定期的に同期します。\n注意: データ損失を防ぐため、編集操作中は同期をスキップします。",
-        settingTriggerSave: "トリガー: 保存時 [Ctrl+S押下時] (単位:秒)",
+        settingTriggerSave: "トリガー: 保存時 [Ctrl+S押下時]",
         settingTriggerSaveDesc: "明示的にファイルを保存した際に、一定時間後に同期を実行。",
-        settingModify: "トリガー: 編集時 (単位:秒)",
+        settingModify: "トリガー: 編集時",
         settingModifyDesc: "ファイル編集後、一定時間後に同期を実行。",
-        settingTriggerLayout: "トリガー: レイアウト変更時 (単位:秒)",
+        settingTriggerLayout: "トリガー: レイアウト変更時",
         settingTriggerLayoutDesc:
             "ウィンドウの切替など表示を切り替えた際に、一定時間後に同期を実行。",
         settingPerfSection: "パフォーマンス",
@@ -180,9 +200,9 @@ export const i18n: Record<string, Record<string, string>> = {
             "同時に同期(アップロード/ダウンロード)するファイルの最大数。\n2以上の場合、並列で行われます。",
         settingDetailedNotifications: "詳細な通知を表示",
         settingDetailedNotificationsDesc: "プッシュ/プルごとに進捗通知を表示します。",
-        settingEnableLogging: "ログ出力を有効化",
+        settingEnableLogging: "詳細なログ出力を有効化",
         settingEnableLoggingDesc:
-            "開発者向け: obsidian-vault-sync/logs フォルダに日別ログを出力します。",
+            "開発者向け: obsidian-vault-sync/logs フォルダのログを詳細に出力します。",
         settingCloudRootFolder: "クラウドルートフォルダ",
         settingCloudRootFolderDesc:
             "クラウド上の同期先ルートフォルダ名。\n(デフォルト: ObsidianVaultSync)",
@@ -221,9 +241,11 @@ export const i18n: Record<string, Record<string, string>> = {
         settingConflictStrategyFork: "レプリカ作成 (競合ファイルを生成)",
         settingConflictStrategyLocal: "ローカル優先 (リモートを上書き)",
         settingConflictStrategyRemote: "リモート優先 (ローカルを上書き)",
+        settingAdvancedSection: "高度な設定",
+        settingAdvancedSectionDesc: "高度な設定とデバッグツールを有効にします。",
         settingDevSection: "開発者向け設定",
-        settingDevMode: "開発者モード",
-        settingDevModeDesc: "高度な設定とデバッグツールを有効にします。",
+        settingStartupDelay: "起動時の遅延",
+        settingStartupDelayDesc: "Obsidian 起動後、同期を開始するまでの待機時間。",
 
         // Notifications (Notice)
         noticeAuthSuccess: "✅ [認証] 成功！",
@@ -237,7 +259,8 @@ export const i18n: Record<string, Record<string, string>> = {
         noticeVaultUpToDate: "✅ [同期] すべて最新の状態です",
         noticeFilePushed: "📤 [同期] アップロード中",
         noticeFilePulled: "📥 [同期] ダウンロード中",
-        noticeFileRenamed: "✏️ [同期] リネーム反映",
+        noticeFileRenamed: "✏️ [同期] リネーム",
+        noticeFileMoved: "📂 [同期] 移動",
         noticeFileTrashed: "🗑️ [同期] 削除",
         noticeSyncConfirmed: "✅ [同期] 成功",
         noticeWaitOtherDeviceMerge: "⌛️ [競合] 他デバイスが解決するのを待機しています...",

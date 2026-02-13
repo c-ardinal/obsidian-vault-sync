@@ -23,7 +23,7 @@ export async function loadCommunication(ctx: SyncContext): Promise<Communication
         }
         return data;
     } catch (e) {
-        await ctx.log(`[Communication] Failed to load: ${e}`);
+        await ctx.log(`[Communication] Failed to load: ${e}`, "error");
         return { mergeLocks: {}, lastUpdated: 0 };
     }
 }
@@ -38,7 +38,7 @@ export async function saveCommunication(ctx: SyncContext, data: CommunicationDat
             Date.now(),
         );
     } catch (e) {
-        await ctx.log(`[Communication] Failed to save: ${e}`);
+        await ctx.log(`[Communication] Failed to save: ${e}`, "error");
         throw e;
     }
 }
@@ -89,10 +89,16 @@ export async function releaseMergeLock(
         if (existing && existing.holder === ctx.deviceId) {
             delete comm.mergeLocks[path];
             await saveCommunication(ctx, comm);
-            await ctx.log(`[${logPrefix || "Communication"}] Merge lock released for ${path}.`);
+            await ctx.log(
+                `[${logPrefix || "Communication"}] Merge lock released for ${path}.`,
+                "debug",
+            );
         }
     } catch (e) {
-        await ctx.log(`[${logPrefix || "Communication"}] Failed to release lock for ${path}: ${e}`);
+        await ctx.log(
+            `[${logPrefix || "Communication"}] Failed to release lock for ${path}: ${e}`,
+            "error",
+        );
     }
 }
 
@@ -140,6 +146,7 @@ export async function loadIndex(
         try {
             await ctx.log(
                 `[Index] Main load failed (${e}). Attempting fallback to raw index: ${rawPath}`,
+                "warn",
             );
             if (await ctx.app.vault.adapter.exists(rawPath)) {
                 const data = await ctx.app.vault.adapter.read(rawPath);
@@ -151,10 +158,10 @@ export async function loadIndex(
                 return;
             }
         } catch (rawErr) {
-            await ctx.log(`[Index] Raw fallback also failed: ${rawErr}`);
+            await ctx.log(`[Index] Raw fallback also failed: ${rawErr}`, "error");
         }
 
-        await ctx.log(`[Index] Fatal load failure. Starting fresh.`);
+        await ctx.log(`[Index] Fatal load failure. Starting fresh.`, "error");
         ctx.indexLoadFailed = true;
         ctx.index = {};
         ctx.localIndex = {};
@@ -182,14 +189,17 @@ export async function loadLocalIndex(ctx: SyncContext): Promise<void> {
 
                 // Set folder BEFORE logging
                 ctx.logFolder = `${ctx.pluginDir}/logs/${ctx.deviceId}`;
-                await ctx.log(`[Local Index] Generated new device ID: ${ctx.deviceId}`);
+                await ctx.log(`[Local Index] Generated new device ID: ${ctx.deviceId}`, "system");
                 await saveLocalIndex(ctx);
             } else {
                 const isAlreadyLogged = ctx.logFolder === `${ctx.pluginDir}/logs/${ctx.deviceId}`;
                 // Set folder BEFORE logging
                 ctx.logFolder = `${ctx.pluginDir}/logs/${ctx.deviceId}`;
                 if (!isAlreadyLogged) {
-                    await ctx.log(`[Local Index] Loaded successfully. Device ID: ${ctx.deviceId}`);
+                    await ctx.log(
+                        `[Local Index] Loaded successfully. Device ID: ${ctx.deviceId}`,
+                        "system",
+                    );
                 }
             }
         } else {
@@ -210,6 +220,7 @@ export async function loadLocalIndex(ctx: SyncContext): Promise<void> {
             if (!isAlreadyLogged) {
                 await ctx.log(
                     `[Local Index] Not found. Initialized from shared index (Migration). Device ID: ${ctx.deviceId}`,
+                    "system",
                 );
             }
             await saveLocalIndex(ctx);
@@ -227,7 +238,7 @@ export async function loadLocalIndex(ctx: SyncContext): Promise<void> {
         ctx.logFolder = `${ctx.pluginDir}/logs/${ctx.deviceId}`;
 
         if (!isAlreadyLogged) {
-            await ctx.log(`[Local Index] Load failed: ${e}`);
+            await ctx.log(`[Local Index] Load failed: ${e}`, "error");
         }
         ctx.localIndex = {};
     }
@@ -292,20 +303,20 @@ export function markDeleted(ctx: SyncContext, path: string): void {
     if (shouldIgnore(ctx, path)) return;
     if (ctx.index[path]) {
         ctx.dirtyPaths.add(path);
-        ctx.log(`[Dirty] Marked for deletion: ${path}`);
+        ctx.log(`[Dirty] Marked for deletion: ${path}`, "debug");
     }
 }
 
 export function markFolderDeleted(ctx: SyncContext, folderPath: string): void {
     if (shouldIgnore(ctx, folderPath)) return;
     ctx.deletedFolders.add(folderPath);
-    ctx.log(`[Dirty] Marked for deletion (folder root): ${folderPath}`);
+    ctx.log(`[Dirty] Marked for deletion (folder root): ${folderPath}`, "debug");
 
     const prefix = folderPath + "/";
     for (const path of Object.keys(ctx.index)) {
         if (path.startsWith(prefix) && !shouldIgnore(ctx, path)) {
             ctx.dirtyPaths.add(path);
-            ctx.log(`[Dirty] Marked for deletion (child): ${path}`);
+            ctx.log(`[Dirty] Marked for deletion (child): ${path}`, "debug");
         }
     }
 }
@@ -317,32 +328,41 @@ export function markRenamed(ctx: SyncContext, oldPath: string, newPath: string):
     const newDir = newPath.substring(0, newPath.lastIndexOf("/"));
     const isMove = oldDir !== newDir;
 
-    if (isMove) {
-        if (ctx.dirtyPaths.has(oldPath) && !ctx.index[oldPath]) {
-            ctx.dirtyPaths.delete(oldPath);
-            ctx.log(`[Dirty] Removed (renamed before sync): ${oldPath}`);
-        } else {
-            markDeleted(ctx, oldPath);
-        }
+    // 未同期ファイルのリネーム/移動（oldPath がインデックスになく dirtyPaths にある）
+    if (ctx.dirtyPaths.has(oldPath) && !ctx.index[oldPath]) {
+        ctx.dirtyPaths.delete(oldPath);
         ctx.dirtyPaths.add(newPath);
-        ctx.log(`[Dirty] Marked (move): ${newPath}`);
+        ctx.log(`[Dirty] Removed (renamed before sync): ${oldPath}`, "debug");
+        ctx.log(`[Dirty] Marked (renamed before sync): ${newPath}`, "debug");
         return;
     }
 
+    // 既存インデックスエントリを移行（リネームでも移動でも共通）
     ctx.dirtyPaths.delete(oldPath);
 
     if (ctx.index[oldPath]) {
-        ctx.index[newPath] = { ...ctx.index[oldPath], forcePush: true };
+        ctx.index[newPath] = {
+            ...ctx.index[oldPath],
+            forcePush: true,
+            pendingMove: { oldPath },
+        };
         delete ctx.index[oldPath];
     }
 
     if (ctx.localIndex[oldPath]) {
-        ctx.localIndex[newPath] = { ...ctx.localIndex[oldPath], forcePush: true };
+        ctx.localIndex[newPath] = {
+            ...ctx.localIndex[oldPath],
+            forcePush: true,
+            pendingMove: { oldPath },
+        };
         delete ctx.localIndex[oldPath];
     }
 
     ctx.dirtyPaths.add(newPath);
-    ctx.log(`[Dirty] Marked (renamed): ${newPath} (Migrated ID)`);
+    ctx.log(
+        `[Dirty] Marked (${isMove ? "moved" : "renamed"}): ${newPath} (Migrated ID from ${oldPath})`,
+        "debug",
+    );
 }
 
 export function markFolderRenamed(
@@ -353,18 +373,45 @@ export function markFolderRenamed(
     const oldPrefix = oldFolderPath + "/";
     const newPrefix = newFolderPath + "/";
 
+    // Track folder-level move for optimization in smartPush
+    ctx.pendingFolderMoves.set(newFolderPath, oldFolderPath);
+    ctx.dirtyPaths.add(newFolderPath); // Ensure the folder itself is processed
+
+    // If the old folder was marked for deletion (via previous event),
+    // we remove it since it's now a move.
+    ctx.deletedFolders.delete(oldFolderPath);
+
     for (const oldPath of Object.keys(ctx.index)) {
         if (oldPath.startsWith(oldPrefix)) {
             if (shouldIgnore(ctx, oldPath)) continue;
 
-            ctx.dirtyPaths.add(oldPath);
-            ctx.log(`[Dirty] Marked for deletion (folder rename): ${oldPath}`);
-
             const newPath = newPrefix + oldPath.slice(oldPrefix.length);
-            if (!shouldIgnore(ctx, newPath)) {
-                ctx.dirtyPaths.add(newPath);
-                ctx.log(`[Dirty] Marked for upload (folder rename): ${newPath}`);
+            if (shouldIgnore(ctx, newPath)) continue;
+
+            // インデックスを移行（削除+再追加ではなく Move として追跡）
+            ctx.index[newPath] = {
+                ...ctx.index[oldPath],
+                forcePush: true,
+                pendingMove: { oldPath },
+            };
+            delete ctx.index[oldPath];
+
+            if (ctx.localIndex[oldPath]) {
+                ctx.localIndex[newPath] = {
+                    ...ctx.localIndex[oldPath],
+                    forcePush: true,
+                    pendingMove: { oldPath },
+                };
+                delete ctx.localIndex[oldPath];
             }
+
+            // dirtyPaths を更新
+            ctx.dirtyPaths.delete(oldPath);
+            ctx.dirtyPaths.add(newPath);
+            ctx.log(
+                `[Dirty] Marked (folder move child): ${oldPath} -> ${newPath} (Migrated ID)`,
+                "debug",
+            );
         }
     }
 }

@@ -46,11 +46,12 @@ export async function scanObsidianChanges(ctx: SyncContext): Promise<void> {
                 if (ctx.recentlyDeletedFromRemote.has(filePath)) {
                     await ctx.log(
                         `[Obsidian Scan] Skipped (recently deleted from remote): ${filePath}`,
+                        "debug",
                     );
                     continue;
                 }
                 ctx.dirtyPaths.add(filePath);
-                await ctx.log(`[Obsidian Scan] New: ${filePath}`);
+                await ctx.log(`[Obsidian Scan] New: ${filePath}`, "debug");
                 continue;
             }
 
@@ -64,12 +65,14 @@ export async function scanObsidianChanges(ctx: SyncContext): Promise<void> {
                         ctx.dirtyPaths.add(filePath);
                         await ctx.log(
                             `[Obsidian Scan] Modified (hash mismatch vs localIndex): ${filePath}`,
+                            "debug",
                         );
                     } else if (!indexEntry.hash) {
                         // No previous hash, but mtime changed. Assume dirty to be safe and update hash.
                         ctx.dirtyPaths.add(filePath);
                         await ctx.log(
                             `[Obsidian Scan] Modified (no prev hash in localIndex): ${filePath}`,
+                            "debug",
                         );
                     } else {
                         // Hash matches, just update mtime in indices to avoid future re-hashing
@@ -101,6 +104,7 @@ export async function scanObsidianChanges(ctx: SyncContext): Promise<void> {
                     ctx.dirtyPaths.add(path);
                     await ctx.log(
                         `[Obsidian Scan] Marked for remote deletion (${isMissing ? "missing" : "ignored"}): ${path}`,
+                        "debug",
                     );
                 } else {
                     // Cleanup local-only entries without marking as dirty for remote deletion
@@ -110,7 +114,7 @@ export async function scanObsidianChanges(ctx: SyncContext): Promise<void> {
             }
         }
     } catch (e) {
-        await ctx.log(`[Obsidian Scan] Error: ${e}`);
+        await ctx.log(`[Obsidian Scan] Error: ${e}`, "error");
     }
 }
 
@@ -120,7 +124,7 @@ export async function scanObsidianChanges(ctx: SyncContext): Promise<void> {
  */
 export async function scanVaultChanges(ctx: SyncContext): Promise<void> {
     try {
-        await ctx.log("[Vault Scan] Starting full vault scan...");
+        await ctx.log("[Vault Scan] Starting full vault scan...", "debug");
         const start = Date.now();
 
         const files = ctx.app.vault.getFiles();
@@ -145,12 +149,13 @@ export async function scanVaultChanges(ctx: SyncContext): Promise<void> {
                 if (ctx.recentlyDeletedFromRemote.has(file.path)) {
                     await ctx.log(
                         `[Vault Scan] Skipped (recently deleted from remote): ${file.path}`,
+                        "debug",
                     );
                     continue;
                 }
                 // New file (not in local index)
                 ctx.dirtyPaths.add(file.path);
-                await ctx.log(`[Vault Scan] New: ${file.path}`);
+                await ctx.log(`[Vault Scan] New: ${file.path}`, "debug");
             } else if (file.stat.mtime > indexEntry.mtime) {
                 // Mtime changed: verify content hash
                 try {
@@ -161,11 +166,13 @@ export async function scanVaultChanges(ctx: SyncContext): Promise<void> {
                         ctx.dirtyPaths.add(file.path);
                         await ctx.log(
                             `[Vault Scan] Modified (hash mismatch vs localIndex): ${file.path}`,
+                            "debug",
                         );
                     } else if (!indexEntry.hash) {
                         ctx.dirtyPaths.add(file.path);
                         await ctx.log(
                             `[Vault Scan] Modified (no prev hash in localIndex): ${file.path}`,
+                            "debug",
                         );
                     } else {
                         // Hash matches, update indices mtime
@@ -176,7 +183,7 @@ export async function scanVaultChanges(ctx: SyncContext): Promise<void> {
                     }
                 } catch (e) {
                     // Read failed
-                    await ctx.log(`[Vault Scan] Hash check failed for ${file.path}: ${e}`);
+                    await ctx.log(`[Vault Scan] Hash check failed for ${file.path}: ${e}`, "warn");
                 }
             }
         }
@@ -196,6 +203,7 @@ export async function scanVaultChanges(ctx: SyncContext): Promise<void> {
                     ctx.dirtyPaths.add(path);
                     await ctx.log(
                         `[Vault Scan] Marked for remote deletion (${isMissing ? "missing" : "ignored"}): ${path}`,
+                        "debug",
                     );
                 } else {
                     // Cleanup local-only entries without marking as dirty for remote deletion
@@ -205,9 +213,9 @@ export async function scanVaultChanges(ctx: SyncContext): Promise<void> {
             }
         }
 
-        await ctx.log(`[Vault Scan] Completed in ${Date.now() - start}ms`);
+        await ctx.log(`[Vault Scan] Completed in ${Date.now() - start}ms`, "debug");
     } catch (e) {
-        await ctx.log(`[Vault Scan] Error: ${e}`);
+        await ctx.log(`[Vault Scan] Error: ${e}`, "error");
     }
 }
 
@@ -249,7 +257,7 @@ export async function requestSmartSync(
 
     // Interrupt running full scan
     if (ctx.syncState === "FULL_SCANNING") {
-        await ctx.log("[Smart Sync] Interrupting full scan...");
+        await ctx.log("[Smart Sync] Interrupting full scan...", "debug");
         ctx.isInterrupted = true;
         // Wait for full scan to pause
         if (ctx.currentSyncPromise) {
@@ -296,10 +304,8 @@ export async function requestSmartSync(
  * - Pull: Check remote changes via sync-index.json hash comparison (or Changes API)
  * - Push: Upload dirty files
  */
-export async function executeSmartSync(
-    ctx: SyncContext,
-    scanVault: boolean,
-): Promise<void> {
+export async function executeSmartSync(ctx: SyncContext, scanVault: boolean): Promise<void> {
+    ctx.logger.startCycle(ctx.currentTrigger);
     if (ALWAYS_SHOW_ACTIVITY.has(ctx.currentTrigger)) {
         ctx.startActivity();
     }
@@ -342,11 +348,18 @@ export async function executeSmartSync(
             await ctx.notify("noticeVaultUpToDate");
         }
 
+        if (ctx.settingsUpdated) {
+            await ctx.log("[Smart Sync] Remote settings update detected. Reloading...");
+            await ctx.onSettingsUpdated();
+            ctx.settingsUpdated = false;
+        }
+
         await ctx.log("=== SMART SYNC COMPLETED ===");
     } catch (e) {
-        await ctx.log(`Smart Sync failed: ${e}`);
+        await ctx.log(`Smart Sync failed: ${e}`, "error");
         throw e;
     } finally {
+        await ctx.logger.endCycle();
         ctx.endActivity();
     }
 }
@@ -360,14 +373,12 @@ export async function executeSmartSync(
  * Uses the same logic as the first pull (smartPull or pullViaChangesAPI).
  * Retries on failure since the push already succeeded - this is confirmation only.
  */
-async function postPushPull(
-    ctx: SyncContext,
-    maxRetries: number = 2,
-): Promise<void> {
+async function postPushPull(ctx: SyncContext, maxRetries: number = 2): Promise<void> {
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
         try {
             await ctx.log(
                 `[Post-Push Pull] Starting confirmation pull (attempt ${attempt + 1}/${maxRetries + 1})...`,
+                "debug",
             );
             if (attempt === 0 && !ctx.settings.hasCompletedFirstSync) {
                 await ctx.notify("noticeInitialSyncConfirmation");
@@ -377,13 +388,17 @@ async function postPushPull(
             } else {
                 await ctx.smartPull();
             }
-            await ctx.log("[Post-Push Pull] Confirmation pull completed.");
+            await ctx.log("[Post-Push Pull] Confirmation pull completed.", "debug");
             return;
         } catch (e) {
-            await ctx.log(`[Post-Push Pull] Attempt ${attempt + 1}/${maxRetries + 1} failed: ${e}`);
+            await ctx.log(
+                `[Post-Push Pull] Attempt ${attempt + 1}/${maxRetries + 1} failed: ${e}`,
+                "warn",
+            );
             if (attempt === maxRetries) {
                 await ctx.log(
                     "[Post-Push Pull] All retries exhausted. Skipping confirmation pull.",
+                    "warn",
                 );
             }
         }
@@ -398,18 +413,28 @@ async function postPushPull(
  * Smart Pull - O(1) check for remote changes using sync-index.json hash
  */
 export async function smartPull(ctx: SyncContext): Promise<boolean> {
-    await ctx.log("[Smart Pull] Checking for remote changes...");
+    await ctx.log("[Smart Pull] Checking for remote changes...", "debug");
 
     // Check for active merge locks from other devices FIRST
     // This prevents race conditions where Changes API hasn't caught up yet
     const commData = await loadCommunication(ctx);
     const now = Date.now();
+    let localIndexChanged = false;
     for (const [path, lock] of Object.entries(commData.mergeLocks)) {
         if (lock.holder !== ctx.deviceId && lock.expiresAt > now) {
             await ctx.log(
                 `[Smart Pull] Active merge lock detected: ${path} by ${lock.holder} (expires in ${Math.round((lock.expiresAt - now) / 1000)}s)`,
+                "warn",
             );
+            await ctx.notify("noticeWaitOtherDeviceMerge", path.split("/").pop());
+            if (ctx.localIndex[path] && !ctx.localIndex[path].pendingConflict) {
+                ctx.localIndex[path].pendingConflict = true;
+                localIndexChanged = true;
+            }
         }
+    }
+    if (localIndexChanged) {
+        await saveLocalIndex(ctx);
     }
 
     // --- FORCED CLEANUP: Wipe forbidden system directories ---
@@ -424,6 +449,7 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
                         await ctx.adapter.deleteFile(meta.id);
                         await ctx.log(
                             `[Smart Pull] [System Cleanup] Forced wipe of internal directory: ${fullDirPath}`,
+                            "debug",
                         );
                     }
                 } catch (e) {
@@ -436,28 +462,23 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
     // Check if adapter supports Changes API for faster detection
     if (ctx.adapter.supportsChangesAPI) {
         if (ctx.startPageToken) {
-            await ctx.log("[Smart Pull] Using Changes API (fast path)");
             return await pullViaChangesAPI(ctx);
         } else {
-            await ctx.log("[Smart Pull] Initializing Changes API token (will be used next time)");
             try {
                 ctx.startPageToken = await ctx.adapter.getStartPageToken();
                 await saveIndex(ctx);
             } catch (e) {
-                await ctx.log(`[Smart Pull] Failed to init Changes API: ${e}`);
+                await ctx.log(`[Smart Pull] Failed to init Changes API: ${e}`, "warn");
             }
             // Fall through to standard hash check for this run
         }
     }
 
-    // Core path: sync-index.json hash comparison
-    await ctx.log("[Smart Pull] Using sync-index.json hash comparison (core path)");
-
     // Get remote index metadata (O(1) operation)
     const remoteIndexMeta = await ctx.adapter.getFileMetadata(ctx.pluginDataPath);
 
     if (!remoteIndexMeta) {
-        await ctx.log("[Smart Pull] No remote index found. Skipping pull.");
+        await ctx.log("[Smart Pull] No remote index found. Skipping pull.", "debug");
         return false;
     }
 
@@ -467,7 +488,7 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
     const remoteIndexHash = remoteIndexMeta.hash?.toLowerCase() || "";
 
     if (localIndexHash && remoteIndexHash && localIndexHash === remoteIndexHash) {
-        await ctx.log("[Smart Pull] Index hash matches. No remote changes detected.");
+        await ctx.log("[Smart Pull] Index hash matches. No remote changes detected.", "debug");
         // Sync confirmed - clear pending push/merge states
         clearPendingPushStates(ctx);
         await saveIndex(ctx);
@@ -535,7 +556,72 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
         const localBaseEntry = ctx.localIndex[path];
 
         if (!localBaseEntry) {
-            // Check if this fileId exists locally under a different name (Rename in progress)
+            // REMOTE RENAME DETECTION:
+            // Check if this fileId exists locally under a different name
+            const prevPathForId = localIdToPath.get(remoteEntry.fileId);
+            if (prevPathForId && prevPathForId !== path) {
+                // Detected remote rename (A -> B) during initial full scan
+                const oldPath = prevPathForId;
+                const newPath = path;
+
+                // Case A: Local is clean, just rename it
+                if (!ctx.dirtyPaths.has(oldPath)) {
+                    try {
+                        const sourceExists = await ctx.app.vault.adapter.exists(oldPath);
+                        const targetExists = await ctx.app.vault.adapter.exists(newPath);
+
+                        if (sourceExists && !targetExists) {
+                            await ctx.log(
+                                `[Smart Pull] Remote Rename detected (Full Scan): ${oldPath} -> ${newPath}`,
+                            );
+                            await ctx.app.vault.adapter.rename(oldPath, newPath);
+
+                            // Migrate Index
+                            if (ctx.index[oldPath]) {
+                                ctx.index[newPath] = { ...ctx.index[oldPath] };
+                                delete ctx.index[oldPath];
+                            }
+                            if (ctx.localIndex[oldPath]) {
+                                ctx.localIndex[newPath] = { ...ctx.localIndex[oldPath] };
+                                delete ctx.localIndex[oldPath];
+                            }
+
+                            // Update ID map so subsequent iterations see the correct path
+                            localIdToPath.set(remoteEntry.fileId, newPath);
+
+                            await ctx.notify(
+                                "noticeFileMoved",
+                                `${oldPath.split("/").pop()} → ${newPath.split("/").pop()}`,
+                            );
+
+                            // Check if content also changed. If hash matches, we're done with this file.
+                            if (ctx.index[newPath]?.hash === remoteEntry.hash) {
+                                await ctx.log(
+                                    `[Smart Pull] Content matches after rename, skipping download: ${newPath}`,
+                                    "debug",
+                                );
+                                continue;
+                            }
+                            // Otherwise, fall through to download new content to the new path
+                        }
+                    } catch (e) {
+                        await ctx.log(
+                            `[Smart Pull] Failed to rename ${oldPath} -> ${newPath}: ${e}`,
+                            "warn",
+                        );
+                    }
+                } else {
+                    // Local is dirty (Move/Edit conflict).
+                    // We let it fall through. Since !localBaseEntry[newPath], it will be queued for toDownload[newPath].
+                    // pullFileSafely will then handle the conflict correctly (Smart Merge).
+                    await ctx.log(
+                        `[Smart Pull] Pending local changes on ${oldPath}. Skipping auto-rename for remote move ${newPath}.`,
+                        "warn",
+                    );
+                }
+            }
+
+            // Check if this fileId exists locally under a different name (Rename in progress locally)
             // If we renamed A -> B locally, remote still sees A.
             // We should NOT download A if we are about to push B (which patches A -> B).
             const renamedLocalPath = localIdToPath.get(remoteEntry.fileId);
@@ -546,17 +632,19 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
             ) {
                 await ctx.log(
                     `[Smart Pull] Skipped ghost file ${path} (renamed locally to ${renamedLocalPath})`,
+                    "debug",
                 );
                 continue;
             }
 
-            // New file on remote (we don't even have a base for it)
+            // New file on remote (or moved file that needs download)
             toDownload.push({
                 path,
                 fileId: remoteEntry.fileId,
                 hash: remoteEntry.hash,
                 mergeLock: remoteEntry.mergeLock,
-            });
+                ancestorHash: remoteEntry.ancestorHash,
+            } as any);
         } else if (
             remoteEntry.hash &&
             localBaseEntry.hash &&
@@ -568,7 +656,8 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
                 fileId: remoteEntry.fileId,
                 hash: remoteEntry.hash,
                 mergeLock: remoteEntry.mergeLock,
-            });
+                ancestorHash: remoteEntry.ancestorHash,
+            } as any);
         }
     }
 
@@ -587,6 +676,7 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
             if (isModified) {
                 await ctx.log(
                     `[Smart Pull] Conflict: ${path} removed from remote but modified locally. Queuing for merge check.`,
+                    "warn",
                 );
                 toDownload.push({ path, fileId: "" } as any); // Dummy fileId for deletion conflict
             } else {
@@ -600,7 +690,7 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
     );
 
     if (toDownload.length === 0 && toDeleteLocal.length === 0) {
-        await ctx.log("[Smart Pull] No file changes detected.");
+        await ctx.log("[Smart Pull] No file changes detected.", "debug");
         // Sync confirmed - clear pending push/merge states
         clearPendingPushStates(ctx);
         // Update index metadata
@@ -646,7 +736,7 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
                 await ctx.log(`[Smart Pull] [${completed}/${total}] Deleted locally: ${path}`);
                 await ctx.notify("noticeFileTrashed", path.split("/").pop());
             } catch (e) {
-                await ctx.log(`[Smart Pull] Delete failed: ${path} - ${e}`);
+                await ctx.log(`[Smart Pull] Delete failed: ${path} - ${e}`, "error");
             }
         });
     }
@@ -691,7 +781,10 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
                         }
                     }
                 } catch (e) {
-                    await ctx.log(`[Smart Pull] [Cleanup] Folder wipe failed: ${folder} - ${e}`);
+                    await ctx.log(
+                        `[Smart Pull] [Cleanup] Folder wipe failed: ${folder} - ${e}`,
+                        "warn",
+                    );
                 }
             });
         }
@@ -704,7 +797,10 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
                     delete ctx.index[file.path];
                     delete ctx.localIndex[file.path];
                 } catch (e) {
-                    await ctx.log(`[Smart Pull] [Cleanup] File delete failed: ${file.path} - ${e}`);
+                    await ctx.log(
+                        `[Smart Pull] [Cleanup] File delete failed: ${file.path} - ${e}`,
+                        "warn",
+                    );
                 }
             });
         }
@@ -758,7 +854,7 @@ export async function pullViaChangesAPI(
         const changes = await ctx.adapter.getChanges(currentPageToken);
 
         if (changes.changes.length === 0) {
-            await ctx.log("[Smart Pull] No changes from Changes API");
+            await ctx.log("[Smart Pull] No changes from Changes API", "debug");
             if (changes.newStartPageToken) {
                 ctx.startPageToken = changes.newStartPageToken;
                 await saveIndex(ctx);
@@ -766,7 +862,10 @@ export async function pullViaChangesAPI(
             break; // No more changes
         }
 
-        await ctx.log(`[Smart Pull] Changes API page processed (${changes.changes.length} items)`);
+        await ctx.log(
+            `[Smart Pull] Changes API page processed (${changes.changes.length} items)`,
+            "debug",
+        );
         hasTotalChanges = true;
 
         // In confirmation mode, if we haven't confirmed anything yet, notify user about the wait
@@ -776,6 +875,23 @@ export async function pullViaChangesAPI(
 
         // Load communication data for mergeLock checks
         const commData = await loadCommunication(ctx);
+
+        // Load Remote Index for ancestorHash lookups (Safety Guard)
+        let remoteIndex: LocalFileIndex = {};
+        try {
+            const remoteIndexMeta = await ctx.adapter.getFileMetadata(ctx.pluginDataPath);
+            if (remoteIndexMeta?.id) {
+                const remoteIndexContent = await ctx.adapter.downloadFile(remoteIndexMeta.id);
+                const decompressed = await tryDecompress(remoteIndexContent);
+                const remoteIndexData = JSON.parse(new TextDecoder().decode(decompressed));
+                remoteIndex = remoteIndexData.index || {};
+            }
+        } catch (e) {
+            await ctx.log(
+                `[Smart Pull] [Changes API] Failed to download remote index: ${e}`,
+                "warn",
+            );
+        }
 
         const tasks: (() => Promise<void>)[] = [];
         let completed = 0;
@@ -804,33 +920,46 @@ export async function pullViaChangesAPI(
                             }
                             delete ctx.index[pathToDelete];
                             delete ctx.localIndex[pathToDelete]; // Added for consistency
+                            ctx.logger.markActionTaken();
                             completed++;
                             await ctx.log(`[Smart Pull] Deleted: ${pathToDelete}`);
                             await ctx.notify("noticeFileTrashed", pathToDelete.split("/").pop());
                         } catch (e) {
-                            await ctx.log(`[Smart Pull] Delete failed: ${pathToDelete} - ${e}`);
+                            await ctx.log(
+                                `[Smart Pull] Delete failed: ${pathToDelete} - ${e}`,
+                                "error",
+                            );
                         }
                     });
                 }
             } else if (change.file && change.file.kind === "file") {
                 // File was added or modified
-                const cloudFile = change.file;
+                const cloudFile: any = change.file;
                 if (cloudFile.path === ctx.pluginDataPath) continue;
                 if (isManagedSeparately(cloudFile.path)) continue;
+
+                // Populate ancestorHash from remote index for Safety Guard
+                const remoteEntry = remoteIndex[cloudFile.path];
+                if (remoteEntry) {
+                    cloudFile.ancestorHash = remoteEntry.ancestorHash;
+                }
 
                 // NEW: もしリモート禁止対象ファイルが上がってきたら、即座に削除
                 if (shouldNotBeOnRemote(ctx, cloudFile.path)) {
                     tasks.push(async () => {
                         try {
                             await ctx.adapter.deleteFile(cloudFile.id);
+                            ctx.logger.markActionTaken();
                             await ctx.log(
                                 `[Smart Pull] [Cleanup] Deleted forbidden file (via Changes API): ${cloudFile.path}`,
+                                "debug",
                             );
                             delete ctx.index[cloudFile.path];
                             delete ctx.localIndex[cloudFile.path];
                         } catch (e) {
                             await ctx.log(
                                 `[Smart Pull] [Cleanup] Failed to delete forbidden file: ${cloudFile.path} - ${e}`,
+                                "error",
                             );
                         }
                     });
@@ -843,6 +972,7 @@ export async function pullViaChangesAPI(
                 if (mergeLock && mergeLock.holder !== ctx.deviceId && mergeLock.expiresAt > now) {
                     await ctx.log(
                         `[Smart Pull] Waiting: ${cloudFile.path} is being merged by ${mergeLock.holder} (expires in ${Math.round((mergeLock.expiresAt - now) / 1000)}s)`,
+                        "warn",
                     );
                     await ctx.notify("noticeWaitOtherDeviceMerge", cloudFile.path.split("/").pop());
                     // Mark as pending conflict so next sync shows "merge result applied"
@@ -861,6 +991,18 @@ export async function pullViaChangesAPI(
                         const oldPath = prevPathForId;
                         const newPath = cloudFile.path;
 
+                        // Guard: If local has pending changes on this file (user moved it),
+                        // skip the remote rename — it's likely a stale echo of our own push.
+                        // The user's local intent takes priority; the next Push will sync it.
+                        const localIndexEntry = ctx.index[oldPath];
+                        if (localIndexEntry?.pendingMove || ctx.dirtyPaths.has(oldPath)) {
+                            await ctx.log(
+                                `[Changes API] Remote Rename skipped: ${oldPath} -> ${newPath} (local has pending move/changes)`,
+                                "debug",
+                            );
+                            continue;
+                        }
+
                         // Detected Remote Rename (A -> B)
                         // We should rename locally to preserve history/content.
 
@@ -878,6 +1020,7 @@ export async function pullViaChangesAPI(
 
                                     // Execute Rename
                                     await ctx.app.vault.adapter.rename(oldPath, newPath);
+                                    ctx.logger.markActionTaken();
 
                                     // Migrate Index Entries
                                     if (ctx.index[oldPath]) {
@@ -900,12 +1043,16 @@ export async function pullViaChangesAPI(
                                     // Update ID Map so we don't process this again or inconsistently
                                     localIdToPath.set(cloudFile.id, newPath);
 
-                                    await ctx.notify("noticeFileRenamed", `${oldPath.split("/").pop()} -> ${newPath.split("/").pop()}`);
+                                    await ctx.notify(
+                                        "noticeFileRenamed",
+                                        `${oldPath.split("/").pop()} -> ${newPath.split("/").pop()}`,
+                                    );
                                 } else {
                                     // Source doesn't exist locally? Just removed from index/map then.
                                     // pullFileSafely will treat as new download.
                                     await ctx.log(
                                         `[Changes API] Remote Rename: Source ${oldPath} missing locally. Skipping rename.`,
+                                        "warn",
                                     );
                                     if (ctx.index[oldPath]) delete ctx.index[oldPath];
                                     if (ctx.localIndex[oldPath]) delete ctx.localIndex[oldPath];
@@ -913,24 +1060,27 @@ export async function pullViaChangesAPI(
                             } catch (e) {
                                 await ctx.log(
                                     `[Changes API] Failed to rename ${oldPath} -> ${newPath}: ${e}`,
+                                    "warn",
                                 );
                                 // Fallback: Do nothing, let pullFileSafely download new file. Old file remains as ghost.
                             }
                         } else {
                             await ctx.log(
                                 `[Changes API] Remote Rename: Target ${newPath} exists. Skipping rename to avoid overwrite.`,
+                                "warn",
                             );
-                            // Collision: A->B, but B exists.
-                            // We can't rename. Old A remains.
-                            // pullFileSafely will update B.
-                            // We should probably disassociate A from this ID in our index to avoid confusion?
-                            // If we leave A with ID 123, and B has ID 123...
-                            // Next time we assume 123 is A again?
-                            // localIdToPath will be rebuilt next run.
-                            // If we don't delete A from index, it stays.
-                            // Safe to leave it? Yes.
                         }
                     }
+                }
+
+                // Guard: If remote hash matches our ancestorHash, it's likely a stale echo
+                // from a move operation that we've already superseded with a push.
+                if (localEntry?.ancestorHash && cloudFile.hash === localEntry.ancestorHash) {
+                    await ctx.log(
+                        `[Changes API] Stale echo detected for ${cloudFile.path} (matches ancestorHash), skipping.`,
+                        "debug",
+                    );
+                    continue;
                 }
 
                 if (
@@ -947,13 +1097,25 @@ export async function pullViaChangesAPI(
                         ctx.index[cloudFile.path].ancestorHash = cloudFile.hash;
                         await ctx.log(
                             `[Smart Pull] Sync confirmed for ${cloudFile.path}. ancestorHash updated to ${cloudFile.hash?.substring(0, 8)}`,
+                            "debug",
                         );
 
                         // Notify individual confirmation
                         confirmedCountTotal++;
                         await ctx.notify("noticeSyncConfirmed", cloudFile.path.split("/").pop());
                     }
-                    await ctx.log(`[Smart Pull] Skipping (hash match): ${cloudFile.path}`);
+
+                    // Strategy B: 他デバイスのマージ結果を適用済み（ハッシュ一致）であることを通知
+                    if (ctx.localIndex[cloudFile.path]?.pendingConflict) {
+                        delete ctx.localIndex[cloudFile.path].pendingConflict;
+                        await saveLocalIndex(ctx);
+                        await ctx.notify(
+                            "noticeRemoteMergeSynced",
+                            cloudFile.path.split("/").pop(),
+                        );
+                    }
+
+                    await ctx.log(`[Smart Pull] Skipping (hash match): ${cloudFile.path}`, "debug");
                     continue;
                 }
 
@@ -1012,10 +1174,7 @@ export async function pullViaChangesAPI(
  * O(1) when no dirty files, O(dirty count + .obsidian scan) otherwise
  * If scanVault is true, performs O(N) full vault scan before pushing
  */
-export async function smartPush(
-    ctx: SyncContext,
-    scanVault: boolean,
-): Promise<boolean> {
+export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<boolean> {
     // Optional complete vault scan (for startup)
     if (scanVault) {
         await scanVaultChanges(ctx);
@@ -1071,7 +1230,7 @@ export async function smartPush(
                 if (!exists) {
                     // Folder is missing locally, mark for remote deletion
                     ctx.deletedFolders.add(folder);
-                    await ctx.log(`[Smart Push] Inferred deleted folder: ${folder}`);
+                    await ctx.log(`[Smart Push] Inferred deleted folder: ${folder}`, "debug");
                     // Continue walking up to check parent
                     folder = folder.substring(0, folder.lastIndexOf("/"));
                 } else {
@@ -1084,9 +1243,13 @@ export async function smartPush(
 
     // === FOLDER DELETION PHASE ===
     let folderDeletedCount = 0;
+    let moveCount = 0;
     if (ctx.deletedFolders.size > 0) {
         ctx.startActivity(); // Spin if folder deletion needed
-        await ctx.log(`[Smart Push] Processing ${ctx.deletedFolders.size} deleted folder(s)...`);
+        await ctx.log(
+            `[Smart Push] Processing ${ctx.deletedFolders.size} deleted folder(s)...`,
+            "debug",
+        );
 
         // Sort by depth (deepest first) to handle nested deletions cleanly
         const folders = Array.from(ctx.deletedFolders).sort((a, b) => b.length - a.length);
@@ -1098,6 +1261,7 @@ export async function smartPush(
                 if (meta && meta.id) {
                     if (meta.kind === "folder") {
                         await ctx.adapter.deleteFile(meta.id);
+                        ctx.logger.markActionTaken();
                         folderDeletedCount++;
                         await ctx.log(`[Smart Push] Deleted remote folder: ${folderPath}`);
                         await ctx.notify("noticeFileTrashed", folderPath.split("/").pop());
@@ -1105,6 +1269,7 @@ export async function smartPush(
                 } else {
                     await ctx.log(
                         `[Smart Push] Folder not found on remote (already deleted?): ${folderPath}`,
+                        "warn",
                     );
                 }
 
@@ -1132,13 +1297,13 @@ export async function smartPush(
                 // Mark as handled
                 ctx.deletedFolders.delete(folderPath);
             } catch (e) {
-                await ctx.log(`[Smart Push] Failed to delete folder ${folderPath}: ${e}`);
+                await ctx.log(`[Smart Push] Failed to delete folder ${folderPath}: ${e}`, "error");
             }
         }
     }
 
     if (ctx.dirtyPaths.size === 0 && folderDeletedCount === 0) {
-        await ctx.log("[Smart Push] No dirty files to push. Skipping.");
+        await ctx.log("[Smart Push] No dirty files to push. Skipping.", "debug");
         return false;
     }
 
@@ -1166,6 +1331,7 @@ export async function smartPush(
             if (mergeLock && mergeLock.holder !== ctx.deviceId && mergeLock.expiresAt > now) {
                 await ctx.log(
                     `[Smart Push] Skipping: ${path} is being merged by ${mergeLock.holder} (expires in ${Math.round((mergeLock.expiresAt - now) / 1000)}s)`,
+                    "debug",
                 );
                 // Don't remove from dirtyPaths - we'll retry next sync cycle
                 return;
@@ -1191,17 +1357,158 @@ export async function smartPush(
                 if (stat) {
                     // NEW: Handle folders
                     if (stat.type === "folder") {
+                        const oldPath = ctx.pendingFolderMoves.get(path);
+                        if (oldPath) {
+                            try {
+                                // Optimal Folder Move
+                                const oldMeta = await ctx.adapter.getFileMetadata(oldPath);
+                                if (oldMeta?.id) {
+                                    const newName = path.split("/").pop()!;
+                                    const lastSlash = path.lastIndexOf("/");
+                                    const newParentPath =
+                                        lastSlash > 0 ? path.substring(0, lastSlash) : "";
+
+                                    await ctx.adapter.moveFile(oldMeta.id, newName, newParentPath);
+                                    ctx.logger.markActionTaken();
+                                    moveCount++;
+                                    ctx.startActivity();
+                                    await ctx.log(
+                                        `[Smart Push] Moved folder: ${oldPath} -> ${path}`,
+                                    );
+                                    await ctx.notify(
+                                        "noticeFileMoved",
+                                        `${oldPath.split("/").pop()} → ${newName}`,
+                                    );
+
+                                    // Cleanup pending moves for children as they are now moved too
+                                    // Since the folder itself was moved, child files no longer
+                                    // need individual Move API calls.
+                                    const oldPrefix = oldPath + "/";
+                                    for (const p of Object.keys(ctx.index)) {
+                                        if (p.startsWith(path + "/")) {
+                                            const entry = ctx.index[p];
+                                            if (entry.pendingMove?.oldPath?.startsWith(oldPrefix)) {
+                                                delete entry.pendingMove;
+                                                delete entry.forcePush;
+                                                if (ctx.localIndex[p]) {
+                                                    delete ctx.localIndex[p].pendingMove;
+                                                    delete ctx.localIndex[p].forcePush;
+                                                }
+                                                // Note: Keep p in dirtyPaths — the file may have
+                                                // content edits that still need uploading.
+                                                // The per-file hash check will skip if unchanged.
+                                            }
+                                        }
+                                    }
+
+                                    ctx.pendingFolderMoves.delete(path);
+                                    ctx.dirtyPaths.delete(path);
+                                    return;
+                                }
+                            } catch (e) {
+                                await ctx.log(
+                                    `[Smart Push] Optimal folder move failed for ${path}, falling back: ${e}`,
+                                    "warn",
+                                );
+                            }
+                        }
+
                         try {
-                            // Create folder on remote
+                            // Create folder on remote (fallback / new folder)
                             await ctx.adapter.ensureFoldersExist([path]);
+                            ctx.logger.markActionTaken();
                             await ctx.log(`[Smart Push] Synced folder: ${path}`);
                             // Remove from dirty paths as it's handled
                             ctx.dirtyPaths.delete(path);
+                            ctx.pendingFolderMoves.delete(path); // Cleanup even on fallback
                             // Note: We don't index folders, so nothing to update in index
                             return;
                         } catch (e) {
-                            await ctx.log(`[Smart Push] Failed to sync folder ${path}: ${e}`);
+                            await ctx.log(
+                                `[Smart Push] Failed to sync folder ${path}: ${e}`,
+                                "error",
+                            );
                             return;
+                        }
+                    }
+
+                    // === MOVE DETECTION ===
+                    // If this file has a pendingMove flag, use Move API instead of re-upload.
+                    // This preserves revision history on Google Drive.
+                    const indexEntry = ctx.index[path];
+                    if (indexEntry?.pendingMove && indexEntry.fileId) {
+                        const moveInfo = indexEntry.pendingMove;
+                        try {
+                            const newName = path.split("/").pop()!;
+                            const lastSlash = path.lastIndexOf("/");
+                            const newParentPath = lastSlash > 0 ? path.substring(0, lastSlash) : "";
+
+                            const moved = await ctx.adapter.moveFile(
+                                indexEntry.fileId,
+                                newName,
+                                newParentPath,
+                            );
+                            ctx.logger.markActionTaken();
+
+                            // インデックス更新（pendingMove をクリア）
+                            // hash は moved.hash（リモートの現ハッシュ）を設定。
+                            // Move はコンテンツを変更しないので、ローカルで編集があれば
+                            // 後続のハッシュ比較で検出されアップロードキューに入る。
+                            const updatedEntry = {
+                                ...ctx.index[path],
+                                fileId: moved.id,
+                                mtime: moved.mtime,
+                                size: moved.size,
+                                hash: moved.hash,
+                                lastAction: "pull" as const,
+                                ancestorHash: ctx.localIndex[path]?.ancestorHash || moved.hash,
+                                forcePush: false,
+                                pendingMove: undefined,
+                            };
+                            ctx.index[path] = updatedEntry;
+                            ctx.localIndex[path] = { ...updatedEntry };
+                            moveCount++;
+                            ctx.startActivity();
+
+                            // Determine if this is a rename (same dir) or move (different dir)
+                            const oldDir = moveInfo.oldPath.substring(
+                                0,
+                                moveInfo.oldPath.lastIndexOf("/"),
+                            );
+                            const newDir = path.substring(0, path.lastIndexOf("/"));
+                            const isMove = oldDir !== newDir;
+
+                            if (isMove) {
+                                await ctx.log(
+                                    `[Smart Push] Moved: ${moveInfo.oldPath} -> ${path}`,
+                                    "debug",
+                                );
+                                await ctx.notify(
+                                    "noticeFileMoved",
+                                    `${moveInfo.oldPath.split("/").pop()} → ${newName}`,
+                                );
+                            } else {
+                                await ctx.log(
+                                    `[Smart Push] Renamed: ${moveInfo.oldPath} -> ${path}`,
+                                    "debug",
+                                );
+                                await ctx.notify(
+                                    "noticeFileRenamed",
+                                    `${moveInfo.oldPath.split("/").pop()} -> ${newName}`,
+                                );
+                            }
+                            // Don't return — fall through to hash check.
+                            // If content was also edited, it will be detected and uploaded.
+                        } catch (e) {
+                            await ctx.log(
+                                `[Smart Push] Move API failed for ${path}, falling back to re-upload: ${e}`,
+                                "warn",
+                            );
+                            // Move に失敗した場合は pendingMove をクリアして通常のアップロードにフォールバック
+                            delete indexEntry.pendingMove;
+                            if (ctx.localIndex[path]) {
+                                delete ctx.localIndex[path].pendingMove;
+                            }
                         }
                     }
 
@@ -1247,7 +1554,7 @@ export async function smartPush(
                                 ctx.index[path].mtime = mtimeAfterRead;
                             }
                             ctx.dirtyPaths.delete(path); // Remove from dirty since content matches
-                            await ctx.log(`[Smart Push] Skipped (hash match): ${path}`);
+                            await ctx.log(`[Smart Push] Skipped (hash match): ${path}`, "debug");
                             return;
                         } else if (
                             !localIndexEntry &&
@@ -1279,7 +1586,10 @@ export async function smartPush(
                             content,
                         });
                     } catch (e) {
-                        await ctx.log(`[Smart Push] Failed to read ${path} for hash check: ${e}`);
+                        await ctx.log(
+                            `[Smart Push] Failed to read ${path} for hash check: ${e}`,
+                            "error",
+                        );
                     }
                 }
             } else {
@@ -1295,8 +1605,8 @@ export async function smartPush(
     }
 
     const totalOps = uploadQueue.length + deleteQueue.length;
-    if (totalOps === 0 && folderDeletedCount === 0) {
-        await ctx.log("[Smart Push] No changes after filtering.");
+    if (totalOps === 0 && folderDeletedCount === 0 && moveCount === 0) {
+        await ctx.log("[Smart Push] No changes after filtering.", "debug");
         return false;
     }
 
@@ -1332,7 +1642,10 @@ export async function smartPush(
                     if (currentStat && currentStat.mtime !== file.mtime) {
                         // File was modified after queue creation - re-mark as dirty and skip
                         ctx.dirtyPaths.add(file.path);
-                        await ctx.log(`[Smart Push] Skipped (modified during sync): ${file.path}`);
+                        await ctx.log(
+                            `[Smart Push] Skipped (modified during sync): ${file.path}`,
+                            "debug",
+                        );
                         return;
                     }
 
@@ -1384,26 +1697,78 @@ export async function smartPush(
                                 if (ctx.localIndex[file.path]?.lastAction === "merge") {
                                     await ctx.log(
                                         `[Smart Push] Allowing push of merged file (hash mismatch expected): ${file.path}`,
+                                        "debug",
                                     );
                                 } else {
                                     await ctx.log(
                                         `[Smart Push] CONFLICT DETECTED: Remote changed for ${file.path}`,
+                                        "warn",
                                     );
                                     await ctx.log(
                                         `[Smart Push] Local Base: ${lastKnownHash?.substring(0, 8)}, Remote: ${remoteHash.substring(0, 8)}`,
+                                        "warn",
                                     );
 
                                     await ctx.log(
                                         `[Smart Push] [Deadlock Breaking] Attempting immediate pull/merge for ${file.path}...`,
+                                        "debug",
                                     );
-                                    await pullFileSafely(
-                                        ctx,
-                                        remoteMeta,
-                                        "Push Conflict",
-                                    );
-                                    // Critical: return here to skip uploading the OLD content in this closure.
-                                    // The file remains in dirtyPaths (or is re-added by pullFileSafely),
-                                    // so it will be picked up in the next sync cycle.
+                                    await pullFileSafely(ctx, remoteMeta, "Push Conflict");
+
+                                    // After merge, immediately upload the merged file.
+                                    // We cannot defer to the next cycle because the index is uploaded
+                                    // at the end of this cycle, leaving remote in an inconsistent state
+                                    // (index updated but file still old).
+                                    if (ctx.localIndex[file.path]?.lastAction === "merge") {
+                                        try {
+                                            const mergedContent =
+                                                await ctx.app.vault.adapter.readBinary(file.path);
+                                            const mergedStat = await ctx.app.vault.adapter.stat(
+                                                file.path,
+                                            );
+                                            const mergedFileId =
+                                                ctx.index[file.path]?.fileId || remoteMeta.id;
+
+                                            const mergedUploaded = await ctx.adapter.uploadFile(
+                                                file.path,
+                                                mergedContent,
+                                                mergedStat?.mtime || Date.now(),
+                                                mergedFileId,
+                                            );
+
+                                            const previousAncestorHash =
+                                                ctx.localIndex[file.path]?.ancestorHash;
+                                            const mergedEntry = {
+                                                fileId: mergedUploaded.id,
+                                                mtime: mergedStat?.mtime || Date.now(),
+                                                size: mergedUploaded.size,
+                                                hash: mergedUploaded.hash,
+                                                lastAction: "push" as const,
+                                                ancestorHash:
+                                                    previousAncestorHash || mergedUploaded.hash,
+                                            };
+                                            ctx.index[file.path] = mergedEntry;
+                                            ctx.localIndex[file.path] = { ...mergedEntry };
+                                            ctx.dirtyPaths.delete(file.path);
+                                            ctx.logger.markActionTaken();
+                                            completed++;
+
+                                            await ctx.log(
+                                                `[Smart Push] [Deadlock Breaking] Merged file uploaded: ${file.path}`,
+                                                "notice",
+                                            );
+                                            await ctx.notify(
+                                                "noticeFilePushed",
+                                                file.path.split("/").pop(),
+                                            );
+                                        } catch (uploadErr) {
+                                            await ctx.log(
+                                                `[Smart Push] [Deadlock Breaking] Failed to upload merged file: ${file.path} - ${uploadErr}`,
+                                                "error",
+                                            );
+                                            // File remains in dirtyPaths for next cycle
+                                        }
+                                    }
                                     return;
                                 }
                             }
@@ -1411,7 +1776,7 @@ export async function smartPush(
                     } catch (e) {
                         // If check fails (network?), allow upload? Or fail safe?
                         // Safe: Fail validation, don't upload.
-                        await ctx.log(`[Smart Push] Pre-upload validation failed: ${e}`);
+                        await ctx.log(`[Smart Push] Pre-upload validation failed: ${e}`, "warn");
                         // We don't return here? If we can't verify, maybe safe to fail this file sync.
                         // If just "Not Found", code above handles it (remoteMeta is null).
                         // If network error, we probably shouldn't upload.
@@ -1451,11 +1816,15 @@ export async function smartPush(
                     // Success: Remove from dirtyPaths
                     ctx.dirtyPaths.delete(file.path);
 
+                    ctx.logger.markActionTaken();
                     completed++;
-                    await ctx.log(`[Smart Push] [${completed}/${totalOps}] Pushed: ${file.path}`);
+                    await ctx.log(
+                        `[Smart Push] [${completed}/${totalOps}] Pushed: ${file.path}`,
+                        "notice",
+                    );
                     await ctx.notify("noticeFilePushed", file.path.split("/").pop());
                 } catch (e) {
-                    await ctx.log(`[Smart Push] Upload failed: ${file.path} - ${e}`);
+                    await ctx.log(`[Smart Push] Upload failed: ${file.path} - ${e}`, "error");
                 }
             });
         }
@@ -1494,6 +1863,7 @@ export async function smartPush(
                         await ctx.adapter.deleteFile(meta.id);
                         await ctx.log(
                             `[Smart Push] [Folder Wipe] Deleted ignored folder: ${folderPath}`,
+                            "debug",
                         );
 
                         // Cleanup ALL index entries that were under this folder
@@ -1509,11 +1879,13 @@ export async function smartPush(
                                 ctx.dirtyPaths.delete(path);
                             }
                         }
+                        ctx.logger.markActionTaken();
                         completed++; // Count folder deletion as one operation
                     }
                 } catch (e) {
                     await ctx.log(
                         `[Smart Push] [Folder Wipe] Failed to wipe folder ${folderPath}: ${e}`,
+                        "error",
                     );
                 }
             });
@@ -1530,9 +1902,11 @@ export async function smartPush(
                         delete ctx.localIndex[path];
                         ctx.dirtyPaths.delete(path);
 
+                        ctx.logger.markActionTaken();
                         completed++;
                         await ctx.log(
                             `[Smart Push] [${completed}/${totalOps}] Deleted remote: ${path}`,
+                            "notice",
                         );
                         await ctx.notify("noticeFileTrashed", path.split("/").pop());
                     } else {
@@ -1540,10 +1914,13 @@ export async function smartPush(
                         // Already "deleted" on remote by others or previous run.
                         delete ctx.localIndex[path];
                         ctx.dirtyPaths.delete(path);
-                        await ctx.log(`[Smart Push] Cleaned up zombie entry (local only): ${path}`);
+                        await ctx.log(
+                            `[Smart Push] Cleaned up zombie entry (local only): ${path}`,
+                            "debug",
+                        );
                     }
                 } catch (e) {
-                    await ctx.log(`[Smart Push] Delete failed: ${path} - ${e}`);
+                    await ctx.log(`[Smart Push] Delete failed: ${path} - ${e}`, "error");
                 }
             });
         }
@@ -1557,7 +1934,7 @@ export async function smartPush(
         // Reset cleanup flag after a successful cleanup run
         if (ctx.forceCleanupNextSync) {
             ctx.forceCleanupNextSync = false;
-            await ctx.log("[Smart Push] Full cleanup scan completed and flag reset.");
+            await ctx.log("[Smart Push] Full cleanup scan completed and flag reset.", "debug");
         }
 
         // Upload updated index
@@ -1583,16 +1960,16 @@ export async function smartPush(
                 if (await ctx.app.vault.adapter.exists(rawPath)) {
                     const rawContent = await ctx.app.vault.adapter.readBinary(rawPath);
                     await ctx.adapter.uploadFile(rawPath, rawContent, Date.now());
-                    await ctx.log(`[Smart Push] Raw index backup uploaded.`);
+                    await ctx.log(`[Smart Push] Raw index backup uploaded.`, "debug");
                 }
             } catch (rawErr) {
-                await ctx.log(`[Smart Push] Failed to upload raw index: ${rawErr}`);
+                await ctx.log(`[Smart Push] Failed to upload raw index: ${rawErr}`, "debug");
             }
 
             await saveIndex(ctx);
             await ctx.log(`[Smart Push] Index uploaded. Hash: ${uploadedIndex.hash}`);
         } catch (e) {
-            await ctx.log(`[Smart Push] Failed to upload index: ${e}`);
+            await ctx.log(`[Smart Push] Failed to upload index: ${e}`, "error");
         }
 
         if (completed > 0) {
@@ -1618,7 +1995,7 @@ export async function requestBackgroundScan(
 ): Promise<void> {
     // Don't start if already syncing
     if (ctx.syncState !== "IDLE") {
-        await ctx.log("[Full Scan] Skipped - sync already in progress");
+        await ctx.log("[Full Scan] Skipped - sync already in progress", "debug");
         return;
     }
 
@@ -1653,12 +2030,13 @@ export function isProgressStale(ctx: SyncContext): boolean {
  * Execute Full Scan with interrupt support
  */
 export async function executeFullScan(ctx: SyncContext): Promise<void> {
+    ctx.logger.startCycle(ctx.currentTrigger);
     try {
         await ctx.log("=== BACKGROUND FULL SCAN START ===");
 
         // Initialize or resume progress
         if (!ctx.fullScanProgress) {
-            await ctx.log("[Full Scan] Fetching file lists...");
+            await ctx.log("[Full Scan] Fetching file lists...", "debug");
             const localFiles = await getLocalFiles(ctx);
             const remoteFiles = await ctx.adapter.listFiles();
 
@@ -1690,6 +2068,7 @@ export async function executeFullScan(ctx: SyncContext): Promise<void> {
         } else {
             await ctx.log(
                 `[Full Scan] Resuming from index ${ctx.fullScanProgress.currentIndex}/${ctx.fullScanProgress.totalFiles}`,
+                "debug",
             );
         }
 
@@ -1703,6 +2082,7 @@ export async function executeFullScan(ctx: SyncContext): Promise<void> {
             if (ctx.isInterrupted) {
                 await ctx.log(
                     `[Full Scan] Interrupted at index ${ctx.fullScanProgress.currentIndex}`,
+                    "debug",
                 );
                 ctx.syncState = "PAUSED";
                 return;
@@ -1725,6 +2105,7 @@ export async function executeFullScan(ctx: SyncContext): Promise<void> {
                     // File exists in index but not locally - might have been deleted
                     await ctx.log(
                         `[Full Scan] Discrepancy: ${remoteFile.path} in index but not local`,
+                        "debug",
                     );
                 } else if (localFile && !indexEntry && remoteFile.hash) {
                     // File exists locally but not in index - check if it matches remote
@@ -1741,7 +2122,7 @@ export async function executeFullScan(ctx: SyncContext): Promise<void> {
                                 lastAction: "pull",
                                 ancestorHash: remoteFile.hash, // Set ancestor for future merges
                             };
-                            await ctx.log(`[Full Scan] Adopted: ${remoteFile.path}`);
+                            await ctx.log(`[Full Scan] Adopted: ${remoteFile.path}`, "debug");
                         }
                     } catch {
                         // Ignore hash calculation errors
@@ -1760,7 +2141,9 @@ export async function executeFullScan(ctx: SyncContext): Promise<void> {
         ctx.fullScanProgress = null;
         await saveIndex(ctx);
     } catch (e) {
-        await ctx.log(`[Full Scan] Error: ${e}`);
+        await ctx.log(`[Full Scan] Error: ${e}`, "error");
         ctx.fullScanProgress = null;
+    } finally {
+        await ctx.logger.endCycle();
     }
 }

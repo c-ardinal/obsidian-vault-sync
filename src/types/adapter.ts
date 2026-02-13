@@ -54,6 +54,19 @@ export interface CloudAdapter {
         existingFileId?: string,
     ): Promise<CloudFile>;
     deleteFile(fileId: string): Promise<void>;
+    /**
+     * Move/rename a file on the cloud storage without re-uploading content.
+     * This preserves the file's revision history by keeping the same fileId.
+     *
+     * @param fileId         The ID of the file to move/rename
+     * @param newName        The new file name (basename only)
+     * @param newParentPath  The new parent folder path:
+     *                       - null: parent doesn't change (rename only)
+     *                       - "": move to root folder
+     *                       - "folder/sub": move to specific subfolder
+     * @returns Updated CloudFile metadata
+     */
+    moveFile(fileId: string, newName: string, newParentPath: string | null): Promise<CloudFile>;
     createFolder(path: string): Promise<string>;
     ensureFoldersExist(
         folderPaths: string[],
@@ -65,7 +78,7 @@ export interface CloudAdapter {
     getStartPageToken(): Promise<string>;
     getChanges(pageToken: string): Promise<CloudChanges>;
     listFiles(folderId?: string): Promise<CloudFile[]>;
-    setLogger(logger: (msg: string) => void): void;
+    setLogger(logger: (msg: string, level?: string) => void): void;
 
     // === History Support (optional) ===
     readonly supportsHistory: boolean;

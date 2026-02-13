@@ -160,6 +160,16 @@ const VERBOSE: Record<string, VisibilityMap> = {
         "layout-sync": true,
         "full-scan": true,
     },
+    noticeFileMoved: {
+        "initial-sync": true,
+        "startup-sync": true,
+        "manual-sync": true,
+        "timer-sync": true,
+        "save-sync": true,
+        "modify-sync": true,
+        "layout-sync": true,
+        "full-scan": true,
+    },
 
     // ═══ Conflict ═══
     noticeMergingFile: { "push-conflict": true, "pull-conflict": true },

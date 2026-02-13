@@ -12,6 +12,7 @@ const DEFAULT_SETTINGS: SyncManagerSettings = {
     notificationLevel: "standard",
     conflictResolutionStrategy: "smart-merge",
     enableLogging: false,
+    isDeveloperMode: false,
     exclusionPatterns: "",
     syncAppearance: true,
     syncCommunityPlugins: true,
@@ -130,9 +131,7 @@ export class DeviceSimulator {
      * Simulates the core of smartPush without the full orchestration.
      * Returns true if pushed successfully, false if conflict detected.
      */
-    async pushFile(
-        path: string,
-    ): Promise<{ pushed: boolean; conflictDetected: boolean }> {
+    async pushFile(path: string): Promise<{ pushed: boolean; conflictDetected: boolean }> {
         const exists = await this.app.vaultAdapter.exists(path);
 
         // If it doesn't exist but is in dirtyPaths, it's a deletion.
@@ -211,6 +210,7 @@ export class DeviceSimulator {
         this.sm.index[path] = entry;
         this.sm.localIndex[path] = { ...entry };
         this.sm.dirtyPaths.delete(path);
+        await this.uploadIndex();
 
         return { pushed: true, conflictDetected: false };
     }
@@ -237,10 +237,21 @@ export class DeviceSimulator {
         this.sm.index[path] = entry;
         this.sm.localIndex[path] = { ...entry };
         this.sm.dirtyPaths.delete(path);
+        await this.uploadIndex();
 
         this.logs.push(
             `[${this.name}] [Force Push] Pushed: ${path} (hash=${uploaded.hash?.substring(0, 8)})`,
         );
+    }
+
+    async uploadIndex(): Promise<void> {
+        const indexData = {
+            version: 1,
+            deviceId: this.deviceId,
+            index: this.sm.index,
+        };
+        const content = new TextEncoder().encode(JSON.stringify(indexData)).buffer;
+        await this.cloud.uploadFile(SYNC_INDEX_PATH, content, Date.now());
     }
 
     /**
@@ -248,9 +259,9 @@ export class DeviceSimulator {
      * Calls pullFileSafely directly — bypasses Changes API pre-check.
      */
     async pullFile(path: string): Promise<boolean> {
-        const remoteMeta = await this.cloud.getFileMetadata(path);
+        const remoteMeta: any = await this.cloud.getFileMetadata(path);
 
-        // Handle remote deletion (similar to smartPull:1372-1392)
+        // Handle remote deletion
         if (!remoteMeta) {
             if (this.sm.index[path] || this.sm.localIndex[path]) {
                 const file = this.app.vault.getAbstractFileByPath(path);
@@ -262,11 +273,28 @@ export class DeviceSimulator {
                 }
                 delete this.sm.index[path];
                 delete this.sm.localIndex[path];
+                this.sm.dirtyPaths.delete(path);
+                this.logs.push(`[${this.name}] Deleted locally (remote removed): ${path}`);
                 return true;
             }
             return false;
         }
-        return await this.sm.pullFileSafely(remoteMeta, "Pull");
+
+        // Try to find ancestorHash in remote index (mimics smartPull)
+        try {
+            const indexMeta = await this.cloud.getFileMetadata(SYNC_INDEX_PATH);
+            if (indexMeta?.id) {
+                const indexContent = await this.cloud.downloadFile(indexMeta.id);
+                const indexData = JSON.parse(new TextDecoder().decode(indexContent));
+                if (indexData.index && indexData.index[path]) {
+                    remoteMeta.ancestorHash = indexData.index[path].ancestorHash;
+                }
+            }
+        } catch (e) {
+            // Ignore index load errors in simulators
+        }
+
+        return await this.sm.pullFileSafely(remoteMeta, "Manual Pull");
     }
 
     /**

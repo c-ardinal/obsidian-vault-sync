@@ -42,10 +42,51 @@ export class MockVaultAdapter {
     }
 
     async rename(from: string, to: string): Promise<void> {
+        if (this.folders.has(from)) {
+            const fromPrefix = from + "/";
+            const toPrefix = to + "/";
+            for (const path of Array.from(this.files.keys())) {
+                if (path.startsWith(fromPrefix)) {
+                    const entry = this.files.get(path)!;
+                    this.files.set(toPrefix + path.slice(fromPrefix.length), entry);
+                    this.files.delete(path);
+                }
+            }
+            for (const path of Array.from(this.folders)) {
+                if (path.startsWith(fromPrefix)) {
+                    this.folders.add(toPrefix + path.slice(fromPrefix.length));
+                    this.folders.delete(path);
+                }
+            }
+            this.folders.delete(from);
+            this.folders.add(to);
+            return;
+        }
+
         const entry = this.files.get(from);
         if (!entry) throw new Error(`File not found for rename: ${from}`);
         this.files.set(to, entry);
         this.files.delete(from);
+    }
+
+    async list(path: string): Promise<{ files: string[]; folders: string[] }> {
+        const files: string[] = [];
+        const folders: string[] = [];
+        const prefix = path === "/" || path === "" ? "" : path + "/";
+
+        for (const f of this.files.keys()) {
+            if (f.startsWith(prefix)) {
+                const relative = f.slice(prefix.length);
+                if (!relative.includes("/")) files.push(relative);
+            }
+        }
+        for (const f of this.folders) {
+            if (f.startsWith(prefix) && f !== path) {
+                const relative = f.slice(prefix.length);
+                if (!relative.includes("/")) folders.push(relative);
+            }
+        }
+        return { files, folders };
     }
 
     async mkdir(path: string): Promise<void> {
@@ -53,6 +94,15 @@ export class MockVaultAdapter {
     }
 
     async remove(path: string): Promise<void> {
+        if (this.folders.has(path)) {
+            const prefix = path + "/";
+            for (const f of Array.from(this.files.keys())) {
+                if (f.startsWith(prefix)) this.files.delete(f);
+            }
+            for (const f of Array.from(this.folders)) {
+                if (f.startsWith(prefix)) this.folders.delete(f);
+            }
+        }
         this.files.delete(path);
         this.folders.delete(path);
     }

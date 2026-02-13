@@ -39,8 +39,12 @@ export class MockCloudAdapter implements CloudAdapter {
     private logger: (msg: string) => void = () => {};
 
     // --- Auth (no-op) ---
-    isAuthenticated(): boolean { return true; }
-    async getAuthUrl(): Promise<string> { return ""; }
+    isAuthenticated(): boolean {
+        return true;
+    }
+    async getAuthUrl(): Promise<string> {
+        return "";
+    }
     async handleCallback(_url: string | URL): Promise<void> {}
     async logout(): Promise<void> {}
 
@@ -65,9 +69,14 @@ export class MockCloudAdapter implements CloudAdapter {
         return file.content.slice(0);
     }
 
-    async uploadFile(path: string, content: ArrayBuffer, mtime: number): Promise<CloudFile> {
+    async uploadFile(
+        path: string,
+        content: ArrayBuffer,
+        mtime: number,
+        targetFileId?: string,
+    ): Promise<CloudFile> {
         const hash = md5(content);
-        let id = this.pathToId.get(path);
+        let id = targetFileId || this.pathToId.get(path);
 
         if (id && this.files.has(id)) {
             // Update existing file
@@ -112,6 +121,36 @@ export class MockCloudAdapter implements CloudAdapter {
             this.files.delete(fileId);
             this.recordChange(fileId, true);
         }
+    }
+
+    async moveFile(
+        fileId: string,
+        newName: string,
+        newParentPath: string | null,
+    ): Promise<CloudFile> {
+        const file = this.files.get(fileId);
+        if (!file) throw new Error(`Cloud file not found: ${fileId}`);
+
+        const oldPath = file.path;
+        // 旧パスからパスマップを削除
+        this.pathToId.delete(oldPath);
+
+        // 新パスを構築
+        const newPath = newParentPath ? `${newParentPath}/${newName}` : newName;
+        file.path = newPath;
+
+        // 新パスでパスマップを登録
+        this.pathToId.set(newPath, fileId);
+
+        // リビジョンのパスも更新
+        const oldRevisions = this.revisions.get(oldPath);
+        if (oldRevisions) {
+            this.revisions.delete(oldPath);
+            this.revisions.set(newPath, oldRevisions);
+        }
+
+        this.recordChange(fileId, false, this.toCloudFile(file));
+        return this.toCloudFile(file);
     }
 
     async createFolder(_path: string): Promise<string> {

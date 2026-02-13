@@ -315,45 +315,63 @@ describe("Multi-device conflict resolution", () => {
             console.log("║  Pattern 2: Safety Guard (post-push pull)        ║");
             console.log("╚══════════════════════════════════════════════════╝");
 
-            // ──── Step 1: Device A edits and pushes ────
+            // 1. Device A pushes
             deviceA.editFile(FILE_PATH, DEVICE_A_NONOVERLAP);
-            const pushA = await deviceA.pushFile(FILE_PATH);
-            expect(pushA.pushed).toBe(true);
-
+            await deviceA.pushFile(FILE_PATH);
             console.log("\n--- Step 1: Device A pushed ---");
             deviceA.printState(FILE_PATH);
 
-            // ──── Step 2: Device B edits and pushes (different edit) ────
+            // 2. Device B force-pushes (simulating GDrive eventual consistency:
+            //    B doesn't see A's recent push, so it pushes its own version)
             deviceB.editFile(FILE_PATH, DEVICE_B_NONOVERLAP);
-            const pushB = await deviceB.pushFile(FILE_PATH);
-            // B might detect conflict here or succeed depending on timing
-            console.log("\n--- Step 2: Device B push attempt ---");
-            console.log(`  pushed=${pushB.pushed}, conflictDetected=${pushB.conflictDetected}`);
+            await deviceB.forcePush(FILE_PATH);
+            console.log("\n--- Step 2: Device B force-pushed ---");
             deviceB.printState(FILE_PATH);
 
-            // ──── Step 3: Device A pulls → Safety Guard triggers ────
-            // Device A's lastAction=push, but remote has changed (B pushed or merged)
-            const pullResult = await deviceA.pullFile(FILE_PATH);
-
-            const stateAfterPull = deviceA.describeState(FILE_PATH);
-
+            // 3. Device A pulls (Safety Guard should trigger because
+            //    B's version doesn't acknowledge A's push as ancestor)
+            await deviceA.pullFile(FILE_PATH);
             console.log("\n--- Step 3: Device A pulls (Safety Guard should trigger) ---");
             deviceA.printState(FILE_PATH);
 
             const localContent = deviceA.getLocalContent(FILE_PATH);
-            console.log(`  Local content: ${localContent?.replace(/\n/g, "\\n")}`);
+            expect(localContent).toContain("edited by A");
+            expect(localContent).toContain("edited by B");
 
-            // Verify that Safety Guard triggered a merge (not just accepting remote)
-            // The content should contain both A and B's changes
-            if (localContent) {
-                const hasA = localContent.includes("edited by A");
-                const hasB = localContent.includes("edited by B");
-                console.log(`  Contains A's edit: ${hasA}, Contains B's edit: ${hasB}`);
-            }
+            const safetyGuardTriggered = deviceA.logs.some(
+                (l) => l.includes("Safety") || l.includes("Forcing merge"),
+            );
+            expect(safetyGuardTriggered).toBe(true);
+        });
 
-            // Check log for Safety Guard trigger
-            const safetyGuardTriggered = deviceA.logs.some((l) => l.includes("Safety Guard"));
-            console.log(`  Safety Guard triggered: ${safetyGuardTriggered}`);
+        it("should detect conflict when remote overwrites our push", async () => {
+            // 1. Device A pushes v1
+            deviceA.editFile(FILE_PATH, "Line 1 edited by A\nLine 2\n");
+            await deviceA.pushFile(FILE_PATH);
+
+            // 2. Device B force-pushes v2 (overwriting v1)
+            // Device B doesn't see A's v1 yet.
+            deviceB.editFile(FILE_PATH, "Line 1\nLine 2 edited by B\n");
+            await deviceB.forcePush(FILE_PATH);
+
+            // Now remote has v2 (B's version, missing A's edit).
+
+            // 3. Device A pulls.
+            // A's lastAction is 'push' (v1).
+            // Remote meta is v2.
+            // A's disk is v1.
+            // hasRemoteUpdate = true.
+            // isActuallyModified = false (disk matches localIndex).
+
+            const pullRes = await deviceA.pullFile(FILE_PATH);
+
+            const stateA = deviceA.describeState(FILE_PATH);
+
+            // If Safety Guard is working, it should have MERGED.
+            // The merge result should contain BOTH A's line 1 and B's line 2.
+            expect(stateA.localContent).toContain("Line 1 edited by A");
+            expect(stateA.localContent).toContain("Line 2 edited by B");
+            expect(stateA.localIndex!.lastAction).toBe("merge");
         });
     });
 
