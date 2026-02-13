@@ -1,3 +1,4 @@
+import { Platform } from "obsidian";
 import { VaultSyncSettings } from "../types/settings";
 import { SETTINGS_LIMITS } from "../constants";
 import { t } from "../i18n";
@@ -6,7 +7,7 @@ import VaultSync from "../main";
 export type SettingType = "toggle" | "text" | "number" | "dropdown" | "textarea";
 
 export interface SettingItem {
-    key: keyof VaultSyncSettings;
+    key: string; // Changed from keyof VaultSyncSettings to support nested paths
     type: SettingType;
     label: string;
     desc?: string;
@@ -31,6 +32,56 @@ export interface SettingSection {
     items: SettingItem[];
     isHidden?: (settings: VaultSyncSettings) => boolean;
 }
+
+const getTriggerItems = (prefix: string): SettingItem[] => [
+    {
+        key: `${prefix}.enableStartupSync`,
+        type: "toggle",
+        label: t("settingStartupSync"),
+        desc: t("settingStartupSyncDesc"),
+    },
+    {
+        key: `${prefix}.autoSyncIntervalSec`,
+        type: "number",
+        label: t("settingAutoSyncInterval"),
+        desc:
+            t("settingAutoSyncIntervalDesc") +
+            `\n(Min: ${SETTINGS_LIMITS.autoSyncInterval.min}, Max: ${SETTINGS_LIMITS.autoSyncInterval.max}, Default: ${SETTINGS_LIMITS.autoSyncInterval.default}, Disabled: ${SETTINGS_LIMITS.autoSyncInterval.disabled})`,
+        limits: SETTINGS_LIMITS.autoSyncInterval,
+        onChange: async (val, p) => {
+            p.settings.enableAutoSyncInInterval = val !== SETTINGS_LIMITS.autoSyncInterval.disabled;
+            await p.saveSettings();
+            p.setupAutoSyncInterval();
+        },
+    },
+    {
+        key: `${prefix}.onSaveDelaySec`,
+        type: "number",
+        label: t("settingTriggerSave"),
+        desc:
+            t("settingTriggerSaveDesc") +
+            `\n(Min: ${SETTINGS_LIMITS.onSaveDelay.min}, Max: ${SETTINGS_LIMITS.onSaveDelay.max}, Default: ${SETTINGS_LIMITS.onSaveDelay.default}, Disabled: ${SETTINGS_LIMITS.onSaveDelay.disabled})`,
+        limits: SETTINGS_LIMITS.onSaveDelay,
+    },
+    {
+        key: `${prefix}.onModifyDelaySec`,
+        type: "number",
+        label: t("settingModify"),
+        desc:
+            t("settingModifyDesc") +
+            `\n(Min: ${SETTINGS_LIMITS.onModifyDelay.min}, Max: ${SETTINGS_LIMITS.onModifyDelay.max}, Default: ${SETTINGS_LIMITS.onModifyDelay.default}, Disabled: ${SETTINGS_LIMITS.onModifyDelay.disabled})`,
+        limits: SETTINGS_LIMITS.onModifyDelay,
+    },
+    {
+        key: `${prefix}.onLayoutChangeDelaySec`,
+        type: "number",
+        label: t("settingTriggerLayout"),
+        desc:
+            t("settingTriggerLayoutDesc") +
+            `\n(Min: ${SETTINGS_LIMITS.onLayoutChangeDelay.min}, Max: ${SETTINGS_LIMITS.onLayoutChangeDelay.max}, Default: ${SETTINGS_LIMITS.onLayoutChangeDelay.default}, Disabled: ${SETTINGS_LIMITS.onLayoutChangeDelay.disabled})`,
+        limits: SETTINGS_LIMITS.onLayoutChangeDelay,
+    },
+];
 
 export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
     return [
@@ -73,58 +124,47 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
             ],
         },
         {
-            id: "triggers",
+            id: "trigger_strategy",
             title: t("settingTriggerSection"),
             items: [
                 {
-                    key: "enableStartupSync",
-                    type: "toggle",
-                    label: t("settingStartupSync"),
-                    desc: t("settingStartupSyncDesc"),
-                },
-                {
-                    key: "autoSyncIntervalSec",
-                    type: "number",
-                    label: t("settingAutoSyncInterval"),
+                    key: "triggerConfigStrategy",
+                    type: "dropdown",
+                    label: t("settingTriggerStrategy") || "Sync Trigger Strategy", // Fallback if i18n missing
                     desc:
-                        t("settingAutoSyncIntervalDesc") +
-                        `\n(Min: ${SETTINGS_LIMITS.autoSyncInterval.min}, Max: ${SETTINGS_LIMITS.autoSyncInterval.max}, Default: ${SETTINGS_LIMITS.autoSyncInterval.default}, Disabled: ${SETTINGS_LIMITS.autoSyncInterval.disabled})`,
-                    limits: SETTINGS_LIMITS.autoSyncInterval,
-                    onChange: async (val, p) => {
-                        p.settings.enableAutoSyncInInterval =
-                            val !== SETTINGS_LIMITS.autoSyncInterval.disabled;
+                        t("settingTriggerStrategyDesc") ||
+                        "Choose how sync triggers are configured across devices.",
+                    options: {
+                        unified:
+                            t("settingTriggerStrategyUnified") || "Unified (Same for all devices)",
+                        "per-platform":
+                            t("settingTriggerStrategyPerPlatform") ||
+                            "Per Platform (PC/Mobile separately)",
+                    },
+                    onChange: async (_val, p) => {
                         await p.saveSettings();
                         p.setupAutoSyncInterval();
                     },
                 },
-                {
-                    key: "onSaveDelaySec",
-                    type: "number",
-                    label: t("settingTriggerSave"),
-                    desc:
-                        t("settingTriggerSaveDesc") +
-                        `\n(Min: ${SETTINGS_LIMITS.onSaveDelay.min}, Max: ${SETTINGS_LIMITS.onSaveDelay.max}, Default: ${SETTINGS_LIMITS.onSaveDelay.default}, Disabled: ${SETTINGS_LIMITS.onSaveDelay.disabled})`,
-                    limits: SETTINGS_LIMITS.onSaveDelay,
-                },
-                {
-                    key: "onModifyDelaySec",
-                    type: "number",
-                    label: t("settingModify"),
-                    desc:
-                        t("settingModifyDesc") +
-                        `\n(Min: ${SETTINGS_LIMITS.onModifyDelay.min}, Max: ${SETTINGS_LIMITS.onModifyDelay.max}, Default: ${SETTINGS_LIMITS.onModifyDelay.default}, Disabled: ${SETTINGS_LIMITS.onModifyDelay.disabled})`,
-                    limits: SETTINGS_LIMITS.onModifyDelay,
-                },
-                {
-                    key: "onLayoutChangeDelaySec",
-                    type: "number",
-                    label: t("settingTriggerLayout"),
-                    desc:
-                        t("settingTriggerLayoutDesc") +
-                        `\n(Min: ${SETTINGS_LIMITS.onLayoutChangeDelay.min}, Max: ${SETTINGS_LIMITS.onLayoutChangeDelay.max}, Default: ${SETTINGS_LIMITS.onLayoutChangeDelay.default}, Disabled: ${SETTINGS_LIMITS.onLayoutChangeDelay.disabled})`,
-                    limits: SETTINGS_LIMITS.onLayoutChangeDelay,
-                },
             ],
+        },
+        {
+            id: "triggers_unified",
+            title: t("settingTriggerSectionUnified") || "Sync Triggers",
+            isHidden: (s) => s.triggerConfigStrategy !== "unified",
+            items: getTriggerItems("unifiedTriggers"),
+        },
+        {
+            id: "triggers_desktop",
+            title: t("settingTriggerSectionDesktop") || "Desktop Sync Triggers",
+            isHidden: (s) => s.triggerConfigStrategy !== "per-platform" || Platform.isMobile,
+            items: getTriggerItems("desktopTriggers"),
+        },
+        {
+            id: "triggers_mobile",
+            title: t("settingTriggerSectionMobile") || "Mobile Sync Triggers",
+            isHidden: (s) => s.triggerConfigStrategy !== "per-platform" || !Platform.isMobile,
+            items: getTriggerItems("mobileTriggers"),
         },
         {
             id: "sync_scope",
@@ -223,16 +263,25 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
             ],
         },
         {
-            id: "developer",
-            title: t("settingDevSection"),
-            isHidden: (s) => !s.isDeveloperMode,
+            id: "advanced",
+            title: t("settingAdvancedSection"),
             items: [
                 {
                     key: "enableLogging",
                     type: "toggle",
                     label: t("settingEnableLogging"),
                     desc: t("settingEnableLoggingDesc"),
+                    onChange: async (_val, p) => {
+                        p.syncManager.updateLoggerOptions();
+                    },
                 },
+            ],
+        },
+        {
+            id: "developer",
+            title: t("settingDevSection"),
+            isHidden: (s) => !s.isDeveloperMode,
+            items: [
                 {
                     key: "startupDelaySec",
                     type: "number",

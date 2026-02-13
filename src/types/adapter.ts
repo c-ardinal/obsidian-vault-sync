@@ -78,7 +78,7 @@ export interface CloudAdapter {
     getStartPageToken(): Promise<string>;
     getChanges(pageToken: string): Promise<CloudChanges>;
     listFiles(folderId?: string): Promise<CloudFile[]>;
-    setLogger(logger: (msg: string) => void): void;
+    setLogger(logger: (msg: string, level?: string) => void): void;
 
     // === History Support (optional) ===
     readonly supportsHistory: boolean;

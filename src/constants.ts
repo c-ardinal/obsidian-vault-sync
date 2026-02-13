@@ -12,12 +12,29 @@ export const SETTINGS_LIMITS = {
 } as const;
 
 export const DEFAULT_SETTINGS: VaultSyncSettings = {
-    enableStartupSync: true,
+    triggerConfigStrategy: "unified",
+    unifiedTriggers: {
+        enableStartupSync: true,
+        autoSyncIntervalSec: SETTINGS_LIMITS.autoSyncInterval.default,
+        onSaveDelaySec: SETTINGS_LIMITS.onSaveDelay.default,
+        onModifyDelaySec: SETTINGS_LIMITS.onModifyDelay.default,
+        onLayoutChangeDelaySec: SETTINGS_LIMITS.onLayoutChangeDelay.default,
+    },
+    desktopTriggers: {
+        enableStartupSync: true,
+        autoSyncIntervalSec: SETTINGS_LIMITS.autoSyncInterval.default,
+        onSaveDelaySec: SETTINGS_LIMITS.onSaveDelay.default,
+        onModifyDelaySec: SETTINGS_LIMITS.onModifyDelay.default,
+        onLayoutChangeDelaySec: SETTINGS_LIMITS.onLayoutChangeDelay.default,
+    },
+    mobileTriggers: {
+        enableStartupSync: true,
+        autoSyncIntervalSec: SETTINGS_LIMITS.autoSyncInterval.default,
+        onSaveDelaySec: SETTINGS_LIMITS.onSaveDelay.default,
+        onModifyDelaySec: SETTINGS_LIMITS.onModifyDelay.default,
+        onLayoutChangeDelaySec: SETTINGS_LIMITS.onLayoutChangeDelay.default,
+    },
     enableAutoSyncInInterval: true,
-    autoSyncIntervalSec: SETTINGS_LIMITS.autoSyncInterval.default,
-    onSaveDelaySec: SETTINGS_LIMITS.onSaveDelay.default,
-    onModifyDelaySec: SETTINGS_LIMITS.onModifyDelay.default,
-    onLayoutChangeDelaySec: SETTINGS_LIMITS.onLayoutChangeDelay.default,
     concurrency: SETTINGS_LIMITS.concurrency.default,
     notificationLevel: "standard",
     conflictResolutionStrategy: "smart-merge",

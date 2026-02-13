@@ -80,6 +80,7 @@ ObsidianVaultSync/           ← App Root (設定で変更可)
 | [競合解決仕様](spec/conflict-resolution.md) | 3-wayマージ / 楽観的ロック / 分散ロック / ancestorHashライフサイクル |
 | [設定仕様](spec/settings.md)                | 全設定項目 / 同期スコープ / 除外パターン                             |
 | [履歴機能仕様](spec/history.md)             | リビジョン管理 / Diff表示 / ロールバック                             |
+| [ログ出力仕様](spec/logging.md)             | ログレベル / バッファリング / 軽量化ロジック                         |
 
 ## 3. テスト仕様（分冊）
 

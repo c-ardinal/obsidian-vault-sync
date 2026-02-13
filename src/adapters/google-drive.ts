@@ -64,17 +64,17 @@ export class GoogleDriveAdapter implements CloudAdapter {
         return sanitized;
     }
 
-    private logger: ((msg: string) => void) | null = null;
-    setLogger(logger: (msg: string) => void) {
+    private logger: ((msg: string, level?: string) => void) | null = null;
+    setLogger(logger: (msg: string, level?: string) => void) {
         this.logger = logger;
     }
 
     // Callback for fatal auth errors (e.g. invalid grant)
     public onAuthFailure: (() => void) | null = null;
 
-    private async log(msg: string) {
-        console.log(`VaultSync: ${msg}`);
-        if (this.logger) this.logger(msg);
+    private async log(msg: string, level: string = "debug") {
+        console.log(`VaultSync: [${level.toUpperCase()}] ${msg}`);
+        if (this.logger) this.logger(msg, level);
     }
 
     updateConfig(
@@ -255,13 +255,14 @@ export class GoogleDriveAdapter implements CloudAdapter {
             if ((response.status === 429 || response.status >= 500) && retryCount < MAX_RETRIES) {
                 // Check connectivity
                 if (!window.navigator.onLine) {
-                    await this.log("Network offline. Waiting for connection...");
+                    await this.log("Network offline. Waiting for connection...", "warn");
                     await this.waitForOnline();
                 }
 
                 const backoffDelay = Math.pow(2, retryCount) * 1000 + Math.random() * 500;
                 await this.log(
                     `API Error ${response.status}. Retrying in ${Math.round(backoffDelay)}ms (Attempt ${retryCount + 1}/${MAX_RETRIES})...`,
+                    "warn",
                 );
                 await new Promise((resolve) => setTimeout(resolve, backoffDelay));
                 return this.fetchWithAuth(url, options, retryCount + 1);
@@ -298,12 +299,15 @@ export class GoogleDriveAdapter implements CloudAdapter {
             const isNetworkError = e instanceof TypeError && e.message === "Failed to fetch";
             if (isNetworkError && retryCount < 3) {
                 if (!window.navigator.onLine) {
-                    await this.log("Network offline during fetch. Waiting for connection...");
+                    await this.log(
+                        "Network offline during fetch. Waiting for connection...",
+                        "warn",
+                    );
                     await this.waitForOnline();
                 }
 
                 const backoffDelay = Math.pow(2, retryCount) * 2000;
-                await this.log(`Network error. Retrying in ${backoffDelay}ms...`);
+                await this.log(`Network error. Retrying in ${backoffDelay}ms...`, "warn");
                 await new Promise((resolve) => setTimeout(resolve, backoffDelay));
                 return this.fetchWithAuth(url, options, retryCount + 1);
             }
@@ -341,6 +345,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
     private async refreshTokens() {
         await this.log(
             `Refreshing tokens... ClientID present: ${!!this.clientId}, Secret present: ${!!this.clientSecret}, RT present: ${!!this.refreshToken}`,
+            "system",
         );
 
         const body = new URLSearchParams({
@@ -374,7 +379,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
 
         this.accessToken = data.access_token;
         if (data.refresh_token) this.refreshToken = data.refresh_token;
-        await this.log("Token refresh successful.");
+        await this.log("Token refresh successful.", "system");
     }
 
     private async ensureRootFolders(): Promise<string> {
@@ -387,7 +392,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
                 return this.vaultRootId;
             }
 
-            await this.log("=== ROOT DISCOVERY STARTED ===");
+            await this.log("=== ROOT DISCOVERY STARTED ===", "info");
 
             // 1. Ensure app root folder exists
             if (!this.appRootId) {
@@ -403,10 +408,11 @@ export class GoogleDriveAdapter implements CloudAdapter {
                     this.appRootId = data.files[0].id;
                     await this.log(
                         `Found app root(s): ${data.files.length}. Using: ${this.appRootId}`,
+                        "system",
                     );
                 } else {
                     this.appRootId = await this.createFolder(this.cloudRootFolder);
-                    await this.log(`Created fresh app root: ${this.appRootId}`);
+                    await this.log(`Created fresh app root: ${this.appRootId}`, "system");
                 }
             }
 
@@ -423,12 +429,14 @@ export class GoogleDriveAdapter implements CloudAdapter {
 
             await this.log(
                 `Vault folder search for "${this.vaultName}" returned ${data.files?.length || 0} items`,
+                "system",
             );
 
             if (data.files && data.files.length > 0) {
                 if (data.files.length > 1) {
                     await this.log(
                         `WARNING! Multiple Vault folders detected in app root: ${data.files.map((f: any) => f.id).join(", ")}`,
+                        "warn",
                     );
                     data.files.sort(
                         (a: any, b: any) =>
@@ -436,9 +444,12 @@ export class GoogleDriveAdapter implements CloudAdapter {
                     );
                 }
                 this.vaultRootId = data.files[0].id;
-                await this.log(`Picking vault root from app root: ${this.vaultRootId}`);
+                await this.log(`Picking vault root from app root: ${this.vaultRootId}`, "system");
             } else {
-                await this.log("Vault folder not found in app root. Performing GLOBAL search...");
+                await this.log(
+                    "Vault folder not found in app root. Performing GLOBAL search...",
+                    "info",
+                );
                 const globalQuery = `name = '${escapedVaultName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
                 const globalResp = await this.fetchWithAuth(
                     `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(globalQuery)}&fields=files(id,name,parents,modifiedTime)`,
@@ -448,6 +459,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
                 if (globalData.files && globalData.files.length > 0) {
                     await this.log(
                         `Global search found ${globalData.files.length} possible vaults.`,
+                        "system",
                     );
                     globalData.files.sort(
                         (a: any, b: any) =>
@@ -457,6 +469,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
                     this.vaultRootId = bestMatch.id;
                     await this.log(
                         `Adopting global vault: ${this.vaultRootId} (Parent ID: ${bestMatch.parents?.join(", ")})`,
+                        "system",
                     );
 
                     try {
@@ -464,6 +477,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
                         if (currentParent && currentParent !== this.appRootId) {
                             await this.log(
                                 `Consolidating: Moving manually uploaded vault to ObsidianVaultSync...`,
+                                "system",
                             );
                             await this.fetchWithAuth(
                                 `https://www.googleapis.com/drive/v3/files/${this.vaultRootId}?addParents=${this.appRootId}&removeParents=${currentParent}`,
@@ -473,14 +487,15 @@ export class GoogleDriveAdapter implements CloudAdapter {
                             );
                         }
                     } catch (e) {
-                        await this.log(`Failed to move vault to app root (ignoring): ${e}`);
+                        await this.log(`Failed to move vault to app root (ignoring): ${e}`, "warn");
                     }
                 } else {
                     await this.log(
                         "No existing vault found anywhere. Creating new vault folder in app root...",
+                        "info",
                     );
                     this.vaultRootId = await this.createFolder(this.vaultName, this.appRootId!);
-                    await this.log(`Created new vault root: ${this.vaultRootId}`);
+                    await this.log(`Created new vault root: ${this.vaultRootId}`, "system");
                 }
             }
 

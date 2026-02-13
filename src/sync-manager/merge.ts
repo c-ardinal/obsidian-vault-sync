@@ -516,6 +516,11 @@ export async function pullFileSafely(
                             const remoteContent = await ctx.adapter.downloadFile(fileId || "");
                             await ctx.app.vault.adapter.writeBinary(item.path, remoteContent);
 
+                            // Detect if this is the plugin's own settings file
+                            if (item.path.endsWith("/open-data.json")) {
+                                ctx.settingsUpdated = true;
+                            }
+
                             const stat = await ctx.app.vault.adapter.stat(item.path);
                             const entry = {
                                 fileId: fileId || "",
@@ -528,6 +533,7 @@ export async function pullFileSafely(
                             ctx.index[item.path] = entry;
                             ctx.localIndex[item.path] = { ...entry };
                             await saveLocalIndex(ctx);
+                            ctx.logger.markActionTaken();
                             return true;
                         }
                     }
@@ -624,6 +630,11 @@ export async function pullFileSafely(
                                     normalizedBuffer,
                                 );
 
+                                // Detect if this is the plugin's own settings file
+                                if (item.path.endsWith("/open-data.json")) {
+                                    ctx.settingsUpdated = true;
+                                }
+
                                 const mergedHash = md5(normalizedBuffer);
                                 const remoteNorm = remoteContentStr.replace(/\r\n/g, "\n");
 
@@ -715,6 +726,7 @@ export async function pullFileSafely(
                                 }
 
                                 await releaseMergeLock(ctx, item.path, logPrefix);
+                                ctx.logger.markActionTaken();
                                 return true;
                             }
                         }
@@ -752,6 +764,11 @@ export async function pullFileSafely(
                         await ensureLocalFolder(ctx, item.path);
                         await ctx.app.vault.adapter.writeBinary(item.path, remoteContent);
                         remoteSize = remoteContent.byteLength;
+
+                        // Detect if this is the plugin's own settings file
+                        if (item.path.endsWith("/open-data.json")) {
+                            ctx.settingsUpdated = true;
+                        }
                     } else {
                         const exists = await ctx.app.vault.adapter.exists(item.path);
                         if (exists) {
@@ -778,10 +795,12 @@ export async function pullFileSafely(
                     }
 
                     await ctx.notify("noticeConflictSaved", conflictPath.split("/").pop());
+                    ctx.logger.markActionTaken();
                     return true;
                 } else {
                     await ctx.log(
                         `[${logPrefix}] Skipping redundant update (already in sync): ${item.path}`,
+                        "debug",
                     );
 
                     if (ctx.localIndex[item.path]?.pendingConflict) {
@@ -799,13 +818,17 @@ export async function pullFileSafely(
                         delete ctx.localIndex[item.path];
                         ctx.dirtyPaths.delete(item.path);
                         await saveLocalIndex(ctx);
+                        ctx.logger.markActionTaken();
                         return true;
                     }
 
                     return true;
                 }
             } catch (err) {
-                await ctx.log(`[${logPrefix}] Conflict check error for ${item.path}: ${err}`);
+                await ctx.log(
+                    `[${logPrefix}] Conflict check error for ${item.path}: ${err}`,
+                    "error",
+                );
                 return false;
             }
         }
@@ -831,9 +854,10 @@ export async function pullFileSafely(
         await saveLocalIndex(ctx);
 
         await ctx.notify("noticeFilePulled", item.path.split("/").pop());
+        ctx.logger.markActionTaken();
         return true;
     } catch (e) {
-        await ctx.log(`[${logPrefix}] Pull failed: ${item.path} - ${e}`);
+        await ctx.log(`[${logPrefix}] Pull failed: ${item.path} - ${e}`, "error");
         return false;
     } finally {
         ctx.syncingPaths.delete(item.path);

@@ -9,6 +9,7 @@ import type {
     MergeLockEntry,
     CommunicationData,
 } from "./types";
+import { SyncLogger, type LogLevel } from "./logger";
 import {
     type SyncTrigger,
     shouldShowNotification,
@@ -103,6 +104,7 @@ export class SyncManager {
     /** Remote path for communication.json (merge locks, device messaging) */
     private communicationPath: string = "";
 
+    public logger: SyncLogger;
     private logFolder: string;
     private revisionCache: RevisionCache;
 
@@ -140,7 +142,9 @@ export class SyncManager {
 
     private onActivityStart: () => void = () => {};
     private onActivityEnd: () => void = () => {};
+    public onSettingsUpdated: () => Promise<void> = async () => {};
     private isSpinning = false;
+    public settingsUpdated = false;
 
     private startActivity() {
         if (!this.isSpinning) {
@@ -176,7 +180,14 @@ export class SyncManager {
             "sync-index.json",
             "communication.json",
         );
-        this.adapter.setLogger((msg) => this.log(msg));
+
+        this.logger = new SyncLogger({
+            onWrite: (line) => this.writeToLogFile(line),
+            enableLogging: this.settings.enableLogging,
+            isDeveloperMode: this.settings.isDeveloperMode,
+        });
+
+        this.adapter.setLogger((msg, level) => this.log(msg, (level as LogLevel) || "debug"));
         this.revisionCache = new RevisionCache(this.app, this.pluginDir);
     }
 
@@ -193,19 +204,27 @@ export class SyncManager {
         this.onActivityEnd = onEnd;
     }
 
-    async log(message: string) {
-        const now = new Date();
-        // Use local timezone for timestamp
-        const timestamp = now.toLocaleString("ja-JP", {
-            timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    /**
+     * Live-update logger options when settings change.
+     */
+    public updateLoggerOptions() {
+        this.logger.setOptions({
+            enableLogging: this.settings.enableLogging,
+            isDeveloperMode: this.settings.isDeveloperMode,
         });
-        const line = `[${timestamp}] ${message}\n`;
-        console.log(`VaultSync: ${message}`);
+    }
 
-        if (!this.settings.enableLogging) return;
+    async log(message: string, level: LogLevel = "info") {
+        await this.logger.log(level, message);
+    }
 
+    /**
+     * Internal disk-writing logic.
+     * Only called by SyncLogger when it decides to persist.
+     */
+    private async writeToLogFile(line: string) {
         try {
-            // Use local timezone for file name
+            const now = new Date();
             const year = now.getFullYear();
             const month = String(now.getMonth() + 1).padStart(2, "0");
             const day = String(now.getDate()).padStart(2, "0");
@@ -247,10 +266,11 @@ export class SyncManager {
         const show = shouldShowNotification(key, this.currentTrigger, level);
 
         if (show) {
+            this.logger.markNoticeShown();
             new Notice(message);
-            await this.log(`[Notice] ${message}`);
+            await this.logger.notice(message);
         } else {
-            await this.log(`[Silent] ${message}`);
+            await this.logger.info(`[Silent] ${message}`);
         }
     }
 

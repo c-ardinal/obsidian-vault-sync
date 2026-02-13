@@ -9,6 +9,7 @@ import type {
     CommunicationData,
 } from "./types";
 import type { SyncTrigger } from "./notification-matrix";
+import type { SyncLogger, LogLevel } from "./logger";
 
 /**
  * Shared context interface for extracted sync-manager sub-modules.
@@ -22,6 +23,7 @@ export interface SyncContext {
     app: App;
     adapter: CloudAdapter;
     settings: SyncManagerSettings;
+    logger: SyncLogger;
     t: (key: string) => string;
 
     // === Paths ===
@@ -58,17 +60,19 @@ export interface SyncContext {
     forceCleanupNextSync: boolean;
     indexLoadFailed: boolean;
     isSpinning: boolean;
+    settingsUpdated: boolean;
 
     // === Caches ===
     revisionCache: RevisionCache;
 
     // === Utility Methods (remain on SyncManager, called via ctx) ===
-    log: (message: string) => Promise<void>;
+    log: (message: string, level?: LogLevel) => Promise<void>;
     notify: (key: string, suffix?: string) => Promise<void>;
     startActivity: () => void;
     endActivity: () => void;
     onActivityStart: () => void;
     onActivityEnd: () => void;
+    onSettingsUpdated: () => Promise<void>;
 
     // === Delegate Methods (called via ctx so vi.spyOn on facade class works) ===
     smartPull: () => Promise<boolean>;

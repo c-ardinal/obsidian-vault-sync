@@ -2,17 +2,23 @@ export const DATA_LOCAL_DIR = "data/local";
 export const DATA_REMOTE_DIR = "data/remote";
 export const DATA_FLEXIBLE_DIR = "data/flexible";
 
-export interface VaultSyncSettings {
-    // Sync Triggers
+export interface TriggerSettings {
     enableStartupSync: boolean;
-    // DEPRECATED/MOVED to Developer: startupDelaySec: number;
-
-    enableAutoSyncInInterval: boolean;
     autoSyncIntervalSec: number;
-
     onSaveDelaySec: number;
     onModifyDelaySec: number;
     onLayoutChangeDelaySec: number;
+}
+
+export interface VaultSyncSettings {
+    // Sync Triggers Strategy
+    triggerConfigStrategy: "unified" | "per-platform";
+    unifiedTriggers: TriggerSettings;
+    desktopTriggers: TriggerSettings;
+    mobileTriggers: TriggerSettings;
+
+    // Internal hidden state (updated based on interval)
+    enableAutoSyncInInterval: boolean;
 
     // Performance
     concurrency: number; // Max Concurrent Uploads

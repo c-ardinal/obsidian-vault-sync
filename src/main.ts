@@ -25,6 +25,18 @@ export default class VaultSync extends Plugin {
     private lastModifyTime = 0;
     private mobileSyncFabEl: HTMLElement | null = null;
     private autoSyncInterval: number | null = null;
+    private settingTab: VaultSyncSettingTab | null = null;
+
+    /**
+     * Resolves the effective sync triggers for the current device and strategy.
+     */
+    get currentTriggers(): import("./types/settings").TriggerSettings {
+        if (!this.settings) return DEFAULT_SETTINGS.unifiedTriggers;
+        if (this.settings.triggerConfigStrategy === "unified") {
+            return this.settings.unifiedTriggers;
+        }
+        return Platform.isMobile ? this.settings.mobileTriggers : this.settings.desktopTriggers;
+    }
 
     async onload() {
         // 1. Initialize adapter first with defaults
@@ -50,13 +62,24 @@ export default class VaultSync extends Plugin {
             this.manifest.dir || "",
             t,
         );
+        // Detect and apply remote settings updates
+        this.syncManager.onSettingsUpdated = async () => {
+            await this.loadSettings();
+            this.setupAutoSyncInterval();
+            // Refresh settings UI if open
+            if (this.settingTab) {
+                this.settingTab.display();
+            }
+        };
 
         // 5. Establish Identity & Log Folder (loads local-index.json)
         // This is the earliest point where we can log to the correct device-specific folder.
         await this.syncManager.loadLocalIndex();
 
-        console.log(`[VaultSync] === Plugin Startup: version=${this.manifest.version} ===`);
-        await this.syncManager.log(`=== Plugin Startup: version=${this.manifest.version} ===`);
+        await this.syncManager.log(
+            `=== Plugin Startup: version=${this.manifest.version} ===`,
+            "system",
+        );
 
         // Handle Token Expiry / Revocation
         this.adapter.onAuthFailure = async () => {
@@ -102,11 +125,12 @@ export default class VaultSync extends Plugin {
         );
 
         // 0. Startup Grace Period
-        this.app.workspace.onLayoutReady(() => {
-            if (this.settings.enableStartupSync) {
+        this.app.workspace.onLayoutReady(async () => {
+            if (this.currentTriggers.enableStartupSync) {
                 window.setTimeout(async () => {
-                    this.syncManager.log(
+                    await this.syncManager.log(
                         "Startup grace period ended. Triggering initial Smart Sync.",
+                        "system",
                     );
 
                     // First time sync -> "initial-sync" (loud). Subsequent -> "startup-sync" (quiet).
@@ -124,7 +148,10 @@ export default class VaultSync extends Plugin {
                 }, this.settings.startupDelaySec * 1000);
             } else {
                 this.isReady = true;
-                this.syncManager.log("Startup sync disabled. Auto-sync hooks enabled.");
+                await this.syncManager.log(
+                    "Startup sync disabled. Auto-sync hooks enabled.",
+                    "system",
+                );
             }
         });
 
@@ -175,7 +202,8 @@ export default class VaultSync extends Plugin {
             });
         }
 
-        this.addSettingTab(new VaultSyncSettingTab(this.app, this));
+        this.settingTab = new VaultSyncSettingTab(this.app, this);
+        this.addSettingTab(this.settingTab);
 
         this.setupAutoSyncInterval();
         this.registerTriggers();
@@ -246,6 +274,8 @@ export default class VaultSync extends Plugin {
         if (this.mobileSyncFabEl)
             targets.push({ element: this.mobileSyncFabEl, originalIcon: "sync" });
 
+        await this.syncManager.log("[Trigger] Activated via manual", "system");
+
         if (targets.length > 0) {
             await this.performSyncOperation(targets, () =>
                 this.syncManager.requestSmartSync("manual-sync"),
@@ -296,12 +326,13 @@ export default class VaultSync extends Plugin {
 
         // 1. Interval - use Smart Sync for regular intervals
         if (
-            this.settings.autoSyncIntervalSec !== SETTINGS_LIMITS.autoSyncInterval.disabled &&
-            this.settings.autoSyncIntervalSec >= SETTINGS_LIMITS.autoSyncInterval.min
+            this.currentTriggers.autoSyncIntervalSec !==
+                SETTINGS_LIMITS.autoSyncInterval.disabled &&
+            this.currentTriggers.autoSyncIntervalSec >= SETTINGS_LIMITS.autoSyncInterval.min
         ) {
             this.autoSyncInterval = window.setInterval(() => {
                 this.triggerSmartSync("interval");
-            }, this.settings.autoSyncIntervalSec * 1000);
+            }, this.currentTriggers.autoSyncIntervalSec * 1000);
             this.registerInterval(this.autoSyncInterval);
         }
     }
@@ -328,9 +359,10 @@ export default class VaultSync extends Plugin {
         // should NOT interrupt. The 'modify' trigger (debounced) will handle it eventually.
         if (source === "interval") {
             const timeSinceModify = Date.now() - this.lastModifyTime;
-            if (timeSinceModify < this.settings.onModifyDelaySec * 1000) {
+            if (timeSinceModify < this.currentTriggers.onModifyDelaySec * 1000) {
                 await this.syncManager.log(
                     `[Trigger] Skipped ${source} trigger (active editing detected: ${timeSinceModify}ms ago)`,
+                    "system",
                 );
                 return;
             }
@@ -342,7 +374,7 @@ export default class VaultSync extends Plugin {
             return;
         }
 
-        await this.syncManager.log(`[Trigger] Activated via ${source}`);
+        await this.syncManager.log(`[Trigger] Activated via ${source}`, "system");
 
         // Animation is handled via Activity Callbacks if changes are found
         await this.syncManager.requestSmartSync(trigger);
@@ -368,32 +400,36 @@ export default class VaultSync extends Plugin {
                         const originalCallback = cmd.callback;
                         cmd.callback = async (...args: any[]) => {
                             this.lastSaveRequestTime = Date.now();
-                            await this.syncManager.log(`[Trigger] Manual save detected: ${id}`);
+                            await this.syncManager.log(
+                                `[Trigger] Manual save detected: ${id}`,
+                                "system",
+                            );
 
-                            if (this.settings.onSaveDelaySec === 0) {
+                            if (this.currentTriggers.onSaveDelaySec === 0) {
                                 this.triggerSmartSync("save");
                             } else {
                                 window.setTimeout(() => {
                                     this.triggerSmartSync("save");
-                                }, this.settings.onSaveDelaySec * 1000);
+                                }, this.currentTriggers.onSaveDelaySec * 1000);
                             }
                             return originalCallback.apply(cmd, args);
                         };
                     } else if (cmd.checkCallback) {
                         const originalCheckCallback = cmd.checkCallback;
-                        cmd.checkCallback = (checking: boolean) => {
+                        cmd.checkCallback = async (checking: boolean) => {
                             if (!checking) {
                                 this.lastSaveRequestTime = Date.now();
-                                this.syncManager.log(
+                                await this.syncManager.log(
                                     `[Trigger] Manual save detected (check): ${id}`,
+                                    "system",
                                 );
 
-                                if (this.settings.onSaveDelaySec === 0) {
+                                if (this.currentTriggers.onSaveDelaySec === 0) {
                                     this.triggerSmartSync("save");
                                 } else {
                                     window.setTimeout(() => {
                                         this.triggerSmartSync("save");
-                                    }, this.settings.onSaveDelaySec * 1000);
+                                    }, this.currentTriggers.onSaveDelaySec * 1000);
                                 }
                             }
                             return originalCheckCallback.call(cmd, checking);
@@ -421,19 +457,24 @@ export default class VaultSync extends Plugin {
                 // If so, trigger immediately (bypass debounce)
                 const timeSinceLastSave = Date.now() - this.lastSaveRequestTime;
                 if (timeSinceLastSave < 5000) {
-                    await this.syncManager.log(`[Trigger] Fast-tracking sync due to recent save`);
+                    await this.syncManager.log(
+                        `[Trigger] Fast-tracking sync due to recent save`,
+                        "system",
+                    );
                     if (modifyTimeout) window.clearTimeout(modifyTimeout);
                     this.triggerSmartSync("save");
                     return;
                 }
 
                 // Debounce the actual sync for auto-saves
-                if (this.settings.onModifyDelaySec === SETTINGS_LIMITS.onModifyDelay.disabled)
+                if (
+                    this.currentTriggers.onModifyDelaySec === SETTINGS_LIMITS.onModifyDelay.disabled
+                )
                     return;
                 if (modifyTimeout) window.clearTimeout(modifyTimeout);
                 modifyTimeout = window.setTimeout(() => {
                     this.triggerSmartSync("modify");
-                }, this.settings.onModifyDelaySec * 1000);
+                }, this.currentTriggers.onModifyDelaySec * 1000);
             }),
         );
 
@@ -478,16 +519,16 @@ export default class VaultSync extends Plugin {
             this.app.workspace.on("layout-change", () => {
                 if (!this.isReady) return;
                 if (
-                    this.settings.onLayoutChangeDelaySec ===
+                    this.currentTriggers.onLayoutChangeDelaySec ===
                     SETTINGS_LIMITS.onLayoutChangeDelay.disabled
                 )
                     return;
-                if (this.settings.onLayoutChangeDelaySec === 0) {
+                if (this.currentTriggers.onLayoutChangeDelaySec === 0) {
                     this.triggerSmartSync("layout-change");
                 } else {
                     window.setTimeout(() => {
                         this.triggerSmartSync("layout-change");
-                    }, this.settings.onLayoutChangeDelaySec * 1000);
+                    }, this.currentTriggers.onLayoutChangeDelaySec * 1000);
                 }
             }),
         );
@@ -581,6 +622,32 @@ export default class VaultSync extends Plugin {
         }
 
         this.settings = Object.assign({}, DEFAULT_SETTINGS, loadedSettings);
+
+        // MIGRATION: Structured Triggers
+        if (!(this.settings as any).triggerConfigStrategy) {
+            this.settings.triggerConfigStrategy = "unified";
+            const oldSettings = loadedSettings as any;
+            if (
+                oldSettings.autoSyncIntervalSec !== undefined ||
+                oldSettings.enableStartupSync !== undefined
+            ) {
+                const triggers = {
+                    enableStartupSync: oldSettings.enableStartupSync ?? true,
+                    autoSyncIntervalSec:
+                        oldSettings.autoSyncIntervalSec ?? SETTINGS_LIMITS.autoSyncInterval.default,
+                    onSaveDelaySec:
+                        oldSettings.onSaveDelaySec ?? SETTINGS_LIMITS.onSaveDelay.default,
+                    onModifyDelaySec:
+                        oldSettings.onModifyDelaySec ?? SETTINGS_LIMITS.onModifyDelay.default,
+                    onLayoutChangeDelaySec:
+                        oldSettings.onLayoutChangeDelaySec ??
+                        SETTINGS_LIMITS.onLayoutChangeDelay.default,
+                };
+                this.settings.unifiedTriggers = { ...triggers };
+                this.settings.desktopTriggers = { ...triggers };
+                this.settings.mobileTriggers = { ...triggers };
+            }
+        }
 
         // SEC-010: Initialize SecureStorage early to use its Keychain methods
         this.secureStorage = new SecureStorage(
@@ -886,9 +953,9 @@ class VaultSyncSettingTab extends PluginSettingTab {
                     case "toggle":
                         setting.addToggle((toggle) =>
                             toggle
-                                .setValue(this.plugin.settings[item.key] as boolean)
+                                .setValue(this.getSettingValue(item.key) as boolean)
                                 .onChange(async (val) => {
-                                    (this.plugin.settings as any)[item.key] = val;
+                                    this.setSettingValue(item.key, val);
                                     await this.plugin.saveSettings();
                                     if (item.onChange) await item.onChange(val, this.plugin);
                                 }),
@@ -896,13 +963,13 @@ class VaultSyncSettingTab extends PluginSettingTab {
                         break;
                     case "text":
                         setting.addText((text) => {
-                            text.setValue(String(this.plugin.settings[item.key] || ""))
+                            text.setValue(String(this.getSettingValue(item.key) || ""))
                                 .setPlaceholder(item.placeholder || "")
                                 .onChange(async (val) => {
                                     if (item.onChange) {
                                         await item.onChange(val, this.plugin);
                                     } else {
-                                        (this.plugin.settings as any)[item.key] = val;
+                                        this.setSettingValue(item.key, val);
                                         await this.plugin.saveSettings();
                                     }
                                 });
@@ -910,10 +977,10 @@ class VaultSyncSettingTab extends PluginSettingTab {
                         break;
                     case "textarea":
                         setting.addTextArea((text) => {
-                            text.setValue(String(this.plugin.settings[item.key] || ""))
+                            text.setValue(String(this.getSettingValue(item.key) || ""))
                                 .setPlaceholder(item.placeholder || "")
                                 .onChange(async (val) => {
-                                    (this.plugin.settings as any)[item.key] = val;
+                                    this.setSettingValue(item.key, val);
                                     await this.plugin.saveSettings();
                                     if (item.onChange) await item.onChange(val, this.plugin);
                                 });
@@ -931,13 +998,9 @@ class VaultSyncSettingTab extends PluginSettingTab {
                                 }
                             }
                             dropdown
-                                .setValue(String(this.plugin.settings[item.key]))
+                                .setValue(String(this.getSettingValue(item.key)))
                                 .onChange(async (val) => {
-                                    // Handle numeric strings back to number if needed?
-                                    // Usually settings are typed. Dropdown values are strings.
-                                    // conflictStrategy is string. notificationLevel is string.
-                                    // So direct assignment is fine for string types.
-                                    (this.plugin.settings as any)[item.key] = val;
+                                    this.setSettingValue(item.key, val);
                                     await this.plugin.saveSettings();
                                     if (item.onChange) await item.onChange(val, this.plugin);
                                 });
@@ -945,7 +1008,7 @@ class VaultSyncSettingTab extends PluginSettingTab {
                         break;
                     case "number":
                         setting.addText((text) => {
-                            text.setValue(String(this.plugin.settings[item.key]))
+                            text.setValue(String(this.getSettingValue(item.key)))
                                 .setPlaceholder(item.limits ? String(item.limits.default) : "")
                                 .onChange(async (val) => {
                                     const numVal = this.validateNumber(
@@ -955,7 +1018,7 @@ class VaultSyncSettingTab extends PluginSettingTab {
                                         item.limits?.default ?? 0,
                                         item.limits?.disabled,
                                     );
-                                    (this.plugin.settings as any)[item.key] = numVal;
+                                    this.setSettingValue(item.key, numVal);
                                     await this.plugin.saveSettings();
                                     if (item.onChange) await item.onChange(numVal, this.plugin);
                                 });
@@ -981,5 +1044,25 @@ class VaultSyncSettingTab extends PluginSettingTab {
         if (disabledValue !== undefined && num === disabledValue) return num;
         if (num < min || num > max) return defaultValue;
         return num;
+    }
+
+    private getSettingValue(key: string): any {
+        if (key.includes(".")) {
+            // Path-based access: "nested.key"
+            return key.split(".").reduce((o, i) => (o as any)?.[i], this.plugin.settings);
+        }
+        return (this.plugin.settings as any)[key];
+    }
+
+    private setSettingValue(key: string, value: any): void {
+        if (key.includes(".")) {
+            // Path-based update: "nested.key"
+            const parts = key.split(".");
+            const last = parts.pop()!;
+            const target = parts.reduce((o, i) => (o as any)[i], this.plugin.settings);
+            (target as any)[last] = value;
+        } else {
+            (this.plugin.settings as any)[key] = value;
+        }
     }
 }

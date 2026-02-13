@@ -12,6 +12,7 @@ const DEFAULT_SETTINGS: SyncManagerSettings = {
     notificationLevel: "standard",
     conflictResolutionStrategy: "smart-merge",
     enableLogging: false,
+    isDeveloperMode: false,
     exclusionPatterns: "",
     syncAppearance: true,
     syncCommunityPlugins: true,

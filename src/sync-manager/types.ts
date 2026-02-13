@@ -3,6 +3,7 @@ export interface SyncManagerSettings {
     notificationLevel: "verbose" | "standard" | "error";
     conflictResolutionStrategy: "smart-merge" | "force-local" | "force-remote" | "always-fork";
     enableLogging: boolean;
+    isDeveloperMode: boolean;
     exclusionPatterns: string;
 
     // Sync Scope Options
