@@ -52,6 +52,15 @@ class MockCloudAdapter implements CloudAdapter {
     });
     downloadFile = async (id: string) => new TextEncoder().encode("{}").buffer;
     deleteFile = async (id: string) => {};
+    moveFile = async (fileId: string, newName: string, newParentPath: string | null) => ({
+        id: fileId,
+        name: newName,
+        mtime: Date.now(),
+        size: 0,
+        path: newParentPath ? `${newParentPath}/${newName}` : newName,
+        kind: "file" as const,
+        hash: "m-hash",
+    });
     getFileMetadata = async (p: string) =>
         p.includes("idx.json") ? ({ id: "idx", mtime: 200, hash: "h1", size: 100 } as any) : null;
     createFolder = async (n: string, p?: string) => "folder-id";
@@ -295,8 +304,24 @@ const MATRIX: MatrixEntry[] = [
         },
     },
     {
-        // ✏️ 同期: リネーム反映 {file}
+        // ✏️ 同期: リネーム {file}
         key: "noticeFileRenamed",
+        scenarios: {
+            initialSync: { v: "Show", s: "Show" },
+            startupSync: { v: "Show", s: "Show" },
+            manualSync: { v: "Show", s: "Show" },
+            timerSync: { v: "Show", s: "Show" },
+            saveSync: { v: "Show", s: "Show" },
+            modifySync: { v: "Show", s: "Show" },
+            layoutSync: { v: "Show", s: "Show" },
+            fullScan: { v: "Show", s: "Show" },
+            pushConflict: { v: "Show", s: "Show" },
+            pullConflict: { v: "Show", s: "Show" },
+        },
+    },
+    {
+        // 📂 同期: 移動 {file}
+        key: "noticeFileMoved",
         scenarios: {
             initialSync: { v: "Show", s: "Show" },
             startupSync: { v: "Show", s: "Show" },
@@ -478,7 +503,7 @@ const FORMAT_SPECS: FormatSpec[] = [
     },
     { key: "noticeSyncConfirmed", specJa: "✅ [同期] 成功: {file}" },
     { key: "noticeFileTrashed", specJa: "🗑️ [同期] 削除: {file}" },
-    { key: "noticeFileRenamed", specJa: "✏️ [同期] リネーム反映: {file}" },
+    { key: "noticeFileRenamed", specJa: "✏️ [同期] リネーム: {file}" },
     { key: "noticeMergingFile", specJa: "⌛️ [競合] マージ中: {file}" },
     { key: "noticeMergeSuccess", specJa: "✅ [競合] 自動解決されました: {file}" },
     {
@@ -556,6 +581,7 @@ describe("Notification Visibility Matrix", () => {
             "noticeSyncConfirmed",
             "noticeFileTrashed",
             "noticeFileRenamed",
+            "noticeFileMoved",
             // Conflict
             "noticeMergingFile",
             "noticeMergeSuccess",

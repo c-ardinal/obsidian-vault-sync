@@ -115,6 +115,8 @@ export class SyncManager {
     private syncingPaths: Set<string> = new Set();
     /** Folders deleted locally that should be deleted remotely */
     private deletedFolders: Set<string> = new Set();
+    /** Mapping of newly created folders to their source path (for move detection) */
+    private pendingFolderMoves: Map<string, string> = new Map();
     /** Paths deleted during pull (to prevent re-upload as "new" if local deletion fails) */
     private recentlyDeletedFromRemote: Set<string> = new Set();
     /** Flag to interrupt running full scan */
@@ -391,7 +393,10 @@ export class SyncManager {
 
     // === Sync Orchestration (delegated to sync-orchestration.ts) ===
 
-    async requestSmartSync(trigger: SyncTrigger = "manual-sync", scanVault: boolean = false): Promise<void> {
+    async requestSmartSync(
+        trigger: SyncTrigger = "manual-sync",
+        scanVault: boolean = false,
+    ): Promise<void> {
         this.currentTrigger = trigger;
         return _requestSmartSync(this as unknown as SyncContext, scanVault);
     }

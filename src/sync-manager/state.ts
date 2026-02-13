@@ -317,32 +317,40 @@ export function markRenamed(ctx: SyncContext, oldPath: string, newPath: string):
     const newDir = newPath.substring(0, newPath.lastIndexOf("/"));
     const isMove = oldDir !== newDir;
 
-    if (isMove) {
-        if (ctx.dirtyPaths.has(oldPath) && !ctx.index[oldPath]) {
-            ctx.dirtyPaths.delete(oldPath);
-            ctx.log(`[Dirty] Removed (renamed before sync): ${oldPath}`);
-        } else {
-            markDeleted(ctx, oldPath);
-        }
+    // 未同期ファイルのリネーム/移動（oldPath がインデックスになく dirtyPaths にある）
+    if (ctx.dirtyPaths.has(oldPath) && !ctx.index[oldPath]) {
+        ctx.dirtyPaths.delete(oldPath);
         ctx.dirtyPaths.add(newPath);
-        ctx.log(`[Dirty] Marked (move): ${newPath}`);
+        ctx.log(`[Dirty] Removed (renamed before sync): ${oldPath}`);
+        ctx.log(`[Dirty] Marked (renamed before sync): ${newPath}`);
         return;
     }
 
+    // 既存インデックスエントリを移行（リネームでも移動でも共通）
     ctx.dirtyPaths.delete(oldPath);
 
     if (ctx.index[oldPath]) {
-        ctx.index[newPath] = { ...ctx.index[oldPath], forcePush: true };
+        ctx.index[newPath] = {
+            ...ctx.index[oldPath],
+            forcePush: true,
+            pendingMove: { oldPath },
+        };
         delete ctx.index[oldPath];
     }
 
     if (ctx.localIndex[oldPath]) {
-        ctx.localIndex[newPath] = { ...ctx.localIndex[oldPath], forcePush: true };
+        ctx.localIndex[newPath] = {
+            ...ctx.localIndex[oldPath],
+            forcePush: true,
+            pendingMove: { oldPath },
+        };
         delete ctx.localIndex[oldPath];
     }
 
     ctx.dirtyPaths.add(newPath);
-    ctx.log(`[Dirty] Marked (renamed): ${newPath} (Migrated ID)`);
+    ctx.log(
+        `[Dirty] Marked (${isMove ? "moved" : "renamed"}): ${newPath} (Migrated ID from ${oldPath})`,
+    );
 }
 
 export function markFolderRenamed(
@@ -353,18 +361,42 @@ export function markFolderRenamed(
     const oldPrefix = oldFolderPath + "/";
     const newPrefix = newFolderPath + "/";
 
+    // Track folder-level move for optimization in smartPush
+    ctx.pendingFolderMoves.set(newFolderPath, oldFolderPath);
+    ctx.dirtyPaths.add(newFolderPath); // Ensure the folder itself is processed
+
+    // If the old folder was marked for deletion (via previous event),
+    // we remove it since it's now a move.
+    ctx.deletedFolders.delete(oldFolderPath);
+
     for (const oldPath of Object.keys(ctx.index)) {
         if (oldPath.startsWith(oldPrefix)) {
             if (shouldIgnore(ctx, oldPath)) continue;
 
-            ctx.dirtyPaths.add(oldPath);
-            ctx.log(`[Dirty] Marked for deletion (folder rename): ${oldPath}`);
-
             const newPath = newPrefix + oldPath.slice(oldPrefix.length);
-            if (!shouldIgnore(ctx, newPath)) {
-                ctx.dirtyPaths.add(newPath);
-                ctx.log(`[Dirty] Marked for upload (folder rename): ${newPath}`);
+            if (shouldIgnore(ctx, newPath)) continue;
+
+            // インデックスを移行（削除+再追加ではなく Move として追跡）
+            ctx.index[newPath] = {
+                ...ctx.index[oldPath],
+                forcePush: true,
+                pendingMove: { oldPath },
+            };
+            delete ctx.index[oldPath];
+
+            if (ctx.localIndex[oldPath]) {
+                ctx.localIndex[newPath] = {
+                    ...ctx.localIndex[oldPath],
+                    forcePush: true,
+                    pendingMove: { oldPath },
+                };
+                delete ctx.localIndex[oldPath];
             }
+
+            // dirtyPaths を更新
+            ctx.dirtyPaths.delete(oldPath);
+            ctx.dirtyPaths.add(newPath);
+            ctx.log(`[Dirty] Marked (folder move child): ${oldPath} -> ${newPath} (Migrated ID)`);
         }
     }
 }

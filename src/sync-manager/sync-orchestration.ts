@@ -533,7 +533,69 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
         const localBaseEntry = ctx.localIndex[path];
 
         if (!localBaseEntry) {
-            // Check if this fileId exists locally under a different name (Rename in progress)
+            // REMOTE RENAME DETECTION:
+            // Check if this fileId exists locally under a different name
+            const prevPathForId = localIdToPath.get(remoteEntry.fileId);
+            if (prevPathForId && prevPathForId !== path) {
+                // Detected remote rename (A -> B) during initial full scan
+                const oldPath = prevPathForId;
+                const newPath = path;
+
+                // Case A: Local is clean, just rename it
+                if (!ctx.dirtyPaths.has(oldPath)) {
+                    try {
+                        const sourceExists = await ctx.app.vault.adapter.exists(oldPath);
+                        const targetExists = await ctx.app.vault.adapter.exists(newPath);
+
+                        if (sourceExists && !targetExists) {
+                            await ctx.log(
+                                `[Smart Pull] Remote Rename detected (Full Scan): ${oldPath} -> ${newPath}`,
+                            );
+                            await ctx.app.vault.adapter.rename(oldPath, newPath);
+
+                            // Migrate Index
+                            if (ctx.index[oldPath]) {
+                                ctx.index[newPath] = { ...ctx.index[oldPath] };
+                                delete ctx.index[oldPath];
+                            }
+                            if (ctx.localIndex[oldPath]) {
+                                ctx.localIndex[newPath] = { ...ctx.localIndex[oldPath] };
+                                delete ctx.localIndex[oldPath];
+                            }
+
+                            // Update ID map so subsequent iterations see the correct path
+                            localIdToPath.set(remoteEntry.fileId, newPath);
+
+                            await ctx.notify(
+                                "noticeFileMoved",
+                                `${oldPath.split("/").pop()} → ${newPath.split("/").pop()}`,
+                            );
+
+                            // Check if content also changed. If hash matches, we're done with this file.
+                            if (ctx.index[newPath]?.hash === remoteEntry.hash) {
+                                await ctx.log(
+                                    `[Smart Pull] Content matches after rename, skipping download: ${newPath}`,
+                                );
+                                continue;
+                            }
+                            // Otherwise, fall through to download new content to the new path
+                        }
+                    } catch (e) {
+                        await ctx.log(
+                            `[Smart Pull] Failed to rename ${oldPath} -> ${newPath}: ${e}`,
+                        );
+                    }
+                } else {
+                    // Local is dirty (Move/Edit conflict).
+                    // We let it fall through. Since !localBaseEntry[newPath], it will be queued for toDownload[newPath].
+                    // pullFileSafely will then handle the conflict correctly (Smart Merge).
+                    await ctx.log(
+                        `[Smart Pull] Pending local changes on ${oldPath}. Skipping auto-rename for remote move ${newPath}.`,
+                    );
+                }
+            }
+
+            // Check if this fileId exists locally under a different name (Rename in progress locally)
             // If we renamed A -> B locally, remote still sees A.
             // We should NOT download A if we are about to push B (which patches A -> B).
             const renamedLocalPath = localIdToPath.get(remoteEntry.fileId);
@@ -548,7 +610,7 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
                 continue;
             }
 
-            // New file on remote (we don't even have a base for it)
+            // New file on remote (or moved file that needs download)
             toDownload.push({
                 path,
                 fileId: remoteEntry.fileId,
@@ -881,6 +943,17 @@ export async function pullViaChangesAPI(
                         const oldPath = prevPathForId;
                         const newPath = cloudFile.path;
 
+                        // Guard: If local has pending changes on this file (user moved it),
+                        // skip the remote rename — it's likely a stale echo of our own push.
+                        // The user's local intent takes priority; the next Push will sync it.
+                        const localIndexEntry = ctx.index[oldPath];
+                        if (localIndexEntry?.pendingMove || ctx.dirtyPaths.has(oldPath)) {
+                            await ctx.log(
+                                `[Changes API] Remote Rename skipped: ${oldPath} -> ${newPath} (local has pending move/changes)`,
+                            );
+                            continue;
+                        }
+
                         // Detected Remote Rename (A -> B)
                         // We should rename locally to preserve history/content.
 
@@ -943,17 +1016,17 @@ export async function pullViaChangesAPI(
                             await ctx.log(
                                 `[Changes API] Remote Rename: Target ${newPath} exists. Skipping rename to avoid overwrite.`,
                             );
-                            // Collision: A->B, but B exists.
-                            // We can't rename. Old A remains.
-                            // pullFileSafely will update B.
-                            // We should probably disassociate A from this ID in our index to avoid confusion?
-                            // If we leave A with ID 123, and B has ID 123...
-                            // Next time we assume 123 is A again?
-                            // localIdToPath will be rebuilt next run.
-                            // If we don't delete A from index, it stays.
-                            // Safe to leave it? Yes.
                         }
                     }
+                }
+
+                // Guard: If remote hash matches our ancestorHash, it's likely a stale echo
+                // from a move operation that we've already superseded with a push.
+                if (localEntry?.ancestorHash && cloudFile.hash === localEntry.ancestorHash) {
+                    await ctx.log(
+                        `[Changes API] Stale echo detected for ${cloudFile.path} (matches ancestorHash), skipping.`,
+                    );
+                    continue;
                 }
 
                 if (
@@ -1115,6 +1188,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
 
     // === FOLDER DELETION PHASE ===
     let folderDeletedCount = 0;
+    let moveCount = 0;
     if (ctx.deletedFolders.size > 0) {
         ctx.startActivity(); // Spin if folder deletion needed
         await ctx.log(`[Smart Push] Processing ${ctx.deletedFolders.size} deleted folder(s)...`);
@@ -1222,17 +1296,146 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                 if (stat) {
                     // NEW: Handle folders
                     if (stat.type === "folder") {
+                        const oldPath = ctx.pendingFolderMoves.get(path);
+                        if (oldPath) {
+                            try {
+                                // Optimal Folder Move
+                                const oldMeta = await ctx.adapter.getFileMetadata(oldPath);
+                                if (oldMeta?.id) {
+                                    const newName = path.split("/").pop()!;
+                                    const lastSlash = path.lastIndexOf("/");
+                                    const newParentPath =
+                                        lastSlash > 0 ? path.substring(0, lastSlash) : "";
+
+                                    await ctx.adapter.moveFile(oldMeta.id, newName, newParentPath);
+                                    moveCount++;
+                                    ctx.startActivity();
+                                    await ctx.log(
+                                        `[Smart Push] Moved folder: ${oldPath} -> ${path}`,
+                                    );
+                                    await ctx.notify(
+                                        "noticeFileMoved",
+                                        `${oldPath.split("/").pop()} → ${newName}`,
+                                    );
+
+                                    // Cleanup pending moves for children as they are now moved too
+                                    // Since the folder itself was moved, child files no longer
+                                    // need individual Move API calls.
+                                    const oldPrefix = oldPath + "/";
+                                    for (const p of Object.keys(ctx.index)) {
+                                        if (p.startsWith(path + "/")) {
+                                            const entry = ctx.index[p];
+                                            if (entry.pendingMove?.oldPath?.startsWith(oldPrefix)) {
+                                                delete entry.pendingMove;
+                                                delete entry.forcePush;
+                                                if (ctx.localIndex[p]) {
+                                                    delete ctx.localIndex[p].pendingMove;
+                                                    delete ctx.localIndex[p].forcePush;
+                                                }
+                                                // Note: Keep p in dirtyPaths — the file may have
+                                                // content edits that still need uploading.
+                                                // The per-file hash check will skip if unchanged.
+                                            }
+                                        }
+                                    }
+
+                                    ctx.pendingFolderMoves.delete(path);
+                                    ctx.dirtyPaths.delete(path);
+                                    return;
+                                }
+                            } catch (e) {
+                                await ctx.log(
+                                    `[Smart Push] Optimal folder move failed for ${path}, falling back: ${e}`,
+                                );
+                            }
+                        }
+
                         try {
-                            // Create folder on remote
+                            // Create folder on remote (fallback / new folder)
                             await ctx.adapter.ensureFoldersExist([path]);
                             await ctx.log(`[Smart Push] Synced folder: ${path}`);
                             // Remove from dirty paths as it's handled
                             ctx.dirtyPaths.delete(path);
+                            ctx.pendingFolderMoves.delete(path); // Cleanup even on fallback
                             // Note: We don't index folders, so nothing to update in index
                             return;
                         } catch (e) {
                             await ctx.log(`[Smart Push] Failed to sync folder ${path}: ${e}`);
                             return;
+                        }
+                    }
+
+                    // === MOVE DETECTION ===
+                    // If this file has a pendingMove flag, use Move API instead of re-upload.
+                    // This preserves revision history on Google Drive.
+                    const indexEntry = ctx.index[path];
+                    if (indexEntry?.pendingMove && indexEntry.fileId) {
+                        const moveInfo = indexEntry.pendingMove;
+                        try {
+                            const newName = path.split("/").pop()!;
+                            const lastSlash = path.lastIndexOf("/");
+                            const newParentPath = lastSlash > 0 ? path.substring(0, lastSlash) : "";
+
+                            const moved = await ctx.adapter.moveFile(
+                                indexEntry.fileId,
+                                newName,
+                                newParentPath,
+                            );
+
+                            // インデックス更新（pendingMove をクリア）
+                            // hash は moved.hash（リモートの現ハッシュ）を設定。
+                            // Move はコンテンツを変更しないので、ローカルで編集があれば
+                            // 後続のハッシュ比較で検出されアップロードキューに入る。
+                            const updatedEntry = {
+                                ...ctx.index[path],
+                                fileId: moved.id,
+                                mtime: moved.mtime,
+                                size: moved.size,
+                                hash: moved.hash,
+                                lastAction: "pull" as const,
+                                ancestorHash: ctx.localIndex[path]?.ancestorHash || moved.hash,
+                                forcePush: false,
+                                pendingMove: undefined,
+                            };
+                            ctx.index[path] = updatedEntry;
+                            ctx.localIndex[path] = { ...updatedEntry };
+                            moveCount++;
+                            ctx.startActivity();
+
+                            // Determine if this is a rename (same dir) or move (different dir)
+                            const oldDir = moveInfo.oldPath.substring(
+                                0,
+                                moveInfo.oldPath.lastIndexOf("/"),
+                            );
+                            const newDir = path.substring(0, path.lastIndexOf("/"));
+                            const isMove = oldDir !== newDir;
+
+                            if (isMove) {
+                                await ctx.log(`[Smart Push] Moved: ${moveInfo.oldPath} -> ${path}`);
+                                await ctx.notify(
+                                    "noticeFileMoved",
+                                    `${moveInfo.oldPath.split("/").pop()} → ${newName}`,
+                                );
+                            } else {
+                                await ctx.log(
+                                    `[Smart Push] Renamed: ${moveInfo.oldPath} -> ${path}`,
+                                );
+                                await ctx.notify(
+                                    "noticeFileRenamed",
+                                    `${moveInfo.oldPath.split("/").pop()} -> ${newName}`,
+                                );
+                            }
+                            // Don't return — fall through to hash check.
+                            // If content was also edited, it will be detected and uploaded.
+                        } catch (e) {
+                            await ctx.log(
+                                `[Smart Push] Move API failed for ${path}, falling back to re-upload: ${e}`,
+                            );
+                            // Move に失敗した場合は pendingMove をクリアして通常のアップロードにフォールバック
+                            delete indexEntry.pendingMove;
+                            if (ctx.localIndex[path]) {
+                                delete ctx.localIndex[path].pendingMove;
+                            }
                         }
                     }
 
@@ -1326,7 +1529,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
     }
 
     const totalOps = uploadQueue.length + deleteQueue.length;
-    if (totalOps === 0 && folderDeletedCount === 0) {
+    if (totalOps === 0 && folderDeletedCount === 0 && moveCount === 0) {
         await ctx.log("[Smart Push] No changes after filtering.");
         return false;
     }

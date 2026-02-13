@@ -42,6 +42,7 @@ export interface SyncContext {
     dirtyPaths: Set<string>;
     syncingPaths: Set<string>;
     deletedFolders: Set<string>;
+    pendingFolderMoves: Map<string, string>; // newPath -> oldPath
     recentlyDeletedFromRemote: Set<string>;
     isInterrupted: boolean;
     fullScanProgress: FullScanProgress | null;

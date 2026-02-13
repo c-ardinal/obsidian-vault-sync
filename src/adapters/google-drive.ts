@@ -707,6 +707,66 @@ export class GoogleDriveAdapter implements CloudAdapter {
         });
     }
 
+    async moveFile(
+        fileId: string,
+        newName: string,
+        newParentPath: string | null,
+    ): Promise<CloudFile> {
+        // 1. 現在のファイルの親フォルダを取得
+        const currentMeta = await this.fetchWithAuth(
+            `https://www.googleapis.com/drive/v3/files/${fileId}?fields=id,name,parents,modifiedTime,size,md5Checksum`,
+        );
+        const currentFile = await currentMeta.json();
+        const oldParentId = currentFile.parents?.[0];
+
+        // 2. 新しい親フォルダの ID を解決（パスが変わる場合のみ）
+        // newParentPath: null = 親を変更しない, "" = ルートへ移動, "folder/sub" = サブフォルダへ移動
+        let newParentId: string | null = null;
+        if (newParentPath !== null) {
+            // resolveParentId は "/__dummy__" でルートフォルダ ID を返す（parts.length <= 1）
+            newParentId = await this.resolveParentId(
+                (newParentPath ? newParentPath + "/" : "") + "__dummy__",
+                true,
+            );
+        }
+
+        // 3. PATCH リクエストを構築
+        const queryParams: string[] = [`fields=id,name,mimeType,modifiedTime,size,md5Checksum`];
+        if (newParentId && oldParentId && newParentId !== oldParentId) {
+            queryParams.push(`addParents=${newParentId}`);
+            queryParams.push(`removeParents=${oldParentId}`);
+        }
+
+        const metadata: any = { name: newName };
+        const url = `https://www.googleapis.com/drive/v3/files/${fileId}?${queryParams.join("&")}`;
+        const response = await this.fetchWithAuth(url, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(metadata),
+        });
+
+        const data = await response.json();
+
+        // 4. 新しいパスを構築
+        const parentPath = newParentPath !== null ? newParentPath : "";
+        const fullPath = parentPath ? `${parentPath}/${newName}` : newName;
+
+        const result: CloudFile = {
+            id: data.id,
+            path: fullPath,
+            mtime: new Date(data.modifiedTime).getTime(),
+            size: parseInt(data.size || "0"),
+            kind: data.mimeType === "application/vnd.google-apps.folder" ? "folder" : "file",
+            hash: data.md5Checksum,
+        };
+
+        // 5. キャッシュ更新
+        this.idToPathCache.set(result.id, result.path);
+        this.resolvePathCache.set(result.id, result.path);
+
+        return result;
+    }
+
     async createFolder(name: string, parentId?: string): Promise<string> {
         const metadata: any = {
             name: name,
