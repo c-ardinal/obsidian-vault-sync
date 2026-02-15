@@ -1,4 +1,4 @@
-import { CloudAdapter, CloudChanges, CloudFile } from "../types/adapter";
+import { CloudAdapter, CloudChanges, CloudFile, FileRevision } from "../types/adapter";
 import { ICryptoEngine } from "../encryption/interfaces";
 
 /**
@@ -18,7 +18,7 @@ export class EncryptedAdapter implements CloudAdapter {
     ) {
         this.supportsChangesAPI = baseAdapter.supportsChangesAPI;
         this.supportsHash = baseAdapter.supportsHash;
-        this.supportsHistory = false;
+        this.supportsHistory = baseAdapter.supportsHistory;
     }
 
     get name(): string {
@@ -125,6 +125,45 @@ export class EncryptedAdapter implements CloudAdapter {
 
     async listFiles(folderId?: string): Promise<CloudFile[]> {
         return this.baseAdapter.listFiles(folderId);
+    }
+
+    // === History Support (delegated to base adapter with decryption) ===
+
+    async listRevisions(path: string): Promise<FileRevision[]> {
+        if (!this.baseAdapter.listRevisions) {
+            throw new Error("Base adapter does not support listRevisions");
+        }
+        return this.baseAdapter.listRevisions(path);
+    }
+
+    async getRevisionContent(path: string, revisionId: string): Promise<ArrayBuffer> {
+        if (!this.baseAdapter.getRevisionContent) {
+            throw new Error("Base adapter does not support getRevisionContent");
+        }
+        const encryptedContent = await this.baseAdapter.getRevisionContent(path, revisionId);
+
+        if (encryptedContent.byteLength < 12) {
+            throw new Error("Encrypted revision is too short (missing IV).");
+        }
+
+        const iv = new Uint8Array(encryptedContent.slice(0, 12));
+        const ciphertext = encryptedContent.slice(12);
+
+        return await this.engine.decrypt(ciphertext, iv);
+    }
+
+    async setRevisionKeepForever(path: string, revisionId: string, keepForever: boolean): Promise<void> {
+        if (!this.baseAdapter.setRevisionKeepForever) {
+            throw new Error("Base adapter does not support setRevisionKeepForever");
+        }
+        return this.baseAdapter.setRevisionKeepForever(path, revisionId, keepForever);
+    }
+
+    async deleteRevision(path: string, revisionId: string): Promise<void> {
+        if (!this.baseAdapter.deleteRevision) {
+            throw new Error("Base adapter does not support deleteRevision");
+        }
+        return this.baseAdapter.deleteRevision(path, revisionId);
     }
 
     setLogger(logger: (msg: string, level?: string) => void): void {
