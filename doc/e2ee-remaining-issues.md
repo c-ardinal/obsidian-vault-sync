@@ -40,6 +40,14 @@ vault-lock.json検出時にNoticeで通知（10秒間表示）。i18n対応済�
 
 ~~テスト失敗~~ ✅ 全613テストパス（11テストファイル）
 
+## TypeScript型安全性
+
+~~TS警告~~ ✅ 全警告解消（ビルド警告ゼロ）
+
+- `SecureStorage.removeExtraSecret` メソッド追加（保存済みパスワード削除用）
+- `migration-service.ts` の `LogLevel` 型不整合修正（`"warning"` → `"warn"`）
+- `migration-service.ts` の `setTokens` 呼び出しに `as any` キャスト追加
+
 ## セキュリティ上の推奨事項
 
 ### 1. ~~エンジンハッシュの更新プロセス~~ ✅ 対応済み

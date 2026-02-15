@@ -60,7 +60,7 @@ export class MigrationService {
             // Log warning when overriding stale lock
             await this.ctx.log(
                 `[Migration] Overriding stale migration lock from device ${existingLock.deviceId} (older than 24 hours)`,
-                "warning"
+                "warn"
             );
         }
 
@@ -91,7 +91,7 @@ export class MigrationService {
                 `${this.baseAdapter.vaultName}-Temp-Encrypted`,
                 (this.baseAdapter as any).cloudRootFolder,
             );
-            tempAdapter.setTokens(
+            (tempAdapter as any).setTokens(
                 (this.baseAdapter as any).accessToken,
                 (this.baseAdapter as any).refreshToken,
             );
@@ -328,7 +328,7 @@ export class MigrationService {
             if (!primaryId && backupFolder && tempId) {
                 await this.ctx.log(
                     "[Migration] Detected incomplete migration - primary folder missing. Attempting auto-recovery...",
-                    "warning"
+                    "warn"
                 );
                 try {
                     // Complete the migration by renaming temp to primary

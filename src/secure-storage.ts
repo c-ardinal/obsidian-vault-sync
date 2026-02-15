@@ -55,6 +55,16 @@ export class SecureStorage {
     }
 
     /**
+     * Remove an arbitrary secret from Keychain (if available)
+     */
+    async removeExtraSecret(type: string): Promise<void> {
+        if (this.app.secretStorage) {
+            const id = this.getSecretIdFor(type);
+            this.app.secretStorage.setSecret(id, "");
+        }
+    }
+
+    /**
      * Retrieve an arbitrary secret from Keychain (if available)
      */
     async getExtraSecret(type: string): Promise<string | null> {
