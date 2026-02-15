@@ -54,6 +54,11 @@ export interface CloudAdapter {
         mtime: number,
         existingFileId?: string,
     ): Promise<CloudFile>;
+    /**
+     * Delete a file or folder by its cloud ID.
+     * When a folder is deleted, the cloud provider handles cascading
+     * deletion of all children automatically.
+     */
     deleteFile(fileId: string): Promise<void>;
     /**
      * Move/rename a file on the cloud storage without re-uploading content.

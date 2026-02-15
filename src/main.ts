@@ -167,6 +167,7 @@ export default class VaultSync extends Plugin {
                             );
                             this.settings.e2eeEnabled = true;
                             await this.saveSettings();
+                            new Notice(t("noticeE2EEAutoEnabled"), 10000);
                         }
                     }
 

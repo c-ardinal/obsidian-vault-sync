@@ -17,55 +17,24 @@
 
 ## 未対応課題（要実装）
 
-### 1. デュアルハッシュトラッキングの完全実装（優先度：高）
+### 1. ~~デュアルハッシュトラッキングの完全実装（優先度：高）~~ ✅ 対応済み
 
-**問題**: AES-GCMの特性により、同一平文でもIVが異なると暗号文が変わるため、現在の単一ハッシュでは偽の変更検知が発生する
+### 2. ~~履歴機能のE2EE対応（優先度：中）~~ ✅ 対応済み
 
-**必要な実装**:
-- sync-orchestrationでアップロード時にplainHashを計算・保存
-- 変更検知時にplainHashを比較（暗号化されたhashではなく）
-- マージ時のancestorHashもplainHashベースに変更
+EncryptedAdapterにlistRevisions, getRevisionContent, setRevisionKeepForever, deleteRevisionを実装。
+supportsHistoryをbaseAdapter.supportsHistoryに委譲。
 
-**実装箇所**:
-- `src/sync-manager/sync-orchestration.ts`: pushFile関数でplainHash計算
-- `src/sync-manager/merge.ts`: plainHashベースの比較ロジック
+### 3. ~~ArrayBufferの安全な処理（優先度：低）~~ ✅ 対応済み
 
-### 2. 履歴機能のE2EE対応（優先度：中）
+`combined.buffer.slice(byteOffset, byteOffset + byteLength)` で分離済み。
 
-**問題**: EncryptedAdapterがsupportsHistory=falseに固定されており、E2EE有効時に履歴機能が使えない
+### 4. ~~フォルダ削除APIの明確化（優先度：低）~~ ✅ 対応済み
 
-**解決案**:
-- リビジョンダウンロード時に復号化処理を追加
-- EncryptedAdapterにlistRevisions, getRevisionContentメソッドを実装
-- supportsHistoryをbaseAdapter.supportsHistoryに委譲
+CloudAdapter.deleteFileにJSDocコメントでフォルダ削除もサポートすることを明記。
 
-### 3. ArrayBufferの安全な処理（優先度：低）
+### 5. ~~E2EE自動有効化時の通知（優先度：低）~~ ✅ 対応済み
 
-**問題**: combined.bufferが共有ArrayBufferを返す可能性
-
-**解決案**:
-```typescript
-const isolated = combined.buffer.slice(
-    combined.byteOffset,
-    combined.byteOffset + combined.byteLength
-);
-```
-
-### 4. フォルダ削除APIの明確化（優先度：低）
-
-**問題**: deleteFileメソッドでフォルダIDを削除する動作が不明確
-
-**解決案**:
-- CloudAdapterインターフェースにdeleteFolderメソッドを追加
-- またはdeleteFileのドキュメントでフォルダ削除もサポートすることを明記
-
-### 5. E2EE自動有効化時の通知（優先度：低）
-
-**問題**: リモートにvault-lock.jsonがある場合、無言でE2EEが有効化される
-
-**解決案**:
-- Noticeで「このVaultは他デバイスで暗号化されています」と通知
-- vault-lock.jsonの構造検証を追加
+vault-lock.json検出時にNoticeで通知（10秒間表示）。i18n対応済み。
 
 ## テスト課題
 

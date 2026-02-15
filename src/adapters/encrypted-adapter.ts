@@ -87,8 +87,9 @@ export class EncryptedAdapter implements CloudAdapter {
         combined.set(iv, 0);
         combined.set(new Uint8Array(ciphertext), iv.byteLength);
 
-        // Upload
-        return await this.baseAdapter.uploadFile(path, combined.buffer, mtime, existingFileId);
+        // Upload (isolate buffer to avoid shared ArrayBuffer issues)
+        const isolated = combined.buffer.slice(combined.byteOffset, combined.byteOffset + combined.byteLength);
+        return await this.baseAdapter.uploadFile(path, isolated, mtime, existingFileId);
     }
 
     async deleteFile(fileId: string): Promise<void> {

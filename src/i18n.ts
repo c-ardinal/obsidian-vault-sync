@@ -116,6 +116,8 @@ export const i18n: Record<string, Record<string, string>> = {
         noticeMigrationStarted: "🚀 [E2EE] Migration started. Please do not close Obsidian.",
         noticeMigrationComplete: "✅ [E2EE] Migration complete! Your vault is now encrypted.",
         noticeMigrationFailed: "❌ [E2EE] Migration failed! Check logs for details.",
+        noticeE2EEAutoEnabled:
+            "🔒 [E2EE] This vault is encrypted on another device. Please enter your password to unlock.",
 
         noticeMergeSuccess: "✅ [Conflict] Auto-resolved",
         noticeCheckOtherDevice:
@@ -297,6 +299,8 @@ export const i18n: Record<string, Record<string, string>> = {
         noticeMigrationStarted: "🚀 [E2EE] 移行を開始しました。Obsidianを閉じないでください。",
         noticeMigrationComplete: "✅ [E2EE] 移行完了！Vaultが暗号化されました。",
         noticeMigrationFailed: "❌ [E2EE] 移行失敗。ログを確認してください。",
+        noticeE2EEAutoEnabled:
+            "🔒 [E2EE] このVaultは他デバイスで暗号化されています。パスワードを入力してロックを解除してください。",
         noticeMergeSuccess: "✅ [競合] 自動解決されました",
         noticeCheckOtherDevice:
             "⚠️ [競合] マージに失敗した可能性が有ります。詳細は他デバイスを確認してください",
