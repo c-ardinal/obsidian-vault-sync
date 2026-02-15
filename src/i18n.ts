@@ -86,6 +86,11 @@ export const i18n: Record<string, Record<string, string>> = {
         settingE2EEStatusLocked: "Locked",
         settingE2EEStatusUnlocked: "Unlocked",
         settingE2EEStatusGuide: "Manage via Command Palette (E2EE: Start/Unlock Vault Encryption)",
+        settingE2EEAutoUnlock: "Auto-unlock on Startup",
+        settingE2EEAutoUnlockDesc:
+            "⚠️ WARNING: Stores E2EE password in system keychain for auto-unlock. " +
+            "This reduces security to device-level rather than password-level protection. " +
+            "Anyone with access to your device can decrypt your vault.",
         settingDevSection: "Developer Settings",
         settingStartupDelay: "Trigger: Startup Delay",
         settingStartupDelayDesc: "Wait for Obsidian to index files before starting sync.",
@@ -262,6 +267,11 @@ export const i18n: Record<string, Record<string, string>> = {
         settingE2EEStatusUnlocked: "解除済み",
         settingE2EEStatusGuide:
             "コマンドパレットで「E2EE: Vaultの暗号化を開始/解除する」を実行してください。",
+        settingE2EEAutoUnlock: "起動時の自動ロック解除",
+        settingE2EEAutoUnlockDesc:
+            "⚠️ 警告: E2EEパスワードをシステムキーチェーンに保存し、起動時に自動的にロック解除します。" +
+            "これによりセキュリティレベルがパスワードレベルからデバイスレベルに低下します。" +
+            "デバイスにアクセスできる誰でもVaultを復号化できてしまいます。",
         settingDevSection: "開発者向け設定",
         settingStartupDelay: "起動時の遅延",
         settingStartupDelayDesc: "Obsidian 起動後、同期を開始するまでの待機時間。",

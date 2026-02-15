@@ -58,4 +58,5 @@ export const DEFAULT_SETTINGS: VaultSyncSettings = {
     encryptionSecret: "",
     hasCompletedFirstSync: false,
     e2eeEnabled: false,
+    e2eeAutoUnlock: false, // Default to false for security
 };

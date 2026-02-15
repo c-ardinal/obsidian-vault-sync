@@ -172,7 +172,8 @@ export default class VaultSync extends Plugin {
 
                     if (this.settings.e2eeEnabled && this.syncManager.e2eeLocked) {
                         let autoUnlocked = false;
-                        if (this.app.secretStorage) {
+                        // Only attempt auto-unlock if explicitly enabled by user
+                        if (this.settings.e2eeAutoUnlock && this.app.secretStorage) {
                             const savedPassword =
                                 await this.secureStorage.getExtraSecret("e2ee-password");
                             if (savedPassword) {
@@ -193,6 +194,8 @@ export default class VaultSync extends Plugin {
                                         "Auto-unlock failed. Manual entry required.",
                                         "warn",
                                     );
+                                    // Clear invalid saved password
+                                    await this.secureStorage.removeExtraSecret("e2ee-password");
                                 }
                             }
                         }

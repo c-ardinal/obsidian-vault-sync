@@ -303,6 +303,23 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                 },
             ],
         },
+        // Add E2EE auto-unlock setting if E2EE is enabled
+        ...(plugin.settings.e2eeEnabled
+            ? [
+                  {
+                      id: "e2ee-autounlock",
+                      title: t("settingSecuritySection"),
+                      items: [
+                          {
+                              key: "e2eeAutoUnlock",
+                              type: "toggle" as const,
+                              label: t("settingE2EEAutoUnlock"),
+                              desc: t("settingE2EEAutoUnlockDesc"),
+                          },
+                      ],
+                  },
+              ]
+            : []),
         ...(plugin.syncManager.cryptoEngine?.getSettingsSections(plugin) || []),
     ];
 };
