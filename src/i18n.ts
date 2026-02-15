@@ -80,6 +80,12 @@ export const i18n: Record<string, Record<string, string>> = {
         settingConflictStrategyRemote: "Force Remote (Overwrite Local)",
         settingAdvancedSection: "Advanced Settings",
         settingAdvancedSectionDesc: "Advanced settings for power users.",
+        settingSecuritySection: "Security (E2EE)",
+        settingE2EEStatus: "Encryption Status",
+        settingE2EEStatusDisabled: "Disabled",
+        settingE2EEStatusLocked: "Locked",
+        settingE2EEStatusUnlocked: "Unlocked",
+        settingE2EEStatusGuide: "Manage via Command Palette (E2EE: Start/Unlock Vault Encryption)",
         settingDevSection: "Developer Settings",
         settingStartupDelay: "Trigger: Startup Delay",
         settingStartupDelayDesc: "Wait for Obsidian to index files before starting sync.",
@@ -102,6 +108,10 @@ export const i18n: Record<string, Record<string, string>> = {
         noticeSyncConfirmed: "✅ [Sync] Success",
         noticeWaitOtherDeviceMerge: "⌛️ [Conflict] Waiting for other device to resolve...",
         noticeMergingFile: "⌛️ [Conflict] Merging",
+        noticeMigrationStarted: "🚀 [E2EE] Migration started. Please do not close Obsidian.",
+        noticeMigrationComplete: "✅ [E2EE] Migration complete! Your vault is now encrypted.",
+        noticeMigrationFailed: "❌ [E2EE] Migration failed! Check logs for details.",
+
         noticeMergeSuccess: "✅ [Conflict] Auto-resolved",
         noticeCheckOtherDevice:
             "⚠️ [Conflict] Merge may have failed. Check other device for details",
@@ -156,6 +166,8 @@ export const i18n: Record<string, Record<string, string>> = {
         labelSyncCommand: "Sync with Cloud",
         labelFullAudit: "Audit & Fix Consistency (Full Scan)",
         labelViewHistory: "View History in Cloud (VaultSync)",
+        labelE2EESetup: "E2EE: Start Vault Encryption",
+        labelE2EEUnlock: "E2EE: Unlock Vault Encryption",
     },
     ja: {
         // Settings UI
@@ -243,6 +255,13 @@ export const i18n: Record<string, Record<string, string>> = {
         settingConflictStrategyRemote: "リモート優先 (ローカルを上書き)",
         settingAdvancedSection: "高度な設定",
         settingAdvancedSectionDesc: "高度な設定とデバッグツールを有効にします。",
+        settingSecuritySection: "セキュリティ (E2EE)",
+        settingE2EEStatus: "暗号化ステータス",
+        settingE2EEStatusDisabled: "未設定",
+        settingE2EEStatusLocked: "ロック中",
+        settingE2EEStatusUnlocked: "解除済み",
+        settingE2EEStatusGuide:
+            "コマンドパレットで「E2EE: Vaultの暗号化を開始/解除する」を実行してください。",
         settingDevSection: "開発者向け設定",
         settingStartupDelay: "起動時の遅延",
         settingStartupDelayDesc: "Obsidian 起動後、同期を開始するまでの待機時間。",
@@ -265,6 +284,9 @@ export const i18n: Record<string, Record<string, string>> = {
         noticeSyncConfirmed: "✅ [同期] 成功",
         noticeWaitOtherDeviceMerge: "⌛️ [競合] 他デバイスが解決するのを待機しています...",
         noticeMergingFile: "⌛️ [競合] マージ中",
+        noticeMigrationStarted: "🚀 [E2EE] 移行を開始しました。Obsidianを閉じないでください。",
+        noticeMigrationComplete: "✅ [E2EE] 移行完了！Vaultが暗号化されました。",
+        noticeMigrationFailed: "❌ [E2EE] 移行失敗。ログを確認してください。",
         noticeMergeSuccess: "✅ [競合] 自動解決されました",
         noticeCheckOtherDevice:
             "⚠️ [競合] マージに失敗した可能性が有ります。詳細は他デバイスを確認してください",
@@ -319,6 +341,8 @@ export const i18n: Record<string, Record<string, string>> = {
         labelSyncCommand: "クラウドと同期",
         labelFullAudit: "完全スキャンと整合性チェック (Full Audit)",
         labelViewHistory: "クラウドの変更履歴を表示 (VaultSync)",
+        labelE2EESetup: "E2EE: Vaultの暗号化を開始する",
+        labelE2EEUnlock: "E2EE: Vaultの暗号化を解除する",
     },
 };
 

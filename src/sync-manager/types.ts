@@ -17,6 +17,7 @@ export interface SyncManagerSettings {
     syncDeviceLogs: boolean;
     syncWorkspace: boolean;
     hasCompletedFirstSync: boolean;
+    e2eeEnabled: boolean;
 }
 
 export interface LocalFileIndex {
@@ -50,7 +51,7 @@ export type { SyncTrigger } from "./notification-matrix";
 // === Hybrid Sync Types ===
 
 /** Sync engine states for preemption control */
-export type SyncState = "IDLE" | "SMART_SYNCING" | "FULL_SCANNING" | "PAUSED";
+export type SyncState = "IDLE" | "SMART_SYNCING" | "FULL_SCANNING" | "PAUSED" | "MIGRATING";
 
 /** Progress state for resumable full scan */
 export interface FullScanProgress {

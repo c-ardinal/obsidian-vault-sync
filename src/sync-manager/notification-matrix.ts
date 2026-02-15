@@ -23,6 +23,7 @@ export type SyncTrigger =
     | "push-conflict" // Push時競合検出
     | "pull-conflict" // Pull時競合検出
     | "auth" // 認証
+    | "migration" // 移行
     | "history-modal"; // 履歴モーダル
 
 type VisibilityMap = Partial<Record<SyncTrigger, boolean>>;
@@ -190,6 +191,9 @@ const VERBOSE: Record<string, VisibilityMap> = {
     noticeFileRestored: { "history-modal": true },
     noticeHistoryRestoreAs: { "history-modal": true },
     noticeRevisionDeleted: { "history-modal": true },
+    noticeMigrationStarted: { migration: true, "manual-sync": true },
+    noticeMigrationComplete: { migration: true, "manual-sync": true },
+    noticeMigrationFailed: { migration: true, "manual-sync": true },
 };
 
 // --------------------------------------------------------------------------
@@ -284,5 +288,6 @@ export const TRIGGER_PRIORITY: Record<SyncTrigger, number> = {
     "push-conflict": 0,
     "pull-conflict": 0,
     auth: 0,
+    migration: 11,
     "history-modal": 0,
 };

@@ -53,6 +53,7 @@ export interface VaultSyncSettings {
 
     // Security
     encryptionSecret: string;
+    e2eeEnabled: boolean;
     // Internal State
     hasCompletedFirstSync: boolean;
 }

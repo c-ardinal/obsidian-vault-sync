@@ -22,6 +22,7 @@ vi.mock("obsidian", () => ({
 
 class MockCloudAdapter implements CloudAdapter {
     name = "MockAdapter";
+    vaultName = "MockVault";
     clientId = "mock";
     clientSecret = "mock";
     isReady = async () => true;
@@ -94,6 +95,7 @@ const DEFAULT_SETTINGS: SyncManagerSettings = {
     syncWorkspace: true,
 
     hasCompletedFirstSync: false,
+    e2eeEnabled: false,
 };
 
 // ════════════════════════════════════════════════════════════════

@@ -234,19 +234,21 @@ export async function requestSmartSync(
     scanVault: boolean = false,
 ): Promise<void> {
     // If already smart syncing, mark that we need another pass after and wait.
-    if (ctx.syncState === "SMART_SYNCING") {
-        ctx.syncRequestedWhileSyncing = true;
-        if (!ctx.nextSyncParams) {
-            ctx.nextSyncParams = { trigger: ctx.currentTrigger, scanVault };
-        } else {
-            // Merge requirements: pick the "loudest" trigger (highest priority).
-            // If any request wants a full scan, the next pass should scan.
-            const incoming = TRIGGER_PRIORITY[ctx.currentTrigger] ?? 0;
-            const queued = TRIGGER_PRIORITY[ctx.nextSyncParams.trigger] ?? 0;
-            if (incoming > queued) {
-                ctx.nextSyncParams.trigger = ctx.currentTrigger;
+    if (ctx.syncState === "SMART_SYNCING" || ctx.syncState === "MIGRATING") {
+        if (ctx.syncState === "SMART_SYNCING") {
+            ctx.syncRequestedWhileSyncing = true;
+            if (!ctx.nextSyncParams) {
+                ctx.nextSyncParams = { trigger: ctx.currentTrigger, scanVault };
+            } else {
+                // Merge requirements: pick the "loudest" trigger (highest priority).
+                // If any request wants a full scan, the next pass should scan.
+                const incoming = TRIGGER_PRIORITY[ctx.currentTrigger] ?? 0;
+                const queued = TRIGGER_PRIORITY[ctx.nextSyncParams.trigger] ?? 0;
+                if (incoming > queued) {
+                    ctx.nextSyncParams.trigger = ctx.currentTrigger;
+                }
+                ctx.nextSyncParams.scanVault = ctx.nextSyncParams.scanVault || scanVault;
             }
-            ctx.nextSyncParams.scanVault = ctx.nextSyncParams.scanVault || scanVault;
         }
 
         if (ctx.currentSyncPromise) {

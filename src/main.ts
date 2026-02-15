@@ -12,6 +12,8 @@ import {
 } from "./types/settings";
 import { t } from "./i18n";
 import { getSettingsSections } from "./ui/settings-schema";
+import { loadExternalCryptoEngine } from "./encryption/engine-loader";
+import { ICryptoEngine } from "./encryption/interfaces";
 
 export default class VaultSync extends Plugin {
     settings!: VaultSyncSettings;
@@ -26,6 +28,13 @@ export default class VaultSync extends Plugin {
     private mobileSyncFabEl: HTMLElement | null = null;
     private autoSyncInterval: number | null = null;
     private settingTab: VaultSyncSettingTab | null = null;
+    public t = t;
+
+    public refreshSettingsUI() {
+        if (this.settingTab) {
+            this.settingTab.display();
+        }
+    }
 
     /**
      * Resolves the effective sync triggers for the current device and strategy.
@@ -62,6 +71,8 @@ export default class VaultSync extends Plugin {
             this.manifest.dir || "",
             t,
         );
+        this.syncManager.secureStorage = this.secureStorage;
+
         // Detect and apply remote settings updates
         this.syncManager.onSettingsUpdated = async () => {
             await this.loadSettings();
@@ -75,6 +86,18 @@ export default class VaultSync extends Plugin {
         // 5. Establish Identity & Log Folder (loads local-index.json)
         // This is the earliest point where we can log to the correct device-specific folder.
         await this.syncManager.loadLocalIndex();
+
+        // 5.5 Load external crypto engine (Moved here to ensure logs are captured in sync log)
+        const engine = await loadExternalCryptoEngine(this.app, this.manifest.dir!);
+        if (engine) {
+            this.syncManager.cryptoEngine = engine;
+            await this.syncManager.log("External E2EE engine loaded successfully.", "system");
+        } else {
+            await this.syncManager.log(
+                "External E2EE engine not found or failed to load. E2EE disabled.",
+                "system",
+            );
+        }
 
         await this.syncManager.log(
             `=== Plugin Startup: version=${this.manifest.version} ===`,
@@ -129,9 +152,55 @@ export default class VaultSync extends Plugin {
             if (this.currentTriggers.enableStartupSync) {
                 window.setTimeout(async () => {
                     await this.syncManager.log(
-                        "Startup grace period ended. Triggering initial Smart Sync.",
+                        "Startup grace period ended. Checking E2EE status...",
                         "system",
                     );
+
+                    // E2EE Guard: If enabled but locked, show unlock modal
+                    if (!this.settings.e2eeEnabled) {
+                        const hasRemoteLock =
+                            await this.syncManager.vaultLockService.checkForLockFile();
+                        if (hasRemoteLock) {
+                            await this.syncManager.log(
+                                "Remote E2EE detected. Enabling E2EE locally.",
+                                "system",
+                            );
+                            this.settings.e2eeEnabled = true;
+                            await this.saveSettings();
+                        }
+                    }
+
+                    if (this.settings.e2eeEnabled && this.syncManager.e2eeLocked) {
+                        let autoUnlocked = false;
+                        if (this.app.secretStorage) {
+                            const savedPassword =
+                                await this.secureStorage.getExtraSecret("e2ee-password");
+                            if (savedPassword) {
+                                try {
+                                    const lockData =
+                                        await this.syncManager.vaultLockService.downloadLockFile();
+                                    await this.syncManager.cryptoEngine?.unlockVault(
+                                        lockData,
+                                        savedPassword,
+                                    );
+                                    autoUnlocked = true;
+                                    await this.syncManager.log(
+                                        "Vault auto-unlocked using saved password.",
+                                        "info",
+                                    );
+                                } catch (err) {
+                                    await this.syncManager.log(
+                                        "Auto-unlock failed. Manual entry required.",
+                                        "warn",
+                                    );
+                                }
+                            }
+                        }
+
+                        if (!autoUnlocked) {
+                            this.syncManager.cryptoEngine?.showUnlockModal(this);
+                        }
+                    }
 
                     // First time sync -> "initial-sync" (loud). Subsequent -> "startup-sync" (quiet).
                     const isFirstSync = !this.settings.hasCompletedFirstSync;
@@ -190,6 +259,34 @@ export default class VaultSync extends Plugin {
                 this.syncManager.currentTrigger = "full-scan";
                 await this.syncManager.notify("noticeScanningLocalFiles");
                 await this.syncManager.requestBackgroundScan(false);
+            },
+        });
+
+        this.addCommand({
+            id: "e2ee-setup",
+            name: t("labelE2EESetup"),
+            checkCallback: (checking: boolean) => {
+                if (!this.syncManager.cryptoEngine || this.settings.e2eeEnabled) return false;
+                if (!checking) {
+                    this.syncManager.cryptoEngine.showSetupModal(this);
+                }
+                return true;
+            },
+        });
+
+        this.addCommand({
+            id: "e2ee-unlock",
+            name: t("labelE2EEUnlock"),
+            checkCallback: (checking: boolean) => {
+                const isLocked =
+                    this.settings.e2eeEnabled &&
+                    this.syncManager.cryptoEngine &&
+                    !this.syncManager.cryptoEngine.isUnlocked();
+                if (!isLocked) return false;
+                if (!checking) {
+                    this.syncManager.cryptoEngine?.showUnlockModal(this);
+                }
+                return true;
             },
         });
 
@@ -930,7 +1027,10 @@ class VaultSyncSettingTab extends PluginSettingTab {
 
             // Wait, I need to import getSettingsSections first.
 
-            if ((section as any).isHidden && (section as any).isHidden(this.plugin.settings)) {
+            const isHidden = (section as any).isHidden
+                ? (section as any).isHidden(this.plugin.settings, this.plugin)
+                : false;
+            if (isHidden) {
                 continue;
             }
 
@@ -943,11 +1043,13 @@ class VaultSyncSettingTab extends PluginSettingTab {
             }
 
             for (const item of section.items) {
-                if (item.isHidden && item.isHidden(this.plugin.settings)) continue;
+                if (item.isHidden && item.isHidden(this.plugin.settings, this.plugin)) continue;
 
-                const setting = new Setting(containerEl)
-                    .setName(item.label)
-                    .setDesc(item.desc || "");
+                const description = item.getDesc
+                    ? item.getDesc(this.plugin.settings, this.plugin)
+                    : item.desc || "";
+
+                const setting = new Setting(containerEl).setName(item.label).setDesc(description);
 
                 switch (item.type) {
                     case "toggle":
@@ -1038,6 +1140,13 @@ class VaultSyncSettingTab extends PluginSettingTab {
                                 });
                             }
                         });
+                        break;
+                    case "info":
+                        setting.controlEl.createSpan({
+                            cls: "vault-sync-info-status",
+                            text: description,
+                        });
+                        setting.setDesc(""); // Clear description since we moved it to the control area
                         break;
                 }
             }

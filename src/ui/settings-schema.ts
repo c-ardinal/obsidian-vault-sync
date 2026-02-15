@@ -1,10 +1,10 @@
-import { Platform } from "obsidian";
+import { Platform, Notice } from "obsidian";
 import { VaultSyncSettings } from "../types/settings";
 import { SETTINGS_LIMITS } from "../constants";
 import { t } from "../i18n";
 import VaultSync from "../main";
 
-export type SettingType = "toggle" | "text" | "number" | "dropdown" | "textarea";
+export type SettingType = "toggle" | "text" | "number" | "dropdown" | "textarea" | "info";
 
 export interface SettingItem {
     key: string; // Changed from keyof VaultSyncSettings to support nested paths
@@ -23,7 +23,8 @@ export interface SettingItem {
     };
     // Custom behaviors
     onChange?: (value: any, plugin: VaultSync) => Promise<void>;
-    isHidden?: (settings: VaultSyncSettings) => boolean;
+    isHidden?: (settings: VaultSyncSettings, plugin: VaultSync) => boolean;
+    getDesc?: (settings: VaultSyncSettings, plugin: VaultSync) => string;
 }
 
 export interface SettingSection {
@@ -31,7 +32,7 @@ export interface SettingSection {
     title: string;
     description?: string;
     items: SettingItem[];
-    isHidden?: (settings: VaultSyncSettings) => boolean;
+    isHidden?: (settings: VaultSyncSettings, plugin: VaultSync) => boolean;
 }
 
 const getTriggerItems = (prefix: string): SettingItem[] => [
@@ -157,19 +158,21 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
         {
             id: "triggers_unified",
             title: t("settingTriggerSectionUnified") || "Sync Triggers",
-            isHidden: (s) => s.triggerConfigStrategy !== "unified",
+            isHidden: (s: VaultSyncSettings) => s.triggerConfigStrategy !== "unified",
             items: getTriggerItems("unifiedTriggers"),
         },
         {
             id: "triggers_desktop",
             title: t("settingTriggerSectionDesktop") || "Desktop Sync Triggers",
-            isHidden: (s) => s.triggerConfigStrategy !== "per-platform" || Platform.isMobile,
+            isHidden: (s: VaultSyncSettings) =>
+                s.triggerConfigStrategy !== "per-platform" || Platform.isMobile,
             items: getTriggerItems("desktopTriggers"),
         },
         {
             id: "triggers_mobile",
             title: t("settingTriggerSectionMobile") || "Mobile Sync Triggers",
-            isHidden: (s) => s.triggerConfigStrategy !== "per-platform" || !Platform.isMobile,
+            isHidden: (s: VaultSyncSettings) =>
+                s.triggerConfigStrategy !== "per-platform" || !Platform.isMobile,
             items: getTriggerItems("mobileTriggers"),
         },
         {
@@ -286,7 +289,7 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
         {
             id: "developer",
             title: t("settingDevSection"),
-            isHidden: (s) => !s.isDeveloperMode,
+            isHidden: (s: VaultSyncSettings) => !s.isDeveloperMode,
             items: [
                 {
                     key: "startupDelaySec",
@@ -300,5 +303,6 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                 },
             ],
         },
+        ...(plugin.syncManager.cryptoEngine?.getSettingsSections(plugin) || []),
     ];
 };
