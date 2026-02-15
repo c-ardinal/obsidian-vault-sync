@@ -14,12 +14,18 @@ import { t } from "./i18n";
 import { getSettingsSections } from "./ui/settings-schema";
 import { loadExternalCryptoEngine } from "./encryption/engine-loader";
 import { ICryptoEngine } from "./encryption/interfaces";
+import { checkPasswordStrength } from "./encryption/password-strength";
 
 export default class VaultSync extends Plugin {
     settings!: VaultSyncSettings;
     adapter!: GoogleDriveAdapter;
     syncManager!: SyncManager;
     secureStorage!: SecureStorage;
+
+    // Exposed for external engine UI (password strength feedback, i18n)
+    public checkPasswordStrength = checkPasswordStrength;
+    public i18n = t;
+
     private isReady = false;
     private syncRibbonIconEl: HTMLElement | null = null;
     private manualSyncInProgress = false;

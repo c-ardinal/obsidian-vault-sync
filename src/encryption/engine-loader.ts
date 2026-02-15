@@ -3,8 +3,8 @@ import { App, Notice, normalizePath } from "obsidian";
 import { ICryptoEngine } from "./interfaces";
 
 // SHA-256 hash of the approved e2ee-engine.js file.
-// Update via: node compute-engine-hash.mjs <path-to-e2ee-engine.js>
-const APPROVED_ENGINE_HASH = "CHANGE_THIS_TO_ACTUAL_HASH_BEFORE_RELEASE";
+// Update via: npm run hash (in VaultSync-E2EE-Engine repo)
+const APPROVED_ENGINE_HASH: string = "ab485f5f80f1b0e8226b9d59ab571463b97e7a326b36eed2b68fc904093fc71b";
 
 /**
  * Compute SHA-256 hash of content
@@ -14,7 +14,7 @@ async function computeSHA256(content: string): Promise<string> {
     const data = encoder.encode(content);
     const hashBuffer = await crypto.subtle.digest("SHA-256", data);
     const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 /**
@@ -66,7 +66,9 @@ export async function loadExternalCryptoEngine(
         if (APPROVED_ENGINE_HASH !== "CHANGE_THIS_TO_ACTUAL_HASH_BEFORE_RELEASE") {
             const actualHash = await computeSHA256(content);
             if (actualHash !== APPROVED_ENGINE_HASH) {
-                console.error(`VaultSync: E2EE engine hash mismatch! Expected: ${APPROVED_ENGINE_HASH}, Got: ${actualHash}`);
+                console.error(
+                    `VaultSync: E2EE engine hash mismatch! Expected: ${APPROVED_ENGINE_HASH}, Got: ${actualHash}`,
+                );
                 new Notice("E2EE engine verification failed. Please reinstall the plugin.", 10000);
                 return null;
             }
@@ -93,17 +95,24 @@ export async function loadExternalCryptoEngine(
 
         // Validate all required methods exist
         const requiredMethods = [
-            'initializeNewVault', 'unlockVault', 'isUnlocked',
-            'encrypt', 'decrypt', 'showSetupModal',
-            'showUnlockModal', 'getSettingsSections'
+            "initializeNewVault",
+            "unlockVault",
+            "isUnlocked",
+            "encrypt",
+            "decrypt",
+            "showSetupModal",
+            "showUnlockModal",
+            "getSettingsSections",
         ];
 
-        const missingMethods = requiredMethods.filter(method =>
-            typeof engine?.[method] !== 'function'
+        const missingMethods = requiredMethods.filter(
+            (method) => typeof engine?.[method] !== "function",
         );
 
         if (missingMethods.length > 0) {
-            console.error(`VaultSync: E2EE engine missing required methods: ${missingMethods.join(', ')}`);
+            console.error(
+                `VaultSync: E2EE engine missing required methods: ${missingMethods.join(", ")}`,
+            );
             return null;
         }
 

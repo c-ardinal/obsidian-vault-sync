@@ -9,7 +9,7 @@
         "build": "node update-build-hash.mjs && rollup -c",
         "build:release": "rollup -c",
         "version": "node version-bump.mjs && git add manifest.json versions.json",
-        "e2ee:hash": "node compute-engine-hash.mjs",
+
         "test": "vitest run",
         "test:watch": "vitest"
     },

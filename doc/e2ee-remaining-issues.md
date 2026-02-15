@@ -52,13 +52,15 @@ vault-lock.json検出時にNoticeで通知（10秒間表示）。i18n対応済�
 
 ### 1. ~~エンジンハッシュの更新プロセス~~ ✅ 対応済み
 
-`npm run e2ee:hash` で SHA-256 を計算可能。開発モードではハッシュをコンソールに出力。
+エンジンリポジトリで `npm run hash` を実行してSHA-256を計算。`build.ps1` 実行時にも自動出力。
+開発モードではプラグイン側でもハッシュをコンソールに出力。
 リリース前に `engine-loader.ts` の `APPROVED_ENGINE_HASH` を更新すること。
 
 ### 2. ~~パスワード強度の検証~~ ✅ 対応済み
 
 `src/encryption/password-strength.ts` に軽量チェッカーを実装（外部依存なし）。
-i18n対応済み（EN/JA）。外部エンジンが `checkPasswordStrength()` を利用可能。
+i18n対応済み（EN/JA）。`plugin.checkPasswordStrength` としてエンジンに公開。
+E2EEセットアップモーダルでリアルタイムにパスワード強度フィードバックを表示。
 
 ### 3. ストリーミング暗号化
 
