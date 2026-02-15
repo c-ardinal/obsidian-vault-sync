@@ -92,6 +92,13 @@ export interface CloudAdapter {
      */
     getAppRootId?(): Promise<string>;
 
+    /**
+     * Clone this adapter with a new vault name.
+     * Used for migration to create temporary adapters.
+     * Returns a new adapter instance with the same credentials but different vault name.
+     */
+    cloneWithNewVaultName?(newVaultName: string): CloudAdapter;
+
     // === History Support (optional) ===
     readonly supportsHistory: boolean;
     listRevisions?(path: string): Promise<FileRevision[]>;

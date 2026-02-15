@@ -153,6 +153,24 @@ export class GoogleDriveAdapter implements CloudAdapter {
         this.outsideFolderIds.clear();
     }
 
+    /**
+     * Clone this adapter with a new vault name.
+     * Used for migration to create temporary adapters.
+     */
+    cloneWithNewVaultName(newVaultName: string): CloudAdapter {
+        const cloned = new GoogleDriveAdapter(
+            this._clientId,
+            this._clientSecret,
+            newVaultName,
+            this.cloudRootFolder
+        );
+        cloned.setTokens(this.accessToken, this.refreshToken);
+        if (this.log) {
+            cloned.setLogger(this.log);
+        }
+        return cloned;
+    }
+
     private getRedirectUri(): string {
         // Use GitHub Pages as the intermediate server (bouncer)
         // This allows the browser to receive the code and redirect to obsidian:// URI scheme
