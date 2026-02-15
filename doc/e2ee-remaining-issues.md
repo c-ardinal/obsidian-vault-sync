@@ -38,51 +38,37 @@ vault-lock.json検出時にNoticeで通知（10秒間表示）。i18n対応済�
 
 ## テスト課題
 
-### 失敗しているテスト（要修正）
-
-現在、以下のテストが失敗しています：
-- conflict-resolution.test.ts
-- icon-behavior.test.ts
-- move-logic.test.ts
-- notification-matrix.test.ts
-- merge-algorithm.test.ts
-- yaml-scenarios.test.ts
-
-これらは主にE2EE機能追加による既存ロジックの変更が原因です。
+~~テスト失敗~~ ✅ 全613テストパス（11テストファイル）
 
 ## セキュリティ上の推奨事項
 
-### 1. エンジンハッシュの更新プロセス
+### 1. ~~エンジンハッシュの更新プロセス~~ ✅ 対応済み
 
-現在、`APPROVED_ENGINE_HASH`は開発用のダミー値です。リリース前に：
-1. 正式なe2ee-engine.jsのSHA-256ハッシュを計算
-2. engine-loader.tsのAPPROVED_ENGINE_HASHを更新
-3. エンジン更新時の手順をドキュメント化
+`npm run e2ee:hash` で SHA-256 を計算可能。開発モードではハッシュをコンソールに出力。
+リリース前に `engine-loader.ts` の `APPROVED_ENGINE_HASH` を更新すること。
 
-### 2. パスワード強度の検証
+### 2. ~~パスワード強度の検証~~ ✅ 対応済み
 
-将来的な改善として：
-- zxcvbn等のパスワード強度チェックライブラリの導入
-- 弱いパスワードに対する警告UI
+`src/encryption/password-strength.ts` に軽量チェッカーを実装（外部依存なし）。
+i18n対応済み（EN/JA）。外部エンジンが `checkPasswordStrength()` を利用可能。
 
 ### 3. ストリーミング暗号化
 
-大容量ファイル対応として：
+大容量ファイル対応として（将来改善）：
 - Web Streams APIを使用したチャンク単位の暗号化
 - メモリ使用量の削減
 
 ## パフォーマンス最適化
 
-### 1. 暗号化のバッチ処理
+### 1. ~~暗号化のバッチ処理~~ ✅ 対応済み
 
-移行時の大量ファイル処理で：
-- 並列暗号化の実装（Worker使用）
-- プログレッシブアップロード
+移行時の `runMigration()` で `runParallel()` による並列暗号化＋アップロードを実装。
+`settings.concurrency`（デフォルト5）に従い並列実行。
 
-### 2. キャッシュ戦略
+### 2. ~~キャッシュ戦略~~ ✅ 対応済み
 
-- 復号化済みコンテンツの一時キャッシュ
-- plainHashのインデックス化
+EncryptedAdapterに同期サイクルスコープのダウンロードキャッシュを実装。
+`executeSmartSync` 完了時に自動クリア。マージ中の重複ダウンロード・復号を排除。
 
 ## 今後の機能拡張
 

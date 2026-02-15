@@ -362,6 +362,10 @@ export async function executeSmartSync(ctx: SyncContext, scanVault: boolean): Pr
         await ctx.log(`Smart Sync failed: ${e}`, "error");
         throw e;
     } finally {
+        // Clear decryption cache between sync cycles to free memory
+        if ("clearDownloadCache" in ctx.adapter && typeof (ctx.adapter as any).clearDownloadCache === "function") {
+            (ctx.adapter as any).clearDownloadCache();
+        }
         await ctx.logger.endCycle();
         ctx.endActivity();
     }

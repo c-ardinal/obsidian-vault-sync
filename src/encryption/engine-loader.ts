@@ -2,8 +2,8 @@ import * as obsidianModule from "obsidian";
 import { App, Notice, normalizePath } from "obsidian";
 import { ICryptoEngine } from "./interfaces";
 
-// SHA-256 hash of the approved e2ee-engine.js file
-// This must be updated when the engine is updated
+// SHA-256 hash of the approved e2ee-engine.js file.
+// Update via: node compute-engine-hash.mjs <path-to-e2ee-engine.js>
 const APPROVED_ENGINE_HASH = "CHANGE_THIS_TO_ACTUAL_HASH_BEFORE_RELEASE";
 
 /**
@@ -71,7 +71,9 @@ export async function loadExternalCryptoEngine(
                 return null;
             }
         } else {
+            const actualHash = await computeSHA256(content);
             console.warn("VaultSync: E2EE engine hash verification skipped (development mode)");
+            console.warn(`VaultSync: Engine SHA-256: ${actualHash}`);
         }
 
         // Dynamic execution of the engine script as CommonJS

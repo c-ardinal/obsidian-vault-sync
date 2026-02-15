@@ -3,7 +3,7 @@ import { CloudAdapter } from "../types/adapter";
 import { ICryptoEngine } from "../encryption/interfaces";
 import { VaultLockService } from "./vault-lock-service";
 import { EncryptedAdapter } from "../adapters/encrypted-adapter";
-import { getLocalFiles, shouldIgnore } from "../sync-manager/file-utils";
+import { getLocalFiles, shouldIgnore, runParallel } from "../sync-manager/file-utils";
 import { SyncContext } from "../sync-manager/context";
 
 export interface MigrationProgress {
@@ -118,14 +118,12 @@ export class MigrationService {
         const total = files.length;
         const verificationSamples: Array<{ path: string; originalContent: ArrayBuffer; fileId: string }> = [];
         let current = 0;
+        const concurrency = this.ctx.settings.concurrency || 5;
 
-        for (const file of files) {
-            if (shouldIgnore(this.ctx, file.path)) {
-                current++;
-                continue;
-            }
-
-            const p = { current, total, fileName: file.path };
+        // Build tasks for parallel execution
+        const filteredFiles = files.filter(f => !shouldIgnore(this.ctx, f.path));
+        const tasks = filteredFiles.map(file => async () => {
+            const p = { current: current++, total, fileName: file.path };
             this.currentProgress = p;
             onProgress(p);
 
@@ -148,13 +146,12 @@ export class MigrationService {
                 ancestorHash: result.hash, // Current version is now remote version
                 size: result.size,
                 mtime: file.mtime,
-                fileId: result.id, // Fixed: use fileId not id
-                id: undefined, // Remove erroneous property if it exists from prev
+                fileId: result.id,
+                id: undefined,
             } as any;
-            // Also update remote index cache
             this.ctx.index[file.path] = { ...this.ctx.localIndex[file.path] };
 
-            // Collect samples for integrity verification (up to 5 files, distributed across migration)
+            // Collect samples for integrity verification (up to 5, distributed)
             if (verificationSamples.length < 5 && current % Math.ceil(total / 5) === 0) {
                 verificationSamples.push({
                     path: file.path,
@@ -162,9 +159,9 @@ export class MigrationService {
                     fileId: result.id,
                 });
             }
+        });
 
-            current++;
-        }
+        await runParallel(tasks, concurrency);
 
         // 3. Verify integrity of encrypted uploads
         await this.ctx.log("[Migration] Verifying encryption integrity...", "info");

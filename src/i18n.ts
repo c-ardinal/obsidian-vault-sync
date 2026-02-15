@@ -175,6 +175,18 @@ export const i18n: Record<string, Record<string, string>> = {
         labelViewHistory: "View History in Cloud (VaultSync)",
         labelE2EESetup: "E2EE: Start Vault Encryption",
         labelE2EEUnlock: "E2EE: Unlock Vault Encryption",
+
+        // Password Strength
+        passwordTooShort: "Password must be at least 8 characters.",
+        passwordNeedsVariety: "Use a mix of uppercase, lowercase, numbers, and symbols.",
+        passwordHasRepeats: "Avoid repeated characters (e.g. aaaa).",
+        passwordHasSequences: "Avoid sequential characters (e.g. 1234, abcd).",
+        passwordTooCommon: "This password is too common. Choose a more unique one.",
+        passwordCouldBeStronger: "Consider using a longer password for better security.",
+        passwordStrengthWeak: "Weak",
+        passwordStrengthFair: "Fair",
+        passwordStrengthGood: "Good",
+        passwordStrengthStrong: "Strong",
     },
     ja: {
         // Settings UI
@@ -357,6 +369,18 @@ export const i18n: Record<string, Record<string, string>> = {
         labelViewHistory: "クラウドの変更履歴を表示 (VaultSync)",
         labelE2EESetup: "E2EE: Vaultの暗号化を開始する",
         labelE2EEUnlock: "E2EE: Vaultの暗号化を解除する",
+
+        // Password Strength
+        passwordTooShort: "パスワードは8文字以上にしてください。",
+        passwordNeedsVariety: "大文字・小文字・数字・記号を組み合わせてください。",
+        passwordHasRepeats: "同じ文字の繰り返し（例：aaaa）は避けてください。",
+        passwordHasSequences: "連続する文字（例：1234、abcd）は避けてください。",
+        passwordTooCommon: "よく使われるパスワードです。もっとユニークなものを選んでください。",
+        passwordCouldBeStronger: "より長いパスワードの使用を推奨します。",
+        passwordStrengthWeak: "弱い",
+        passwordStrengthFair: "普通",
+        passwordStrengthGood: "良い",
+        passwordStrengthStrong: "強い",
     },
 };
 

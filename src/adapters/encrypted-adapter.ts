@@ -12,6 +12,9 @@ export class EncryptedAdapter implements CloudAdapter {
     readonly supportsHash: boolean;
     readonly supportsHistory: boolean;
 
+    /** Sync-cycle scoped cache: fileId -> decrypted content. Call clearDownloadCache() between cycles. */
+    private downloadCache = new Map<string, ArrayBuffer>();
+
     constructor(
         private baseAdapter: CloudAdapter,
         private engine: ICryptoEngine,
@@ -60,6 +63,9 @@ export class EncryptedAdapter implements CloudAdapter {
     }
 
     async downloadFile(fileId: string): Promise<ArrayBuffer> {
+        const cached = this.downloadCache.get(fileId);
+        if (cached) return cached.slice(0);
+
         const encryptedContent = await this.baseAdapter.downloadFile(fileId);
 
         if (encryptedContent.byteLength < 12) {
@@ -69,8 +75,14 @@ export class EncryptedAdapter implements CloudAdapter {
         const iv = new Uint8Array(encryptedContent.slice(0, 12));
         const ciphertext = encryptedContent.slice(12);
 
-        // Decrypt using engine
-        return await this.engine.decrypt(ciphertext, iv);
+        const decrypted = await this.engine.decrypt(ciphertext, iv);
+        this.downloadCache.set(fileId, decrypted);
+        return decrypted;
+    }
+
+    /** Clear the sync-cycle download cache. Call between sync cycles. */
+    clearDownloadCache(): void {
+        this.downloadCache.clear();
     }
 
     async uploadFile(
@@ -89,7 +101,10 @@ export class EncryptedAdapter implements CloudAdapter {
 
         // Upload (isolate buffer to avoid shared ArrayBuffer issues)
         const isolated = combined.buffer.slice(combined.byteOffset, combined.byteOffset + combined.byteLength);
-        return await this.baseAdapter.uploadFile(path, isolated, mtime, existingFileId);
+        const result = await this.baseAdapter.uploadFile(path, isolated, mtime, existingFileId);
+        // Invalidate cache for this file since content changed
+        this.downloadCache.delete(result.id);
+        return result;
     }
 
     async deleteFile(fileId: string): Promise<void> {
