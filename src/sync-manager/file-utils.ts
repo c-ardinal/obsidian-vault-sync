@@ -1,5 +1,6 @@
 import { normalizePath } from "../utils/path";
 import { matchWildcard } from "../utils/wildcard";
+import { md5 } from "../utils/md5";
 import type { SyncContext } from "./context";
 
 // === System-level Constants ===
@@ -336,4 +337,17 @@ export function shouldNotBeOnRemote(ctx: SyncContext, path: string): boolean {
 
 export function shouldIgnore(ctx: SyncContext, path: string): boolean {
     return isManagedSeparately(path) || shouldNotBeOnRemote(ctx, path);
+}
+
+/**
+ * Calculate MD5 hash of content (for plaintext comparison in E2EE scenarios)
+ * @param content - ArrayBuffer containing the file content
+ * @returns MD5 hash of the content as a lowercase hex string
+ */
+export async function hashContent(content: ArrayBuffer): Promise<string> {
+    // Normalize line endings for consistent hash calculation across platforms
+    const contentStr = new TextDecoder().decode(content);
+    const normalizedContent = contentStr.replace(/\r\n/g, "\n");
+    const normalizedBuffer = new TextEncoder().encode(normalizedContent).buffer;
+    return md5(normalizedBuffer);
 }

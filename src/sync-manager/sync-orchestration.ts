@@ -14,6 +14,7 @@ import {
     isManagedSeparately,
     shouldNotBeOnRemote,
     shouldIgnore,
+    hashContent,
 } from "./file-utils";
 import { loadCommunication, saveIndex, saveLocalIndex, clearPendingPushStates } from "./state";
 import { pullFileSafely } from "./merge";
@@ -1543,10 +1544,21 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                             }
                         }
 
+                        // For E2EE: Compare plainHash instead of encrypted hash
+                        // Since the same plaintext produces different ciphertext with AES-GCM (random IV)
+                        let contentMatches = false;
+                        if (ctx.e2eeEnabled && localIndexEntry?.plainHash) {
+                            // E2EE enabled: compare plaintext hashes
+                            const currentPlainHash = await hashContent(content);
+                            contentMatches = localIndexEntry.plainHash === currentPlainHash;
+                        } else if (localIndexEntry?.hash) {
+                            // No E2EE or no plainHash: use regular hash comparison
+                            contentMatches = localIndexEntry.hash.toLowerCase() === currentHash;
+                        }
+
                         if (
-                            localIndexEntry?.hash &&
-                            localIndexEntry.hash.toLowerCase() === currentHash &&
-                            localIndexEntry.lastAction !== "merge" && // Ensure pending merges are pushed
+                            contentMatches &&
+                            localIndexEntry?.lastAction !== "merge" && // Ensure pending merges are pushed
                             !localIndexEntry.forcePush // Force push if requested (e.g. rename)
                         ) {
                             // Local content matches our local base. No need to push.
@@ -1556,7 +1568,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                 ctx.index[path].mtime = mtimeAfterRead;
                             }
                             ctx.dirtyPaths.delete(path); // Remove from dirty since content matches
-                            await ctx.log(`[Smart Push] Skipped (hash match): ${path}`, "debug");
+                            await ctx.log(`[Smart Push] Skipped (${ctx.e2eeEnabled ? "plainHash" : "hash"} match): ${path}`, "debug");
                             return;
                         } else if (
                             !localIndexEntry &&
@@ -1738,6 +1750,9 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                                 mergedFileId,
                                             );
 
+                                            // Calculate plainHash for merged content
+                                            const mergedPlainHash = await hashContent(mergedContent);
+
                                             const previousAncestorHash =
                                                 ctx.localIndex[file.path]?.ancestorHash;
                                             const mergedEntry = {
@@ -1745,6 +1760,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                                 mtime: mergedStat?.mtime || Date.now(),
                                                 size: mergedUploaded.size,
                                                 hash: mergedUploaded.hash,
+                                                plainHash: mergedPlainHash,
                                                 lastAction: "push" as const,
                                                 ancestorHash:
                                                     previousAncestorHash || mergedUploaded.hash,
@@ -1796,6 +1812,10 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                         targetFileId,
                     );
 
+                    // Calculate plainHash for E2EE scenarios (hash of the plaintext before encryption)
+                    // This allows detecting if content actually changed even when encrypted hash differs
+                    const plainHash = await hashContent(file.content);
+
                     // SUCCESS: Update indices with REMOTE metadata
                     // IMPORTANT: Do NOT update ancestorHash here!
                     // ancestorHash should only be updated when we CONFIRM that both Local and Remote
@@ -1809,6 +1829,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                         mtime: file.mtime,
                         size: uploaded.size,
                         hash: uploaded.hash,
+                        plainHash: plainHash, // Store plaintext hash for future comparison
                         lastAction: "push" as const,
                         ancestorHash: previousAncestorHash || uploaded.hash, // Preserve original ancestor, fallback for new files
                     };
