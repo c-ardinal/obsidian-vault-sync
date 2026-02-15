@@ -25,7 +25,10 @@ export interface LocalFileIndex {
         fileId: string;
         mtime: number;
         size: number;
-        hash?: string;
+        hash?: string; // Hash of the actual content on remote (encrypted if E2EE is enabled)
+        /** For E2EE: Hash of the plaintext content before encryption.
+         *  Used to detect if re-upload is needed (since same plaintext produces different ciphertext with AES-GCM) */
+        plainHash?: string;
         /** Tracks last sync action: "push" = uploaded by this device, "pull" = downloaded, "merge" = locally merged (needs push) */
         lastAction?: "push" | "pull" | "merge";
         /** Hash of the common ancestor (last known synced state between devices).
