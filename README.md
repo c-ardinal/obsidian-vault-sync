@@ -29,6 +29,7 @@ Leveraging Google Drive, it provides robust data consistency and a fast synchron
 - **Mobile Optimized**: Built on the `fetch` API to run on both desktop and mobile. Features include auto-sync on edit-stop or save, and layout change triggers (e.g., when switching tabs).
 - **Granular Sync Settings**: Selectively sync settings, plugins, themes, and hotkeys within `.obsidian`. Cache and temporary files are automatically excluded.
 - **Secure Authentication & Storage**: OAuth2 authentication using PKCE. Credentials are separated from the main settings and saved using system-standard secure storage (Keychain/Credential Manager).
+- **End-to-End Encryption (E2EE)**: Optional client-side encryption for your vault data. When enabled with the [E2EE Engine](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine), all files are encrypted locally before upload and decrypted after download — your cloud provider never sees plaintext content.
 
 ---
 
@@ -62,7 +63,29 @@ Leveraging Google Drive, it provides robust data consistency and a fast synchron
 - **Direct Communication**: This plugin communicates directly with the Google Drive API without going through any third-party servers.
 - **Auth Protection**: Sensitive information such as Client IDs, tokens, and encryption secrets are stored directly in the OS-standard secure storage (Keychain/Credential Manager) via Obsidian's Secret Storage API. This minimizes the presence of sensitive files within the Vault. In environments where Secret Storage is unavailable, the plugin automatically falls back to local file storage encrypted with a device-specific key (AES-GCM) to maintain high security.
 - **Data Location**: Your synced data is stored exclusively in your own Google Drive storage (in the root folder you specify).
-- **Important**: Synced data (Markdown files, etc.) is uploaded to Google Drive in **plain text (without encryption)**. While protected by Google Drive's security model (HTTPS transfer, server-side encryption), this plugin does NOT currently provide End-to-End Encryption (E2EE). Please be cautious when handling highly sensitive information.
+- **Important**: By default, synced data (Markdown files, etc.) is uploaded to Google Drive in **plain text (without encryption)**. While protected by Google Drive's security model (HTTPS transfer, server-side encryption), the data is readable on the server side. If you require End-to-End Encryption, please install the [VaultSync E2EE Engine](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine) — see the section below for details.
+
+---
+
+## 🔐 End-to-End Encryption (E2EE)
+
+VaultSync supports optional End-to-End Encryption through a separate, open-source encryption engine.
+
+When E2EE is enabled:
+
+- All files are **encrypted on your device before upload** using AES-256-GCM
+- Files are **decrypted locally after download** — your cloud provider never sees plaintext
+- A `vault-lock.vault` file protects the master key (derived via PBKDF2 from your password)
+- Smart sync features (3-way merge, conflict detection) work seamlessly with encrypted data
+- Password can be optionally stored in OS-level secure storage for auto-unlock
+
+### Setup
+
+1. Download the E2EE Engine from the [releases page](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine/releases)
+2. Place `e2ee-engine.js` into your plugin directory: `.obsidian/plugins/obsidian-vault-sync/`
+3. Restart Obsidian — a setup wizard will guide you through password creation and vault migration
+
+For details, build instructions, and the encryption specification, see the **[VaultSync E2EE Engine repository](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine)**.
 
 ---
 
@@ -82,14 +105,11 @@ To use this plugin, you must create a Google Cloud Project and obtain your own *
     1. Go to "APIs & Services" > "OAuth Consent Screen" > "Summary" and click "Get Started" (or "Configure").
     2. Enter the required app information. Select "External" for User Type.
     3. Once completed, click "Create".
-2. **Add Scopes**:
-    1. Under "Data access", select "Add or remove scopes".
-    2. Check `.../auth/drive.file` (See, edit, create, and delete only the specific Google Drive files you use with this app).
-    3. Click "Update".
-    4. Click "Save" at the bottom.
-3. **Auth Period Persistence**: ※ If left in "Testing" state, re-authentication is required every 7 days.
-    1. Go to "Summary" and click "Publish App".
-    2. Click "Confirm".
+2. **Add Scopes**: 1. Under "Data access", select "Add or remove scopes". 2. Check `.../auth/drive.file` (See, edit, create, and delete only the specific Google Drive files you use with this app). 3. Click "Update". 4. Click "Save" at the bottom.
+3. ~~**Auth Period Persistence**: ※ If left in "Testing" state, re-authentication is required every 7 days.~~
+    1. ~~Go to "Summary" and click "Publish App".~~
+    2. ~~Click "Confirm".~~
+       ※ Publishing the app without following proper procedures may trigger a warning from Google. These instructions are currently under review.
 
 ### 3. Create Credentials (Client ID / Secret)
 

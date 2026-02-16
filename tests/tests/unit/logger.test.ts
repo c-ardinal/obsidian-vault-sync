@@ -87,7 +87,7 @@ describe("SyncLogger", () => {
         logger.startCycle("timer-sync");
         await logger.info("info log");
         await logger.debug("debug context");
-        await logger.error("something failed"); // Error is immediate
+        await logger.error("test error message"); // Error is immediate
 
         await logger.endCycle(); // Should flush buffer (info + debug)
         expect(onWrite).toHaveBeenCalledTimes(3);

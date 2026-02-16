@@ -1,6 +1,6 @@
 {
     "name": "obsidian-vault-sync",
-    "version": "0.1.0",
+    "version": "0.8.0",
     "description": "Obsidian Cloud Storage Sync Plugin (Google Drive)",
     "type": "module",
     "main": "dist/obsidian-vault-sync/main.js",
@@ -9,7 +9,6 @@
         "build": "node update-build-hash.mjs && rollup -c",
         "build:release": "rollup -c",
         "version": "node version-bump.mjs && git add manifest.json versions.json",
-
         "test": "vitest run",
         "test:watch": "vitest"
     },
