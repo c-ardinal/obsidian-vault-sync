@@ -142,3 +142,8 @@ vite.config.ts.timestamp-*
 .claude/
 CLAUDE.md
 .grepai/
+
+#User
+.obsidian
+*.txt
+*.diff
