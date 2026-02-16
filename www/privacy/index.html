@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Privacy Policy - VaultSync</title>
+        <link rel="stylesheet" href="../style.css" />
+        <style>
+            header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+            h1 {
+                font-size: 1.6rem;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="lang-selector">
+                <select id="lang-select" onchange="switchLang(this.value)">
+                    <option value="en">English</option>
+                    <option value="ja">日本語</option>
+                </select>
+            </div>
+
+            <!-- English -->
+            <div id="en" class="lang active">
+                <a href="https://github.com/c-ardinal/obsidian-vault-sync" class="back-link"
+                    >&larr; Back to GitHub</a
+                >
+                <header>
+                    <h1>Privacy Policy</h1>
+                </header>
+
+                <p>
+                    This privacy policy describes how <strong>VaultSync</strong> ("the Plugin"), an
+                    Obsidian plugin developed by c-ardinal, handles your data.
+                </p>
+
+                <h2>Data We Access</h2>
+                <p>
+                    VaultSync accesses your cloud storage account solely to synchronize your
+                    Obsidian vault files. The Plugin requests only the minimum permissions required
+                    for synchronization and cannot access files or folders that were not created by
+                    the Plugin itself.
+                </p>
+
+                <h2>Data We Collect</h2>
+                <p>
+                    The Plugin does <strong>not</strong> collect, transmit, or store any personal
+                    data on external servers. All operations occur directly between your local
+                    device and your cloud storage account.
+                </p>
+                <ul>
+                    <li>No analytics or tracking</li>
+                    <li>No user data is sent to the developer</li>
+                    <li>No cookies or local identifiers for tracking purposes</li>
+                </ul>
+
+                <h2>Data Storage</h2>
+                <ul>
+                    <li>
+                        <strong>Authentication credentials</strong> are stored securely on your
+                        local device and are used only to authenticate with your cloud storage
+                        provider.
+                    </li>
+                    <li>
+                        <strong>Vault files</strong> are synchronized between your local device and
+                        your cloud storage. If End-to-End Encryption (E2EE) is enabled, files are
+                        encrypted locally before being uploaded.
+                    </li>
+                    <li>
+                        <strong>Sync metadata</strong> (file hashes, timestamps) is stored locally
+                        and on your cloud storage to manage synchronization state.
+                    </li>
+                </ul>
+
+                <h2>End-to-End Encryption (E2EE)</h2>
+                <p>
+                    When E2EE is enabled, all vault content is encrypted on your device before
+                    upload. The encryption password is never transmitted or stored remotely. Only
+                    encrypted data is stored on your cloud storage, and decryption occurs
+                    exclusively on your local device.
+                </p>
+
+                <h2>Third-Party Services</h2>
+                <p>
+                    The Plugin integrates with the following cloud storage providers. Only the
+                    services you choose to connect are accessed.
+                </p>
+                <h3>Google Drive</h3>
+                <p>
+                    When using Google Drive as your sync provider, the Plugin uses the
+                    <code>drive.file</code> OAuth scope, which limits access to only files and
+                    folders created by the Plugin. The Plugin's use and transfer of information
+                    received from Google APIs adheres to the
+                    <a
+                        href="https://developers.google.com/terms/api-services-user-data-policy"
+                        target="_blank"
+                        rel="noopener"
+                        >Google API Services User Data Policy</a
+                    >, including the Limited Use requirements. For details, see
+                    <a href="https://policies.google.com/privacy" target="_blank" rel="noopener"
+                        >Google's Privacy Policy</a
+                    >.
+                </p>
+
+                <h2>Data Deletion</h2>
+                <p>
+                    You can revoke the Plugin's access to your cloud storage at any time through
+                    your cloud storage provider's account settings. Uninstalling the Plugin removes
+                    all locally stored data, including authentication credentials and sync metadata.
+                    Files previously synced to your cloud storage will remain there until you delete
+                    them manually.
+                </p>
+
+                <h2>Contact</h2>
+                <p>
+                    If you have questions about this privacy policy, please open an issue on the
+                    <a
+                        href="https://github.com/c-ardinal/obsidian-vault-sync/issues"
+                        target="_blank"
+                        rel="noopener"
+                        >GitHub repository</a
+                    >.
+                </p>
+
+                <p class="updated">Last updated: February 16, 2026</p>
+            </div>
+
+            <!-- Japanese -->
+            <div id="ja" class="lang">
+                <a href="https://github.com/c-ardinal/obsidian-vault-sync" class="back-link"
+                    >&larr; GitHubに戻る</a
+                >
+                <header>
+                    <h1>プライバシーポリシー</h1>
+                </header>
+
+                <p>
+                    本プライバシーポリシーは、c-ardinalが開発したObsidianプラグインである<strong>VaultSync</strong>（以下「本プラグイン」）におけるデータの取り扱いについて説明するものです。
+                </p>
+
+                <h2>アクセスするデータ</h2>
+                <p>
+                    VaultSyncは、ObsidianのVaultファイルを同期する目的でのみ、あなたのクラウドストレージにアクセスします。
+                    本プラグインは同期に必要な最小限の権限のみを要求し、本プラグインが作成したファイルおよびフォルダ以外にはアクセスできません。
+                </p>
+
+                <h2>収集するデータ</h2>
+                <p>
+                    本プラグインは、個人データを外部サーバーに<strong>収集・送信・保存しません</strong>。
+                    すべての操作は、あなたのローカルデバイスとクラウドストレージアカウント間で直接行われます。
+                </p>
+                <ul>
+                    <li>アナリティクスやトラッキングは行いません</li>
+                    <li>ユーザーデータが開発者に送信されることはありません</li>
+                    <li>トラッキング目的のCookieやローカル識別子は使用しません</li>
+                </ul>
+
+                <h2>データの保存</h2>
+                <ul>
+                    <li>
+                        <strong>認証情報</strong
+                        >はローカルデバイスに安全に保存し、クラウドストレージプロバイダとの認証にのみ使用します。
+                    </li>
+                    <li>
+                        <strong>Vaultファイル</strong
+                        >はローカルデバイスとクラウドストレージ間で同期します。エンドツーエンド暗号化（E2EE）が有効な場合、ファイルはアップロード前にローカルで暗号化します。
+                    </li>
+                    <li>
+                        <strong>同期メタデータ</strong
+                        >（ファイルハッシュ、タイムスタンプ）は、同期状態を管理するためにクラウドストレージ上およびローカルに保存します。
+                    </li>
+                </ul>
+
+                <h2>エンドツーエンド暗号化（E2EE）</h2>
+                <p>
+                    E2EEが有効な場合、すべてのVaultコンテンツはアップロード前にデバイス上で暗号化されます。
+                    暗号化パスワードやトークンがクラウドストレージに送信・保存されることはありません。
+                    クラウドストレージには暗号化されたデータのみが保存され、復号化はローカルデバイス上でのみ行われます。
+                </p>
+
+                <h2>第三者サービス</h2>
+                <p>
+                    本プラグインは以下のクラウドストレージプロバイダと連携します。<br />
+                    連携先として選択したサービスにのみアクセスします。
+                </p>
+                <h3>Google Drive</h3>
+                <p>
+                    Google
+                    Driveを同期先として使用する場合、本プラグインは<code>drive.file</code>OAuthスコープを使用し、本プラグインが作成したファイルおよびフォルダにのみアクセスが制限されます。<br />
+                    本プラグインによるGoogle
+                    APIから受信した情報の使用および転送は、制限付き使用の要件を含む<a
+                        href="https://developers.google.com/terms/api-services-user-data-policy"
+                        target="_blank"
+                        rel="noopener"
+                        >Google APIサービスのユーザーデータポリシー</a
+                    >に準拠しています。詳細は<a
+                        href="https://policies.google.com/privacy"
+                        target="_blank"
+                        rel="noopener"
+                        >Googleのプライバシーポリシー</a
+                    >をご参照ください。
+                </p>
+
+                <h2>データの削除</h2>
+                <p>
+                    クラウドストレージプロバイダのアカウント設定から、いつでも本プラグインのアクセスを取り消すことができます。<br />
+                    本プラグインをアンインストールすると、認証情報や同期メタデータを含むすべてのローカルデータが削除されます。<br />
+                    以前クラウドストレージに同期されたファイルは、手動で削除するまで残ります。<br />
+                </p>
+
+                <h2>お問い合わせ</h2>
+                <p>
+                    本プライバシーポリシーについてご質問がある場合は、<a
+                        href="https://github.com/c-ardinal/obsidian-vault-sync/issues"
+                        target="_blank"
+                        rel="noopener"
+                        >GitHubリポジトリ</a
+                    >でIssueを作成してください。
+                </p>
+
+                <p class="updated">最終更新日: 2026年2月16日</p>
+            </div>
+        </div>
+
+        <script>
+            function switchLang(lang) {
+                document.querySelectorAll(".lang").forEach((el) => el.classList.remove("active"));
+                document.getElementById(lang).classList.add("active");
+                document.getElementById("lang-select").value = lang;
+                document.documentElement.lang = lang;
+                history.replaceState(null, "", "#" + lang);
+            }
+
+            // Restore language from URL hash
+            var hash = window.location.hash.replace("#", "");
+            if (hash && document.getElementById(hash)) {
+                switchLang(hash);
+            }
+        </script>
+    </body>
+</html>
