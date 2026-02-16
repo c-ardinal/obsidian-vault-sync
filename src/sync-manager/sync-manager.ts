@@ -190,6 +190,8 @@ export class SyncManager {
         return this.settings.e2eeEnabled && (!this.cryptoEngine || !this.cryptoEngine.isUnlocked());
     }
 
+    private vaultLockedNotified = false;
+
     private syncRequestedWhileSyncing: boolean = false;
     private nextSyncParams: { trigger: SyncTrigger; scanVault: boolean } | null = null;
 
@@ -461,10 +463,16 @@ export class SyncManager {
             return;
         }
         if (this.e2eeLocked) {
-            await this.log("Sync skipped: Vault is locked (E2EE).", "warn");
-            new Notice(this.t("noticeVaultLocked") || "Vault is locked. Sync paused.");
+            const isUserAction = trigger === "manual-sync" || trigger === "full-scan";
+            if (isUserAction || !this.vaultLockedNotified) {
+                this.currentTrigger = trigger;
+                await this.log("Sync skipped: Vault is locked (E2EE).", "warn");
+                await this.notify("noticeVaultLocked");
+                this.vaultLockedNotified = true;
+            }
             return;
         }
+        this.vaultLockedNotified = false;
         this.currentTrigger = trigger;
         return _requestSmartSync(this as unknown as SyncContext, scanVault);
     }

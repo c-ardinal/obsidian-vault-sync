@@ -1,4 +1,4 @@
-import { App, Plugin, PluginSettingTab, Setting, TFile, setIcon, Platform, Notice } from "obsidian";
+import { App, Plugin, PluginSettingTab, Setting, TFile, setIcon, Platform } from "obsidian";
 import { GoogleDriveAdapter } from "./adapters/google-drive";
 import { SyncManager, type SyncTrigger } from "./sync-manager";
 import { SecureStorage } from "./secure-storage";
@@ -94,7 +94,11 @@ export default class VaultSync extends Plugin {
         await this.syncManager.loadLocalIndex();
 
         // 5.5 Load external crypto engine (Moved here to ensure logs are captured in sync log)
-        const engine = await loadExternalCryptoEngine(this.app, this.manifest.dir!);
+        const engine = await loadExternalCryptoEngine(
+            this.app,
+            this.manifest.dir!,
+            (key) => this.syncManager.notify(key),
+        );
         if (engine) {
             this.syncManager.cryptoEngine = engine;
             await this.syncManager.log("External E2EE engine loaded successfully.", "system");
@@ -113,7 +117,7 @@ export default class VaultSync extends Plugin {
         // Handle Token Expiry / Revocation
         this.adapter.onAuthFailure = async () => {
             console.log("VaultSync: Auth failed (token expired/revoked). Clearing credentials.");
-            new Notice(t("noticeAuthFailed") + ": Session expired. Please login again.", 0);
+            await this.syncManager.notify("noticeAuthFailed", "Session expired. Please login again.");
             await this.secureStorage.clearCredentials();
             this.adapter.setTokens(null, null);
         };
@@ -173,7 +177,7 @@ export default class VaultSync extends Plugin {
                             );
                             this.settings.e2eeEnabled = true;
                             await this.saveSettings();
-                            new Notice(t("noticeE2EEAutoEnabled"), 10000);
+                            await this.syncManager.notify("noticeE2EEAutoEnabled");
                         }
                     }
 
@@ -185,10 +189,10 @@ export default class VaultSync extends Plugin {
                                 await this.secureStorage.getExtraSecret("e2ee-password");
                             if (savedPassword) {
                                 try {
-                                    const lockData =
+                                    const blob =
                                         await this.syncManager.vaultLockService.downloadLockFile();
                                     await this.syncManager.cryptoEngine?.unlockVault(
-                                        lockData,
+                                        blob,
                                         savedPassword,
                                     );
                                     autoUnlocked = true;
@@ -336,7 +340,7 @@ export default class VaultSync extends Plugin {
         this.registerObsidianProtocolHandler("vault-sync-auth", async (params) => {
             // Verify state
             if (params.state && !this.adapter.verifyState(params.state)) {
-                new Notice(t("noticeAuthFailed") + ": Invalid state");
+                await this.syncManager.notify("noticeAuthFailed", "Invalid state");
                 return;
             }
 
@@ -350,17 +354,17 @@ export default class VaultSync extends Plugin {
                         tokens.accessToken,
                         tokens.refreshToken,
                     );
-                    new Notice(t("noticeAuthSuccess"));
+                    await this.syncManager.notify("noticeAuthSuccess");
 
                     // Cleanup storage
                     window.localStorage.removeItem("vault-sync-verifier");
                     window.localStorage.removeItem("vault-sync-state");
                 } catch (e: any) {
-                    new Notice(`${t("noticeAuthFailed")}: ${e.message}`);
+                    await this.syncManager.notify("noticeAuthFailed", e.message);
                     console.error("VaultSync: Auth failed via protocol handler", e);
                 }
             } else if (params.error) {
-                new Notice(`${t("noticeAuthFailed")}: ${params.error}`);
+                await this.syncManager.notify("noticeAuthFailed", params.error);
             }
         });
     }

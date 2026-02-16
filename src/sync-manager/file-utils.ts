@@ -14,7 +14,7 @@ export const INTERNAL_REMOTE_MANAGED = [
     "data/remote/sync-index.json",
     "data/remote/sync-index_raw.json",
     "data/remote/communication.json",
-    "vault-lock.json",
+    "data/remote/vault-lock.vault",
     "migration.lock",
 ];
 

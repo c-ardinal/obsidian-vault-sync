@@ -398,25 +398,28 @@ export async function pullFileSafely(
                     `[${logPrefix}] Conflict check for ${item.path}: ` +
                         `currentHash=${currentHash.substring(0, 8)}, ` +
                         `localBaseHash=${localBase?.hash?.substring(0, 8) || "none"}, ` +
+                        `localBasePlainHash=${localBase?.plainHash?.substring(0, 8) || "none"}, ` +
                         `remoteHash=${item.hash?.substring(0, 8) || "none"}`,
                 );
 
-                // For E2EE: Use plainHash for comparison when available
+                // For E2EE: Use plainHash for local modification detection.
+                // Remote conflict detection uses encrypted hash (valid: both sides are encrypted).
                 let hasRemoteConflict = false;
                 let isActuallyModified = false;
 
-                if (ctx.e2eeEnabled && localBase?.plainHash && item.plainHash) {
-                    // E2EE with plainHash available: compare plaintext hashes
-                    hasRemoteConflict = localBase.plainHash !== item.plainHash || isRemoteDeleted;
+                // Remote conflict: always use encrypted hash comparison (both sides encrypted)
+                hasRemoteConflict =
+                    (localBase?.hash &&
+                        item.hash &&
+                        localBase.hash.toLowerCase() !== item.hash.toLowerCase()) ||
+                    isRemoteDeleted;
+
+                if (ctx.e2eeEnabled && localBase?.plainHash) {
+                    // E2EE: detect local modification via plaintext hash comparison
                     const currentPlainHash = await hashContent(localContent);
                     isActuallyModified = localBase.plainHash !== currentPlainHash;
                 } else {
                     // No E2EE or no plainHash: use regular hash comparison
-                    hasRemoteConflict =
-                        (localBase?.hash &&
-                            item.hash &&
-                            localBase.hash.toLowerCase() !== item.hash.toLowerCase()) ||
-                        isRemoteDeleted;
                     isActuallyModified =
                         !localBase || !localBase.hash || localBase.hash.toLowerCase() !== currentHash;
                 }
@@ -429,11 +432,14 @@ export async function pullFileSafely(
                     // Content match check - compare actual content or plainHash
                     let contentMatches = false;
                     if (ctx.e2eeEnabled && item.plainHash) {
+                        // E2EE with remote plainHash: compare plaintext hashes
                         const currentPlainHash = await hashContent(localContent);
                         contentMatches = currentPlainHash === item.plainHash;
-                    } else {
+                    } else if (!ctx.e2eeEnabled) {
+                        // No E2EE: compare plaintext hash against remote hash directly
                         contentMatches = !!(item.hash && currentHash === item.hash.toLowerCase());
                     }
+                    // E2EE without item.plainHash: can't detect content match pre-download
 
                     if (contentMatches) {
                         const stat = await ctx.app.vault.adapter.stat(item.path);

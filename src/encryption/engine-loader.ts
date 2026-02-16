@@ -1,10 +1,11 @@
 import * as obsidianModule from "obsidian";
-import { App, Notice, normalizePath } from "obsidian";
+import { App, normalizePath } from "obsidian";
 import { ICryptoEngine } from "./interfaces";
 
 // SHA-256 hash of the approved e2ee-engine.js file.
 // Update via: npm run hash (in VaultSync-E2EE-Engine repo)
-const APPROVED_ENGINE_HASH: string = "ab485f5f80f1b0e8226b9d59ab571463b97e7a326b36eed2b68fc904093fc71b";
+const APPROVED_ENGINE_HASH: string =
+    "c08b6d879f5a729dc7eefbdb7425d545b2526332c29ae82d3e86e1ef08f71b32";
 
 /**
  * Compute SHA-256 hash of content
@@ -24,6 +25,7 @@ async function computeSHA256(content: string): Promise<string> {
 export async function loadExternalCryptoEngine(
     app: App,
     pluginPath: string,
+    onNotify?: (key: string) => Promise<void>,
 ): Promise<ICryptoEngine | null> {
     // 1. Resolve Path candidates
     // On some platforms, leading dots or different separators can be tricky
@@ -69,7 +71,7 @@ export async function loadExternalCryptoEngine(
                 console.error(
                     `VaultSync: E2EE engine hash mismatch! Expected: ${APPROVED_ENGINE_HASH}, Got: ${actualHash}`,
                 );
-                new Notice("E2EE engine verification failed. Please reinstall the plugin.", 10000);
+                if (onNotify) await onNotify("noticeEngineVerifyFailed");
                 return null;
             }
         } else {

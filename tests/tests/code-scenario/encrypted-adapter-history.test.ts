@@ -50,7 +50,7 @@ function buildEncryptedBuffer(iv: Uint8Array, ciphertext: ArrayBuffer): ArrayBuf
 
 function createMockEngine(): ICryptoEngine {
     return {
-        initializeNewVault: async () => ({ salt: "", encryptedMasterKey: "", iv: "", algo: "" }),
+        initializeNewVault: async () => "",
         unlockVault: async () => {},
         isUnlocked: () => true,
         encrypt: async (data: ArrayBuffer) => {

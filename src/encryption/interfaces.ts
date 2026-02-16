@@ -1,12 +1,3 @@
-export interface VaultLockData {
-    salt: string;
-    encryptedMasterKey: string;
-    iv: string;
-    algo: string;
-    pbkdf2Iterations?: number; // Number of PBKDF2 iterations used for key derivation
-    version?: number; // Version of the lock file format for future compatibility
-}
-
 // Minimal types copied from settings-schema to avoid circular dependency
 export interface SettingItem {
     key: string;
@@ -31,9 +22,9 @@ export interface SettingSection {
 }
 
 export interface ICryptoEngine {
-    initializeNewVault(password: string): Promise<VaultLockData>;
-    unlockVault(lockData: VaultLockData, password: string): Promise<void>;
-    updatePassword?(password: string): Promise<VaultLockData>;
+    initializeNewVault(password: string): Promise<string>;
+    unlockVault(encryptedBlob: string, password: string): Promise<void>;
+    updatePassword?(password: string): Promise<string>;
     isUnlocked(): boolean;
 
     encrypt(data: ArrayBuffer): Promise<{ ciphertext: ArrayBuffer; iv: Uint8Array }>;

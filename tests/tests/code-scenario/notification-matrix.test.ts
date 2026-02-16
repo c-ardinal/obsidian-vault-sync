@@ -465,6 +465,82 @@ const MATRIX: MatrixEntry[] = [
             historyModal: { v: "Show", s: "Show" },
         },
     },
+
+    // ═══ Migration Notifications ═══
+    {
+        key: "noticeMigrationStarted",
+        scenarios: {
+            manualSync: { v: "Show", s: "Show" },
+        },
+    },
+    {
+        key: "noticeMigrationComplete",
+        scenarios: {
+            manualSync: { v: "Show", s: "Show" },
+        },
+    },
+    {
+        key: "noticeMigrationFailed",
+        scenarios: {
+            manualSync: { v: "Show", s: "Show" },
+        },
+    },
+
+    // ═══ E2EE Notifications ═══
+    {
+        // 🔒 E2EE: Vaultがロック中
+        key: "noticeVaultLocked",
+        scenarios: {
+            initialSync: { v: "Show", s: "Show" },
+            startupSync: { v: "Show", s: "Show" },
+            manualSync: { v: "Show", s: "Show" },
+            timerSync: { v: "Show", s: "Show" },
+            saveSync: { v: "Show", s: "Show" },
+            modifySync: { v: "Show", s: "Show" },
+            layoutSync: { v: "Show", s: "Show" },
+            fullScan: { v: "Show", s: "Show" },
+        },
+    },
+    {
+        // 🔒 E2EE: 暗号化検出
+        key: "noticeE2EEAutoEnabled",
+        scenarios: {
+            startupSync: { v: "Show", s: "Show" },
+        },
+    },
+    {
+        // ❌ E2EE: エンジン検証失敗
+        key: "noticeEngineVerifyFailed",
+        scenarios: {
+            startupSync: { v: "Show", s: "Show" },
+        },
+    },
+    {
+        // ロック解除成功
+        key: "e2eeUnlockSuccess",
+        scenarios: {
+            manualSync: { v: "Show", s: "Show" },
+        },
+    },
+    {
+        // パスワード誤り
+        key: "e2eeUnlockFailed",
+        scenarios: {
+            manualSync: { v: "Show", s: "Show" },
+        },
+    },
+    {
+        // キーチェーン保存失敗
+        key: "e2eeSetupKeychainFailed",
+        scenarios: {},
+    },
+    {
+        // 中断復旧完了
+        key: "e2eeInterruptedDone",
+        scenarios: {
+            manualSync: { v: "Show", s: "Show" },
+        },
+    },
 ];
 
 // ════════════════════════════════════════════════════════════════
@@ -541,6 +617,18 @@ const FORMAT_SPECS: FormatSpec[] = [
     { key: "noticeFileRestored", specJa: "💾 [履歴] ファイルを復元しました" },
     { key: "noticeHistoryRestoreAs", specJa: "💾 [履歴] 別名で復元しました: {0}" },
     { key: "noticeRevisionDeleted", specJa: "🗑️ [履歴] リビジョンを削除しました" },
+    // ═══ Migration Notifications ═══
+    { key: "noticeMigrationStarted", specJa: "🚀 [E2EE] 移行を開始しました。Obsidianを閉じないでください。" },
+    { key: "noticeMigrationComplete", specJa: "✅ [E2EE] 移行完了！Vaultが暗号化されました。" },
+    { key: "noticeMigrationFailed", specJa: "❌ [E2EE] 移行失敗。ログを確認してください。" },
+    // ═══ E2EE Notifications ═══
+    { key: "noticeVaultLocked", specJa: "🔒 [E2EE] Vaultがロック中のため同期を一時停止しています。" },
+    { key: "noticeE2EEAutoEnabled", specJa: "🔒 [E2EE] このVaultは他デバイスで暗号化されています。パスワードを入力してロックを解除してください。" },
+    { key: "noticeEngineVerifyFailed", specJa: "❌ [E2EE] エンジンの検証に失敗しました。プラグインを再インストールしてください。" },
+    { key: "e2eeUnlockSuccess", specJa: "ロック解除しました！" },
+    { key: "e2eeUnlockFailed", specJa: "パスワードが正しくありません。" },
+    { key: "e2eeSetupKeychainFailed", specJa: "警告: キーチェーンへのパスワード保存に失敗しました。\n次回起動時にパスワードの再入力が必要です。" },
+    { key: "e2eeInterruptedDone", specJa: "クリーンアップ完了。このモーダルを再度開いてください。" },
 ];
 
 // ════════════════════════════════════════════════════════════════
@@ -602,6 +690,18 @@ describe("Notification Visibility Matrix", () => {
             "noticeFileRestored",
             "noticeHistoryRestoreAs",
             "noticeRevisionDeleted",
+            // Migration
+            "noticeMigrationStarted",
+            "noticeMigrationComplete",
+            "noticeMigrationFailed",
+            // E2EE
+            "noticeVaultLocked",
+            "noticeE2EEAutoEnabled",
+            "noticeEngineVerifyFailed",
+            "e2eeUnlockSuccess",
+            "e2eeUnlockFailed",
+            "e2eeSetupKeychainFailed",
+            "e2eeInterruptedDone",
         ];
         for (const key of expectedKeys) {
             expect(matrixKeys.has(key), `Missing MATRIX entry for: ${key}`).toBe(true);
@@ -861,6 +961,18 @@ const NEVER_DURING_CLEAN_SYNC: string[] = [
     "noticeFileRestored",
     "noticeHistoryRestoreAs",
     "noticeRevisionDeleted",
+    // Migration: not triggered during normal sync
+    "noticeMigrationStarted",
+    "noticeMigrationComplete",
+    "noticeMigrationFailed",
+    // E2EE: not triggered during clean sync (vault is unlocked)
+    "noticeVaultLocked",
+    "noticeE2EEAutoEnabled",
+    "noticeEngineVerifyFailed",
+    "e2eeUnlockSuccess",
+    "e2eeUnlockFailed",
+    "e2eeSetupKeychainFailed",
+    "e2eeInterruptedDone",
 ];
 
 /**

@@ -62,7 +62,11 @@ export async function scanObsidianChanges(ctx: SyncContext): Promise<void> {
                 try {
                     const content = await ctx.app.vault.adapter.readBinary(filePath);
                     const localHash = md5(content);
-                    if (indexEntry.hash && localHash !== indexEntry.hash.toLowerCase()) {
+                    // For E2EE: compare against plainHash (plaintext) instead of hash (encrypted)
+                    const compareHash = (ctx.e2eeEnabled && indexEntry.plainHash)
+                        ? indexEntry.plainHash
+                        : indexEntry.hash;
+                    if (compareHash && localHash !== compareHash.toLowerCase()) {
                         ctx.dirtyPaths.add(filePath);
                         await ctx.log(
                             `[Obsidian Scan] Modified (hash mismatch vs localIndex): ${filePath}`,
@@ -163,13 +167,17 @@ export async function scanVaultChanges(ctx: SyncContext): Promise<void> {
                     const content = await ctx.app.vault.adapter.readBinary(file.path);
                     const localHash = md5(content);
 
-                    if (indexEntry.hash && localHash !== indexEntry.hash.toLowerCase()) {
+                    // For E2EE: compare against plainHash (plaintext) instead of hash (encrypted)
+                    const compareHash = (ctx.e2eeEnabled && indexEntry.plainHash)
+                        ? indexEntry.plainHash
+                        : indexEntry.hash;
+                    if (compareHash && localHash !== compareHash.toLowerCase()) {
                         ctx.dirtyPaths.add(file.path);
                         await ctx.log(
                             `[Vault Scan] Modified (hash mismatch vs localIndex): ${file.path}`,
                             "debug",
                         );
-                    } else if (!indexEntry.hash) {
+                    } else if (!compareHash) {
                         ctx.dirtyPaths.add(file.path);
                         await ctx.log(
                             `[Vault Scan] Modified (no prev hash in localIndex): ${file.path}`,
@@ -649,6 +657,7 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
                 path,
                 fileId: remoteEntry.fileId,
                 hash: remoteEntry.hash,
+                plainHash: remoteEntry.plainHash,
                 mergeLock: remoteEntry.mergeLock,
                 ancestorHash: remoteEntry.ancestorHash,
             } as any);
@@ -662,6 +671,7 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
                 path,
                 fileId: remoteEntry.fileId,
                 hash: remoteEntry.hash,
+                plainHash: remoteEntry.plainHash,
                 mergeLock: remoteEntry.mergeLock,
                 ancestorHash: remoteEntry.ancestorHash,
             } as any);

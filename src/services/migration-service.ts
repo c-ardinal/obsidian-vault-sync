@@ -3,7 +3,7 @@ import { CloudAdapter } from "../types/adapter";
 import { ICryptoEngine } from "../encryption/interfaces";
 import { VaultLockService } from "./vault-lock-service";
 import { EncryptedAdapter } from "../adapters/encrypted-adapter";
-import { getLocalFiles, shouldIgnore, runParallel } from "../sync-manager/file-utils";
+import { getLocalFiles, shouldIgnore, runParallel, hashContent } from "../sync-manager/file-utils";
 import { SyncContext } from "../sync-manager/context";
 
 export interface MigrationProgress {
@@ -13,7 +13,7 @@ export interface MigrationProgress {
 }
 
 export class MigrationService {
-    private pendingVaultLockData: import("../encryption/interfaces").VaultLockData | null = null;
+    private pendingLockBlob: string | null = null;
     public isMigrating = false;
     public currentProgress: MigrationProgress | null = null;
 
@@ -44,7 +44,7 @@ export class MigrationService {
             );
         }
         if (await this.lockService.checkForLockFile()) {
-            throw new Error("Vault is already encrypted (vault-lock.json exists).");
+            throw new Error("Vault is already encrypted (vault-lock.vault exists).");
         }
 
         const existingLock = await this.lockService.getMigrationLock();
@@ -72,7 +72,7 @@ export class MigrationService {
         this.isMigrating = true;
 
         // 3. Initialize Engine (GENERATE MASTER KEY)
-        this.pendingVaultLockData = await this.engine.initializeNewVault(password);
+        this.pendingLockBlob = await this.engine.initializeNewVault(password);
 
         // 4. Prepare Temp Adapter
         let tempAdapter: CloudAdapter;
@@ -113,17 +113,17 @@ export class MigrationService {
         tempEncryptedAdapter: CloudAdapter,
         onProgress: (p: MigrationProgress) => void,
     ): Promise<void> {
-        // 1. Get all local files
+        // 1. Get all local files (excluding ignored)
         const files = await getLocalFiles(this.ctx);
-        const total = files.length;
+        const filteredFiles = files.filter(f => !shouldIgnore(this.ctx, f.path));
+        const total = filteredFiles.length;
         const verificationSamples: Array<{ path: string; originalContent: ArrayBuffer; fileId: string }> = [];
         let current = 0;
         const concurrency = this.ctx.settings.concurrency || 5;
 
         // Build tasks for parallel execution
-        const filteredFiles = files.filter(f => !shouldIgnore(this.ctx, f.path));
         const tasks = filteredFiles.map(file => async () => {
-            const p = { current: current++, total, fileName: file.path };
+            const p = { current: ++current, total, fileName: file.path };
             this.currentProgress = p;
             onProgress(p);
 
@@ -132,6 +132,9 @@ export class MigrationService {
 
             // Upload via EncryptedAdapter (handles encryption + IV via engine)
             const result = await tempEncryptedAdapter.uploadFile(file.path, content, file.mtime);
+
+            // Compute plaintext hash BEFORE encryption for E2EE change detection
+            const plainHash = await hashContent(content);
 
             // CRITICAL: Update local index with new ENCRYPTED remote hash
             // This prevents "conflict" or "download required" spikes after migration.
@@ -143,6 +146,7 @@ export class MigrationService {
             this.ctx.localIndex[file.path] = {
                 ...entry,
                 hash: result.hash,
+                plainHash: plainHash, // Plaintext hash for E2EE change detection
                 ancestorHash: result.hash, // Current version is now remote version
                 size: result.size,
                 mtime: file.mtime,
@@ -199,15 +203,15 @@ export class MigrationService {
     }
 
     /**
-     * Finalize: Rename folders and upload vault-lock.json.
+     * Finalize: Rename folders and upload vault-lock.vault.
      * Implements atomic folder swap with recovery capabilities.
      */
     async finalizeMigration(tempEncryptedAdapter: CloudAdapter): Promise<void> {
-        if (!this.pendingVaultLockData) {
+        if (!this.pendingLockBlob) {
             throw new Error("Missing lock data. Start migration correctly first.");
         }
-        // 1. Get lock data
-        const lockData = this.pendingVaultLockData;
+        // 1. Get lock blob
+        const lockBlob = this.pendingLockBlob;
 
         // 2. Resolve IDs
         const vaultName = this.baseAdapter.vaultName;
@@ -227,10 +231,10 @@ export class MigrationService {
             "info",
         );
 
-        // 3. Upload vault-lock.json AND remote-index.json to the TEMP folder BEFORE swapping
+        // 3. Upload vault-lock.vault AND remote-index.json to the TEMP folder BEFORE swapping
         // This ensures the new vault is valid as soon as it takes the primary name.
         const tempBaseAdapter = (tempEncryptedAdapter as any).baseAdapter;
-        await this.lockService.uploadLockFileToAdapter(tempBaseAdapter, lockData);
+        await this.lockService.uploadLockFileToAdapter(tempBaseAdapter, lockBlob);
 
         // Also save the current index state (as encrypted) to the temp folder
         const indexContent = new TextEncoder().encode(
@@ -272,22 +276,33 @@ export class MigrationService {
             throw error; // Re-throw to signal migration failure
         }
 
-        // 5. Reset adapter caches to force re-discovery of the new vaultRootId
+        // 5. Delete backup folder (original unencrypted data)
+        if (originalId) {
+            try {
+                await this.baseAdapter.deleteFile(originalId);
+                await this.ctx.log(`[Migration] Deleted backup folder: ${backupName}`, "info");
+            } catch (e) {
+                await this.ctx.log(`[Migration] Failed to delete backup folder: ${e}`, "warn");
+            }
+        }
+
+        // 6. Reset adapter caches to force re-discovery of the new vaultRootId
         // This is CRITICAL to prevent syncing into the Backup folder (which has the old ID)
         if ((this.baseAdapter as any).reset) {
             (this.baseAdapter as any).reset();
         }
 
-        // 6. Persistence: Save the updated indexes to local disk
+        // 7. Persistence: Save the updated indexes to local disk
         // Since ctx is a SyncContext, we cast to avoid TS issues if it's missing helper methods
         const manager = this.ctx as any;
         if (manager.saveLocalIndex) await manager.saveLocalIndex();
         if (manager.saveIndex) await manager.saveIndex();
 
-        // 7. Cleanup
+        // 8. Cleanup
         await this.lockService.removeMigrationLock();
         this.ctx.startPageToken = undefined as any; // Force fresh token acquisition (use any to satisfy strict null checks if type is limited)
-        this.pendingVaultLockData = null;
+        this.pendingLockBlob = null;
+        this.ctx.syncState = "IDLE";
         this.isMigrating = false;
         this.currentProgress = null;
     }
@@ -300,7 +315,7 @@ export class MigrationService {
         }
         await this.lockService.removeMigrationLock();
         this.ctx.syncState = "IDLE";
-        this.pendingVaultLockData = null;
+        this.pendingLockBlob = null;
         this.isMigrating = false;
         this.currentProgress = null;
     }
