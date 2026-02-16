@@ -1,5 +1,6 @@
 import { normalizePath } from "../utils/path";
 import { matchWildcard } from "../utils/wildcard";
+import { md5 } from "../utils/md5";
 import type { SyncContext } from "./context";
 
 // === System-level Constants ===
@@ -13,6 +14,8 @@ export const INTERNAL_REMOTE_MANAGED = [
     "data/remote/sync-index.json",
     "data/remote/sync-index_raw.json",
     "data/remote/communication.json",
+    "data/remote/vault-lock.vault",
+    "migration.lock",
 ];
 
 /** General system-level files that should be ignored and cleaned up from remote if found */
@@ -24,12 +27,7 @@ export const SYSTEM_IGNORES = [
 ];
 
 /** Obsidian internal transient files (Ignored and cleaned up from remote if not synced) */
-export const OBSIDIAN_SYSTEM_IGNORES = [
-    "cache/",
-    "indexedDB/",
-    "backups/",
-    ".trash/",
-];
+export const OBSIDIAN_SYSTEM_IGNORES = ["cache/", "indexedDB/", "backups/", ".trash/"];
 
 export const OBSIDIAN_WORKSPACE_FILES = ["workspace.json", "workspace-mobile.json"];
 
@@ -117,9 +115,7 @@ export async function tryDecompress(data: ArrayBuffer): Promise<ArrayBuffer> {
     try {
         const view = new Uint8Array(data);
         if (view.length > 2 && view[0] === 0x1f && view[1] === 0x8b) {
-            const stream = new Blob([data])
-                .stream()
-                .pipeThrough(new DecompressionStream("gzip"));
+            const stream = new Blob([data]).stream().pipeThrough(new DecompressionStream("gzip"));
             return await new Response(stream).arrayBuffer();
         }
     } catch (e) {
@@ -164,6 +160,7 @@ export async function runParallel<T>(
  * saveIndex などの専用ロジックで直接制御されるファイル。
  */
 export function isManagedSeparately(path: string): boolean {
+    if (INTERNAL_REMOTE_MANAGED.includes(path)) return true;
     if (!path.startsWith(PLUGIN_DIR)) return false;
     const subPath = path.substring(PLUGIN_DIR.length);
     return INTERNAL_REMOTE_MANAGED.includes(subPath);
@@ -232,9 +229,7 @@ export function shouldNotBeOnRemote(ctx: SyncContext, path: string): boolean {
         SYSTEM_IGNORES.some((p) => {
             const np = p.toLowerCase();
             if (np.endsWith("/")) {
-                return (
-                    normalizedWithSlash.startsWith(np) || normalizedWithSlash.includes("/" + np)
-                );
+                return normalizedWithSlash.startsWith(np) || normalizedWithSlash.includes("/" + np);
             }
             return normalizedPath === np || normalizedPath.endsWith("/" + np);
         })
@@ -261,9 +256,7 @@ export function shouldNotBeOnRemote(ctx: SyncContext, path: string): boolean {
 
         if (!ctx.settings.syncWorkspace) {
             if (
-                OBSIDIAN_WORKSPACE_FILES.some((f) =>
-                    normalizedPath.endsWith("/" + f.toLowerCase()),
-                )
+                OBSIDIAN_WORKSPACE_FILES.some((f) => normalizedPath.endsWith("/" + f.toLowerCase()))
             ) {
                 return true;
             }
@@ -303,9 +296,20 @@ export function shouldNotBeOnRemote(ctx: SyncContext, path: string): boolean {
     if (!ctx.settings.syncImagesAndMedia) {
         const ext = normalizedPath.split(".").pop();
         const mediaExtensions = [
-            "png", "jpg", "jpeg", "gif", "bmp", "svg", "webp",
-            "mp3", "wav", "ogg", "m4a",
-            "mp4", "mov", "webm",
+            "png",
+            "jpg",
+            "jpeg",
+            "gif",
+            "bmp",
+            "svg",
+            "webp",
+            "mp3",
+            "wav",
+            "ogg",
+            "m4a",
+            "mp4",
+            "mov",
+            "webm",
             "pdf",
         ];
         if (ext && mediaExtensions.includes(ext)) {
@@ -333,4 +337,17 @@ export function shouldNotBeOnRemote(ctx: SyncContext, path: string): boolean {
 
 export function shouldIgnore(ctx: SyncContext, path: string): boolean {
     return isManagedSeparately(path) || shouldNotBeOnRemote(ctx, path);
+}
+
+/**
+ * Calculate MD5 hash of content (for plaintext comparison in E2EE scenarios)
+ * @param content - ArrayBuffer containing the file content
+ * @returns MD5 hash of the content as a lowercase hex string
+ */
+export async function hashContent(content: ArrayBuffer): Promise<string> {
+    // Normalize line endings for consistent hash calculation across platforms
+    const contentStr = new TextDecoder().decode(content);
+    const normalizedContent = contentStr.replace(/\r\n/g, "\n");
+    const normalizedBuffer = new TextEncoder().encode(normalizedContent).buffer;
+    return md5(normalizedBuffer);
 }

@@ -1,122 +1,151 @@
 # VaultSync (Obsidian Cloud Sync)
 
-[日本語 (Japanese)](./README.md) / [English](./README_en.md)
+[ [🇺🇸 English](README.md) | [🇯🇵 日本語](README_ja.md) ]
 
-Obsidian向けの高速・インテリジェントなクラウドストレージ同期プラグインです。  
-Google Driveを活用し、PCとモバイルデバイス（iOS/Android）間での強固なデータ一貫性と高速な同期体験を提供します。
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![GitHub Release](https://img.shields.io/github/v/release/c-ardinal/obsidian-vault-sync?label=Release&logo=github)](https://github.com/c-ardinal/obsidian-vault-sync/releases)
+[![CI Status](https://img.shields.io/github/actions/workflow/status/c-ardinal/obsidian-vault-sync/test.yml?branch=main&label=CI&logo=github-actions)](https://github.com/c-ardinal/obsidian-vault-sync/actions/workflows/test.yml)
+[![Platform: Windows | MacOS | Linux](https://img.shields.io/badge/Platform-Windows%20%7C%20MacOS%20%7C%20Linux-lightgrey)](#)
 
----
-
-## ⚙️ 動作環境
-
-- **Obsidian**: v0.15.0 以上
-- **Google アカウント**: Google Drive API を利用するために必要
-- **ネットワーク**: インネット接続環境（同期実行時）
+A high-speed, intelligent cloud storage sync plugin for Obsidian.  
+Leveraging Google Drive, it provides robust data consistency and a fast synchronization experience across PC and mobile devices (iOS/Android).
 
 ---
 
-## ✨ 主な特徴
+## ⚙️ Requirements
 
-- **インテリジェント同期 (Index Shortcut)**: クラウド上のマスターインデックスを共有。変更がない場合は全走査をスキップし、バッテリーと通信量を節約します。
-- **高速差分検知 (MD5 Adoption)**: インデックスが未作成の状態でも、ファイルのMD5ハッシュを計算して照合。一致すれば無駄なダウンロードを行わず即座に採用します。
-- **スマート・マージ (3-way Merge)**: 複数デバイスで同時に編集された場合、共通の祖先（Ancestor）を基に可能な限り自動マージを行います。競合時はロック制御（communication.json）により安全に保護されます。
-- **履歴・差分表示 (Revision History)**: Google Drive上のファイルリビジョンを取得し、ローカルとの差分表示や過去バージョンの復元が可能です。
-- **モバイル最適化**: 基盤に `fetch` APIを採用し、デスクトップ/モバイルの両方で動作。編集停止時や保存時の自動同期、レイアウト変更トリガー（タブ切り替え時）を搭載。
-- **詳細な同期設定**: `.obsidian` 内の設定、プラグイン、外観、ホットキーなどを個別に同期するか選択可能。キャッシュや一時ファイルは自動で除外されます。
-- **安全な認証 & 保存**: PKCEを用いたOAuth2認証。認証情報は設定ファイルから分離され、OS標準のセキュアなストレージ（Keychain/Credential Manager）を活用して安全に保存されます。
+- **Obsidian**: v0.15.0 or higher
+- **Google Account**: Required to access the Google Drive API
+- **Network**: Internet connection (required during sync)
 
 ---
 
-## 📖 使い方
+## ✨ Key Features
 
-### 同期の実行
-
-- **リボンアイコン**: 画面左側のツールバーにある同期アイコンをクリックすると、スマート同期が開始されます。
-- **コマンドパレット**: `Ctrl+P` (または `Cmd+P`) を押し、`VaultSync: Sync with Cloud` を選択します。
-- **自動同期**: 設定により、ファイル保存時や編集の停止時、一定時間ごとに自動で同期が行われます。
-
-### 履歴と復元
-
-- **ファイル履歴**: ファイルを右クリックし、「クラウドの変更履歴を表示 (VaultSync)」を選択すると、Google Drive上の過去リビジョンとの比較が可能です。
-- **高機能diffビューア**: Unified/左右分割表示の切り替え、行内差分のハイライト、差分箇所へのジャンプ機能（ループ対応）、表示コンテキスト行数の動的調整など、開発者ツール級の強力な比較機能を提供します。
-- **フルスキャン**: 整合性に不安がある場合、コマンドパレットから `VaultSync: Audit & Fix Consistency (Full Scan)` を実行して強制的に同期状態をチェックできます。
+- **Intelligent Sync (Index Shortcut)**: Shares a master index on the cloud. Skips the full scan if no changes are detected, saving battery and data usage.
+- **Fast Difference Detection (MD5 Adoption)**: Even without an existing index, it matches file MD5 hashes. If they match, the local file is adopted instantly without a redundant download.
+- **Smart Merge (3-way Merge)**: When multiple devices edit a file simultaneously, it performs an automatic merge based on a common ancestor. During conflicts, it is safely protected by lock control (`communication.json`).
+- **Revision History & Diff Viewer**: Retrieves file revisions from Google Drive, allowing for diff visualization against the local version and restoration of past versions.
+- **Mobile Optimized**: Built on the `fetch` API to run on both desktop and mobile. Features include auto-sync on edit-stop or save, and layout change triggers (e.g., when switching tabs).
+- **Granular Sync Settings**: Selectively sync settings, plugins, themes, and hotkeys within `.obsidian`. Cache and temporary files are automatically excluded.
+- **Secure Authentication & Storage**: OAuth2 authentication using PKCE. Credentials are separated from the main settings and saved using system-standard secure storage (Keychain/Credential Manager).
+- **End-to-End Encryption (E2EE)**: Optional client-side encryption for your vault data. When enabled with the [E2EE Engine](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine), all files are encrypted locally before upload and decrypted after download — your cloud provider never sees plaintext content.
 
 ---
 
-## 🔧 同期エンジンの仕様
+## 📖 Usage
 
-- **Conflict Resolution**: 3-way Mergeによる自動解決に加え、「スマートマージ」「ローカル優先」「クラウド優先」「常にフォーク」の戦略を選択可能です。自動解決できない場合はローカルファイルを `(Conflict YYYY-MM-DDTHH-mm-ss)` として退避します。
-- **Selective Sync**: `.obsidian/` 内のファイル（プラグイン、テーマ、ホットキー等）をカテゴリ別に同期制御可能です。`workspace.json` や `cache/` など、デバイス固有のデータは自動的に除外されます。
-- **Device Communication**: `communication.json` を通じてデバイス間でのマージロック制御を行い、同時に同じファイルを編集した際の上書きを防止します。
-- **Atomic Updates**: 各ファイル転送完了ごとに個別のインデックスエントリを更新。インデックスはGzip圧縮され、効率的に同期されます。
+### Running Synchronization
 
----
+- **Ribbon Icon**: Click the sync icon in the left toolbar to start a Smart Sync.
+- **Command Palette**: Press `Ctrl+P` (or `Cmd+P`) and search for `VaultSync: Sync with Cloud`.
+- **Auto-Sync**: Depending on your settings, sync will trigger on file save, when you stop editing, or at fixed intervals.
 
-## 🔒 プライバシーとセキュリティ
+### History and Restoration
 
-- **直接通信**: 本プラグインは外部のサードパーティサーバーを経由せず、直接 Google Drive API と通信します。
-- **認証保護**: クライアントIDやトークン、暗号化シークレットなどの機密情報は、ObsidianのSecret Storage APIを介して、OS標準のセキュアストレージ（Keychain/Credential Manager）に直接保管されます。これにより、Vault内に機密情報を含むファイルが残ることを最小限に抑えます。なお、Secret Storageが利用できない環境や古いOSでは、自動的にデバイス固有の秘密鍵（AES-GCM）で暗号化されたローカルファイル保存へとフォールバックし、安全性を維持します。
-- **データの所在**: 同期されたデータは、ユーザ自身の Google Drive 領域（指定したルートフォルダ）のみに保存されます。
-- **※重要**: 同期されるデータ（Markdownファイル等）は、Google Driveへ**平文（暗号化なし）でアップロードされます**。Google Drive自体のセキュリティモデル（HTTPS転送、サーバー側暗号化）で保護されていますが、本プラグイン独自のE2EE（End-to-End Encryption）は現状提供していません。機密性の高い情報を扱う場合はご注意ください。
+- **File History**: Right-click a file and select "View History in Cloud (VaultSync)" to see diffs against past revisions.
+- **Advanced Diff Viewer**: Provides powerful comparison tools including Unified/Split view toggle, inline character-level highlighting, jump navigation between changes (with looping), and adjustable context lines.
+- **Full Scan**: If you are concerned about consistency, run `VaultSync: Audit & Fix Consistency (Full Scan)` from the command palette to perform a forced sync check.
 
 ---
 
-## 🚀 セットアップ手順
+## 🔧 Sync Engine Specifications
 
-本プラグインを利用するには、Google Cloud Project を作成して **自分専用の Client ID / Client Secret** を取得する必要があります。
-取得は無料です。
-
-### 1. Google Cloud Project の作成
-
-1. [Google Cloud Console](https://console.cloud.google.com/) にアクセスします。
-2. 新しいプロジェクトを作成します。
-3. 「APIとサービス」 > 「ライブラリ」から **Google Drive API** を検索し、「有効にする」を押します。
-
-### 2. OAuth 同意画面の設定
-
-1. **OAuth 同意画面の作成**:
-    1. 「APIとサービス」 > 「OAuth 同意画面」 > 「概要」から「開始」を押します。
-    2. アプリ情報を入力して下さい。User Type は「外部」を選択してください。
-    3. 全て記入したら「作成」を押します。
-2. **スコープの追加**:
-    1. 「データアクセス」から「スコープを追加または削除」を選択します。
-    2. `.../auth/drive.file` （このアプリで使用する Google ドライブ上の特定のファイルのみの参照、編集、作成、削除）にチェックを入れます。
-    3. 「更新」を押します。
-    4. 画面下部の「Save」を押します。
-3. **認証期間の永続化**: ※テスト状態のままだと7日ごとに再認証が必要になります
-    1. 「対象」から「アプリを公開」を押します。
-    2. 「確認」を押します。
-
-### 3. 認証情報 (Client ID / Secret) の作成
-
-1. 「APIとサービス」 > 「認証情報」 > 「認証情報を作成」 > 「OAuth クライアント ID」を選択します。
-2. アプリケーションの種類として **「ウェブ アプリケーション」** を選択します。
-3. 「承認済みのリダイレクト URI」から「URIを追加」を押します。
-4. 「 https://c-ardinal.github.io/obsidian-vault-sync/callback/ 」またはご自身で構築したサーバへのリダイレクトURIを入力します。
-5. 「作成」を押します。
-6. 生成された **クライアント ID** と **クライアント シークレット** をコピーします。
-    - **重要**: クライアントシークレットは機密情報です。他人には絶対に教えないでください。
-
-### 4. プラグインへの反映
-
-1. Obsidian の設定 > 「VaultSync」を開きます。
-2. IDとシークレットを入力し、「ログイン」ボタンを押します。
-3. ブラウザが起動し、ログイン画面が表示されます。
-4. ログインに成功すると自動的にObsidianへ戻ります。認証成功を知らせる通知が表示されれば完了です。
+- **Conflict Resolution**: In addition to 3-way Merge, you can choose from "Smart Merge", "Force Local", "Force Remote", or "Always Fork" strategies. If a conflict cannot be resolved automatically, the local file is backed up as `(Conflict YYYY-MM-DDTHH-mm-ss)`.
+- **Selective Sync**: You can control the synchronization of files within `.obsidian/` (plugins, themes, hotkeys, etc.) by category. Device-specific data like `workspace.json` and `cache/` are automatically excluded.
+- **Device Communication**: Performs merge lock control between devices via `communication.json` to prevent overwriting when the same file is edited simultaneously.
+- **Atomic Updates**: Updates individual index entries upon each file transfer. The index is Gzip-compressed for efficient synchronization.
 
 ---
 
-## 🛠 開発とビルド
+## 🔒 Privacy and Security
 
-開発環境で実行、またはソースからビルドする場合：
+- **Direct Communication**: This plugin communicates directly with the Google Drive API without going through any third-party servers.
+- **Auth Protection**: Sensitive information such as Client IDs, tokens, and encryption secrets are stored directly in the OS-standard secure storage (Keychain/Credential Manager) via Obsidian's Secret Storage API. This minimizes the presence of sensitive files within the Vault. In environments where Secret Storage is unavailable, the plugin automatically falls back to local file storage encrypted with a device-specific key (AES-GCM) to maintain high security.
+- **Data Location**: Your synced data is stored exclusively in your own Google Drive storage (in the root folder you specify).
+- **Important**: By default, synced data (Markdown files, etc.) is uploaded to Google Drive in **plain text (without encryption)**. While protected by Google Drive's security model (HTTPS transfer, server-side encryption), the data is readable on the server side. If you require End-to-End Encryption, please install the [VaultSync E2EE Engine](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine) — see the section below for details.
 
-### ビルド
+---
+
+## 🔐 End-to-End Encryption (E2EE)
+
+VaultSync supports optional End-to-End Encryption through a separate, open-source encryption engine.
+
+When E2EE is enabled:
+
+- All files are **encrypted on your device before upload** using AES-256-GCM
+- Files are **decrypted locally after download** — your cloud provider never sees plaintext
+- A `vault-lock.vault` file protects the master key (derived via PBKDF2 from your password)
+- Smart sync features (3-way merge, conflict detection) work seamlessly with encrypted data
+- Password can be optionally stored in OS-level secure storage for auto-unlock
+
+### Setup
+
+1. Download the E2EE Engine from the [releases page](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine/releases)
+2. Place `e2ee-engine.js` into your plugin directory: `.obsidian/plugins/obsidian-vault-sync/`
+3. Restart Obsidian — a setup wizard will guide you through password creation and vault migration
+
+For details, build instructions, and the encryption specification, see the **[VaultSync E2EE Engine repository](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine)**.
+
+---
+
+## 🚀 Setup Instructions
+
+To use this plugin, you must create a Google Cloud Project and obtain your own **Client ID / Client Secret**. Obtaining it is free.
+
+### 1. Create a Google Cloud Project
+
+1. Access the [Google Cloud Console](https://console.cloud.google.com/).
+2. Create a new project.
+3. Search for **Google Drive API** in "APIs & Services" > "Library" and click "Enable".
+
+### 2. Configure OAuth Consent Screen
+
+1. **Create OAuth Consent Screen**:
+    1. Go to "APIs & Services" > "OAuth Consent Screen" > "Summary" and click "Get Started" (or "Configure").
+    2. Enter the required app information. Select "External" for User Type.
+    3. Once completed, click "Create".
+2. **Add Scopes**: 1. Under "Data access", select "Add or remove scopes". 2. Check `.../auth/drive.file` (See, edit, create, and delete only the specific Google Drive files you use with this app). 3. Click "Update". 4. Click "Save" at the bottom.
+3. ~~**Auth Period Persistence**: ※ If left in "Testing" state, re-authentication is required every 7 days.~~
+    1. ~~Go to "Summary" and click "Publish App".~~
+    2. ~~Click "Confirm".~~
+       ※ Publishing the app without following proper procedures may trigger a warning from Google. These instructions are currently under review.
+
+### 3. Create Credentials (Client ID / Secret)
+
+1. Go to "APIs & Services" > "Credentials" > "Create Credentials" > "OAuth Client ID".
+2. Select **"Web Application"** as the Application type.
+3. Under "Authorized redirect URIs", click "Add URI".
+4. Enter `https://c-ardinal.github.io/obsidian-vault-sync/callback/`.
+    - This is a relay page used to return to Obsidian after authentication. The process happens entirely within your browser, and no data is sent to external servers.
+    - You may also use your own self-hosted redirect URI if preferred.
+5. Click "Create".
+6. Copy the generated **Client ID** and **Client Secret**.
+    - **Important**: The Client Secret is confidential. Never share it with others.
+
+### 4. Apply to Plugin
+
+1. Open Obsidian Settings > "VaultSync".
+2. Enter the Client ID and Client Secret, then click the "Login" button.
+3. A browser will open, and the Google login screen will appear.
+4. After successful login, you will be automatically redirected back to Obsidian. Completion is confirmed when the success notification appears.
+    - If you are not automatically redirected, please click the "Open Obsidian" button on the browser screen.
+    - If it still doesn't return, please manually switch back to the Obsidian app.
+
+---
+
+## 🛠 Development and Build
+
+For running in a development environment or building from source:
+
+### Build
 
 ```bash
 npm run build
 ```
 
-ビルド結果は `dist/obsidian-vault-sync/` ディレクトリ配下に以下の形式で出力されます。配布時はこのフォルダの中身をプラグインフォルダへコピーしてください。
+The build results are output to the `dist/obsidian-vault-sync/` directory as follows.  
+When distributing, copy the contents of this folder to your plugins directory.
 
 - `main.js`
 - `manifest.json`
@@ -124,25 +153,29 @@ npm run build
 
 ---
 
-## ⚠️ 免責事項
+## ⚠️ Disclaimer
 
-本プラグインはデータの同期を自動化しますが、
-ネットワークエラーや予期せぬ競合によりデータが損失するリスクを完全に排除するものではありません。
-**本プラグインの使用によって生じたいかなる損害（データ消失、Vaultの破壊など）についても、作者は一切の責任を負いません。**
-重要なデータについては、本プラグインの導入前に必ずバックアップを取得し、
-その後も定期的なバックアップを継続してください。
+While this plugin automates synchronization, it does not completely eliminate the risk of data loss due to network errors or unforeseen conflicts.
+**The author shall not be held liable for any damages (including data loss or corruption of the Vault) arising from the use of this plugin.**
+Please ensure you have a full backup before installing this plugin and continue to maintain regular backups thereafter.
 
 ---
 
-## ❓ よくある質問 (FAQ)
+## ❓ FAQ
 
-**Q: 同期アイコンが回転したまま止まらない。**  
-A: 大量のファイルを同期しているか、ネットワークが不安定な可能性があります。通知メッセージを詳細にするか、設定画面からログ出力を有効にして詳細を確認してください。
+**Q: The sync icon keeps spinning and doesn't stop.**  
+A: You might be performing an initial sync with many files, or your network might be unstable.  
+Check the notification messages or enable logging in the settings for details.
 
-**Q: 特定のフォルダ・ファイルを同期したくない。**  
-A: 設定の「除外ファイル/フォルダ」に、globパターンで除外したいフォルダやファイル名を追加してください。
-例えば`secret/**`と設定すると、`secret`フォルダおよびこのフォルダ配下のファイルが同期されなくなります。
+**Q: I want to exclude specific folders or files from syncing.**  
+A: Add glob patterns to the "Exclusion patterns" in the settings.  
+For example, adding `secret/**` will exclude the `secret` folder and all files within it from synchronization.
 
-## ライセンス
+**Q: On the mobile version, I'm not redirected back to the app after authentication.**  
+A: Browser security settings may prevent automatic redirection.  
+Once the authentication completion screen appears, please manually switch back to the Obsidian app.  
+If authentication still doesn't complete, please try the "Manual Auth Mode" in the settings.
+
+## License
 
 MIT License

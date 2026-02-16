@@ -17,6 +17,7 @@ export interface SyncManagerSettings {
     syncDeviceLogs: boolean;
     syncWorkspace: boolean;
     hasCompletedFirstSync: boolean;
+    e2eeEnabled: boolean;
 }
 
 export interface LocalFileIndex {
@@ -24,7 +25,10 @@ export interface LocalFileIndex {
         fileId: string;
         mtime: number;
         size: number;
-        hash?: string;
+        hash?: string; // Hash of the actual content on remote (encrypted if E2EE is enabled)
+        /** For E2EE: Hash of the plaintext content before encryption.
+         *  Used to detect if re-upload is needed (since same plaintext produces different ciphertext with AES-GCM) */
+        plainHash?: string;
         /** Tracks last sync action: "push" = uploaded by this device, "pull" = downloaded, "merge" = locally merged (needs push) */
         lastAction?: "push" | "pull" | "merge";
         /** Hash of the common ancestor (last known synced state between devices).
@@ -50,7 +54,7 @@ export type { SyncTrigger } from "./notification-matrix";
 // === Hybrid Sync Types ===
 
 /** Sync engine states for preemption control */
-export type SyncState = "IDLE" | "SMART_SYNCING" | "FULL_SCANNING" | "PAUSED";
+export type SyncState = "IDLE" | "SMART_SYNCING" | "FULL_SCANNING" | "PAUSED" | "MIGRATING";
 
 /** Progress state for resumable full scan */
 export interface FullScanProgress {

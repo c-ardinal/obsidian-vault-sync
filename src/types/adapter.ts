@@ -19,6 +19,7 @@ export interface CloudChanges {
 
 export interface CloudAdapter {
     name: string;
+    vaultName: string;
 
     // === Feature Flags ===
     // Changes API support (Google Drive, OneDrive, Dropbox)
@@ -53,6 +54,11 @@ export interface CloudAdapter {
         mtime: number,
         existingFileId?: string,
     ): Promise<CloudFile>;
+    /**
+     * Delete a file or folder by its cloud ID.
+     * When a folder is deleted, the cloud provider handles cascading
+     * deletion of all children automatically.
+     */
     deleteFile(fileId: string): Promise<void>;
     /**
      * Move/rename a file on the cloud storage without re-uploading content.
@@ -79,6 +85,24 @@ export interface CloudAdapter {
     getChanges(pageToken: string): Promise<CloudChanges>;
     listFiles(folderId?: string): Promise<CloudFile[]>;
     setLogger(logger: (msg: string, level?: string) => void): void;
+
+    /**
+     * Reset internal caches (root IDs, folder maps).
+     * Used after administrative operations like renames.
+     */
+    reset?(): void;
+
+    /**
+     * Get the ID of the shared application root folder (e.g. 'ObsidianVaultSync')
+     */
+    getAppRootId?(): Promise<string>;
+
+    /**
+     * Clone this adapter with a new vault name.
+     * Used for migration to create temporary adapters.
+     * Returns a new adapter instance with the same credentials but different vault name.
+     */
+    cloneWithNewVaultName?(newVaultName: string): CloudAdapter;
 
     // === History Support (optional) ===
     readonly supportsHistory: boolean;

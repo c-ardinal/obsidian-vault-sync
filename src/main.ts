@@ -1,4 +1,4 @@
-import { App, Plugin, PluginSettingTab, Setting, TFile, setIcon, Platform, Notice } from "obsidian";
+import { App, Plugin, PluginSettingTab, Setting, TFile, setIcon, Platform } from "obsidian";
 import { GoogleDriveAdapter } from "./adapters/google-drive";
 import { SyncManager, type SyncTrigger } from "./sync-manager";
 import { SecureStorage } from "./secure-storage";
@@ -12,12 +12,20 @@ import {
 } from "./types/settings";
 import { t } from "./i18n";
 import { getSettingsSections } from "./ui/settings-schema";
+import { loadExternalCryptoEngine } from "./encryption/engine-loader";
+import { ICryptoEngine } from "./encryption/interfaces";
+import { checkPasswordStrength } from "./encryption/password-strength";
 
 export default class VaultSync extends Plugin {
     settings!: VaultSyncSettings;
     adapter!: GoogleDriveAdapter;
     syncManager!: SyncManager;
     secureStorage!: SecureStorage;
+
+    // Exposed for external engine UI (password strength feedback, i18n)
+    public checkPasswordStrength = checkPasswordStrength;
+    public i18n = t;
+
     private isReady = false;
     private syncRibbonIconEl: HTMLElement | null = null;
     private manualSyncInProgress = false;
@@ -26,6 +34,13 @@ export default class VaultSync extends Plugin {
     private mobileSyncFabEl: HTMLElement | null = null;
     private autoSyncInterval: number | null = null;
     private settingTab: VaultSyncSettingTab | null = null;
+    public t = t;
+
+    public refreshSettingsUI() {
+        if (this.settingTab) {
+            this.settingTab.display();
+        }
+    }
 
     /**
      * Resolves the effective sync triggers for the current device and strategy.
@@ -62,6 +77,8 @@ export default class VaultSync extends Plugin {
             this.manifest.dir || "",
             t,
         );
+        this.syncManager.secureStorage = this.secureStorage;
+
         // Detect and apply remote settings updates
         this.syncManager.onSettingsUpdated = async () => {
             await this.loadSettings();
@@ -76,6 +93,22 @@ export default class VaultSync extends Plugin {
         // This is the earliest point where we can log to the correct device-specific folder.
         await this.syncManager.loadLocalIndex();
 
+        // 5.5 Load external crypto engine (Moved here to ensure logs are captured in sync log)
+        const engine = await loadExternalCryptoEngine(
+            this.app,
+            this.manifest.dir!,
+            (key) => this.syncManager.notify(key),
+        );
+        if (engine) {
+            this.syncManager.cryptoEngine = engine;
+            await this.syncManager.log("External E2EE engine loaded successfully.", "system");
+        } else {
+            await this.syncManager.log(
+                "External E2EE engine not found or failed to load. E2EE disabled.",
+                "system",
+            );
+        }
+
         await this.syncManager.log(
             `=== Plugin Startup: version=${this.manifest.version} ===`,
             "system",
@@ -84,7 +117,7 @@ export default class VaultSync extends Plugin {
         // Handle Token Expiry / Revocation
         this.adapter.onAuthFailure = async () => {
             console.log("VaultSync: Auth failed (token expired/revoked). Clearing credentials.");
-            new Notice(t("noticeAuthFailed") + ": Session expired. Please login again.", 0);
+            await this.syncManager.notify("noticeAuthFailed", "Session expired. Please login again.");
             await this.secureStorage.clearCredentials();
             this.adapter.setTokens(null, null);
         };
@@ -129,9 +162,59 @@ export default class VaultSync extends Plugin {
             if (this.currentTriggers.enableStartupSync) {
                 window.setTimeout(async () => {
                     await this.syncManager.log(
-                        "Startup grace period ended. Triggering initial Smart Sync.",
+                        "Startup grace period ended. Checking E2EE status...",
                         "system",
                     );
+
+                    // E2EE Guard: If enabled but locked, show unlock modal
+                    if (!this.settings.e2eeEnabled) {
+                        const hasRemoteLock =
+                            await this.syncManager.vaultLockService.checkForLockFile();
+                        if (hasRemoteLock) {
+                            await this.syncManager.log(
+                                "Remote E2EE detected. Enabling E2EE locally.",
+                                "system",
+                            );
+                            this.settings.e2eeEnabled = true;
+                            await this.saveSettings();
+                            await this.syncManager.notify("noticeE2EEAutoEnabled");
+                        }
+                    }
+
+                    if (this.settings.e2eeEnabled && this.syncManager.e2eeLocked) {
+                        let autoUnlocked = false;
+                        // Only attempt auto-unlock if explicitly enabled by user
+                        if (this.settings.e2eeAutoUnlock && this.app.secretStorage) {
+                            const savedPassword =
+                                await this.secureStorage.getExtraSecret("e2ee-password");
+                            if (savedPassword) {
+                                try {
+                                    const blob =
+                                        await this.syncManager.vaultLockService.downloadLockFile();
+                                    await this.syncManager.cryptoEngine?.unlockVault(
+                                        blob,
+                                        savedPassword,
+                                    );
+                                    autoUnlocked = true;
+                                    await this.syncManager.log(
+                                        "Vault auto-unlocked using saved password.",
+                                        "info",
+                                    );
+                                } catch (err) {
+                                    await this.syncManager.log(
+                                        "Auto-unlock failed. Manual entry required.",
+                                        "warn",
+                                    );
+                                    // Clear invalid saved password
+                                    await this.secureStorage.removeExtraSecret("e2ee-password");
+                                }
+                            }
+                        }
+
+                        if (!autoUnlocked) {
+                            this.syncManager.cryptoEngine?.showUnlockModal(this);
+                        }
+                    }
 
                     // First time sync -> "initial-sync" (loud). Subsequent -> "startup-sync" (quiet).
                     const isFirstSync = !this.settings.hasCompletedFirstSync;
@@ -193,6 +276,34 @@ export default class VaultSync extends Plugin {
             },
         });
 
+        this.addCommand({
+            id: "e2ee-setup",
+            name: t("labelE2EESetup"),
+            checkCallback: (checking: boolean) => {
+                if (!this.syncManager.cryptoEngine || this.settings.e2eeEnabled) return false;
+                if (!checking) {
+                    this.syncManager.cryptoEngine.showSetupModal(this);
+                }
+                return true;
+            },
+        });
+
+        this.addCommand({
+            id: "e2ee-unlock",
+            name: t("labelE2EEUnlock"),
+            checkCallback: (checking: boolean) => {
+                const isLocked =
+                    this.settings.e2eeEnabled &&
+                    this.syncManager.cryptoEngine &&
+                    !this.syncManager.cryptoEngine.isUnlocked();
+                if (!isLocked) return false;
+                if (!checking) {
+                    this.syncManager.cryptoEngine?.showUnlockModal(this);
+                }
+                return true;
+            },
+        });
+
         // 3. Mobile Floating Action Button (FAB) -> Fixed Top Center Indicator
         if (Platform.isMobile) {
             this.app.workspace.onLayoutReady(() => {
@@ -229,7 +340,7 @@ export default class VaultSync extends Plugin {
         this.registerObsidianProtocolHandler("vault-sync-auth", async (params) => {
             // Verify state
             if (params.state && !this.adapter.verifyState(params.state)) {
-                new Notice(t("noticeAuthFailed") + ": Invalid state");
+                await this.syncManager.notify("noticeAuthFailed", "Invalid state");
                 return;
             }
 
@@ -243,17 +354,17 @@ export default class VaultSync extends Plugin {
                         tokens.accessToken,
                         tokens.refreshToken,
                     );
-                    new Notice(t("noticeAuthSuccess"));
+                    await this.syncManager.notify("noticeAuthSuccess");
 
                     // Cleanup storage
                     window.localStorage.removeItem("vault-sync-verifier");
                     window.localStorage.removeItem("vault-sync-state");
                 } catch (e: any) {
-                    new Notice(`${t("noticeAuthFailed")}: ${e.message}`);
+                    await this.syncManager.notify("noticeAuthFailed", e.message);
                     console.error("VaultSync: Auth failed via protocol handler", e);
                 }
             } else if (params.error) {
-                new Notice(`${t("noticeAuthFailed")}: ${params.error}`);
+                await this.syncManager.notify("noticeAuthFailed", params.error);
             }
         });
     }
@@ -930,7 +1041,10 @@ class VaultSyncSettingTab extends PluginSettingTab {
 
             // Wait, I need to import getSettingsSections first.
 
-            if ((section as any).isHidden && (section as any).isHidden(this.plugin.settings)) {
+            const isHidden = (section as any).isHidden
+                ? (section as any).isHidden(this.plugin.settings, this.plugin)
+                : false;
+            if (isHidden) {
                 continue;
             }
 
@@ -943,11 +1057,13 @@ class VaultSyncSettingTab extends PluginSettingTab {
             }
 
             for (const item of section.items) {
-                if (item.isHidden && item.isHidden(this.plugin.settings)) continue;
+                if (item.isHidden && item.isHidden(this.plugin.settings, this.plugin)) continue;
 
-                const setting = new Setting(containerEl)
-                    .setName(item.label)
-                    .setDesc(item.desc || "");
+                const description = item.getDesc
+                    ? item.getDesc(this.plugin.settings, this.plugin)
+                    : item.desc || "";
+
+                const setting = new Setting(containerEl).setName(item.label).setDesc(description);
 
                 switch (item.type) {
                     case "toggle":
@@ -1038,6 +1154,13 @@ class VaultSyncSettingTab extends PluginSettingTab {
                                 });
                             }
                         });
+                        break;
+                    case "info":
+                        setting.controlEl.createSpan({
+                            cls: "vault-sync-info-status",
+                            text: description,
+                        });
+                        setting.setDesc(""); // Clear description since we moved it to the control area
                         break;
                 }
             }

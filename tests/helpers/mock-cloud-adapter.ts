@@ -28,6 +28,7 @@ export class MockCloudAdapter implements CloudAdapter {
     readonly supportsChangesAPI = true;
     readonly supportsHash = true;
     readonly supportsHistory = true;
+    readonly vaultName = "MockVault";
 
     private files = new Map<string, StoredFile>();
     private pathToId = new Map<string, string>();

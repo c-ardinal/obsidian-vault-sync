@@ -23,6 +23,7 @@ export type SyncTrigger =
     | "push-conflict" // Push時競合検出
     | "pull-conflict" // Pull時競合検出
     | "auth" // 認証
+    | "migration" // 移行
     | "history-modal"; // 履歴モーダル
 
 type VisibilityMap = Partial<Record<SyncTrigger, boolean>>;
@@ -190,6 +191,32 @@ const VERBOSE: Record<string, VisibilityMap> = {
     noticeFileRestored: { "history-modal": true },
     noticeHistoryRestoreAs: { "history-modal": true },
     noticeRevisionDeleted: { "history-modal": true },
+    // ═══ Migration ═══
+    noticeMigrationStarted: { migration: true, "manual-sync": true },
+    noticeMigrationComplete: { migration: true, "manual-sync": true },
+    noticeMigrationFailed: { migration: true, "manual-sync": true },
+
+    // ═══ E2EE ═══
+    noticeVaultLocked: {
+        "manual-sync": true,
+        "full-scan": true,
+        "initial-sync": true,
+        "startup-sync": true,
+        "timer-sync": true,
+        "save-sync": true,
+        "modify-sync": true,
+        "layout-sync": true,
+    },
+    noticeE2EEAutoEnabled: {
+        "startup-sync": true,
+    },
+    noticeEngineVerifyFailed: {
+        "startup-sync": true,
+    },
+    e2eeUnlockSuccess: { "manual-sync": true },
+    e2eeUnlockFailed: { "manual-sync": true },
+    e2eeSetupKeychainFailed: { migration: true },
+    e2eeInterruptedDone: { "manual-sync": true },
 };
 
 // --------------------------------------------------------------------------
@@ -284,5 +311,6 @@ export const TRIGGER_PRIORITY: Record<SyncTrigger, number> = {
     "push-conflict": 0,
     "pull-conflict": 0,
     auth: 0,
+    migration: 11,
     "history-modal": 0,
 };

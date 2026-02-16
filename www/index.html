@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>VaultSync - Obsidian Cloud Sync Plugin</title>
+        <link rel="stylesheet" href="style.css" />
+        <script src="https://unpkg.com/lucide@latest"></script>
+        <style>
+            header {
+                text-align: center;
+                padding-bottom: 1.5rem;
+            }
+            header h1 {
+                font-size: 2rem;
+                margin-bottom: 0.3rem;
+            }
+            header .tagline {
+                color: #72767d;
+                font-size: 1rem;
+                margin: 0;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="lang-selector">
+                <select id="lang-select" onchange="switchLang(this.value)">
+                    <option value="en">English</option>
+                    <option value="ja">日本語</option>
+                </select>
+            </div>
+
+            <!-- English -->
+            <div id="en" class="lang active">
+                <header>
+                    <h1>VaultSync</h1>
+                    <p class="tagline">Cloud sync plugin for Obsidian</p>
+                </header>
+
+                <p>
+                    VaultSync seamlessly synchronizes your Obsidian vault across multiple devices
+                    through cloud storage. All sync operations run directly between your device and
+                    your cloud storage account &mdash; no intermediary servers involved.
+                </p>
+
+                <div class="links">
+                    <a
+                        href="https://github.com/c-ardinal/obsidian-vault-sync"
+                        class="primary"
+                        target="_blank"
+                        rel="noopener"
+                        >View on GitHub</a
+                    >
+                    <a href="privacy/" class="secondary">Privacy Policy</a>
+                </div>
+
+                <h2>Key Features</h2>
+
+                <div class="feature-grid">
+                    <div class="feature-card">
+                        <h3><i data-lucide="cloud-upload"></i>Cloud Sync</h3>
+                        <p>
+                            Sync your vault across desktop and mobile devices. Supports flexible
+                            triggers including startup, periodic, on save, and on file switch.
+                        </p>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i data-lucide="git-merge"></i>Smart Merge</h3>
+                        <p>
+                            Three-way merge automatically resolves conflicts when the same file is
+                            edited on multiple devices. No manual intervention needed in most cases.
+                        </p>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i data-lucide="shield-check"></i>End-to-End Encryption</h3>
+                        <p>
+                            Optionally encrypt your entire vault before it leaves your device. Your
+                            password never leaves your device &mdash; only encrypted data is stored
+                            in the cloud.
+                        </p>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i data-lucide="file-clock"></i>File History</h3>
+                        <p>
+                            Browse, compare, and restore past revisions of any file. Supports
+                            unified and split diff views with line-level comparison.
+                        </p>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i data-lucide="sliders-horizontal"></i>Granular Sync Control</h3>
+                        <p>
+                            Choose exactly what to sync: themes, plugins, core settings, media
+                            files, and more. Exclude files with glob patterns.
+                        </p>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i data-lucide="monitor-smartphone"></i>Per-Platform Settings</h3>
+                        <p>
+                            Configure sync triggers independently for desktop and mobile, or use
+                            unified settings across all devices.
+                        </p>
+                    </div>
+                </div>
+
+                <h2>Supported Cloud Storage</h2>
+                <ul>
+                    <li>
+                        <strong>Google Drive</strong> &mdash; Uses the
+                        <code>drive.file</code> scope for minimal, app-only access
+                    </li>
+                </ul>
+                <p class="muted">Additional providers are planned for future releases.</p>
+
+                <footer>
+                    &copy; 2026 c-ardinal &middot;
+                    <a
+                        href="https://github.com/c-ardinal/obsidian-vault-sync"
+                        target="_blank"
+                        rel="noopener"
+                        >GitHub</a
+                    >
+                    &middot;
+                    <a href="privacy/">Privacy Policy</a>
+                </footer>
+            </div>
+
+            <!-- Japanese -->
+            <div id="ja" class="lang">
+                <header>
+                    <h1>VaultSync</h1>
+                    <p class="tagline">Obsidian用クラウド同期プラグイン</p>
+                </header>
+
+                <p>
+                    VaultSyncは、クラウドストレージを介してObsidianのVaultを複数デバイス間でシームレスに同期するプラグインです。すべての同期処理はデバイスとクラウドストレージ間で直接行われ、中間サーバーを経由しません。
+                </p>
+
+                <div class="links">
+                    <a
+                        href="https://github.com/c-ardinal/obsidian-vault-sync"
+                        class="primary"
+                        target="_blank"
+                        rel="noopener"
+                        >GitHubで見る</a
+                    >
+                    <a href="privacy/#ja" class="secondary">プライバシーポリシー</a>
+                </div>
+
+                <h2>主な機能</h2>
+
+                <div class="feature-grid">
+                    <div class="feature-card">
+                        <h3><i data-lucide="cloud-upload"></i>クラウド同期</h3>
+                        <p>
+                            デスクトップとモバイルの両方でVaultを同期。起動時、定期、保存時、ファイル切替時など、柔軟なトリガー設定に対応。
+                        </p>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i data-lucide="git-merge"></i>スマートマージ</h3>
+                        <p>
+                            複数デバイスで同じファイルを編集した場合、三方向マージで自動的に競合を解決。ほとんどの場合、手動操作は不要。
+                        </p>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i data-lucide="shield-check"></i>エンドツーエンド暗号化</h3>
+                        <p>
+                            オプションでVault全体をデバイス上で暗号化してからアップロード。パスワードがデバイス外に出ることはなく、クラウドには暗号化データのみ保存。
+                        </p>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i data-lucide="file-clock"></i>ファイル履歴</h3>
+                        <p>
+                            過去のリビジョンを閲覧・比較・復元。統合ビューとスプリットビューに対応し、行単位で差分を確認可能。
+                        </p>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i data-lucide="sliders-horizontal"></i>きめ細かな同期制御</h3>
+                        <p>
+                            テーマ、プラグイン、コア設定、メディアファイルなど、同期対象を細かく選択可能。globパターンによる除外設定にも対応。
+                        </p>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i data-lucide="monitor-smartphone"></i>プラットフォーム別設定</h3>
+                        <p>
+                            デスクトップとモバイルで同期トリガーを個別に設定可能。全デバイス統一設定にも切替可能。
+                        </p>
+                    </div>
+                </div>
+
+                <h2>対応クラウドストレージ</h2>
+                <ul>
+                    <li>
+                        <strong>Google Drive</strong> &mdash;
+                        <code>drive.file</code>スコープを使用し、アプリ専用ファイルのみにアクセス
+                    </li>
+                </ul>
+                <p class="muted">今後のリリースで他のプロバイダにも対応予定です。</p>
+
+                <footer>
+                    &copy; 2026 c-ardinal &middot;
+                    <a
+                        href="https://github.com/c-ardinal/obsidian-vault-sync"
+                        target="_blank"
+                        rel="noopener"
+                        >GitHub</a
+                    >
+                    &middot;
+                    <a href="privacy/#ja">プライバシーポリシー</a>
+                </footer>
+            </div>
+        </div>
+
+        <script>
+            function switchLang(lang) {
+                document.querySelectorAll(".lang").forEach((el) => el.classList.remove("active"));
+                document.getElementById(lang).classList.add("active");
+                document.getElementById("lang-select").value = lang;
+                document.documentElement.lang = lang;
+                history.replaceState(null, "", "#" + lang);
+            }
+
+            // Restore language from URL hash
+            var hash = window.location.hash.replace("#", "");
+            if (hash && document.getElementById(hash)) {
+                switchLang(hash);
+            }
+
+            lucide.createIcons();
+        </script>
+    </body>
+</html>

@@ -1,15 +1,20 @@
 import { CloudAdapter } from "../types/adapter";
 import { App, Notice } from "obsidian";
 import { RevisionCache } from "../revision-cache";
-import type {
-    SyncManagerSettings,
-    LocalFileIndex,
-    SyncState,
-    FullScanProgress,
-    MergeLockEntry,
+import {
     CommunicationData,
+    FullScanProgress,
+    LocalFileIndex,
+    MergeLockEntry,
+    SyncManagerSettings,
+    SyncState,
 } from "./types";
 import { SyncLogger, type LogLevel } from "./logger";
+import { ICryptoEngine } from "../encryption/interfaces";
+import { EncryptedAdapter } from "../adapters/encrypted-adapter";
+import { VaultLockService } from "../services/vault-lock-service";
+import { MigrationService } from "../services/migration-service";
+import { SecureStorage } from "../secure-storage";
 import {
     type SyncTrigger,
     shouldShowNotification,
@@ -131,7 +136,14 @@ export class SyncManager {
     private readonly FULL_SCAN_MAX_AGE_MS = 5 * 60 * 1000;
 
     private forceCleanupNextSync: boolean = false;
-    private indexLoadFailed = false;
+    private indexLoadFailed: boolean = false;
+
+    public cryptoEngine: ICryptoEngine | null = null;
+    public vaultLockService: VaultLockService;
+    public migrationService: MigrationService;
+    public secureStorage: SecureStorage | null = null;
+    private baseAdapter: CloudAdapter;
+    private encryptedAdapter: EncryptedAdapter | null = null;
 
     /** Current sync trigger — controls notification visibility via matrix lookup */
     public currentTrigger: SyncTrigger = "manual-sync";
@@ -160,18 +172,47 @@ export class SyncManager {
         }
     }
 
+    get adapter(): CloudAdapter {
+        if (this.settings.e2eeEnabled && this.cryptoEngine?.isUnlocked()) {
+            if (!this.encryptedAdapter) {
+                this.encryptedAdapter = new EncryptedAdapter(this.baseAdapter, this.cryptoEngine);
+            }
+            return this.encryptedAdapter;
+        }
+        return this.baseAdapter;
+    }
+
+    get e2eeEnabled(): boolean {
+        return this.settings.e2eeEnabled;
+    }
+
+    get e2eeLocked(): boolean {
+        return this.settings.e2eeEnabled && (!this.cryptoEngine || !this.cryptoEngine.isUnlocked());
+    }
+
+    private vaultLockedNotified = false;
+
     private syncRequestedWhileSyncing: boolean = false;
     private nextSyncParams: { trigger: SyncTrigger; scanVault: boolean } | null = null;
 
     constructor(
         private app: App,
-        private adapter: CloudAdapter,
+        adapter: CloudAdapter,
         private pluginDataPath: string,
 
         private settings: SyncManagerSettings,
         private pluginDir: string,
         public t: (key: string) => string,
     ) {
+        this.baseAdapter = adapter;
+        this.vaultLockService = new VaultLockService(this.baseAdapter);
+        this.migrationService = new MigrationService(
+            this.app,
+            this.baseAdapter,
+            this.vaultLockService,
+            this as unknown as SyncContext,
+        );
+
         // Initial log folder before device ID is known (will be corrected by loadLocalIndex)
         this.logFolder = `${this.pluginDir}/logs/identity_pending`;
         this.localIndexPath = `${this.pluginDir}/data/local/local-index.json`;
@@ -187,7 +228,7 @@ export class SyncManager {
             isDeveloperMode: this.settings.isDeveloperMode,
         });
 
-        this.adapter.setLogger((msg, level) => this.log(msg, (level as LogLevel) || "debug"));
+        this.baseAdapter.setLogger((msg, level) => this.log(msg, (level as LogLevel) || "debug"));
         this.revisionCache = new RevisionCache(this.app, this.pluginDir);
     }
 
@@ -417,6 +458,21 @@ export class SyncManager {
         trigger: SyncTrigger = "manual-sync",
         scanVault: boolean = false,
     ): Promise<void> {
+        if (this.syncState === "MIGRATING") {
+            await this.log(`Sync request (${trigger}) skipped: Migration in progress.`, "warn");
+            return;
+        }
+        if (this.e2eeLocked) {
+            const isUserAction = trigger === "manual-sync" || trigger === "full-scan";
+            if (isUserAction || !this.vaultLockedNotified) {
+                this.currentTrigger = trigger;
+                await this.log("Sync skipped: Vault is locked (E2EE).", "warn");
+                await this.notify("noticeVaultLocked");
+                this.vaultLockedNotified = true;
+            }
+            return;
+        }
+        this.vaultLockedNotified = false;
         this.currentTrigger = trigger;
         return _requestSmartSync(this as unknown as SyncContext, scanVault);
     }
@@ -438,6 +494,7 @@ export class SyncManager {
     }
 
     public async requestBackgroundScan(resume: boolean = false): Promise<void> {
+        if (this.e2eeLocked) return;
         return _requestBackgroundScan(this as unknown as SyncContext, resume);
     }
 

@@ -14,6 +14,7 @@ import {
     isManagedSeparately,
     shouldNotBeOnRemote,
     shouldIgnore,
+    hashContent,
 } from "./file-utils";
 import { loadCommunication, saveIndex, saveLocalIndex, clearPendingPushStates } from "./state";
 import { pullFileSafely } from "./merge";
@@ -60,8 +61,11 @@ export async function scanObsidianChanges(ctx: SyncContext): Promise<void> {
                 // Mtime changed: verify content hash to confirm actual modification
                 try {
                     const content = await ctx.app.vault.adapter.readBinary(filePath);
-                    const localHash = md5(content);
-                    if (indexEntry.hash && localHash !== indexEntry.hash.toLowerCase()) {
+                    // For E2EE: use normalized hash (CRLF→LF) to match plainHash computation
+                    const useE2EEHash = ctx.e2eeEnabled && indexEntry.plainHash;
+                    const localHash = useE2EEHash ? await hashContent(content) : md5(content);
+                    const compareHash = useE2EEHash ? indexEntry.plainHash : indexEntry.hash;
+                    if (compareHash && localHash !== compareHash.toLowerCase()) {
                         ctx.dirtyPaths.add(filePath);
                         await ctx.log(
                             `[Obsidian Scan] Modified (hash mismatch vs localIndex): ${filePath}`,
@@ -160,15 +164,18 @@ export async function scanVaultChanges(ctx: SyncContext): Promise<void> {
                 // Mtime changed: verify content hash
                 try {
                     const content = await ctx.app.vault.adapter.readBinary(file.path);
-                    const localHash = md5(content);
 
-                    if (indexEntry.hash && localHash !== indexEntry.hash.toLowerCase()) {
+                    // For E2EE: use normalized hash (CRLF→LF) to match plainHash computation
+                    const useE2EEHash = ctx.e2eeEnabled && indexEntry.plainHash;
+                    const localHash = useE2EEHash ? await hashContent(content) : md5(content);
+                    const compareHash = useE2EEHash ? indexEntry.plainHash : indexEntry.hash;
+                    if (compareHash && localHash !== compareHash.toLowerCase()) {
                         ctx.dirtyPaths.add(file.path);
                         await ctx.log(
                             `[Vault Scan] Modified (hash mismatch vs localIndex): ${file.path}`,
                             "debug",
                         );
-                    } else if (!indexEntry.hash) {
+                    } else if (!compareHash) {
                         ctx.dirtyPaths.add(file.path);
                         await ctx.log(
                             `[Vault Scan] Modified (no prev hash in localIndex): ${file.path}`,
@@ -234,19 +241,21 @@ export async function requestSmartSync(
     scanVault: boolean = false,
 ): Promise<void> {
     // If already smart syncing, mark that we need another pass after and wait.
-    if (ctx.syncState === "SMART_SYNCING") {
-        ctx.syncRequestedWhileSyncing = true;
-        if (!ctx.nextSyncParams) {
-            ctx.nextSyncParams = { trigger: ctx.currentTrigger, scanVault };
-        } else {
-            // Merge requirements: pick the "loudest" trigger (highest priority).
-            // If any request wants a full scan, the next pass should scan.
-            const incoming = TRIGGER_PRIORITY[ctx.currentTrigger] ?? 0;
-            const queued = TRIGGER_PRIORITY[ctx.nextSyncParams.trigger] ?? 0;
-            if (incoming > queued) {
-                ctx.nextSyncParams.trigger = ctx.currentTrigger;
+    if (ctx.syncState === "SMART_SYNCING" || ctx.syncState === "MIGRATING") {
+        if (ctx.syncState === "SMART_SYNCING") {
+            ctx.syncRequestedWhileSyncing = true;
+            if (!ctx.nextSyncParams) {
+                ctx.nextSyncParams = { trigger: ctx.currentTrigger, scanVault };
+            } else {
+                // Merge requirements: pick the "loudest" trigger (highest priority).
+                // If any request wants a full scan, the next pass should scan.
+                const incoming = TRIGGER_PRIORITY[ctx.currentTrigger] ?? 0;
+                const queued = TRIGGER_PRIORITY[ctx.nextSyncParams.trigger] ?? 0;
+                if (incoming > queued) {
+                    ctx.nextSyncParams.trigger = ctx.currentTrigger;
+                }
+                ctx.nextSyncParams.scanVault = ctx.nextSyncParams.scanVault || scanVault;
             }
-            ctx.nextSyncParams.scanVault = ctx.nextSyncParams.scanVault || scanVault;
         }
 
         if (ctx.currentSyncPromise) {
@@ -359,6 +368,10 @@ export async function executeSmartSync(ctx: SyncContext, scanVault: boolean): Pr
         await ctx.log(`Smart Sync failed: ${e}`, "error");
         throw e;
     } finally {
+        // Clear decryption cache between sync cycles to free memory
+        if ("clearDownloadCache" in ctx.adapter && typeof (ctx.adapter as any).clearDownloadCache === "function") {
+            (ctx.adapter as any).clearDownloadCache();
+        }
         await ctx.logger.endCycle();
         ctx.endActivity();
     }
@@ -642,6 +655,7 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
                 path,
                 fileId: remoteEntry.fileId,
                 hash: remoteEntry.hash,
+                plainHash: remoteEntry.plainHash,
                 mergeLock: remoteEntry.mergeLock,
                 ancestorHash: remoteEntry.ancestorHash,
             } as any);
@@ -655,6 +669,7 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
                 path,
                 fileId: remoteEntry.fileId,
                 hash: remoteEntry.hash,
+                plainHash: remoteEntry.plainHash,
                 mergeLock: remoteEntry.mergeLock,
                 ancestorHash: remoteEntry.ancestorHash,
             } as any);
@@ -1541,10 +1556,21 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                             }
                         }
 
+                        // For E2EE: Compare plainHash instead of encrypted hash
+                        // Since the same plaintext produces different ciphertext with AES-GCM (random IV)
+                        let contentMatches = false;
+                        if (ctx.e2eeEnabled && localIndexEntry?.plainHash) {
+                            // E2EE enabled: compare plaintext hashes
+                            const currentPlainHash = await hashContent(content);
+                            contentMatches = localIndexEntry.plainHash === currentPlainHash;
+                        } else if (localIndexEntry?.hash) {
+                            // No E2EE or no plainHash: use regular hash comparison
+                            contentMatches = localIndexEntry.hash.toLowerCase() === currentHash;
+                        }
+
                         if (
-                            localIndexEntry?.hash &&
-                            localIndexEntry.hash.toLowerCase() === currentHash &&
-                            localIndexEntry.lastAction !== "merge" && // Ensure pending merges are pushed
+                            contentMatches &&
+                            localIndexEntry?.lastAction !== "merge" && // Ensure pending merges are pushed
                             !localIndexEntry.forcePush // Force push if requested (e.g. rename)
                         ) {
                             // Local content matches our local base. No need to push.
@@ -1554,7 +1580,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                 ctx.index[path].mtime = mtimeAfterRead;
                             }
                             ctx.dirtyPaths.delete(path); // Remove from dirty since content matches
-                            await ctx.log(`[Smart Push] Skipped (hash match): ${path}`, "debug");
+                            await ctx.log(`[Smart Push] Skipped (${ctx.e2eeEnabled ? "plainHash" : "hash"} match): ${path}`, "debug");
                             return;
                         } else if (
                             !localIndexEntry &&
@@ -1736,6 +1762,9 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                                 mergedFileId,
                                             );
 
+                                            // Calculate plainHash for merged content
+                                            const mergedPlainHash = await hashContent(mergedContent);
+
                                             const previousAncestorHash =
                                                 ctx.localIndex[file.path]?.ancestorHash;
                                             const mergedEntry = {
@@ -1743,6 +1772,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                                 mtime: mergedStat?.mtime || Date.now(),
                                                 size: mergedUploaded.size,
                                                 hash: mergedUploaded.hash,
+                                                plainHash: mergedPlainHash,
                                                 lastAction: "push" as const,
                                                 ancestorHash:
                                                     previousAncestorHash || mergedUploaded.hash,
@@ -1794,6 +1824,10 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                         targetFileId,
                     );
 
+                    // Calculate plainHash for E2EE scenarios (hash of the plaintext before encryption)
+                    // This allows detecting if content actually changed even when encrypted hash differs
+                    const plainHash = await hashContent(file.content);
+
                     // SUCCESS: Update indices with REMOTE metadata
                     // IMPORTANT: Do NOT update ancestorHash here!
                     // ancestorHash should only be updated when we CONFIRM that both Local and Remote
@@ -1807,6 +1841,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                         mtime: file.mtime,
                         size: uploaded.size,
                         hash: uploaded.hash,
+                        plainHash: plainHash, // Store plaintext hash for future comparison
                         lastAction: "push" as const,
                         ancestorHash: previousAncestorHash || uploaded.hash, // Preserve original ancestor, fallback for new files
                     };

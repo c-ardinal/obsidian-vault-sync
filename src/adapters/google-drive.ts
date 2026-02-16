@@ -136,6 +136,41 @@ export class GoogleDriveAdapter implements CloudAdapter {
         await this.ensureRootFolders();
     }
 
+    async getAppRootId(): Promise<string> {
+        await this.ensureRootFolders();
+        if (!this.appRootId) throw new Error("App root not found");
+        return this.appRootId;
+    }
+
+    reset() {
+        this.appRootId = null;
+        this.vaultRootId = null;
+        this.initPromise = null;
+        this.folderCache.clear();
+        this.resolveCache.clear();
+        this.idToPathCache.clear();
+        this.resolvePathCache.clear();
+        this.outsideFolderIds.clear();
+    }
+
+    /**
+     * Clone this adapter with a new vault name.
+     * Used for migration to create temporary adapters.
+     */
+    cloneWithNewVaultName(newVaultName: string): CloudAdapter {
+        const cloned = new GoogleDriveAdapter(
+            this._clientId,
+            this._clientSecret,
+            newVaultName,
+            this.cloudRootFolder
+        );
+        cloned.setTokens(this.accessToken, this.refreshToken);
+        if (this.log) {
+            cloned.setLogger(this.log);
+        }
+        return cloned;
+    }
+
     private getRedirectUri(): string {
         // Use GitHub Pages as the intermediate server (bouncer)
         // This allows the browser to receive the code and redirect to obsidian:// URI scheme

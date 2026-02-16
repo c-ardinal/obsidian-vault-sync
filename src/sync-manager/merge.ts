@@ -2,7 +2,7 @@ import { TFile } from "obsidian";
 import { md5 } from "../utils/md5";
 import { diff_match_patch } from "diff-match-patch";
 import type { SyncContext } from "./context";
-import { ensureLocalFolder } from "./file-utils";
+import { ensureLocalFolder, hashContent } from "./file-utils";
 import { checkMergeLock, acquireMergeLock, releaseMergeLock, saveLocalIndex } from "./state";
 import { listRevisions, getRevisionContent } from "./history";
 
@@ -354,6 +354,7 @@ export async function pullFileSafely(
         fileId?: string;
         id?: string;
         hash?: string;
+        plainHash?: string;
         mtime?: number;
         size?: number;
         ancestorHash?: string;
@@ -397,34 +398,60 @@ export async function pullFileSafely(
                     `[${logPrefix}] Conflict check for ${item.path}: ` +
                         `currentHash=${currentHash.substring(0, 8)}, ` +
                         `localBaseHash=${localBase?.hash?.substring(0, 8) || "none"}, ` +
+                        `localBasePlainHash=${localBase?.plainHash?.substring(0, 8) || "none"}, ` +
                         `remoteHash=${item.hash?.substring(0, 8) || "none"}`,
                 );
 
-                const hasRemoteConflict =
+                // For E2EE: Use plainHash for local modification detection.
+                // Remote conflict detection uses encrypted hash (valid: both sides are encrypted).
+                let hasRemoteConflict = false;
+                let isActuallyModified = false;
+
+                // Remote conflict: always use encrypted hash comparison (both sides encrypted)
+                hasRemoteConflict =
                     (localBase?.hash &&
                         item.hash &&
                         localBase.hash.toLowerCase() !== item.hash.toLowerCase()) ||
                     isRemoteDeleted;
 
-                const isActuallyModified =
-                    !localBase || !localBase.hash || localBase.hash.toLowerCase() !== currentHash;
+                if (ctx.e2eeEnabled && localBase?.plainHash) {
+                    // E2EE: detect local modification via plaintext hash comparison
+                    const currentPlainHash = await hashContent(localContent);
+                    isActuallyModified = localBase.plainHash !== currentPlainHash;
+                } else {
+                    // No E2EE or no plainHash: use regular hash comparison
+                    isActuallyModified =
+                        !localBase || !localBase.hash || localBase.hash.toLowerCase() !== currentHash;
+                }
+
                 let isModifiedLocally = isActuallyModified || ctx.dirtyPaths.has(item.path);
 
-                const hasRemoteUpdate =
-                    (localBase?.hash &&
-                        item.hash &&
-                        localBase.hash.toLowerCase() !== item.hash.toLowerCase()) ||
-                    isRemoteDeleted;
+                const hasRemoteUpdate = hasRemoteConflict;
 
                 if (isModifiedLocally || hasRemoteConflict) {
-                    // Content match check
-                    if (item.hash && currentHash === item.hash.toLowerCase()) {
+                    // Content match check - compare actual content or plainHash
+                    let contentMatches = false;
+                    if (ctx.e2eeEnabled && item.plainHash) {
+                        // E2EE with remote plainHash: compare plaintext hashes
+                        const currentPlainHash = await hashContent(localContent);
+                        contentMatches = currentPlainHash === item.plainHash;
+                    } else if (!ctx.e2eeEnabled) {
+                        // No E2EE: compare plaintext hash against remote hash directly
+                        contentMatches = !!(item.hash && currentHash === item.hash.toLowerCase());
+                    }
+                    // E2EE without item.plainHash: can't detect content match pre-download
+
+                    if (contentMatches) {
                         const stat = await ctx.app.vault.adapter.stat(item.path);
+                        // Calculate plainHash for local content (since hash matches, content is the same)
+                        const plainHash = await hashContent(localContent);
+
                         const entry = {
                             fileId: fileId || "",
                             mtime: stat?.mtime || Date.now(),
                             size: stat?.size || localContent.byteLength,
                             hash: item.hash || "",
+                            plainHash: plainHash,
                             lastAction: "pull" as const,
                             ancestorHash: item.hash || "",
                         };
@@ -522,11 +549,15 @@ export async function pullFileSafely(
                             }
 
                             const stat = await ctx.app.vault.adapter.stat(item.path);
+                            // Calculate plainHash for downloaded content
+                            const plainHash = await hashContent(remoteContent);
+
                             const entry = {
                                 fileId: fileId || "",
                                 mtime: stat?.mtime || Date.now(),
                                 size: remoteContent.byteLength,
                                 hash: item.hash,
+                                plainHash: plainHash,
                                 lastAction: "pull" as const,
                                 ancestorHash: item.hash,
                             };
@@ -647,11 +678,15 @@ export async function pullFileSafely(
                                         `[${logPrefix}] Result matches remote. Marking as Synced.`,
                                     );
                                     const stat = await ctx.app.vault.adapter.stat(item.path);
+                                    // Calculate plainHash for merged content
+                                    const mergedPlainHash = await hashContent(merged);
+
                                     const entry = {
                                         fileId: fileId || "",
                                         mtime: stat?.mtime || Date.now(),
                                         size: merged.byteLength,
                                         hash: item.hash?.toLowerCase() || "",
+                                        plainHash: mergedPlainHash,
                                         lastAction: "pull" as const,
                                         ancestorHash: item.hash?.toLowerCase() || "",
                                     };
@@ -759,11 +794,14 @@ export async function pullFileSafely(
                     await ctx.log(`[${logPrefix}] Renamed local version to ${conflictPath}`);
 
                     let remoteSize = 0;
+                    let remotePlainHash: string | undefined;
                     if (!isRemoteDeleted) {
                         const remoteContent = await ctx.adapter.downloadFile(fileId || "");
                         await ensureLocalFolder(ctx, item.path);
                         await ctx.app.vault.adapter.writeBinary(item.path, remoteContent);
                         remoteSize = remoteContent.byteLength;
+                        // Calculate plainHash for downloaded content
+                        remotePlainHash = await hashContent(remoteContent);
 
                         // Detect if this is the plugin's own settings file
                         if (item.path.endsWith("/open-data.json")) {
@@ -782,6 +820,7 @@ export async function pullFileSafely(
                         mtime: stat?.mtime || Date.now(),
                         size: remoteSize,
                         hash: item.hash?.toLowerCase() || "",
+                        plainHash: remotePlainHash,
                         lastAction: "pull" as const,
                         ancestorHash: item.hash?.toLowerCase() || "",
                     };
@@ -840,12 +879,16 @@ export async function pullFileSafely(
         const content = await ctx.adapter.downloadFile(fileId || "");
         await ctx.app.vault.adapter.writeBinary(item.path, content);
 
+        // Calculate plainHash for downloaded content
+        const plainHash = await hashContent(content);
+
         const stat = await ctx.app.vault.adapter.stat(item.path);
         const entry = {
             fileId: fileId || "",
             mtime: stat?.mtime || item.mtime || Date.now(),
             size: stat?.size || item.size || content.byteLength,
             hash: item.hash || "",
+            plainHash: plainHash,
             lastAction: "pull" as const,
             ancestorHash: item.hash || "",
         };

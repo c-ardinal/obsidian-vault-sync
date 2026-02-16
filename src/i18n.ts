@@ -80,6 +80,17 @@ export const i18n: Record<string, Record<string, string>> = {
         settingConflictStrategyRemote: "Force Remote (Overwrite Local)",
         settingAdvancedSection: "Advanced Settings",
         settingAdvancedSectionDesc: "Advanced settings for power users.",
+        settingSecuritySection: "Security (E2EE)",
+        settingE2EEStatus: "Encryption Status",
+        settingE2EEStatusDisabled: "Disabled",
+        settingE2EEStatusLocked: "Locked",
+        settingE2EEStatusUnlocked: "Unlocked",
+        settingE2EEStatusGuide: "Manage via Command Palette (E2EE: Start/Unlock Vault Encryption)",
+        settingE2EEAutoUnlock: "Auto-unlock on Startup",
+        settingE2EEAutoUnlockDesc:
+            "⚠️ WARNING: Stores E2EE password in system keychain for auto-unlock. " +
+            "This reduces security to device-level rather than password-level protection. " +
+            "Anyone with access to your device can decrypt your vault.",
         settingDevSection: "Developer Settings",
         settingStartupDelay: "Trigger: Startup Delay",
         settingStartupDelayDesc: "Wait for Obsidian to index files before starting sync.",
@@ -102,6 +113,14 @@ export const i18n: Record<string, Record<string, string>> = {
         noticeSyncConfirmed: "✅ [Sync] Success",
         noticeWaitOtherDeviceMerge: "⌛️ [Conflict] Waiting for other device to resolve...",
         noticeMergingFile: "⌛️ [Conflict] Merging",
+        noticeMigrationStarted: "🚀 [E2EE] Migration started. Please do not close Obsidian.",
+        noticeMigrationComplete: "✅ [E2EE] Migration complete! Your vault is now encrypted.",
+        noticeMigrationFailed: "❌ [E2EE] Migration failed! Check logs for details.",
+        noticeE2EEAutoEnabled:
+            "🔒 [E2EE] This vault is encrypted on another device. Please enter your password to unlock.",
+        noticeVaultLocked: "🔒 [E2EE] Vault is locked. Sync paused.",
+        noticeEngineVerifyFailed: "❌ [E2EE] Engine verification failed. Please reinstall the plugin.",
+
         noticeMergeSuccess: "✅ [Conflict] Auto-resolved",
         noticeCheckOtherDevice:
             "⚠️ [Conflict] Merge may have failed. Check other device for details",
@@ -156,6 +175,56 @@ export const i18n: Record<string, Record<string, string>> = {
         labelSyncCommand: "Sync with Cloud",
         labelFullAudit: "Audit & Fix Consistency (Full Scan)",
         labelViewHistory: "View History in Cloud (VaultSync)",
+        labelE2EESetup: "E2EE: Start Vault Encryption",
+        labelE2EEUnlock: "E2EE: Unlock Vault Encryption",
+
+        // Password Strength
+        passwordTooShort: "Password must be at least 8 characters.",
+        passwordNeedsVariety: "Use a mix of uppercase, lowercase, numbers, and symbols.",
+        passwordHasRepeats: "Avoid repeated characters (e.g. aaaa).",
+        passwordHasSequences: "Avoid sequential characters (e.g. 1234, abcd).",
+        passwordTooCommon: "This password is too common. Choose a more unique one.",
+        passwordCouldBeStronger: "Consider using a longer password for better security.",
+        passwordStrengthWeak: "Weak",
+        passwordStrengthFair: "Fair",
+        passwordStrengthGood: "Good",
+        passwordStrengthStrong: "Strong",
+
+        // E2EE Setup Modal
+        e2eeSetupTitle: "E2EE Setup",
+        e2eeSetupDesc:
+            "Welcome to VaultSync E2EE.\nThis wizard will migrate your vault to an encrypted format.",
+        e2eeSetupMigratingBg: "Migration is currently running in the background.",
+        e2eeSetupPasswordLabel: "Encryption Password",
+        e2eeSetupPasswordDesc: "Used to derive your Master Key. Don't lose it!",
+        e2eeSetupPasswordHint:
+            "Minimum length: 8 characters.\nAllowed: A-Z, a-z, 0-9, space, and symbols: !\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~",
+        e2eeSetupAsciiOnly: "Only ASCII characters are allowed.",
+        e2eeSetupStartButton: "Start Migration",
+        e2eeSetupMigratingButton: "Migrating...",
+        e2eeSetupFinalizing: "Finalizing migration...",
+        e2eeSetupSwapping: "Performing folder swap on remote...",
+        e2eeSetupError: "Error occurred. Check logs.",
+        e2eeSetupKeychainFailed:
+            "Warning: Failed to save password to keychain.\nYou will need to re-enter it next time.",
+
+        // E2EE Interrupted Migration
+        e2eeInterruptedTitle: "Interrupted Migration Found",
+        e2eeInterruptedDesc:
+            "A previous migration attempt was interrupted.\nA temporary encrypted folder exists on the remote.",
+        e2eeInterruptedCleanLabel: "Clean Up & Restart",
+        e2eeInterruptedCleanDesc: "Delete the temporary folder and start over.",
+        e2eeInterruptedResetButton: "Reset & Restart",
+        e2eeInterruptedCleaning: "Cleaning up...",
+        e2eeInterruptedDone: "Cleanup complete. Please reopen this modal.",
+
+        // E2EE Unlock Modal
+        e2eeUnlockTitle: "Unlock Vault",
+        e2eeUnlockPasswordLabel: "Password",
+        e2eeUnlockButton: "Unlock",
+        e2eeUnlockAutoUnlock: "Remember password and auto-unlock on startup",
+        e2eeUnlockSuccess: "Unlocked!",
+        e2eeUnlockFailed: "Invalid password.",
     },
     ja: {
         // Settings UI
@@ -243,6 +312,18 @@ export const i18n: Record<string, Record<string, string>> = {
         settingConflictStrategyRemote: "リモート優先 (ローカルを上書き)",
         settingAdvancedSection: "高度な設定",
         settingAdvancedSectionDesc: "高度な設定とデバッグツールを有効にします。",
+        settingSecuritySection: "セキュリティ (E2EE)",
+        settingE2EEStatus: "暗号化ステータス",
+        settingE2EEStatusDisabled: "未設定",
+        settingE2EEStatusLocked: "ロック中",
+        settingE2EEStatusUnlocked: "解除済み",
+        settingE2EEStatusGuide:
+            "コマンドパレットで「E2EE: Vaultの暗号化を開始/解除する」を実行してください。",
+        settingE2EEAutoUnlock: "起動時の自動ロック解除",
+        settingE2EEAutoUnlockDesc:
+            "⚠️ 警告: E2EEパスワードをシステムキーチェーンに保存し、起動時に自動的にロック解除します。" +
+            "これによりセキュリティレベルがパスワードレベルからデバイスレベルに低下します。" +
+            "デバイスにアクセスできる誰でもVaultを復号化できてしまいます。",
         settingDevSection: "開発者向け設定",
         settingStartupDelay: "起動時の遅延",
         settingStartupDelayDesc: "Obsidian 起動後、同期を開始するまでの待機時間。",
@@ -265,6 +346,13 @@ export const i18n: Record<string, Record<string, string>> = {
         noticeSyncConfirmed: "✅ [同期] 成功",
         noticeWaitOtherDeviceMerge: "⌛️ [競合] 他デバイスが解決するのを待機しています...",
         noticeMergingFile: "⌛️ [競合] マージ中",
+        noticeMigrationStarted: "🚀 [E2EE] 移行を開始しました。Obsidianを閉じないでください。",
+        noticeMigrationComplete: "✅ [E2EE] 移行完了！Vaultが暗号化されました。",
+        noticeMigrationFailed: "❌ [E2EE] 移行失敗。ログを確認してください。",
+        noticeE2EEAutoEnabled:
+            "🔒 [E2EE] このVaultは他デバイスで暗号化されています。パスワードを入力してロックを解除してください。",
+        noticeVaultLocked: "🔒 [E2EE] Vaultがロック中のため同期を一時停止しています。",
+        noticeEngineVerifyFailed: "❌ [E2EE] エンジンの検証に失敗しました。プラグインを再インストールしてください。",
         noticeMergeSuccess: "✅ [競合] 自動解決されました",
         noticeCheckOtherDevice:
             "⚠️ [競合] マージに失敗した可能性が有ります。詳細は他デバイスを確認してください",
@@ -319,6 +407,56 @@ export const i18n: Record<string, Record<string, string>> = {
         labelSyncCommand: "クラウドと同期",
         labelFullAudit: "完全スキャンと整合性チェック (Full Audit)",
         labelViewHistory: "クラウドの変更履歴を表示 (VaultSync)",
+        labelE2EESetup: "E2EE: Vaultの暗号化を開始する",
+        labelE2EEUnlock: "E2EE: Vaultの暗号化を解除する",
+
+        // Password Strength
+        passwordTooShort: "パスワードは8文字以上にしてください。",
+        passwordNeedsVariety: "大文字・小文字・数字・記号を組み合わせてください。",
+        passwordHasRepeats: "同じ文字の繰り返し（例：aaaa）は避けてください。",
+        passwordHasSequences: "連続する文字（例：1234、abcd）は避けてください。",
+        passwordTooCommon: "よく使われるパスワードです。もっとユニークなものを選んでください。",
+        passwordCouldBeStronger: "より長いパスワードの使用を推奨します。",
+        passwordStrengthWeak: "弱い",
+        passwordStrengthFair: "普通",
+        passwordStrengthGood: "良い",
+        passwordStrengthStrong: "強い",
+
+        // E2EE Setup Modal
+        e2eeSetupTitle: "E2EE セットアップ",
+        e2eeSetupDesc:
+            "VaultSync E2EE へようこそ。\nこのウィザードでVaultを暗号化形式に移行します。",
+        e2eeSetupMigratingBg: "移行はバックグラウンドで実行中です。",
+        e2eeSetupPasswordLabel: "暗号化パスワード",
+        e2eeSetupPasswordDesc: "マスターキーの生成に使用します。絶対に忘れないでください！",
+        e2eeSetupPasswordHint:
+            "最低文字数: 8文字\n使用可能な文字: A-Z, a-z, 0-9, スペース, 記号: !\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~",
+        e2eeSetupAsciiOnly: "ASCII文字のみ使用できます。",
+        e2eeSetupStartButton: "移行を開始",
+        e2eeSetupMigratingButton: "移行中...",
+        e2eeSetupFinalizing: "移行を完了中...",
+        e2eeSetupSwapping: "リモートでフォルダ入替を実行中...",
+        e2eeSetupError: "エラーが発生しました。ログを確認してください。",
+        e2eeSetupKeychainFailed:
+            "警告: キーチェーンへのパスワード保存に失敗しました。\n次回起動時にパスワードの再入力が必要です。",
+
+        // E2EE Interrupted Migration
+        e2eeInterruptedTitle: "中断された移行を検出",
+        e2eeInterruptedDesc:
+            "前回の移行が中断されました。\nリモートに一時暗号化フォルダが残っています。",
+        e2eeInterruptedCleanLabel: "クリーンアップして再開",
+        e2eeInterruptedCleanDesc: "一時フォルダを削除して最初からやり直します。",
+        e2eeInterruptedResetButton: "リセットして再開",
+        e2eeInterruptedCleaning: "クリーンアップ中...",
+        e2eeInterruptedDone: "クリーンアップ完了。このモーダルを再度開いてください。",
+
+        // E2EE Unlock Modal
+        e2eeUnlockTitle: "Vaultのロック解除",
+        e2eeUnlockPasswordLabel: "パスワード",
+        e2eeUnlockButton: "ロック解除",
+        e2eeUnlockAutoUnlock: "パスワードを保存し、次回から自動でロック解除する",
+        e2eeUnlockSuccess: "ロック解除しました！",
+        e2eeUnlockFailed: "パスワードが正しくありません。",
     },
 };
 

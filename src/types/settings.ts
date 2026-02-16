@@ -53,6 +53,8 @@ export interface VaultSyncSettings {
 
     // Security
     encryptionSecret: string;
+    e2eeEnabled: boolean;
+    e2eeAutoUnlock: boolean; // Store password for auto-unlock (opt-in with warning)
     // Internal State
     hasCompletedFirstSync: boolean;
 }

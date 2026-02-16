@@ -61,9 +61,12 @@ export interface SyncContext {
     indexLoadFailed: boolean;
     isSpinning: boolean;
     settingsUpdated: boolean;
+    e2eeEnabled: boolean;
+    e2eeLocked: boolean;
 
     // === Caches ===
     revisionCache: RevisionCache;
+    cryptoEngine: import("../encryption/interfaces").ICryptoEngine | null;
 
     // === Utility Methods (remain on SyncManager, called via ctx) ===
     log: (message: string, level?: LogLevel) => Promise<void>;
