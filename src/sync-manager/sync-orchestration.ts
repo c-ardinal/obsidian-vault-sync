@@ -61,11 +61,10 @@ export async function scanObsidianChanges(ctx: SyncContext): Promise<void> {
                 // Mtime changed: verify content hash to confirm actual modification
                 try {
                     const content = await ctx.app.vault.adapter.readBinary(filePath);
-                    const localHash = md5(content);
-                    // For E2EE: compare against plainHash (plaintext) instead of hash (encrypted)
-                    const compareHash = (ctx.e2eeEnabled && indexEntry.plainHash)
-                        ? indexEntry.plainHash
-                        : indexEntry.hash;
+                    // For E2EE: use normalized hash (CRLF→LF) to match plainHash computation
+                    const useE2EEHash = ctx.e2eeEnabled && indexEntry.plainHash;
+                    const localHash = useE2EEHash ? await hashContent(content) : md5(content);
+                    const compareHash = useE2EEHash ? indexEntry.plainHash : indexEntry.hash;
                     if (compareHash && localHash !== compareHash.toLowerCase()) {
                         ctx.dirtyPaths.add(filePath);
                         await ctx.log(
@@ -165,12 +164,11 @@ export async function scanVaultChanges(ctx: SyncContext): Promise<void> {
                 // Mtime changed: verify content hash
                 try {
                     const content = await ctx.app.vault.adapter.readBinary(file.path);
-                    const localHash = md5(content);
 
-                    // For E2EE: compare against plainHash (plaintext) instead of hash (encrypted)
-                    const compareHash = (ctx.e2eeEnabled && indexEntry.plainHash)
-                        ? indexEntry.plainHash
-                        : indexEntry.hash;
+                    // For E2EE: use normalized hash (CRLF→LF) to match plainHash computation
+                    const useE2EEHash = ctx.e2eeEnabled && indexEntry.plainHash;
+                    const localHash = useE2EEHash ? await hashContent(content) : md5(content);
+                    const compareHash = useE2EEHash ? indexEntry.plainHash : indexEntry.hash;
                     if (compareHash && localHash !== compareHash.toLowerCase()) {
                         ctx.dirtyPaths.add(file.path);
                         await ctx.log(
