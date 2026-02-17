@@ -559,3 +559,140 @@ describe("executeSmartSync pause/resume (integration)", () => {
         );
     });
 });
+
+// ═══════════════════════════════════════════════════════════════════
+// PART 5: Integration — Pull-side size-based routing (smartPull)
+// ═══════════════════════════════════════════════════════════════════
+
+describe("Pull-side size-based routing (smartPull integration)", () => {
+    let cloud: MockCloudAdapter;
+    let deviceA: DeviceSimulator;
+    let deviceB: DeviceSimulator;
+    const smA = () => deviceA.syncManager as any;
+    const smB = () => deviceB.syncManager as any;
+
+    beforeEach(async () => {
+        cloud = new MockCloudAdapter();
+        deviceA = new DeviceSimulator("DeviceA", cloud, "dev_A");
+        deviceB = new DeviceSimulator("DeviceB", cloud, "dev_B");
+        smA().notify = async () => {};
+        smB().notify = async () => {};
+    });
+
+    /**
+     * Helper: DeviceA pushes a file to cloud (inline), then returns the cloud hash.
+     * Sets up a synced baseline for DeviceB to pull from.
+     */
+    async function pushFromA(path: string, content: string): Promise<void> {
+        deviceA.app.vaultAdapter.setFile(path, content);
+        smA().dirtyPaths.add(path);
+        smA().settings.largeFileThresholdMB = 0; // All inline for push
+        await smA().smartPush(false);
+    }
+
+    it("should pull small files inline (below threshold)", async () => {
+        // DeviceA pushes a small file
+        await pushFromA("notes/small.md", "Small content");
+
+        // DeviceB pulls — threshold is high enough that file is inline
+        smB().settings.largeFileThresholdMB = 0.01; // 10KB threshold
+        await smB().smartPull();
+
+        // File should be locally available on DeviceB
+        expect(deviceB.getLocalContent("notes/small.md")).toBe("Small content");
+        // Queue should be empty
+        expect(smB().backgroundTransferQueue.getPendingTransfers()).toHaveLength(0);
+    });
+
+    it("should defer large pulls to background queue (above threshold)", async () => {
+        // DeviceA pushes a large file (2KB)
+        const content = "x".repeat(2000);
+        await pushFromA("notes/large.md", content);
+
+        // DeviceB pulls with 1KB threshold
+        smB().settings.largeFileThresholdMB = 0.001; // ~1KB
+        await smB().smartPull();
+
+        // File should NOT be locally available yet (deferred)
+        expect(deviceB.getLocalContent("notes/large.md")).toBeNull();
+        // File should be in background queue
+        const pending = smB().backgroundTransferQueue.getPendingTransfers();
+        expect(pending).toHaveLength(1);
+        expect(pending[0].path).toBe("notes/large.md");
+        expect(pending[0].direction).toBe("pull");
+    });
+
+    it("should pull all files inline when threshold is 0 (disabled)", async () => {
+        const content = "x".repeat(2000);
+        await pushFromA("notes/large.md", content);
+
+        smB().settings.largeFileThresholdMB = 0; // Disabled
+        await smB().smartPull();
+
+        // File pulled inline
+        expect(deviceB.getLocalContent("notes/large.md")).toBe(content);
+        expect(smB().backgroundTransferQueue.getPendingTransfers()).toHaveLength(0);
+    });
+
+    it("should always pull inline when local has conflict (dirtyPaths)", async () => {
+        const content = "x".repeat(2000);
+        await pushFromA("notes/conflict.md", content);
+
+        // DeviceB has local modifications for this file
+        deviceB.app.vaultAdapter.setFile("notes/conflict.md", "local version");
+        smB().dirtyPaths.add("notes/conflict.md");
+        smB().settings.largeFileThresholdMB = 0.001; // 1KB threshold
+
+        await smB().smartPull();
+
+        // File should be processed inline (merge), NOT deferred
+        // After merge, content is present locally
+        expect(deviceB.getLocalContent("notes/conflict.md")).not.toBeNull();
+        // Queue should be empty (conflict handled inline)
+        expect(smB().backgroundTransferQueue.getPendingTransfers()).toHaveLength(0);
+    });
+
+    it("should set pendingTransfer marker when deferring pull", async () => {
+        const content = "x".repeat(2000);
+        await pushFromA("notes/large.md", content);
+
+        // Give DeviceB a prior index entry so pendingTransfer can be set
+        smB().localIndex["notes/large.md"] = {
+            hash: "old-hash",
+            lastAction: "pull",
+            ancestorHash: "old-hash",
+            mtime: Date.now() - 1000,
+            size: 50,
+        };
+        smB().index["notes/large.md"] = { ...smB().localIndex["notes/large.md"] };
+
+        smB().settings.largeFileThresholdMB = 0.001;
+        await smB().smartPull();
+
+        const entry = smB().localIndex["notes/large.md"];
+        expect(entry.pendingTransfer).toBeDefined();
+        expect(entry.pendingTransfer.direction).toBe("pull");
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// PART 6: Unit — Online/Offline detection
+// ═══════════════════════════════════════════════════════════════════
+
+describe("Online/Offline detection", () => {
+    it("should have destroy method that cleans up", () => {
+        const queue = new BackgroundTransferQueue();
+        // destroy should not throw even without context
+        expect(() => queue.destroy()).not.toThrow();
+    });
+
+    it("should cancel all items on destroy", () => {
+        const queue = new BackgroundTransferQueue();
+        queue.enqueue(makeItem({ path: "a.md" }));
+        queue.enqueue(makeItem({ path: "b.md" }));
+
+        queue.destroy();
+
+        expect(queue.getPendingTransfers()).toHaveLength(0);
+    });
+});

@@ -24,10 +24,33 @@ export class BackgroundTransferQueue {
     private isPaused = false;
     private callbacks: TransferCallbacks = {};
     private ctx: SyncContext | null = null;
+    private onlineHandler: (() => void) | null = null;
 
     /** Bind to SyncContext after construction (needed because SyncManager creates queue before context is available) */
     setContext(ctx: SyncContext): void {
         this.ctx = ctx;
+        this.registerOnlineListener();
+    }
+
+    /** Listen for browser/Electron 'online' event to auto-resume when connectivity returns */
+    private registerOnlineListener(): void {
+        if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+            this.onlineHandler = () => {
+                if (this.hasPendingItems() && !this.isPaused) {
+                    this.startProcessing();
+                }
+            };
+            window.addEventListener("online", this.onlineHandler);
+        }
+    }
+
+    /** Clean up event listener (call on plugin unload) */
+    destroy(): void {
+        if (this.onlineHandler && typeof window !== "undefined") {
+            window.removeEventListener("online", this.onlineHandler);
+            this.onlineHandler = null;
+        }
+        this.cancelAll();
     }
 
     // === Queue operations ===
@@ -139,6 +162,12 @@ export class BackgroundTransferQueue {
             while (true) {
                 if (this.isPaused) break;
                 if (ctx.e2eeLocked) break;
+
+                // Check network connectivity (available in Electron/browser environments)
+                if (typeof navigator !== "undefined" && !navigator.onLine) {
+                    await ctx.log("[Background Transfer] Offline, pausing queue.", "warn");
+                    break;
+                }
 
                 const next = this.queue.find((q) => q.status === "pending");
                 if (!next) break;

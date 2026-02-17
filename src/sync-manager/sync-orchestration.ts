@@ -724,12 +724,57 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
         return false;
     }
 
-    // Download changed files
+    // === SIZE-BASED ROUTING: Partition pull items into inline and background ===
+    const pullThresholdBytes = (ctx.settings.largeFileThresholdMB ?? 0) * 1024 * 1024;
+    const inlineDownloads: typeof toDownload = [];
+    let deferredPullCount = 0;
+
+    if (pullThresholdBytes > 0) {
+        for (const item of toDownload) {
+            const remoteSize = remoteIndex[item.path]?.size ?? 0;
+            const hasLocalConflict = ctx.dirtyPaths.has(item.path);
+            const isDeletionConflict = !item.fileId; // Dummy entry for deletion conflict
+
+            if (!hasLocalConflict && !isDeletionConflict && remoteSize > pullThresholdBytes) {
+                // Defer to background queue
+                const itemId = `bg-pull-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+                ctx.backgroundTransferQueue.enqueue({
+                    id: itemId,
+                    direction: "pull",
+                    path: item.path,
+                    fileId: item.fileId,
+                    size: remoteSize,
+                    priority: TransferPriority.NORMAL,
+                    status: "pending",
+                    retryCount: 0,
+                    createdAt: Date.now(),
+                    remoteHash: item.hash,
+                });
+                if (ctx.localIndex[item.path]) {
+                    ctx.localIndex[item.path].pendingTransfer = {
+                        direction: "pull",
+                        enqueuedAt: Date.now(),
+                        snapshotHash: item.hash || "",
+                    };
+                }
+                deferredPullCount++;
+                await ctx.log(
+                    `[Smart Pull] Deferred to background (${(remoteSize / 1024 / 1024).toFixed(1)}MB): ${item.path}`,
+                );
+            } else {
+                inlineDownloads.push(item);
+            }
+        }
+    } else {
+        inlineDownloads.push(...toDownload);
+    }
+
+    // Download changed files (inline only — large files deferred above)
     const tasks: (() => Promise<void>)[] = [];
     let completed = 0;
-    const total = toDownload.length + toDeleteLocal.length;
+    const total = inlineDownloads.length + toDeleteLocal.length;
 
-    for (const item of toDownload) {
+    for (const item of inlineDownloads) {
         tasks.push(async () => {
             const pullStartTime = Date.now();
             const success = await pullFileSafely(ctx, item, "Smart Pull");
@@ -857,8 +902,14 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
     };
     await saveIndex(ctx);
 
-    if (total > 0) {
-        await ctx.notify("noticePullCompleted", total.toString());
+    if (deferredPullCount > 0) {
+        await ctx.log(
+            `[Smart Pull] ${deferredPullCount} large file(s) queued for background transfer.`,
+        );
+    }
+
+    if (total > 0 || deferredPullCount > 0) {
+        await ctx.notify("noticePullCompleted", (total + deferredPullCount).toString());
         return true;
     }
     return false;
@@ -1152,13 +1203,61 @@ export async function pullViaChangesAPI(
                     continue;
                 }
 
-                tasks.push(async () => {
-                    const success = await pullFileSafely(ctx, cloudFile, "Changes API");
-                    if (success) {
-                        completed++;
-                        await ctx.log(`[Changes API] Synced: ${cloudFile.path}`);
+                // === SIZE-BASED ROUTING for pull ===
+                const changesThreshold = (ctx.settings.largeFileThresholdMB ?? 0) * 1024 * 1024;
+                const hasLocalConflict = ctx.dirtyPaths.has(cloudFile.path);
+
+                if (
+                    changesThreshold > 0 &&
+                    !hasLocalConflict &&
+                    cloudFile.size > changesThreshold
+                ) {
+                    // Defer large file to background queue
+                    const itemId = `bg-pull-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+                    ctx.backgroundTransferQueue.enqueue({
+                        id: itemId,
+                        direction: "pull",
+                        path: cloudFile.path,
+                        fileId: cloudFile.id,
+                        size: cloudFile.size,
+                        priority: TransferPriority.NORMAL,
+                        status: "pending",
+                        retryCount: 0,
+                        createdAt: Date.now(),
+                        remoteHash: cloudFile.hash,
+                    });
+                    if (ctx.localIndex[cloudFile.path]) {
+                        ctx.localIndex[cloudFile.path].pendingTransfer = {
+                            direction: "pull",
+                            enqueuedAt: Date.now(),
+                            snapshotHash: cloudFile.hash || "",
+                        };
                     }
-                });
+                    await ctx.log(
+                        `[Changes API] Deferred to background (${(cloudFile.size / 1024 / 1024).toFixed(1)}MB): ${cloudFile.path}`,
+                    );
+                } else {
+                    tasks.push(async () => {
+                        const pullStartTime = Date.now();
+                        const success = await pullFileSafely(ctx, cloudFile, "Changes API");
+                        if (success) {
+                            completed++;
+                            await ctx.log(`[Changes API] Synced: ${cloudFile.path}`);
+                            // Record inline transfer for history tracking
+                            const pulledSize = ctx.localIndex[cloudFile.path]?.size ?? 0;
+                            ctx.backgroundTransferQueue.recordInlineTransfer({
+                                id: `inline-pull-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                                direction: "pull",
+                                path: cloudFile.path,
+                                size: pulledSize,
+                                status: "completed",
+                                startedAt: pullStartTime,
+                                completedAt: Date.now(),
+                                transferMode: "inline",
+                            });
+                        }
+                    });
+                }
             }
         }
 
