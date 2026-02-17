@@ -10,6 +10,11 @@
  * Part 7: Unit — Inline active tracking (markInlineStart/markInlineEnd)
  * Part 8: Unit — Bandwidth throttling (bgTransferIntervalSec)
  * Part 9: Unit — History persistence (JSONL flush/load)
+ * Part 10: Integration — Log rotation via loadHistoryFromDisk
+ * Part 11: Integration — Background Pull execution (executePull via processLoop)
+ * Part 12: Integration — Staleness & conflict check (executePush via processLoop)
+ * Part 13: E2E — Full sync cycle with background transfer
+ * Part 14: Integration — Retry & error handling
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
@@ -768,7 +773,8 @@ describe("Online/Offline detection", () => {
 
         // Resume should allow processing to restart
         queue.resume();
-        expect(queue.hasPendingItems()).toBe(true); // Still pending (no actual processing in test)
+        // processLoop starts asynchronously — item transitions from "pending" to "active"
+        expect((queue as any).isProcessing || queue.hasPendingItems()).toBe(true);
     });
 
     it("should break processLoop when e2eeLocked is true", () => {
@@ -1160,4 +1166,706 @@ describe("Log rotation (daily JSONL cleanup)", () => {
             sm().backgroundTransferQueue.loadHistoryFromDisk(),
         ).resolves.not.toThrow();
     });
+});
+
+// ─── Shared helper: wait for background queue to drain ───
+
+async function waitForDrain(queue: BackgroundTransferQueue, timeoutMs = 3000): Promise<void> {
+    const start = Date.now();
+    while ((queue as any).queue.length > 0 || (queue as any).isProcessing) {
+        if (Date.now() - start > timeoutMs) {
+            throw new Error("Queue drain timeout");
+        }
+        await new Promise((r) => setTimeout(r, 20));
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// PART 11: Integration — Background Pull execution (executePull via processLoop)
+// ═══════════════════════════════════════════════════════════════════
+
+describe("Background Pull execution (processLoop)", () => {
+    let cloud: MockCloudAdapter;
+    let deviceA: DeviceSimulator;
+    let deviceB: DeviceSimulator;
+    const smA = () => deviceA.syncManager as any;
+    const smB = () => deviceB.syncManager as any;
+
+    beforeEach(async () => {
+        cloud = new MockCloudAdapter();
+        deviceA = new DeviceSimulator("DeviceA", cloud, "dev_A");
+        deviceB = new DeviceSimulator("DeviceB", cloud, "dev_B");
+        smA().notify = async () => {};
+        smB().notify = async () => {};
+    });
+
+    /** Push a file from DeviceA to cloud (inline) and return the cloud fileId */
+    async function pushFromA(path: string, content: string): Promise<string> {
+        deviceA.app.vaultAdapter.setFile(path, content);
+        smA().dirtyPaths.add(path);
+        smA().settings.largeFileThresholdMB = 0;
+        await smA().smartPush(false);
+        return cloud.getFileId(path)!;
+    }
+
+    it("should download file and update indices after background pull", async () => {
+        const content = "Large pull content " + "x".repeat(3000);
+        const fileId = await pushFromA("notes/large.md", content);
+        const cloudHash = cloud.getCloudHash("notes/large.md")!;
+
+        const queue = smB().backgroundTransferQueue;
+        queue.enqueue(
+            makeItem({
+                direction: "pull",
+                path: "notes/large.md",
+                fileId,
+                remoteHash: cloudHash,
+                size: content.length,
+            }),
+        );
+
+        queue.resume();
+        await waitForDrain(queue);
+
+        // File should be downloaded locally
+        expect(deviceB.getLocalContent("notes/large.md")).toBe(content);
+
+        // localIndex should be updated
+        const entry = smB().localIndex["notes/large.md"];
+        expect(entry).toBeDefined();
+        expect(entry.fileId).toBe(fileId);
+        expect(entry.hash).toBe(cloudHash);
+        expect(entry.lastAction).toBe("pull");
+        expect(entry.ancestorHash).toBe(cloudHash);
+    });
+
+    it("should clear pendingTransfer after successful pull", async () => {
+        const content = "x".repeat(3000);
+        const fileId = await pushFromA("notes/large.md", content);
+        const cloudHash = cloud.getCloudHash("notes/large.md")!;
+
+        // Set up pendingTransfer marker
+        smB().localIndex["notes/large.md"] = {
+            hash: "old-hash",
+            mtime: Date.now() - 1000,
+            size: 50,
+            pendingTransfer: { direction: "pull", enqueuedAt: Date.now(), snapshotHash: "" },
+        };
+
+        const queue = smB().backgroundTransferQueue;
+        queue.enqueue(
+            makeItem({
+                direction: "pull",
+                path: "notes/large.md",
+                fileId,
+                remoteHash: cloudHash,
+                size: content.length,
+            }),
+        );
+        queue.resume();
+        await waitForDrain(queue);
+
+        expect(smB().localIndex["notes/large.md"].pendingTransfer).toBeUndefined();
+    });
+
+    it("should record completed pull in transfer history", async () => {
+        const content = "x".repeat(3000);
+        const fileId = await pushFromA("notes/large.md", content);
+        const cloudHash = cloud.getCloudHash("notes/large.md")!;
+
+        const queue = smB().backgroundTransferQueue;
+        const itemId = "test-pull-history";
+        queue.enqueue(
+            makeItem({
+                id: itemId,
+                direction: "pull",
+                path: "notes/large.md",
+                fileId,
+                remoteHash: cloudHash,
+                size: content.length,
+            }),
+        );
+        queue.resume();
+        await waitForDrain(queue);
+
+        const history = queue.getHistory();
+        const record = history.find((r: TransferRecord) => r.id === itemId);
+        expect(record).toBeDefined();
+        expect(record!.status).toBe("completed");
+        expect(record!.direction).toBe("pull");
+        expect(record!.transferMode).toBe("background");
+    });
+
+    it("should cancel pull when local dirty path detected", async () => {
+        const content = "x".repeat(3000);
+        const fileId = await pushFromA("notes/conflict.md", content);
+        const cloudHash = cloud.getCloudHash("notes/conflict.md")!;
+
+        // DeviceB has local modifications
+        deviceB.app.vaultAdapter.setFile("notes/conflict.md", "local version");
+        smB().dirtyPaths.add("notes/conflict.md");
+        smB().localIndex["notes/conflict.md"] = {
+            hash: "old-hash",
+            mtime: Date.now(),
+            size: 50,
+            pendingTransfer: { direction: "pull", enqueuedAt: Date.now(), snapshotHash: "" },
+        };
+
+        const queue = smB().backgroundTransferQueue;
+        queue.enqueue(
+            makeItem({
+                direction: "pull",
+                path: "notes/conflict.md",
+                fileId,
+                remoteHash: cloudHash,
+                size: content.length,
+            }),
+        );
+        queue.resume();
+        await waitForDrain(queue);
+
+        // Local content should NOT be overwritten
+        expect(deviceB.getLocalContent("notes/conflict.md")).toBe("local version");
+        // pendingTransfer should be cleared
+        expect(smB().localIndex["notes/conflict.md"].pendingTransfer).toBeUndefined();
+        // History should show cancelled
+        const history = queue.getHistory();
+        expect(
+            history.some(
+                (r: TransferRecord) =>
+                    r.path === "notes/conflict.md" && r.status === "cancelled",
+            ),
+        ).toBe(true);
+    });
+
+    it("should process multiple pull items sequentially", async () => {
+        const contentA = "File A content " + "x".repeat(2000);
+        const contentB = "File B content " + "y".repeat(2000);
+        const fileIdA = await pushFromA("notes/a.md", contentA);
+        const fileIdB = await pushFromA("notes/b.md", contentB);
+
+        const queue = smB().backgroundTransferQueue;
+        queue.enqueue(
+            makeItem({
+                direction: "pull",
+                path: "notes/a.md",
+                fileId: fileIdA,
+                remoteHash: cloud.getCloudHash("notes/a.md")!,
+                size: contentA.length,
+            }),
+        );
+        queue.enqueue(
+            makeItem({
+                direction: "pull",
+                path: "notes/b.md",
+                fileId: fileIdB,
+                remoteHash: cloud.getCloudHash("notes/b.md")!,
+                size: contentB.length,
+            }),
+        );
+        queue.resume();
+        await waitForDrain(queue);
+
+        expect(deviceB.getLocalContent("notes/a.md")).toBe(contentA);
+        expect(deviceB.getLocalContent("notes/b.md")).toBe(contentB);
+        expect(queue.getHistory()).toHaveLength(2);
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// PART 12: Integration — Staleness & conflict check (executePush via processLoop)
+// ═══════════════════════════════════════════════════════════════════
+
+describe("Staleness & conflict check (executePush processLoop)", () => {
+    let cloud: MockCloudAdapter;
+    let device: DeviceSimulator;
+    const sm = () => device.syncManager as any;
+
+    beforeEach(() => {
+        cloud = new MockCloudAdapter();
+        device = new DeviceSimulator("TestDevice", cloud, "dev_test");
+        sm().notify = async () => {};
+    });
+
+    /** Create a local file, set up index, and return the snapshot hash */
+    async function setupLocalFile(path: string, content: string): Promise<{
+        hash: string;
+        buf: ArrayBuffer;
+        mtime: number;
+    }> {
+        device.app.vaultAdapter.setFile(path, content);
+        const buf = new TextEncoder().encode(content).buffer as ArrayBuffer;
+        const hash = hashOf(content);
+        const stat = await device.app.vaultAdapter.stat(path);
+        return { hash, buf: buf.slice(0), mtime: stat?.mtime ?? Date.now() };
+    }
+
+    it("should cancel push when file is deleted after enqueue", async () => {
+        const { hash, buf, mtime } = await setupLocalFile("notes/deleted.md", "original");
+
+        const queue = sm().backgroundTransferQueue;
+        queue.enqueue(
+            makeItem({
+                direction: "push",
+                path: "notes/deleted.md",
+                size: buf.byteLength,
+                content: buf,
+                mtime,
+                snapshotHash: hash,
+            }),
+        );
+
+        // Delete the file before processLoop runs
+        device.app.vaultAdapter.remove("notes/deleted.md");
+
+        queue.resume();
+        await waitForDrain(queue);
+
+        // Should be cancelled
+        const history = queue.getHistory();
+        expect(
+            history.some(
+                (r: TransferRecord) =>
+                    r.path === "notes/deleted.md" && r.status === "cancelled",
+            ),
+        ).toBe(true);
+        // File should NOT be on cloud
+        expect(cloud.getCloudContent("notes/deleted.md")).toBeNull();
+    });
+
+    it("should cancel push and re-add to dirtyPaths when content changed", async () => {
+        const { hash, buf, mtime } = await setupLocalFile("notes/modified.md", "original content");
+
+        sm().localIndex["notes/modified.md"] = {
+            hash: "old-index-hash",
+            mtime,
+            size: buf.byteLength,
+        };
+
+        const queue = sm().backgroundTransferQueue;
+        queue.enqueue(
+            makeItem({
+                direction: "push",
+                path: "notes/modified.md",
+                size: buf.byteLength,
+                content: buf,
+                mtime,
+                snapshotHash: hash,
+            }),
+        );
+
+        // Modify the file (different content → different hash)
+        // Ensure mtime differs from original (avoid same-millisecond collision)
+        await new Promise((r) => setTimeout(r, 5));
+        device.app.vaultAdapter.setFile("notes/modified.md", "completely new content!");
+
+        queue.resume();
+        await waitForDrain(queue);
+
+        // Should be cancelled
+        const history = queue.getHistory();
+        expect(
+            history.some(
+                (r: TransferRecord) =>
+                    r.path === "notes/modified.md" && r.status === "cancelled",
+            ),
+        ).toBe(true);
+        // Path should be re-added to dirtyPaths
+        expect(sm().dirtyPaths.has("notes/modified.md")).toBe(true);
+        // File should NOT be on cloud
+        expect(cloud.getCloudContent("notes/modified.md")).toBeNull();
+        // pendingTransfer should be cleared
+        expect(sm().localIndex["notes/modified.md"].pendingTransfer).toBeUndefined();
+    });
+
+    it("should proceed with push when mtime changed but hash matches", async () => {
+        const { hash, buf, mtime } = await setupLocalFile("notes/touched.md", "same content");
+
+        sm().localIndex["notes/touched.md"] = {
+            hash: "old-index-hash",
+            mtime,
+            size: buf.byteLength,
+        };
+        sm().index["notes/touched.md"] = { ...sm().localIndex["notes/touched.md"] };
+
+        const queue = sm().backgroundTransferQueue;
+        queue.enqueue(
+            makeItem({
+                direction: "push",
+                path: "notes/touched.md",
+                size: buf.byteLength,
+                content: buf,
+                mtime,
+                snapshotHash: hash,
+            }),
+        );
+
+        // Re-write the file with SAME content (mtime changes, hash stays the same)
+        device.app.vaultAdapter.setFile("notes/touched.md", "same content");
+
+        queue.resume();
+        await waitForDrain(queue);
+
+        // File SHOULD be uploaded to cloud (hash match → proceed)
+        expect(cloud.getCloudContent("notes/touched.md")).toBe("same content");
+        // History should show completed
+        const history = queue.getHistory();
+        expect(
+            history.some(
+                (r: TransferRecord) =>
+                    r.path === "notes/touched.md" && r.status === "completed",
+            ),
+        ).toBe(true);
+    });
+
+    it("should cancel push when remote conflict detected", async () => {
+        const content = "local version";
+        const { hash, buf, mtime } = await setupLocalFile("notes/conflict.md", content);
+
+        // Upload the initial version to cloud first (simulate a prior sync)
+        const initialContent = new TextEncoder().encode("initial synced version")
+            .buffer as ArrayBuffer;
+        const initialUpload = await cloud.uploadFile(
+            "notes/conflict.md",
+            initialContent,
+            Date.now(),
+        );
+        const oldHash = initialUpload.hash;
+
+        // Set localIndex pointing to the cloud file (simulating prior sync)
+        sm().localIndex["notes/conflict.md"] = {
+            hash: oldHash,
+            mtime,
+            size: buf.byteLength,
+            fileId: initialUpload.id,
+        };
+        sm().index["notes/conflict.md"] = { ...sm().localIndex["notes/conflict.md"] };
+
+        // Now "another device" updates the same file → different hash on remote
+        const remoteContent = new TextEncoder().encode("remote version from other device")
+            .buffer as ArrayBuffer;
+        await cloud.uploadFile("notes/conflict.md", remoteContent, Date.now(), initialUpload.id);
+
+        const queue = sm().backgroundTransferQueue;
+        queue.enqueue(
+            makeItem({
+                direction: "push",
+                path: "notes/conflict.md",
+                size: buf.byteLength,
+                content: buf,
+                mtime,
+                snapshotHash: hash,
+            }),
+        );
+
+        queue.resume();
+        await waitForDrain(queue);
+
+        // Should be cancelled due to remote conflict
+        const history = queue.getHistory();
+        expect(
+            history.some(
+                (r: TransferRecord) =>
+                    r.path === "notes/conflict.md" && r.status === "cancelled",
+            ),
+        ).toBe(true);
+        // Path should be re-added to dirtyPaths for next sync cycle
+        expect(sm().dirtyPaths.has("notes/conflict.md")).toBe(true);
+        // pendingTransfer should be cleared
+        expect(sm().localIndex["notes/conflict.md"].pendingTransfer).toBeUndefined();
+    });
+
+    it("should successfully push and update all indices", async () => {
+        const content = "push me to cloud " + "z".repeat(1000);
+        const { hash, buf, mtime } = await setupLocalFile("notes/pushme.md", content);
+
+        sm().localIndex["notes/pushme.md"] = {
+            hash: "old-hash",
+            mtime: mtime - 1000,
+            size: 10,
+        };
+        sm().index["notes/pushme.md"] = { ...sm().localIndex["notes/pushme.md"] };
+        sm().dirtyPaths.add("notes/pushme.md");
+
+        const queue = sm().backgroundTransferQueue;
+        queue.enqueue(
+            makeItem({
+                direction: "push",
+                path: "notes/pushme.md",
+                size: buf.byteLength,
+                content: buf,
+                mtime,
+                snapshotHash: hash,
+            }),
+        );
+
+        queue.resume();
+        await waitForDrain(queue);
+
+        // Cloud should have the file
+        expect(cloud.getCloudContent("notes/pushme.md")).toBe(content);
+
+        // Indices should be updated
+        const entry = sm().localIndex["notes/pushme.md"];
+        expect(entry).toBeDefined();
+        expect(entry.hash).toBe(cloud.getCloudHash("notes/pushme.md"));
+        expect(entry.lastAction).toBe("push");
+        expect(entry.fileId).toBe(cloud.getFileId("notes/pushme.md"));
+
+        // dirtyPaths should be cleared
+        expect(sm().dirtyPaths.has("notes/pushme.md")).toBe(false);
+
+        // History should show completed
+        const history = queue.getHistory();
+        expect(
+            history.some(
+                (r: TransferRecord) =>
+                    r.path === "notes/pushme.md" && r.status === "completed",
+            ),
+        ).toBe(true);
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// PART 13: E2E — Full sync cycle with background transfer
+// ═══════════════════════════════════════════════════════════════════
+
+describe("E2E full sync cycle with background transfer", () => {
+    let cloud: MockCloudAdapter;
+    let deviceA: DeviceSimulator;
+    let deviceB: DeviceSimulator;
+    const smA = () => deviceA.syncManager as any;
+    const smB = () => deviceB.syncManager as any;
+
+    beforeEach(async () => {
+        cloud = new MockCloudAdapter();
+        deviceA = new DeviceSimulator("DeviceA", cloud, "dev_A");
+        deviceB = new DeviceSimulator("DeviceB", cloud, "dev_B");
+        smA().notify = async () => {};
+        smB().notify = async () => {};
+    });
+
+    it("should defer large push → processLoop completes push → cloud updated", async () => {
+        smA().settings.largeFileThresholdMB = 0.001; // ~1KB threshold
+
+        const content = "Large push E2E " + "x".repeat(3000);
+        deviceA.app.vaultAdapter.setFile("notes/large.md", content);
+        smA().dirtyPaths.add("notes/large.md");
+
+        // smartPush defers the large file
+        await smA().smartPush(false);
+        expect(cloud.getCloudContent("notes/large.md")).toBeNull(); // Not yet on cloud
+        expect(smA().backgroundTransferQueue.hasPendingItems()).toBe(true);
+
+        // Resume the queue (simulates post-sync cycle resume)
+        smA().backgroundTransferQueue.resume();
+        await waitForDrain(smA().backgroundTransferQueue);
+
+        // Now file should be on cloud
+        expect(cloud.getCloudContent("notes/large.md")).toBe(content);
+        // Indices should be updated
+        expect(smA().localIndex["notes/large.md"].lastAction).toBe("push");
+        expect(smA().localIndex["notes/large.md"].hash).toBe(
+            cloud.getCloudHash("notes/large.md"),
+        );
+        // dirtyPaths cleared
+        expect(smA().dirtyPaths.has("notes/large.md")).toBe(false);
+    });
+
+    it("should defer large pull → processLoop completes pull → local file available", async () => {
+        // DeviceA pushes a large file inline
+        const content = "Large pull E2E " + "y".repeat(3000);
+        deviceA.app.vaultAdapter.setFile("notes/large.md", content);
+        smA().dirtyPaths.add("notes/large.md");
+        smA().settings.largeFileThresholdMB = 0;
+        await smA().smartPush(false);
+
+        // DeviceB pulls with low threshold → deferred
+        smB().settings.largeFileThresholdMB = 0.001;
+        await smB().smartPull();
+        expect(deviceB.getLocalContent("notes/large.md")).toBeNull(); // Not yet local
+        expect(smB().backgroundTransferQueue.hasPendingItems()).toBe(true);
+
+        // Resume background queue
+        smB().backgroundTransferQueue.resume();
+        await waitForDrain(smB().backgroundTransferQueue);
+
+        // Now file should be locally available
+        expect(deviceB.getLocalContent("notes/large.md")).toBe(content);
+        // Index should be updated
+        expect(smB().localIndex["notes/large.md"]).toBeDefined();
+        expect(smB().localIndex["notes/large.md"].lastAction).toBe("pull");
+    });
+
+    it("should handle mixed: small files inline, large files background", async () => {
+        smA().settings.largeFileThresholdMB = 0.001; // ~1KB threshold
+
+        // Small file (< 1KB)
+        deviceA.app.vaultAdapter.setFile("notes/small.md", "Small inline");
+        smA().dirtyPaths.add("notes/small.md");
+
+        // Large file (> 1KB)
+        const largeContent = "Large bg " + "x".repeat(3000);
+        deviceA.app.vaultAdapter.setFile("notes/large.md", largeContent);
+        smA().dirtyPaths.add("notes/large.md");
+
+        await smA().smartPush(false);
+
+        // Small file should be on cloud already
+        expect(cloud.getCloudContent("notes/small.md")).toBe("Small inline");
+        // Large file not yet
+        expect(cloud.getCloudContent("notes/large.md")).toBeNull();
+
+        // Resume background queue
+        smA().backgroundTransferQueue.resume();
+        await waitForDrain(smA().backgroundTransferQueue);
+
+        // Both files should now be on cloud
+        expect(cloud.getCloudContent("notes/large.md")).toBe(largeContent);
+
+        // History should have records for both (inline + background)
+        const history = smA().backgroundTransferQueue.getHistory();
+        const inlineRecord = history.find(
+            (r: TransferRecord) => r.path === "notes/small.md",
+        );
+        const bgRecord = history.find(
+            (r: TransferRecord) => r.path === "notes/large.md",
+        );
+        expect(inlineRecord).toBeDefined();
+        expect(inlineRecord!.transferMode).toBe("inline");
+        expect(bgRecord).toBeDefined();
+        expect(bgRecord!.transferMode).toBe("background");
+    });
+
+    it("should allow subsequent sync cycles after background transfer completes", async () => {
+        smA().settings.largeFileThresholdMB = 0.001;
+
+        // First cycle: large file deferred
+        deviceA.app.vaultAdapter.setFile("notes/first.md", "x".repeat(2000));
+        smA().dirtyPaths.add("notes/first.md");
+        await smA().smartPush(false);
+
+        // Complete background transfer
+        smA().backgroundTransferQueue.resume();
+        await waitForDrain(smA().backgroundTransferQueue);
+        expect(cloud.getCloudContent("notes/first.md")).not.toBeNull();
+
+        // Second cycle: another large file
+        deviceA.app.vaultAdapter.setFile("notes/second.md", "y".repeat(2000));
+        smA().dirtyPaths.add("notes/second.md");
+        await smA().smartPush(false);
+
+        smA().backgroundTransferQueue.resume();
+        await waitForDrain(smA().backgroundTransferQueue);
+
+        // Both files on cloud
+        expect(cloud.getCloudContent("notes/second.md")).not.toBeNull();
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// PART 14: Integration — Retry & error handling
+// ═══════════════════════════════════════════════════════════════════
+
+describe("Retry & error handling (processLoop)", () => {
+    let cloud: MockCloudAdapter;
+    let device: DeviceSimulator;
+    const sm = () => device.syncManager as any;
+
+    beforeEach(() => {
+        cloud = new MockCloudAdapter();
+        device = new DeviceSimulator("TestDevice", cloud, "dev_test");
+        sm().notify = async () => {};
+    });
+
+    it("should record failure after MAX_RETRIES (3) attempts", async () => {
+        const content = "will fail";
+        device.app.vaultAdapter.setFile("notes/fail.md", content);
+        const buf = new TextEncoder().encode(content).buffer as ArrayBuffer;
+
+        sm().localIndex["notes/fail.md"] = { hash: "old", mtime: Date.now(), size: 10 };
+        sm().index["notes/fail.md"] = { ...sm().localIndex["notes/fail.md"] };
+
+        // Make upload always throw
+        const origUpload = cloud.uploadFile.bind(cloud);
+        let callCount = 0;
+        vi.spyOn(cloud, "uploadFile").mockImplementation(async (path, ...args) => {
+            if (path === "notes/fail.md") {
+                callCount++;
+                throw new Error("Simulated upload failure");
+            }
+            return origUpload(path, ...args);
+        });
+
+        const queue = sm().backgroundTransferQueue;
+        const stat = await device.app.vaultAdapter.stat("notes/fail.md");
+        queue.enqueue(
+            makeItem({
+                direction: "push",
+                path: "notes/fail.md",
+                size: buf.byteLength,
+                content: buf.slice(0),
+                mtime: stat!.mtime,
+                snapshotHash: hashOf(content),
+            }),
+        );
+
+        // Use short retry delays for test (override via private access)
+        // The actual retry delay uses exponential backoff but with vi.useFakeTimers
+        // For simplicity, just wait longer
+        queue.resume();
+        await waitForDrain(queue, 30000);
+
+        // Should have attempted 3 times
+        expect(callCount).toBe(3);
+        // History should show failure
+        const history = queue.getHistory();
+        const failRecord = history.find(
+            (r: TransferRecord) => r.path === "notes/fail.md" && r.status === "failed",
+        );
+        expect(failRecord).toBeDefined();
+        expect(failRecord!.transferMode).toBe("background");
+
+        vi.restoreAllMocks();
+    }, 60000); // Extended timeout for retry delays
+
+    it("should fire onTransferFailed callback on max retries", async () => {
+        const content = "callback fail";
+        device.app.vaultAdapter.setFile("notes/cbfail.md", content);
+        const buf = new TextEncoder().encode(content).buffer as ArrayBuffer;
+
+        sm().localIndex["notes/cbfail.md"] = { hash: "old", mtime: Date.now(), size: 10 };
+        sm().index["notes/cbfail.md"] = { ...sm().localIndex["notes/cbfail.md"] };
+
+        vi.spyOn(cloud, "uploadFile").mockImplementation(async (path, ...args) => {
+            if (path === "notes/cbfail.md") {
+                throw new Error("Simulated failure");
+            }
+            return (cloud as any).__proto__.uploadFile.call(cloud, path, ...args);
+        });
+
+        const onFailed = vi.fn();
+        const queue = sm().backgroundTransferQueue;
+        queue.setCallbacks({ onTransferFailed: onFailed });
+
+        const stat = await device.app.vaultAdapter.stat("notes/cbfail.md");
+        queue.enqueue(
+            makeItem({
+                direction: "push",
+                path: "notes/cbfail.md",
+                size: buf.byteLength,
+                content: buf.slice(0),
+                mtime: stat!.mtime,
+                snapshotHash: hashOf(content),
+            }),
+        );
+
+        queue.resume();
+        await waitForDrain(queue, 30000);
+
+        expect(onFailed).toHaveBeenCalledTimes(1);
+        expect(onFailed.mock.calls[0][0].status).toBe("failed");
+
+        vi.restoreAllMocks();
+    }, 60000);
 });

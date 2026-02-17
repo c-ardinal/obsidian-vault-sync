@@ -1,7 +1,7 @@
 import { md5 } from "../utils/md5";
 import type { CloudFile } from "../types/adapter";
 import type { SyncContext } from "./context";
-import { hashContent, runParallel } from "./file-utils";
+import { hashContent } from "./file-utils";
 import { pullFileSafely } from "./merge";
 import { saveIndex } from "./state";
 import { compress } from "./file-utils";
@@ -28,7 +28,6 @@ export class BackgroundTransferQueue {
     private ctx: SyncContext | null = null;
     private onlineHandler: (() => void) | null = null;
     private unflushedRecords: TransferRecord[] = [];
-    private historyLoaded = false;
     /** Tracks inline (sync-cycle) transfers that are currently in progress */
     private inlineActive = new Map<string, TransferItem>();
 
@@ -210,7 +209,8 @@ export class BackgroundTransferQueue {
                 if (ctx.e2eeLocked) break;
 
                 // Check network connectivity (available in Electron/browser environments)
-                if (typeof navigator !== "undefined" && !navigator.onLine) {
+                // Use strict === false to avoid false positives when navigator.onLine is undefined (e.g. Node.js)
+                if (typeof navigator !== "undefined" && navigator.onLine === false) {
                     await ctx.log("[Background Transfer] Offline, pausing queue.", "warn");
                     break;
                 }
@@ -536,7 +536,7 @@ export class BackgroundTransferQueue {
             const logPath = this.getTransfersLogPath(ctx);
             const exists = await ctx.app.vault.adapter.exists(logPath);
             if (!exists) {
-                this.historyLoaded = true;
+    
                 return;
             }
             const content = await ctx.app.vault.adapter.read(logPath);
@@ -553,10 +553,10 @@ export class BackgroundTransferQueue {
             if (this.history.length > MAX_HISTORY) {
                 this.history = this.history.slice(-MAX_HISTORY);
             }
-            this.historyLoaded = true;
+
         } catch {
             // File doesn't exist or is unreadable — start with empty history
-            this.historyLoaded = true;
+
         }
     }
 
