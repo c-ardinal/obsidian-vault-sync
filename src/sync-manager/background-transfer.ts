@@ -17,6 +17,7 @@ const MAX_RETRIES = 3;
 const RETRY_BASE_DELAY_MS = 5000;
 const RETRY_MAX_DELAY_MS = 60000;
 const HISTORY_FLUSH_BATCH = 10;
+const LOG_RETENTION_DAYS = 7;
 
 export class BackgroundTransferQueue {
     private queue: TransferItem[] = [];
@@ -47,6 +48,8 @@ export class BackgroundTransferQueue {
         } catch (e) {
             this.ctx.log(`[Background Transfer] Failed to load history: ${e}`, "error");
         }
+        // Best-effort rotation of old log files
+        this.rotateOldLogs(this.ctx).catch(() => {});
     }
 
     /** Listen for browser/Electron 'online' event to auto-resume when connectivity returns */
@@ -270,6 +273,12 @@ export class BackgroundTransferQueue {
                 }
 
                 ctx.endActivity();
+
+                // Throttle: wait between consecutive background transfers
+                const throttleMs = (ctx.settings.bgTransferIntervalSec ?? 0) * 1000;
+                if (throttleMs > 0 && this.queue.some((q) => q.status === "pending")) {
+                    await new Promise((r) => setTimeout(r, throttleMs));
+                }
             }
         } finally {
             this.isProcessing = false;
@@ -578,6 +587,40 @@ export class BackgroundTransferQueue {
         } catch (e) {
             // Re-add failed records for next attempt
             this.unflushedRecords.unshift(...records);
+        }
+    }
+
+    /** Delete transfer log files older than LOG_RETENTION_DAYS */
+    private async rotateOldLogs(ctx: SyncContext): Promise<void> {
+        try {
+            const folderExists = await ctx.app.vault.adapter.exists(ctx.logFolder);
+            if (!folderExists) return;
+
+            const listing = await ctx.app.vault.adapter.list(ctx.logFolder);
+            const cutoff = Date.now() - LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+
+            for (const fileName of listing.files) {
+                // Match transfers-YYYY-MM-DD.jsonl pattern
+                const match = fileName.match(/^transfers-(\d{4})-(\d{2})-(\d{2})\.jsonl$/);
+                if (!match) continue;
+
+                const fileDate = new Date(
+                    parseInt(match[1]),
+                    parseInt(match[2]) - 1,
+                    parseInt(match[3]),
+                );
+                if (fileDate.getTime() < cutoff) {
+                    const fullPath = `${ctx.logFolder}/${fileName}`;
+                    await ctx.app.vault.adapter.remove(fullPath);
+                    await ctx.log(
+                        `[Background Transfer] Rotated old log: ${fileName}`,
+                        "debug",
+                    );
+                }
+            }
+        } catch (e) {
+            // Non-critical — log and continue
+            await ctx.log(`[Background Transfer] Log rotation error: ${e}`, "warn");
         }
     }
 

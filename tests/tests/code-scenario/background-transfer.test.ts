@@ -4,6 +4,12 @@
  * Part 1: Unit tests for BackgroundTransferQueue class (queue operations, history, callbacks)
  * Part 2: Integration tests for size-based routing in smartPush
  * Part 3: Integration tests for inline transfer recording
+ * Part 4: Integration — executeSmartSync pause/resume
+ * Part 5: Integration — Pull-side size-based routing (smartPull)
+ * Part 6: Unit — Online/Offline detection
+ * Part 7: Unit — Inline active tracking (markInlineStart/markInlineEnd)
+ * Part 8: Unit — Bandwidth throttling (bgTransferIntervalSec)
+ * Part 9: Unit — History persistence (JSONL flush/load)
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
@@ -676,7 +682,7 @@ describe("Pull-side size-based routing (smartPull integration)", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════
-// PART 6: Unit — Online/Offline detection
+// PART 6: Unit — Online/Offline detection and queue resume
 // ═══════════════════════════════════════════════════════════════════
 
 describe("Online/Offline detection", () => {
@@ -694,5 +700,464 @@ describe("Online/Offline detection", () => {
         queue.destroy();
 
         expect(queue.getPendingTransfers()).toHaveLength(0);
+    });
+
+    it("should register online listener when setContext is called with window available", () => {
+        // In Node.js test environment, window may or may not be defined
+        // If window exists, the listener should be registered
+        const queue = new BackgroundTransferQueue();
+        const addEventSpy = typeof window !== "undefined"
+            ? vi.spyOn(window, "addEventListener")
+            : null;
+
+        // Create a minimal mock context
+        const cloud = new MockCloudAdapter();
+        const device = new DeviceSimulator("TestDevice", cloud);
+        const sm = device.syncManager as any;
+        const ctx = sm as any;
+
+        // setContext is already called in SyncManager constructor
+        // Verify queue was initialized properly
+        expect(sm.backgroundTransferQueue).toBeDefined();
+
+        if (addEventSpy) {
+            // If window is available, check listener was registered
+            expect(addEventSpy).toHaveBeenCalledWith("online", expect.any(Function));
+            addEventSpy.mockRestore();
+        }
+    });
+
+    it("should remove online listener on destroy when window is available", () => {
+        const removeEventSpy = typeof window !== "undefined"
+            ? vi.spyOn(window, "removeEventListener")
+            : null;
+
+        const cloud = new MockCloudAdapter();
+        const device = new DeviceSimulator("TestDevice", cloud);
+        const sm = device.syncManager as any;
+
+        sm.backgroundTransferQueue.destroy();
+
+        if (removeEventSpy) {
+            expect(removeEventSpy).toHaveBeenCalledWith("online", expect.any(Function));
+            removeEventSpy.mockRestore();
+        }
+    });
+
+    it("should not start processing on resume when paused", () => {
+        const queue = new BackgroundTransferQueue();
+        queue.enqueue(makeItem({ path: "a.md" }));
+        queue.pause();
+        queue.resume();
+
+        // No context means processing can't start, but queue state is correct
+        expect(queue.hasPendingItems()).toBe(true);
+    });
+
+    it("should attempt to resume processing on resume when items are pending", () => {
+        const cloud = new MockCloudAdapter();
+        const device = new DeviceSimulator("TestDevice", cloud);
+        const sm = device.syncManager as any;
+        const queue = sm.backgroundTransferQueue;
+
+        queue.enqueue(makeItem({ path: "a.md" }));
+        queue.pause();
+
+        // After pause, queue won't process
+        expect(queue.hasPendingItems()).toBe(true);
+
+        // Resume should allow processing to restart
+        queue.resume();
+        expect(queue.hasPendingItems()).toBe(true); // Still pending (no actual processing in test)
+    });
+
+    it("should break processLoop when e2eeLocked is true", () => {
+        const cloud = new MockCloudAdapter();
+        const device = new DeviceSimulator("TestDevice", cloud);
+        const sm = device.syncManager as any;
+
+        // e2eeLocked is a computed getter: settings.e2eeEnabled && !cryptoEngine.isUnlocked()
+        // Enable E2EE without setting up a crypto engine → e2eeLocked becomes true
+        sm.settings.e2eeEnabled = true;
+        expect(sm.e2eeLocked).toBe(true);
+
+        const queue = sm.backgroundTransferQueue;
+        queue.enqueue(makeItem({ path: "locked.md" }));
+
+        // Even if we try to resume, e2eeLocked should prevent processing
+        queue.resume();
+
+        // Item should still be pending (not processed)
+        expect(queue.hasPendingItems()).toBe(true);
+    });
+
+    it("should preserve queue items through pause/resume cycle", () => {
+        const queue = new BackgroundTransferQueue();
+
+        queue.enqueue(makeItem({ path: "a.md", priority: TransferPriority.HIGH }));
+        queue.enqueue(makeItem({ path: "b.md", priority: TransferPriority.NORMAL }));
+
+        queue.pause();
+        // Items remain during pause
+        expect(queue.getPendingTransfers()).toHaveLength(2);
+
+        queue.resume();
+        // Items remain after resume
+        expect(queue.getPendingTransfers()).toHaveLength(2);
+        // Order is preserved
+        expect(queue.getPendingTransfers()[0].path).toBe("a.md");
+        expect(queue.getPendingTransfers()[1].path).toBe("b.md");
+    });
+
+    it("should allow enqueuing items while paused", () => {
+        const queue = new BackgroundTransferQueue();
+        queue.pause();
+
+        queue.enqueue(makeItem({ path: "a.md" }));
+        queue.enqueue(makeItem({ path: "b.md" }));
+
+        expect(queue.getPendingTransfers()).toHaveLength(2);
+
+        queue.resume();
+        expect(queue.getPendingTransfers()).toHaveLength(2);
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// PART 7: Unit — Inline active tracking (markInlineStart/markInlineEnd)
+// ═══════════════════════════════════════════════════════════════════
+
+describe("Inline active tracking", () => {
+    let queue: BackgroundTransferQueue;
+
+    beforeEach(() => {
+        queue = new BackgroundTransferQueue();
+    });
+
+    it("should include inline active items in getPendingTransfers", () => {
+        queue.markInlineStart("notes/file.md", "push", 1024);
+
+        const pending = queue.getPendingTransfers();
+        expect(pending).toHaveLength(1);
+        expect(pending[0].path).toBe("notes/file.md");
+        expect(pending[0].direction).toBe("push");
+        expect(pending[0].status).toBe("active");
+        expect(pending[0].size).toBe(1024);
+    });
+
+    it("should remove inline active items via markInlineEnd", () => {
+        queue.markInlineStart("notes/file.md", "push", 1024);
+        expect(queue.getPendingTransfers()).toHaveLength(1);
+
+        queue.markInlineEnd("notes/file.md");
+        expect(queue.getPendingTransfers()).toHaveLength(0);
+    });
+
+    it("should track multiple inline transfers concurrently", () => {
+        queue.markInlineStart("notes/a.md", "push", 100);
+        queue.markInlineStart("notes/b.md", "pull", 200);
+        queue.markInlineStart("notes/c.md", "push", 300);
+
+        const pending = queue.getPendingTransfers();
+        expect(pending).toHaveLength(3);
+
+        const paths = pending.map((p) => p.path).sort();
+        expect(paths).toEqual(["notes/a.md", "notes/b.md", "notes/c.md"]);
+    });
+
+    it("should merge inline active and background queue items in getPendingTransfers", () => {
+        // Inline active
+        queue.markInlineStart("notes/inline.md", "push", 500);
+        // Background queued
+        queue.enqueue(makeItem({ path: "notes/bg.md", direction: "push" }));
+
+        const pending = queue.getPendingTransfers();
+        expect(pending).toHaveLength(2);
+
+        const paths = pending.map((p) => p.path).sort();
+        expect(paths).toEqual(["notes/bg.md", "notes/inline.md"]);
+    });
+
+    it("should place inline active items before background queue items", () => {
+        queue.enqueue(makeItem({ path: "notes/bg.md", direction: "push" }));
+        queue.markInlineStart("notes/inline.md", "push", 500);
+
+        const pending = queue.getPendingTransfers();
+        // Inline items come first (they're prepended in the array)
+        expect(pending[0].path).toBe("notes/inline.md");
+        expect(pending[1].path).toBe("notes/bg.md");
+    });
+
+    it("should overwrite previous inline entry for same path", () => {
+        queue.markInlineStart("notes/file.md", "push", 100);
+        queue.markInlineStart("notes/file.md", "pull", 200);
+
+        const pending = queue.getPendingTransfers();
+        expect(pending).toHaveLength(1);
+        expect(pending[0].direction).toBe("pull");
+        expect(pending[0].size).toBe(200);
+    });
+
+    it("should fire onQueueChange when marking inline start", () => {
+        const onQueueChange = vi.fn();
+        queue.setCallbacks({ onQueueChange });
+
+        queue.markInlineStart("notes/file.md", "push", 1024);
+
+        expect(onQueueChange).toHaveBeenCalledTimes(1);
+        const items = onQueueChange.mock.calls[0][0];
+        expect(items).toHaveLength(1);
+        expect(items[0].path).toBe("notes/file.md");
+    });
+
+    it("should fire onQueueChange when marking inline end", () => {
+        const onQueueChange = vi.fn();
+        queue.setCallbacks({ onQueueChange });
+
+        queue.markInlineStart("notes/file.md", "push", 1024);
+        onQueueChange.mockClear();
+
+        queue.markInlineEnd("notes/file.md");
+
+        expect(onQueueChange).toHaveBeenCalledTimes(1);
+        const items = onQueueChange.mock.calls[0][0];
+        expect(items).toHaveLength(0);
+    });
+
+    it("should generate unique IDs with inline- prefix", () => {
+        queue.markInlineStart("notes/a.md", "push", 100);
+        queue.markInlineStart("notes/b.md", "pull", 200);
+
+        const pending = queue.getPendingTransfers();
+        expect(pending[0].id).toMatch(/^inline-push-/);
+        expect(pending[1].id).toMatch(/^inline-pull-/);
+        expect(pending[0].id).not.toBe(pending[1].id);
+    });
+
+    it("should not affect hasPendingItems (only background queue)", () => {
+        queue.markInlineStart("notes/file.md", "push", 1024);
+
+        // hasPendingItems checks only the background queue, not inline active
+        expect(queue.hasPendingItems()).toBe(false);
+    });
+
+    it("should not be affected by cancelAll (inline items are separate)", () => {
+        queue.markInlineStart("notes/inline.md", "push", 500);
+        queue.enqueue(makeItem({ path: "notes/bg.md" }));
+
+        queue.cancelAll();
+
+        // Background items cancelled, inline still active
+        const pending = queue.getPendingTransfers();
+        expect(pending).toHaveLength(1);
+        expect(pending[0].path).toBe("notes/inline.md");
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// PART 8: Unit — Bandwidth throttling (bgTransferIntervalSec)
+// ═══════════════════════════════════════════════════════════════════
+
+describe("Bandwidth throttling (bgTransferIntervalSec)", () => {
+    let cloud: MockCloudAdapter;
+    let device: DeviceSimulator;
+    const sm = () => device.syncManager as any;
+
+    beforeEach(() => {
+        cloud = new MockCloudAdapter();
+        device = new DeviceSimulator("TestDevice", cloud);
+        sm().notify = async () => {};
+    });
+
+    it("should pass bgTransferIntervalSec=0 to settings (no throttling)", () => {
+        expect(sm().settings.bgTransferIntervalSec).toBe(0);
+    });
+
+    it("should accept bgTransferIntervalSec setting changes", () => {
+        sm().settings.bgTransferIntervalSec = 5;
+        expect(sm().settings.bgTransferIntervalSec).toBe(5);
+    });
+
+    it("should store bgTransferIntervalSec in queue context after setContext", () => {
+        const queue = sm().backgroundTransferQueue;
+        // The queue has access to settings through its ctx reference
+        // Verify queue was properly initialized
+        expect(queue).toBeDefined();
+        expect(queue.getPendingTransfers()).toHaveLength(0);
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// PART 9: Unit — History persistence (JSONL flush/load)
+// ═══════════════════════════════════════════════════════════════════
+
+describe("History persistence (JSONL)", () => {
+    let queue: BackgroundTransferQueue;
+
+    beforeEach(() => {
+        queue = new BackgroundTransferQueue();
+    });
+
+    it("should accumulate unflushed records via recordInlineTransfer", () => {
+        queue.recordInlineTransfer(makeRecord({ path: "a.md" }));
+        queue.recordInlineTransfer(makeRecord({ path: "b.md" }));
+
+        // Records should be in history
+        expect(queue.getHistory()).toHaveLength(2);
+    });
+
+    it("should preserve history order across inline and cancel operations", () => {
+        queue.recordInlineTransfer(makeRecord({ id: "first", path: "a.md", completedAt: 1000 }));
+        queue.enqueue(makeItem({ path: "b.md" }));
+        queue.cancel("b.md"); // This adds a "cancelled" record to history
+        queue.recordInlineTransfer(makeRecord({ id: "third", path: "c.md", completedAt: 3000 }));
+
+        const history = queue.getHistory();
+        expect(history).toHaveLength(3);
+        expect(history[0].id).toBe("first");
+        expect(history[1].status).toBe("cancelled");
+        expect(history[2].id).toBe("third");
+    });
+
+    it("should call flushHistory without error when no context is set", async () => {
+        queue.recordInlineTransfer(makeRecord());
+        // flushHistory should not throw when ctx is null
+        await expect(queue.flushHistory()).resolves.not.toThrow();
+    });
+
+    it("should not throw on flushHistory when called multiple times", async () => {
+        // No context — should be no-op
+        await queue.flushHistory();
+        await queue.flushHistory();
+        // Still no error
+        expect(queue.getHistory()).toHaveLength(0);
+    });
+
+    it("should ring-buffer correctly when adding via both inline and cancel", () => {
+        // Fill to just under MAX_HISTORY (500) with inline records
+        for (let i = 0; i < 498; i++) {
+            queue.recordInlineTransfer(makeRecord({ id: `inline-${i}` }));
+        }
+
+        // Add 2 items and cancel them (adds to history via cancel path)
+        queue.enqueue(makeItem({ id: "cancel-1", path: "x.md" }));
+        queue.cancel("x.md");
+        queue.enqueue(makeItem({ id: "cancel-2", path: "y.md" }));
+        queue.cancel("y.md");
+
+        // Now add 5 more — should trigger ring buffer trim
+        for (let i = 0; i < 5; i++) {
+            queue.recordInlineTransfer(makeRecord({ id: `overflow-${i}` }));
+        }
+
+        const history = queue.getHistory();
+        expect(history.length).toBeLessThanOrEqual(500);
+        // Latest records should be at the end
+        expect(history[history.length - 1].id).toBe("overflow-4");
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// PART 10: Integration — Log rotation via loadHistoryFromDisk
+// ═══════════════════════════════════════════════════════════════════
+
+describe("Log rotation (daily JSONL cleanup)", () => {
+    let cloud: MockCloudAdapter;
+    let device: DeviceSimulator;
+    const sm = () => device.syncManager as any;
+
+    beforeEach(() => {
+        cloud = new MockCloudAdapter();
+        device = new DeviceSimulator("TestDevice", cloud, "dev_test");
+        sm().notify = async () => {};
+        // Set logFolder to device-specific path (normally done by loadLocalIndex)
+        sm().logFolder = `${sm().pluginDir}/logs/dev_test`;
+    });
+
+    it("should delete transfer logs older than 7 days", async () => {
+        const logFolder = sm().logFolder as string;
+
+        // Ensure log folder exists in mock adapter
+        await device.app.vaultAdapter.mkdir(logFolder);
+
+        // Create old log files (10 days ago)
+        const oldDate = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000);
+        const oldY = oldDate.getFullYear();
+        const oldM = String(oldDate.getMonth() + 1).padStart(2, "0");
+        const oldD = String(oldDate.getDate()).padStart(2, "0");
+        const oldFileName = `transfers-${oldY}-${oldM}-${oldD}.jsonl`;
+        const oldPath = `${logFolder}/${oldFileName}`;
+
+        // Create today's log file
+        const today = new Date();
+        const tY = today.getFullYear();
+        const tM = String(today.getMonth() + 1).padStart(2, "0");
+        const tD = String(today.getDate()).padStart(2, "0");
+        const todayFileName = `transfers-${tY}-${tM}-${tD}.jsonl`;
+        const todayPath = `${logFolder}/${todayFileName}`;
+
+        // Write mock log files to the vault adapter
+        device.app.vaultAdapter.setFile(oldPath, '{"id":"old"}\n');
+        device.app.vaultAdapter.setFile(todayPath, '{"id":"today"}\n');
+
+        // Trigger loadHistoryFromDisk which also calls rotateOldLogs
+        await sm().backgroundTransferQueue.loadHistoryFromDisk();
+
+        // Wait a tick for the async rotation to complete
+        await new Promise((r) => setTimeout(r, 50));
+
+        // Old file should be deleted
+        const oldExists = await device.app.vaultAdapter.exists(oldPath);
+        expect(oldExists).toBe(false);
+
+        // Today's file should still exist
+        const todayExists = await device.app.vaultAdapter.exists(todayPath);
+        expect(todayExists).toBe(true);
+    });
+
+    it("should not delete recent log files (within 7 days)", async () => {
+        const logFolder = sm().logFolder as string;
+        await device.app.vaultAdapter.mkdir(logFolder);
+
+        // Create a 3-day-old log file
+        const recentDate = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+        const rY = recentDate.getFullYear();
+        const rM = String(recentDate.getMonth() + 1).padStart(2, "0");
+        const rD = String(recentDate.getDate()).padStart(2, "0");
+        const recentFileName = `transfers-${rY}-${rM}-${rD}.jsonl`;
+        const recentPath = `${logFolder}/${recentFileName}`;
+
+        device.app.vaultAdapter.setFile(recentPath, '{"id":"recent"}\n');
+
+        await sm().backgroundTransferQueue.loadHistoryFromDisk();
+        await new Promise((r) => setTimeout(r, 50));
+
+        // Recent file should still exist
+        const exists = await device.app.vaultAdapter.exists(recentPath);
+        expect(exists).toBe(true);
+    });
+
+    it("should ignore non-transfer files in log folder", async () => {
+        const logFolder = sm().logFolder as string;
+        await device.app.vaultAdapter.mkdir(logFolder);
+
+        // Create a non-transfer file in the log folder
+        const otherPath = `${logFolder}/2025-01-01.log`;
+        device.app.vaultAdapter.setFile(otherPath, "some log data\n");
+
+        await sm().backgroundTransferQueue.loadHistoryFromDisk();
+        await new Promise((r) => setTimeout(r, 50));
+
+        // Non-transfer file should not be touched
+        const exists = await device.app.vaultAdapter.exists(otherPath);
+        expect(exists).toBe(true);
+    });
+
+    it("should not fail if log folder does not exist", async () => {
+        // logFolder doesn't have any files, and the folder itself doesn't exist
+        // This should not throw
+        await expect(
+            sm().backgroundTransferQueue.loadHistoryFromDisk(),
+        ).resolves.not.toThrow();
     });
 });

@@ -25,6 +25,8 @@ export interface VaultSyncSettings {
     /** Size threshold (MB) for background transfer. Files larger than this are transferred
      *  asynchronously outside the sync cycle. Set to 0 to disable (all files inline). Default: 5 */
     largeFileThresholdMB: number;
+    /** Delay (seconds) between consecutive background transfer items. 0 = no throttling. */
+    bgTransferIntervalSec: number;
 
     notificationLevel: "verbose" | "standard" | "error";
 

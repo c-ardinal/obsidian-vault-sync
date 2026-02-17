@@ -128,6 +128,16 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                     unit: "MB",
                 },
                 {
+                    key: "bgTransferIntervalSec",
+                    type: "number",
+                    label: t("settingBgTransferInterval"),
+                    desc:
+                        t("settingBgTransferIntervalDesc") +
+                        `\n(Min: ${SETTINGS_LIMITS.bgTransferIntervalSec.min}, Max: ${SETTINGS_LIMITS.bgTransferIntervalSec.max}, Default: ${SETTINGS_LIMITS.bgTransferIntervalSec.default})`,
+                    limits: SETTINGS_LIMITS.bgTransferIntervalSec,
+                    unit: "SEC",
+                },
+                {
                     key: "notificationLevel",
                     type: "dropdown",
                     label: t("settingNotificationLevel"),

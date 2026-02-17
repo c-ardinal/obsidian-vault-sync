@@ -8,6 +8,8 @@ export interface SyncManagerSettings {
     /** Size threshold (MB) for background transfer. Files larger than this are transferred
      *  asynchronously outside the sync cycle. Set to 0 to disable (all files inline). */
     largeFileThresholdMB: number;
+    /** Delay (seconds) between consecutive background transfer items. 0 = no throttling. */
+    bgTransferIntervalSec: number;
 
     // Sync Scope Options
     syncAppearance: boolean;

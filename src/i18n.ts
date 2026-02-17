@@ -200,6 +200,9 @@ export const i18n: Record<string, Record<string, string>> = {
         settingLargeFileThreshold: "Large File Threshold (Background Transfer)",
         settingLargeFileThresholdDesc:
             "Files larger than this are transferred in the background, outside the sync cycle.\nSet to 0 to disable (all files sync inline).",
+        settingBgTransferInterval: "Background Transfer Interval",
+        settingBgTransferIntervalDesc:
+            "Delay between consecutive background transfers.\nSet to 0 for no throttling (fastest).",
 
         // Password Strength
         passwordTooShort: "Password must be at least 8 characters.",
@@ -455,6 +458,9 @@ export const i18n: Record<string, Record<string, string>> = {
         settingLargeFileThreshold: "バックグラウンド転送の閾値",
         settingLargeFileThresholdDesc:
             "この値を超えるファイルは同期サイクル外でバックグラウンド転送されます。\n0に設定すると無効（全ファイルがインライン同期）。",
+        settingBgTransferInterval: "バックグラウンド転送の間隔",
+        settingBgTransferIntervalDesc:
+            "バックグラウンド転送間の待機時間。\n0に設定するとスロットリングなし（最速）。",
 
         // Password Strength
         passwordTooShort: "パスワードは8文字以上にしてください。",

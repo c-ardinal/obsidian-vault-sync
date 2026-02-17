@@ -15,6 +15,7 @@ const DEFAULT_SETTINGS: SyncManagerSettings = {
     isDeveloperMode: false,
     exclusionPatterns: "",
     largeFileThresholdMB: 0, // Disabled in tests (all files inline)
+    bgTransferIntervalSec: 0,
     syncAppearance: true,
     syncCommunityPlugins: true,
     syncCoreConfig: true,
