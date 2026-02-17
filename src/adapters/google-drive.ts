@@ -751,6 +751,85 @@ export class GoogleDriveAdapter implements CloudAdapter {
         return result;
     }
 
+    /**
+     * Upload using Google Drive's resumable upload protocol.
+     * Better for large files: supports interruption recovery.
+     * Step 1: Initiate resumable session → get session URI
+     * Step 2: PUT full content to session URI → get file metadata
+     */
+    async uploadFileResumable(
+        path: string,
+        content: ArrayBuffer,
+        mtime: number,
+        existingFileId?: string,
+    ): Promise<CloudFile> {
+        const name = path.split("/").pop();
+        const metadata: any = {
+            name: name,
+            modifiedTime: new Date(mtime).toISOString(),
+        };
+
+        let activeFileId = existingFileId;
+        if (!activeFileId) {
+            const existing = await this.getFileMetadata(path);
+            if (existing) activeFileId = existing.id;
+        }
+
+        let initUrl: string;
+        let method: string;
+
+        if (activeFileId) {
+            initUrl = `https://www.googleapis.com/upload/drive/v3/files/${activeFileId}?uploadType=resumable&fields=id,md5Checksum,size`;
+            method = "PATCH";
+        } else {
+            const parentId = await this.resolveParentId(path, true);
+            metadata.parents = [parentId];
+            initUrl = `https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,md5Checksum,size`;
+            method = "POST";
+        }
+
+        // Step 1: Initiate resumable session
+        const initResponse = await this.fetchWithAuth(initUrl, {
+            method,
+            headers: {
+                "Content-Type": "application/json; charset=UTF-8",
+                "X-Upload-Content-Type": "application/octet-stream",
+                "X-Upload-Content-Length": String(content.byteLength),
+            },
+            body: JSON.stringify(metadata),
+        });
+
+        const sessionUri = initResponse.headers.get("Location");
+        if (!sessionUri) {
+            throw new Error("Resumable upload: no session URI returned");
+        }
+
+        // Step 2: Upload content to session URI
+        const uploadResponse = await this.fetchWithAuth(sessionUri, {
+            method: "PUT",
+            headers: {
+                "Content-Type": "application/octet-stream",
+                "Content-Length": String(content.byteLength),
+            },
+            body: content,
+        });
+
+        const data = await uploadResponse.json();
+        const result: CloudFile = {
+            id: data.id,
+            path: path,
+            mtime: mtime,
+            size: parseInt(data.size || String(content.byteLength)),
+            kind: "file",
+            hash: data.md5Checksum,
+        };
+
+        this.idToPathCache.set(result.id, result.path);
+        this.resolvePathCache.set(result.id, result.path);
+
+        return result;
+    }
+
     async deleteFile(fileId: string): Promise<void> {
         await this.fetchWithAuth(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
             method: "DELETE",

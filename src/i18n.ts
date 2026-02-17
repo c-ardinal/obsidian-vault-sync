@@ -178,6 +178,29 @@ export const i18n: Record<string, Record<string, string>> = {
         labelE2EESetup: "E2EE: Start Vault Encryption",
         labelE2EEUnlock: "E2EE: Unlock Vault Encryption",
 
+        // Transfer Status
+        labelTransferStatus: "Transfer Status (VaultSync)",
+        transferTitle: "Transfer Status",
+        transferActiveSection: "Active Transfers",
+        transferHistorySection: "Recent History",
+        transferNoActive: "No active transfers",
+        transferNoHistory: "No transfer history",
+        transferPush: "Upload",
+        transferPull: "Download",
+        transferCompleted: "Completed",
+        transferFailed: "Failed",
+        transferCancelled: "Cancelled",
+        transferPending: "Pending",
+        transferActive: "Transferring...",
+        transferInline: "Inline",
+        transferBackground: "Background",
+        transferCancelAll: "Cancel All",
+
+        // Settings
+        settingLargeFileThreshold: "Large File Threshold (Background Transfer)",
+        settingLargeFileThresholdDesc:
+            "Files larger than this are transferred in the background, outside the sync cycle.\nSet to 0 to disable (all files sync inline).",
+
         // Password Strength
         passwordTooShort: "Password must be at least 8 characters.",
         passwordNeedsVariety: "Use a mix of uppercase, lowercase, numbers, and symbols.",
@@ -409,6 +432,29 @@ export const i18n: Record<string, Record<string, string>> = {
         labelViewHistory: "クラウドの変更履歴を表示 (VaultSync)",
         labelE2EESetup: "E2EE: Vaultの暗号化を開始する",
         labelE2EEUnlock: "E2EE: Vaultの暗号化を解除する",
+
+        // Transfer Status
+        labelTransferStatus: "転送ステータス (VaultSync)",
+        transferTitle: "転送ステータス",
+        transferActiveSection: "転送中",
+        transferHistorySection: "転送履歴",
+        transferNoActive: "転送中のファイルはありません",
+        transferNoHistory: "転送履歴はありません",
+        transferPush: "アップロード",
+        transferPull: "ダウンロード",
+        transferCompleted: "完了",
+        transferFailed: "失敗",
+        transferCancelled: "キャンセル",
+        transferPending: "待機中",
+        transferActive: "転送中...",
+        transferInline: "インライン",
+        transferBackground: "バックグラウンド",
+        transferCancelAll: "すべてキャンセル",
+
+        // Settings
+        settingLargeFileThreshold: "バックグラウンド転送の閾値",
+        settingLargeFileThresholdDesc:
+            "この値を超えるファイルは同期サイクル外でバックグラウンド転送されます。\n0に設定すると無効（全ファイルがインライン同期）。",
 
         // Password Strength
         passwordTooShort: "パスワードは8文字以上にしてください。",

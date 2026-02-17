@@ -379,6 +379,8 @@ export async function executeSmartSync(ctx: SyncContext, scanVault: boolean): Pr
         ctx.endActivity();
         // Resume background transfers after sync cycle completes
         ctx.backgroundTransferQueue.resume();
+        // Flush any buffered transfer history records to disk
+        ctx.backgroundTransferQueue.flushHistory().catch(() => {});
     }
 }
 
@@ -777,22 +779,28 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
     for (const item of inlineDownloads) {
         tasks.push(async () => {
             const pullStartTime = Date.now();
-            const success = await pullFileSafely(ctx, item, "Smart Pull");
-            if (success) {
-                completed++;
-                await ctx.log(`[Smart Pull] [${completed}/${total}] Synced: ${item.path}`);
-                // Record inline transfer for history tracking
-                const pulledSize = ctx.localIndex[item.path]?.size ?? 0;
-                ctx.backgroundTransferQueue.recordInlineTransfer({
-                    id: `inline-pull-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-                    direction: "pull",
-                    path: item.path,
-                    size: pulledSize,
-                    status: "completed",
-                    startedAt: pullStartTime,
-                    completedAt: Date.now(),
-                    transferMode: "inline",
-                });
+            const estimatedSize = ctx.localIndex[item.path]?.size ?? 0;
+            ctx.backgroundTransferQueue.markInlineStart(item.path, "pull", estimatedSize);
+            try {
+                const success = await pullFileSafely(ctx, item, "Smart Pull");
+                if (success) {
+                    completed++;
+                    await ctx.log(`[Smart Pull] [${completed}/${total}] Synced: ${item.path}`);
+                    // Record inline transfer for history tracking
+                    const pulledSize = ctx.localIndex[item.path]?.size ?? 0;
+                    ctx.backgroundTransferQueue.recordInlineTransfer({
+                        id: `inline-pull-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                        direction: "pull",
+                        path: item.path,
+                        size: pulledSize,
+                        status: "completed",
+                        startedAt: pullStartTime,
+                        completedAt: Date.now(),
+                        transferMode: "inline",
+                    });
+                }
+            } finally {
+                ctx.backgroundTransferQueue.markInlineEnd(item.path);
             }
         });
     }
@@ -1239,22 +1247,27 @@ export async function pullViaChangesAPI(
                 } else {
                     tasks.push(async () => {
                         const pullStartTime = Date.now();
-                        const success = await pullFileSafely(ctx, cloudFile, "Changes API");
-                        if (success) {
-                            completed++;
-                            await ctx.log(`[Changes API] Synced: ${cloudFile.path}`);
-                            // Record inline transfer for history tracking
-                            const pulledSize = ctx.localIndex[cloudFile.path]?.size ?? 0;
-                            ctx.backgroundTransferQueue.recordInlineTransfer({
-                                id: `inline-pull-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-                                direction: "pull",
-                                path: cloudFile.path,
-                                size: pulledSize,
-                                status: "completed",
-                                startedAt: pullStartTime,
-                                completedAt: Date.now(),
-                                transferMode: "inline",
-                            });
+                        ctx.backgroundTransferQueue.markInlineStart(cloudFile.path, "pull", cloudFile.size);
+                        try {
+                            const success = await pullFileSafely(ctx, cloudFile, "Changes API");
+                            if (success) {
+                                completed++;
+                                await ctx.log(`[Changes API] Synced: ${cloudFile.path}`);
+                                // Record inline transfer for history tracking
+                                const pulledSize = ctx.localIndex[cloudFile.path]?.size ?? 0;
+                                ctx.backgroundTransferQueue.recordInlineTransfer({
+                                    id: `inline-pull-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                                    direction: "pull",
+                                    path: cloudFile.path,
+                                    size: pulledSize,
+                                    status: "completed",
+                                    startedAt: pullStartTime,
+                                    completedAt: Date.now(),
+                                    transferMode: "inline",
+                                });
+                            }
+                        } finally {
+                            ctx.backgroundTransferQueue.markInlineEnd(cloudFile.path);
                         }
                     });
                 }
@@ -1834,6 +1847,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
         for (const file of inlineUploadQueue) {
             tasks.push(async () => {
                 const taskStartTime = Date.now();
+                ctx.backgroundTransferQueue.markInlineStart(file.path, "push", file.size);
                 try {
                     // Check if file was modified after queue creation (user still typing)
                     const currentStat = await ctx.app.vault.adapter.stat(file.path);
@@ -2044,6 +2058,8 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                     });
                 } catch (e) {
                     await ctx.log(`[Smart Push] Upload failed: ${file.path} - ${e}`, "error");
+                } finally {
+                    ctx.backgroundTransferQueue.markInlineEnd(file.path);
                 }
             });
         }

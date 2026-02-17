@@ -3,6 +3,7 @@ import { GoogleDriveAdapter } from "./adapters/google-drive";
 import { SyncManager, type SyncTrigger } from "./sync-manager";
 import { SecureStorage } from "./secure-storage";
 import { HistoryModal } from "./ui/history-modal";
+import { TransferStatusModal } from "./ui/transfer-status-modal";
 import { DEFAULT_SETTINGS, SETTINGS_LIMITS } from "./constants";
 import {
     DATA_LOCAL_DIR,
@@ -92,6 +93,9 @@ export default class VaultSync extends Plugin {
         // 5. Establish Identity & Log Folder (loads local-index.json)
         // This is the earliest point where we can log to the correct device-specific folder.
         await this.syncManager.loadLocalIndex();
+
+        // 5.1 Load transfer history (must be after loadLocalIndex sets the correct logFolder)
+        await this.syncManager.loadTransferHistory();
 
         // 5.5 Load external crypto engine (Moved here to ensure logs are captured in sync log)
         const engine = await loadExternalCryptoEngine(
@@ -304,6 +308,19 @@ export default class VaultSync extends Plugin {
             },
         });
 
+        // 2.5 Transfer Status ribbon + command
+        this.addRibbonIcon("arrow-up-down", t("labelTransferStatus"), () => {
+            new TransferStatusModal(this.app, this.syncManager).open();
+        });
+
+        this.addCommand({
+            id: "transfer-status",
+            name: t("labelTransferStatus"),
+            callback: () => {
+                new TransferStatusModal(this.app, this.syncManager).open();
+            },
+        });
+
         // 3. Mobile Floating Action Button (FAB) -> Fixed Top Center Indicator
         if (Platform.isMobile) {
             this.app.workspace.onLayoutReady(() => {
@@ -375,6 +392,10 @@ export default class VaultSync extends Plugin {
         }
         if (this.mobileSyncFabEl) {
             this.mobileSyncFabEl.remove();
+        }
+        // Clean up background transfer queue (remove event listeners, flush history)
+        if (this.syncManager) {
+            this.syncManager.destroyTransferQueue();
         }
     }
 

@@ -16,6 +16,7 @@ const MAX_HISTORY = 500;
 const MAX_RETRIES = 3;
 const RETRY_BASE_DELAY_MS = 5000;
 const RETRY_MAX_DELAY_MS = 60000;
+const HISTORY_FLUSH_BATCH = 10;
 
 export class BackgroundTransferQueue {
     private queue: TransferItem[] = [];
@@ -25,11 +26,27 @@ export class BackgroundTransferQueue {
     private callbacks: TransferCallbacks = {};
     private ctx: SyncContext | null = null;
     private onlineHandler: (() => void) | null = null;
+    private unflushedRecords: TransferRecord[] = [];
+    private historyLoaded = false;
+    /** Tracks inline (sync-cycle) transfers that are currently in progress */
+    private inlineActive = new Map<string, TransferItem>();
 
     /** Bind to SyncContext after construction (needed because SyncManager creates queue before context is available) */
     setContext(ctx: SyncContext): void {
         this.ctx = ctx;
         this.registerOnlineListener();
+        // Note: loadHistory is NOT called here because logFolder is not yet set to the
+        // correct device-specific path. Call loadHistoryFromDisk() after loadLocalIndex().
+    }
+
+    /** Load transfer history from disk. Must be called after logFolder is set (after loadLocalIndex). */
+    async loadHistoryFromDisk(): Promise<void> {
+        if (!this.ctx) return;
+        try {
+            await this.loadHistory(this.ctx);
+        } catch (e) {
+            this.ctx.log(`[Background Transfer] Failed to load history: ${e}`, "error");
+        }
     }
 
     /** Listen for browser/Electron 'online' event to auto-resume when connectivity returns */
@@ -44,13 +61,15 @@ export class BackgroundTransferQueue {
         }
     }
 
-    /** Clean up event listener (call on plugin unload) */
+    /** Clean up event listener and flush remaining history (call on plugin unload) */
     destroy(): void {
         if (this.onlineHandler && typeof window !== "undefined") {
             window.removeEventListener("online", this.onlineHandler);
             this.onlineHandler = null;
         }
         this.cancelAll();
+        // Best-effort flush of remaining history
+        this.flushHistory().catch(() => {});
     }
 
     // === Queue operations ===
@@ -114,11 +133,12 @@ export class BackgroundTransferQueue {
 
     // === Status queries (for UI) ===
 
-    /** Get items that are pending or actively transferring */
+    /** Get items that are pending or actively transferring (includes inline transfers) */
     getPendingTransfers(): TransferItem[] {
-        return this.queue.filter(
+        const bgItems = this.queue.filter(
             (q) => q.status === "pending" || q.status === "active",
         );
+        return [...Array.from(this.inlineActive.values()), ...bgItems];
     }
 
     /** Get completed/failed transfer records */
@@ -137,7 +157,30 @@ export class BackgroundTransferQueue {
         this.callbacks = callbacks;
     }
 
-    // === Inline transfer recording ===
+    // === Inline transfer tracking ===
+
+    /** Mark an inline (sync-cycle) transfer as actively in progress (for UI display) */
+    markInlineStart(path: string, direction: "push" | "pull", size: number): void {
+        const item: TransferItem = {
+            id: `inline-${direction}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            direction,
+            path,
+            size,
+            priority: TransferPriority.NORMAL,
+            status: "active",
+            retryCount: 0,
+            createdAt: Date.now(),
+            startedAt: Date.now(),
+        };
+        this.inlineActive.set(path, item);
+        this.callbacks.onQueueChange?.(this.getPendingTransfers());
+    }
+
+    /** Clear an inline transfer from the active tracking (call after completion or failure) */
+    markInlineEnd(path: string): void {
+        this.inlineActive.delete(path);
+        this.callbacks.onQueueChange?.(this.getPendingTransfers());
+    }
 
     /** Record a transfer that happened inline (within the sync cycle) for history tracking */
     recordInlineTransfer(record: TransferRecord): void {
@@ -305,14 +348,24 @@ export class BackgroundTransferQueue {
             }
         }
 
-        // Execute upload
+        // Execute upload (prefer resumable for large files)
         const targetFileId = remoteMeta?.id || ctx.index[item.path]?.fileId;
-        const uploaded = await ctx.adapter.uploadFile(
-            item.path,
-            item.content!,
-            item.mtime!,
-            targetFileId,
-        );
+        let uploaded: CloudFile;
+        if (ctx.adapter.uploadFileResumable) {
+            uploaded = await ctx.adapter.uploadFileResumable(
+                item.path,
+                item.content!,
+                item.mtime!,
+                targetFileId,
+            );
+        } else {
+            uploaded = await ctx.adapter.uploadFile(
+                item.path,
+                item.content!,
+                item.mtime!,
+                targetFileId,
+            );
+        }
 
         // Calculate plainHash for E2EE
         const plainHash = await hashContent(item.content!);
@@ -449,6 +502,82 @@ export class BackgroundTransferQueue {
         // Ring buffer: keep only the last MAX_HISTORY records
         if (this.history.length > MAX_HISTORY) {
             this.history = this.history.slice(-MAX_HISTORY);
+        }
+        // Buffer for JSONL flush
+        this.unflushedRecords.push(record);
+        if (this.unflushedRecords.length >= HISTORY_FLUSH_BATCH) {
+            this.flushHistory().catch(() => {});
+        }
+    }
+
+    // === History Persistence (JSONL) ===
+
+    /** Get the path to the current day's transfer log file */
+    private getTransfersLogPath(ctx: SyncContext): string {
+        const now = new Date();
+        const y = now.getFullYear();
+        const m = String(now.getMonth() + 1).padStart(2, "0");
+        const d = String(now.getDate()).padStart(2, "0");
+        return `${ctx.logFolder}/transfers-${y}-${m}-${d}.jsonl`;
+    }
+
+    /** Load history from disk on startup */
+    private async loadHistory(ctx: SyncContext): Promise<void> {
+        try {
+            const logPath = this.getTransfersLogPath(ctx);
+            const exists = await ctx.app.vault.adapter.exists(logPath);
+            if (!exists) {
+                this.historyLoaded = true;
+                return;
+            }
+            const content = await ctx.app.vault.adapter.read(logPath);
+            const lines = content.split("\n").filter((l) => l.trim());
+            for (const line of lines) {
+                try {
+                    const record = JSON.parse(line) as TransferRecord;
+                    this.history.push(record);
+                } catch {
+                    // Skip malformed lines
+                }
+            }
+            // Trim to MAX_HISTORY
+            if (this.history.length > MAX_HISTORY) {
+                this.history = this.history.slice(-MAX_HISTORY);
+            }
+            this.historyLoaded = true;
+        } catch {
+            // File doesn't exist or is unreadable — start with empty history
+            this.historyLoaded = true;
+        }
+    }
+
+    /** Flush buffered records to JSONL file */
+    async flushHistory(): Promise<void> {
+        if (this.unflushedRecords.length === 0 || !this.ctx) return;
+        const ctx = this.ctx;
+        const records = this.unflushedRecords.splice(0);
+        try {
+            const logPath = this.getTransfersLogPath(ctx);
+
+            // Ensure log folder exists
+            if (!(await ctx.app.vault.adapter.exists(ctx.logFolder))) {
+                // Use recursive folder creation by writing to a dummy path
+                const parts = ctx.logFolder.split("/");
+                let current = "";
+                for (const part of parts) {
+                    current = current ? `${current}/${part}` : part;
+                    if (!(await ctx.app.vault.adapter.exists(current))) {
+                        await ctx.app.vault.adapter.mkdir(current);
+                    }
+                }
+            }
+
+            const lines = records.map((r) => JSON.stringify(r)).join("\n") + "\n";
+            const existing = await ctx.app.vault.adapter.read(logPath).catch(() => "");
+            await ctx.app.vault.adapter.write(logPath, existing + lines);
+        } catch (e) {
+            // Re-add failed records for next attempt
+            this.unflushedRecords.unshift(...records);
         }
     }
 

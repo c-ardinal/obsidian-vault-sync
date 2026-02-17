@@ -268,6 +268,16 @@ export class SyncManager {
         this.backgroundTransferQueue.setCallbacks(callbacks);
     }
 
+    /** Load transfer history from disk. Must be called after loadLocalIndex() sets the correct logFolder. */
+    public async loadTransferHistory(): Promise<void> {
+        await this.backgroundTransferQueue.loadHistoryFromDisk();
+    }
+
+    /** Clean up background transfer queue (event listeners, flush history). Call on plugin unload. */
+    public destroyTransferQueue(): void {
+        this.backgroundTransferQueue.destroy();
+    }
+
     /**
      * Live-update logger options when settings change.
      */

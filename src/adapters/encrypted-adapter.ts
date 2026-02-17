@@ -107,6 +107,26 @@ export class EncryptedAdapter implements CloudAdapter {
         return result;
     }
 
+    async uploadFileResumable(
+        path: string,
+        content: ArrayBuffer,
+        mtime: number,
+        existingFileId?: string,
+    ): Promise<CloudFile> {
+        if (!this.baseAdapter.uploadFileResumable) {
+            return this.uploadFile(path, content, mtime, existingFileId);
+        }
+        // Encrypt using engine (same as uploadFile)
+        const { iv, ciphertext } = await this.engine.encrypt(content);
+        const combined = new Uint8Array(iv.byteLength + ciphertext.byteLength);
+        combined.set(iv, 0);
+        combined.set(new Uint8Array(ciphertext), iv.byteLength);
+        const isolated = combined.buffer.slice(combined.byteOffset, combined.byteOffset + combined.byteLength);
+        const result = await this.baseAdapter.uploadFileResumable(path, isolated, mtime, existingFileId);
+        this.downloadCache.delete(result.id);
+        return result;
+    }
+
     async deleteFile(fileId: string): Promise<void> {
         return this.baseAdapter.deleteFile(fileId);
     }

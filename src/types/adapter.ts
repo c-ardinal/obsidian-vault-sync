@@ -55,6 +55,18 @@ export interface CloudAdapter {
         existingFileId?: string,
     ): Promise<CloudFile>;
     /**
+     * Upload a file using resumable upload protocol (optional).
+     * Preferred for large files as it allows resuming interrupted transfers.
+     * Falls back to regular uploadFile if not implemented.
+     */
+    uploadFileResumable?(
+        path: string,
+        content: ArrayBuffer,
+        mtime: number,
+        existingFileId?: string,
+    ): Promise<CloudFile>;
+
+    /**
      * Delete a file or folder by its cloud ID.
      * When a folder is deleted, the cloud provider handles cascading
      * deletion of all children automatically.

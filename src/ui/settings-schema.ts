@@ -118,6 +118,16 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                 },
 
                 {
+                    key: "largeFileThresholdMB",
+                    type: "number",
+                    label: t("settingLargeFileThreshold"),
+                    desc:
+                        t("settingLargeFileThresholdDesc") +
+                        `\n(Min: ${SETTINGS_LIMITS.largeFileThresholdMB.min}, Max: ${SETTINGS_LIMITS.largeFileThresholdMB.max}, Default: ${SETTINGS_LIMITS.largeFileThresholdMB.default})`,
+                    limits: SETTINGS_LIMITS.largeFileThresholdMB,
+                    unit: "MB",
+                },
+                {
                     key: "notificationLevel",
                     type: "dropdown",
                     label: t("settingNotificationLevel"),
