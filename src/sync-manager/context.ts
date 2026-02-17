@@ -10,6 +10,7 @@ import type {
 } from "./types";
 import type { SyncTrigger } from "./notification-matrix";
 import type { SyncLogger, LogLevel } from "./logger";
+import type { BackgroundTransferQueue } from "./background-transfer";
 
 /**
  * Shared context interface for extracted sync-manager sub-modules.
@@ -67,6 +68,9 @@ export interface SyncContext {
     // === Caches ===
     revisionCache: RevisionCache;
     cryptoEngine: import("../encryption/interfaces").ICryptoEngine | null;
+
+    // === Background Transfer ===
+    backgroundTransferQueue: BackgroundTransferQueue;
 
     // === Utility Methods (remain on SyncManager, called via ctx) ===
     log: (message: string, level?: LogLevel) => Promise<void>;

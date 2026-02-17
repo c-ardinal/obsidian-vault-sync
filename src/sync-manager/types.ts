@@ -5,6 +5,9 @@ export interface SyncManagerSettings {
     enableLogging: boolean;
     isDeveloperMode: boolean;
     exclusionPatterns: string;
+    /** Size threshold (MB) for background transfer. Files larger than this are transferred
+     *  asynchronously outside the sync cycle. Set to 0 to disable (all files inline). */
+    largeFileThresholdMB: number;
 
     // Sync Scope Options
     syncAppearance: boolean;
@@ -44,6 +47,12 @@ export interface LocalFileIndex {
          *  Contains the old path from which the file was moved. */
         pendingMove?: {
             oldPath: string;
+        };
+        /** If set, a background transfer is in progress for this file */
+        pendingTransfer?: {
+            direction: "push" | "pull";
+            enqueuedAt: number;
+            snapshotHash: string;
         };
     };
 }

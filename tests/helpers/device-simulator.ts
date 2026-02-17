@@ -14,6 +14,7 @@ const DEFAULT_SETTINGS: SyncManagerSettings = {
     enableLogging: false,
     isDeveloperMode: false,
     exclusionPatterns: "",
+    largeFileThresholdMB: 0, // Disabled in tests (all files inline)
     syncAppearance: true,
     syncCommunityPlugins: true,
     syncCoreConfig: true,

@@ -18,6 +18,7 @@ import {
 } from "./file-utils";
 import { loadCommunication, saveIndex, saveLocalIndex, clearPendingPushStates } from "./state";
 import { pullFileSafely } from "./merge";
+import { TransferPriority, type TransferRecord } from "./transfer-types";
 
 // ==========================================================================
 // Scanning
@@ -318,6 +319,8 @@ export async function executeSmartSync(ctx: SyncContext, scanVault: boolean): Pr
     if (ALWAYS_SHOW_ACTIVITY.has(ctx.currentTrigger)) {
         ctx.startActivity();
     }
+    // Pause background transfers during sync cycle to avoid race conditions
+    ctx.backgroundTransferQueue.pause();
     try {
         await ctx.log("=== SMART SYNC START ===");
         await ctx.notify("noticeSyncing");
@@ -374,6 +377,8 @@ export async function executeSmartSync(ctx: SyncContext, scanVault: boolean): Pr
         }
         await ctx.logger.endCycle();
         ctx.endActivity();
+        // Resume background transfers after sync cycle completes
+        ctx.backgroundTransferQueue.resume();
     }
 }
 
@@ -726,10 +731,23 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
 
     for (const item of toDownload) {
         tasks.push(async () => {
+            const pullStartTime = Date.now();
             const success = await pullFileSafely(ctx, item, "Smart Pull");
             if (success) {
                 completed++;
                 await ctx.log(`[Smart Pull] [${completed}/${total}] Synced: ${item.path}`);
+                // Record inline transfer for history tracking
+                const pulledSize = ctx.localIndex[item.path]?.size ?? 0;
+                ctx.backgroundTransferQueue.recordInlineTransfer({
+                    id: `inline-pull-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                    direction: "pull",
+                    path: item.path,
+                    size: pulledSize,
+                    status: "completed",
+                    startedAt: pullStartTime,
+                    completedAt: Date.now(),
+                    transferMode: "inline",
+                });
             }
         });
     }
@@ -1630,17 +1648,71 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
         await runParallel(dirtyPathTasks, 20);
     }
 
-    const totalOps = uploadQueue.length + deleteQueue.length;
-    if (totalOps === 0 && folderDeletedCount === 0 && moveCount === 0) {
+    // === SIZE-BASED ROUTING: Partition uploadQueue into inline and background ===
+    const thresholdBytes = (ctx.settings.largeFileThresholdMB ?? 0) * 1024 * 1024;
+    const inlineUploadQueue: typeof uploadQueue = [];
+    let deferredCount = 0;
+
+    if (thresholdBytes > 0) {
+        for (const file of uploadQueue) {
+            const isMetadata = file.path === ctx.pluginDataPath;
+            const isMergeResult = ctx.localIndex[file.path]?.lastAction === "merge";
+            if (!isMetadata && !isMergeResult && file.size > thresholdBytes) {
+                // Defer to background queue
+                const itemId = `bg-push-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+                ctx.backgroundTransferQueue.enqueue({
+                    id: itemId,
+                    direction: "push",
+                    path: file.path,
+                    size: file.size,
+                    priority: TransferPriority.NORMAL,
+                    status: "pending",
+                    retryCount: 0,
+                    createdAt: Date.now(),
+                    content: file.content,
+                    mtime: file.mtime,
+                    snapshotHash: md5(file.content),
+                });
+                // Set pendingTransfer marker in localIndex
+                if (ctx.localIndex[file.path]) {
+                    ctx.localIndex[file.path].pendingTransfer = {
+                        direction: "push",
+                        enqueuedAt: Date.now(),
+                        snapshotHash: md5(file.content),
+                    };
+                }
+                deferredCount++;
+                await ctx.log(
+                    `[Smart Push] Deferred to background (${(file.size / 1024 / 1024).toFixed(1)}MB): ${file.path}`,
+                );
+            } else {
+                inlineUploadQueue.push(file);
+            }
+        }
+    } else {
+        // Background transfers disabled (threshold = 0)
+        inlineUploadQueue.push(...uploadQueue);
+    }
+
+    const totalOps = inlineUploadQueue.length + deleteQueue.length;
+    if (totalOps === 0 && folderDeletedCount === 0 && moveCount === 0 && deferredCount === 0) {
         await ctx.log("[Smart Push] No changes after filtering.", "debug");
         return false;
+    }
+
+    if (totalOps === 0 && deferredCount > 0 && folderDeletedCount === 0 && moveCount === 0) {
+        // All files were deferred — still need to report activity
+        await ctx.log(
+            `[Smart Push] All ${deferredCount} file(s) deferred to background transfer.`,
+        );
+        return true;
     }
 
     ctx.startActivity(); // Spin for upload/delete work
 
     // ctx.onActivityStart();
     try {
-        // Ensure folders exist on remote
+        // Ensure folders exist on remote (for both inline and deferred — deferred files need folders too)
         // OPTIMIZATION: Removed listFiles() call here. We just pass the folders we need.
         // The adapter's ensureFoldersExist is smart enough to check existence efficiently (O(depth) vs O(total_files))
         const foldersToCreate = new Set<string>();
@@ -1660,8 +1732,9 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
         const tasks: (() => Promise<void>)[] = [];
         let completed = 0;
 
-        for (const file of uploadQueue) {
+        for (const file of inlineUploadQueue) {
             tasks.push(async () => {
+                const taskStartTime = Date.now();
                 try {
                     // Check if file was modified after queue creation (user still typing)
                     const currentStat = await ctx.app.vault.adapter.stat(file.path);
@@ -1858,6 +1931,18 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                         "notice",
                     );
                     await ctx.notify("noticeFilePushed", file.path.split("/").pop());
+
+                    // Record inline transfer for history tracking
+                    ctx.backgroundTransferQueue.recordInlineTransfer({
+                        id: `inline-push-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                        direction: "push",
+                        path: file.path,
+                        size: file.size,
+                        status: "completed",
+                        startedAt: taskStartTime,
+                        completedAt: Date.now(),
+                        transferMode: "inline",
+                    });
                 } catch (e) {
                     await ctx.log(`[Smart Push] Upload failed: ${file.path} - ${e}`, "error");
                 }
@@ -2009,6 +2094,11 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
 
         if (completed > 0) {
             await ctx.notify("noticePushCompleted", completed.toString());
+        }
+        if (deferredCount > 0) {
+            await ctx.log(
+                `[Smart Push] ${deferredCount} large file(s) queued for background transfer.`,
+            );
         }
         return true;
     } finally {

@@ -88,8 +88,11 @@ import {
     isProgressStale as _isProgressStale,
     executeFullScan as _executeFullScan,
 } from "./sync-orchestration";
+import { BackgroundTransferQueue } from "./background-transfer";
+import type { TransferItem, TransferRecord, TransferCallbacks } from "./transfer-types";
 export type { SyncManagerSettings, LocalFileIndex, SyncState, FullScanProgress, CommunicationData };
 export type { SyncTrigger } from "./notification-matrix";
+export type { TransferItem, TransferRecord, TransferCallbacks } from "./transfer-types";
 
 export class SyncManager {
     // Constants delegated to file-utils.ts
@@ -144,6 +147,9 @@ export class SyncManager {
     public secureStorage: SecureStorage | null = null;
     private baseAdapter: CloudAdapter;
     private encryptedAdapter: EncryptedAdapter | null = null;
+
+    /** Background transfer queue for large file async transfers */
+    private backgroundTransferQueue: BackgroundTransferQueue;
 
     /** Current sync trigger — controls notification visibility via matrix lookup */
     public currentTrigger: SyncTrigger = "manual-sync";
@@ -205,6 +211,7 @@ export class SyncManager {
         public t: (key: string) => string,
     ) {
         this.baseAdapter = adapter;
+        this.backgroundTransferQueue = new BackgroundTransferQueue();
         this.vaultLockService = new VaultLockService(this.baseAdapter);
         this.migrationService = new MigrationService(
             this.app,
@@ -230,6 +237,7 @@ export class SyncManager {
 
         this.baseAdapter.setLogger((msg, level) => this.log(msg, (level as LogLevel) || "debug"));
         this.revisionCache = new RevisionCache(this.app, this.pluginDir);
+        this.backgroundTransferQueue.setContext(this as unknown as SyncContext);
     }
 
     /**
@@ -243,6 +251,21 @@ export class SyncManager {
     public setActivityCallbacks(onStart: () => void, onEnd: () => void) {
         this.onActivityStart = onStart;
         this.onActivityEnd = onEnd;
+    }
+
+    // === Background Transfer Public API ===
+
+    public getActiveTransfers(): TransferItem[] {
+        return this.backgroundTransferQueue.getPendingTransfers();
+    }
+
+    public getTransferHistory(limit?: number): TransferRecord[] {
+        const history = this.backgroundTransferQueue.getHistory();
+        return limit ? history.slice(-limit) : history;
+    }
+
+    public setTransferCallbacks(callbacks: TransferCallbacks): void {
+        this.backgroundTransferQueue.setCallbacks(callbacks);
     }
 
     /**
