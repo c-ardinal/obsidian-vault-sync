@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Terms of Service - VaultSync</title>
+        <link rel="stylesheet" href="../style.css" />
+        <style>
+            header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+            h1 {
+                font-size: 1.6rem;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="lang-selector">
+                <select id="lang-select" onchange="switchLang(this.value)">
+                    <option value="en">English</option>
+                    <option value="ja">日本語</option>
+                </select>
+            </div>
+
+            <!-- English -->
+            <div id="en" class="lang active">
+                <a href="../" class="back-link">&larr; Back to Top</a>
+                <header>
+                    <h1>Terms of Service</h1>
+                </header>
+
+                <p>
+                    These Terms of Service ("Terms") govern your use of
+                    <strong>VaultSync</strong> ("the Plugin"), an Obsidian plugin developed by
+                    c-ardinal. By installing or using the Plugin, you agree to these Terms.
+                </p>
+
+                <h2>Description of Service</h2>
+                <p>
+                    VaultSync is a free, open-source plugin that synchronizes your Obsidian vault
+                    files with cloud storage services. All sync operations occur directly between
+                    your local device and your cloud storage account. The Plugin does not operate
+                    any intermediary servers.
+                </p>
+
+                <h2>User Responsibilities</h2>
+                <ul>
+                    <li>
+                        <strong>Cloud Account Setup</strong>: You are responsible for creating and
+                        configuring your own Google Cloud Project, including obtaining OAuth
+                        credentials (Client ID / Client Secret). The Plugin does not provide
+                        shared credentials.
+                    </li>
+                    <li>
+                        <strong>Data Backup</strong>: You are responsible for maintaining backups
+                        of your vault data. While the Plugin is designed for reliable
+                        synchronization, no software can guarantee zero data loss.
+                    </li>
+                    <li>
+                        <strong>E2EE Password Management</strong>: If you enable End-to-End
+                        Encryption, you are solely responsible for remembering your encryption
+                        password and backing up the <code>vault-lock.vault</code> file. There is
+                        no password recovery mechanism. Lost passwords or vault-lock files will
+                        result in permanent, unrecoverable data loss.
+                    </li>
+                    <li>
+                        <strong>Credential Security</strong>: You must keep your OAuth Client
+                        Secret and E2EE password confidential. Do not share them with others.
+                    </li>
+                </ul>
+
+                <h2>Intellectual Property</h2>
+                <p>
+                    VaultSync is released under the
+                    <a
+                        href="https://opensource.org/licenses/MIT"
+                        target="_blank"
+                        rel="noopener"
+                        >MIT License</a
+                    >. You may use, copy, modify, and distribute the Plugin in accordance with the
+                    license terms. The Plugin name and associated branding remain the property of
+                    the developer.
+                </p>
+
+                <h2>Third-Party Services</h2>
+                <p>
+                    The Plugin integrates with third-party cloud storage services (currently Google
+                    Drive). Your use of these services is subject to their respective terms of
+                    service and privacy policies. The developer is not responsible for any changes,
+                    outages, or issues with third-party services.
+                </p>
+
+                <h2>Disclaimer of Warranties</h2>
+                <p>
+                    THE PLUGIN IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+                    IMPLIED. THE DEVELOPER MAKES NO WARRANTIES REGARDING THE RELIABILITY,
+                    AVAILABILITY, OR FITNESS OF THE PLUGIN FOR ANY PARTICULAR PURPOSE.
+                </p>
+
+                <h2>Limitation of Liability</h2>
+                <p>
+                    TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE DEVELOPER SHALL NOT BE
+                    LIABLE FOR ANY DAMAGES ARISING FROM THE USE OF THE PLUGIN, INCLUDING BUT NOT
+                    LIMITED TO:
+                </p>
+                <ul>
+                    <li>Data loss or corruption of vault files</li>
+                    <li>Synchronization conflicts or errors</li>
+                    <li>Loss of access to encrypted data due to forgotten passwords</li>
+                    <li>Unauthorized access resulting from credential compromise</li>
+                    <li>Service interruptions caused by third-party providers</li>
+                </ul>
+
+                <h2>Privacy</h2>
+                <p>
+                    Your use of the Plugin is also governed by our
+                    <a href="../privacy/">Privacy Policy</a>, which describes how the Plugin
+                    handles your data.
+                </p>
+
+                <h2>Modifications</h2>
+                <p>
+                    The developer reserves the right to modify these Terms at any time. Updated
+                    Terms will be published on this page. Continued use of the Plugin after changes
+                    constitutes acceptance of the revised Terms.
+                </p>
+
+                <h2>Contact</h2>
+                <p>
+                    If you have questions about these Terms, please open an issue on the
+                    <a
+                        href="https://github.com/c-ardinal/obsidian-vault-sync/issues"
+                        target="_blank"
+                        rel="noopener"
+                        >GitHub repository</a
+                    >.
+                </p>
+
+                <p class="updated">Last updated: February 16, 2026</p>
+            </div>
+
+            <!-- Japanese -->
+            <div id="ja" class="lang">
+                <a href="../#ja" class="back-link">&larr; トップに戻る</a>
+                <header>
+                    <h1>利用規約</h1>
+                </header>
+
+                <p>
+                    本利用規約（以下「本規約」）は、c-ardinalが開発したObsidianプラグインである<strong>VaultSync</strong>（以下「本プラグイン」）の利用に関する条件を定めるものです。本プラグインをインストールまたは使用することにより、本規約に同意したものとみなされます。
+                </p>
+
+                <h2>サービスの内容</h2>
+                <p>
+                    VaultSyncは、ObsidianのVaultファイルをクラウドストレージサービスと同期する無料のオープンソースプラグインです。すべての同期処理はローカルデバイスとクラウドストレージ間で直接行われます。本プラグインは中間サーバーを運用しません。
+                </p>
+
+                <h2>ユーザーの責任</h2>
+                <ul>
+                    <li>
+                        <strong>クラウドアカウントの設定</strong>：OAuth認証情報（クライアントID / クライアントシークレット）の取得を含む、Google Cloud Projectの作成および設定はユーザーの責任で行ってください。本プラグインは共有認証情報を提供しません。
+                    </li>
+                    <li>
+                        <strong>データのバックアップ</strong>：Vaultデータのバックアップはユーザーの責任で管理してください。本プラグインは信頼性の高い同期を目指して設計されていますが、データ損失がゼロであることを保証するソフトウェアはありません。
+                    </li>
+                    <li>
+                        <strong>E2EEパスワードの管理</strong>：エンドツーエンド暗号化を有効にした場合、暗号化パスワードの記憶および<code>vault-lock.vault</code>ファイルのバックアップはユーザーの責任です。パスワードの復旧手段はありません。パスワードまたはvault-lockファイルの紛失は、永久的かつ復旧不可能なデータ損失につながります。
+                    </li>
+                    <li>
+                        <strong>認証情報のセキュリティ</strong>：OAuthクライアントシークレットおよびE2EEパスワードは機密情報です。第三者と共有しないでください。
+                    </li>
+                </ul>
+
+                <h2>知的財産権</h2>
+                <p>
+                    VaultSyncは<a
+                        href="https://opensource.org/licenses/MIT"
+                        target="_blank"
+                        rel="noopener"
+                        >MITライセンス</a
+                    >の下で公開されています。ライセンス条件に従い、本プラグインの使用、複製、改変、配布が可能です。プラグイン名および関連するブランディングは開発者に帰属します。
+                </p>
+
+                <h2>第三者サービス</h2>
+                <p>
+                    本プラグインはサードパーティのクラウドストレージサービス（現在はGoogle Drive）と連携します。これらのサービスの利用は、各サービスの利用規約およびプライバシーポリシーに従います。開発者は、サードパーティサービスの変更、停止、またはその他の問題について責任を負いません。
+                </p>
+
+                <h2>保証の免責</h2>
+                <p>
+                    本プラグインは「現状のまま」提供され、明示的または黙示的を問わず、いかなる種類の保証も行いません。開発者は、本プラグインの信頼性、可用性、または特定の目的への適合性について保証しません。
+                </p>
+
+                <h2>責任の制限</h2>
+                <p>
+                    適用法令で許容される最大限の範囲において、開発者は本プラグインの使用に起因するいかなる損害についても責任を負いません。これには以下が含まれますが、これらに限定されません：
+                </p>
+                <ul>
+                    <li>Vaultファイルのデータ損失または破損</li>
+                    <li>同期の競合またはエラー</li>
+                    <li>パスワード忘失による暗号化データへのアクセス不能</li>
+                    <li>認証情報の漏洩に起因する不正アクセス</li>
+                    <li>サードパーティプロバイダに起因するサービスの中断</li>
+                </ul>
+
+                <h2>プライバシー</h2>
+                <p>
+                    本プラグインの利用には、データの取り扱いについて説明する<a href="../privacy/#ja">プライバシーポリシー</a>も適用されます。
+                </p>
+
+                <h2>規約の変更</h2>
+                <p>
+                    開発者は、本規約をいつでも変更する権利を有します。変更後の規約は本ページに掲載されます。変更後も本プラグインの使用を継続した場合、改定後の規約に同意したものとみなされます。
+                </p>
+
+                <h2>お問い合わせ</h2>
+                <p>
+                    本規約についてご質問がある場合は、<a
+                        href="https://github.com/c-ardinal/obsidian-vault-sync/issues"
+                        target="_blank"
+                        rel="noopener"
+                        >GitHubリポジトリ</a
+                    >でIssueを作成してください。
+                </p>
+
+                <p class="updated">最終更新日: 2026年2月16日</p>
+            </div>
+        </div>
+
+        <script>
+            function switchLang(lang) {
+                document.querySelectorAll(".lang").forEach((el) => el.classList.remove("active"));
+                document.getElementById(lang).classList.add("active");
+                document.getElementById("lang-select").value = lang;
+                document.documentElement.lang = lang;
+                history.replaceState(null, "", "#" + lang);
+            }
+
+            // Restore language from URL hash
+            var hash = window.location.hash.replace("#", "");
+            if (hash && document.getElementById(hash)) {
+                switchLang(hash);
+            }
+        </script>
+    </body>
+</html>
