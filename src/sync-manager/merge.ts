@@ -717,7 +717,7 @@ export async function pullFileSafely(
                                         };
                                         ctx.index[item.path] = entryCloud;
                                         ctx.localIndex[item.path] = entryLocal;
-                                        ctx.dirtyPaths.add(item.path);
+                                        ctx.dirtyPaths.set(item.path, Date.now());
                                         await saveLocalIndex(ctx);
 
                                         await ctx.log(
@@ -753,7 +753,7 @@ export async function pullFileSafely(
                                             lastAction: "merge" as const,
                                             ancestorHash: item.hash?.toLowerCase() || "",
                                         };
-                                        ctx.dirtyPaths.add(item.path);
+                                        ctx.dirtyPaths.set(item.path, Date.now());
                                         await saveLocalIndex(ctx);
                                     }
                                 }

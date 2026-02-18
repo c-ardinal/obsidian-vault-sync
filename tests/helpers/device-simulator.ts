@@ -110,7 +110,7 @@ export class DeviceSimulator {
      */
     editFile(path: string, newContent: string): void {
         this.app.vaultAdapter.setFile(path, newContent);
-        this.sm.dirtyPaths.add(path);
+        this.sm.dirtyPaths.set(path, Date.now());
     }
 
     /**
@@ -364,7 +364,7 @@ export class DeviceSimulator {
     /**
      * Get dirty paths.
      */
-    getDirtyPaths(): Set<string> {
+    getDirtyPaths(): Map<string, number> {
         return this.sm.dirtyPaths;
     }
 

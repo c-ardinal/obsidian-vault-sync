@@ -42,7 +42,7 @@ export interface SyncContext {
 
     // === Hybrid Sync State ===
     syncState: SyncState;
-    dirtyPaths: Set<string>;
+    dirtyPaths: Map<string, number>;
     syncingPaths: Set<string>;
     deletedFolders: Set<string>;
     pendingFolderMoves: Map<string, string>; // newPath -> oldPath

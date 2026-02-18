@@ -120,7 +120,7 @@ export class SyncManager {
     /** Current sync state for preemption control */
     private syncState: SyncState = "IDLE";
     /** Dirty paths that need to be pushed (modified locally) */
-    private dirtyPaths: Set<string> = new Set();
+    private dirtyPaths: Map<string, number> = new Map();
     /** Paths currently being synced (to prevent re-marking as dirty) */
     private syncingPaths: Set<string> = new Set();
     /** Folders deleted locally that should be deleted remotely */

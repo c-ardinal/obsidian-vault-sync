@@ -290,6 +290,10 @@ export class BackgroundTransferQueue {
     // === Push execution ===
 
     private async executePush(ctx: SyncContext, item: TransferItem): Promise<void> {
+        // Capture dirty timestamp before any async work so we can detect
+        // if markDirty() was called again during our async operations
+        const dirtyAt = ctx.dirtyPaths.get(item.path);
+
         // Staleness check: verify file hasn't changed since enqueue
         const currentStat = await ctx.app.vault.adapter.stat(item.path);
         if (!currentStat) {
@@ -312,7 +316,7 @@ export class BackgroundTransferQueue {
                     `[Background Transfer] File modified since enqueue, re-marking dirty: ${item.path}`,
                     "warn",
                 );
-                ctx.dirtyPaths.add(item.path);
+                ctx.dirtyPaths.set(item.path, Date.now());
                 // Clean up pendingTransfer
                 if (ctx.localIndex[item.path]?.pendingTransfer) {
                     delete ctx.localIndex[item.path].pendingTransfer;
@@ -350,7 +354,7 @@ export class BackgroundTransferQueue {
                     `[Background Transfer] Remote conflict detected for ${item.path}, deferring to sync cycle`,
                     "warn",
                 );
-                ctx.dirtyPaths.add(item.path);
+                ctx.dirtyPaths.set(item.path, Date.now());
                 if (ctx.localIndex[item.path]?.pendingTransfer) {
                     delete ctx.localIndex[item.path].pendingTransfer;
                 }
@@ -395,8 +399,10 @@ export class BackgroundTransferQueue {
         ctx.index[item.path] = entry;
         ctx.localIndex[item.path] = { ...entry };
 
-        // Clear pendingTransfer and dirtyPaths
-        ctx.dirtyPaths.delete(item.path);
+        // Only remove from dirty if the file wasn't re-dirtied during upload.
+        if (ctx.dirtyPaths.get(item.path) === dirtyAt) {
+            ctx.dirtyPaths.delete(item.path);
+        }
 
         // Upload updated index
         await this.uploadIndex(ctx);

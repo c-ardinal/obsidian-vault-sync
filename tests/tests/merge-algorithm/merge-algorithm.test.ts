@@ -222,7 +222,7 @@ if (binaryCases.length > 0) {
 
                 // Write different local content
                 device.app.vaultAdapter.setFile(filePath, "different");
-                (sm as any).dirtyPaths.add(filePath);
+                (sm as any).dirtyPaths.set(filePath, Date.now());
 
                 // Pull should NOT attempt merge (isText=false for binary extensions)
                 const remoteMeta = await cloud.getFileMetadata(filePath);

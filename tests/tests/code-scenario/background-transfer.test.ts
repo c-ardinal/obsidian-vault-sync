@@ -299,7 +299,7 @@ describe("Size-based transfer routing (smartPush integration)", () => {
 
         const content = "Hello, small file!";
         device.app.vaultAdapter.setFile("notes/small.md", content);
-        sm().dirtyPaths.add("notes/small.md");
+        sm().dirtyPaths.set("notes/small.md", Date.now());
 
         await sm().smartPush(false);
 
@@ -315,7 +315,7 @@ describe("Size-based transfer routing (smartPush integration)", () => {
         // Create a 2KB file (above 1KB threshold)
         const content = "x".repeat(2000);
         device.app.vaultAdapter.setFile("notes/large.md", content);
-        sm().dirtyPaths.add("notes/large.md");
+        sm().dirtyPaths.set("notes/large.md", Date.now());
 
         await sm().smartPush(false);
 
@@ -334,11 +334,11 @@ describe("Size-based transfer routing (smartPush integration)", () => {
 
         // Small file (< 1KB)
         device.app.vaultAdapter.setFile("notes/small.md", "Small content");
-        sm().dirtyPaths.add("notes/small.md");
+        sm().dirtyPaths.set("notes/small.md", Date.now());
 
         // Large file (> 1KB)
         device.app.vaultAdapter.setFile("notes/large.md", "x".repeat(2000));
-        sm().dirtyPaths.add("notes/large.md");
+        sm().dirtyPaths.set("notes/large.md", Date.now());
 
         await sm().smartPush(false);
 
@@ -357,7 +357,7 @@ describe("Size-based transfer routing (smartPush integration)", () => {
         // Large file that is a merge result
         const content = "merged " + "x".repeat(2000);
         device.app.vaultAdapter.setFile("notes/merged.md", content);
-        sm().dirtyPaths.add("notes/merged.md");
+        sm().dirtyPaths.set("notes/merged.md", Date.now());
 
         // Mark as merge result in localIndex
         sm().localIndex["notes/merged.md"] = {
@@ -382,7 +382,7 @@ describe("Size-based transfer routing (smartPush integration)", () => {
         // Large file
         const content = "x".repeat(10000);
         device.app.vaultAdapter.setFile("notes/large.md", content);
-        sm().dirtyPaths.add("notes/large.md");
+        sm().dirtyPaths.set("notes/large.md", Date.now());
 
         await sm().smartPush(false);
 
@@ -397,7 +397,7 @@ describe("Size-based transfer routing (smartPush integration)", () => {
 
         const content = "x".repeat(2000);
         device.app.vaultAdapter.setFile("notes/large.md", content);
-        sm().dirtyPaths.add("notes/large.md");
+        sm().dirtyPaths.set("notes/large.md", Date.now());
 
         // Pre-existing localIndex entry
         sm().localIndex["notes/large.md"] = {
@@ -421,7 +421,7 @@ describe("Size-based transfer routing (smartPush integration)", () => {
 
         const content = "Large file content " + "x".repeat(2000);
         device.app.vaultAdapter.setFile("notes/large.md", content);
-        sm().dirtyPaths.add("notes/large.md");
+        sm().dirtyPaths.set("notes/large.md", Date.now());
 
         await sm().smartPush(false);
 
@@ -442,7 +442,7 @@ describe("Size-based transfer routing (smartPush integration)", () => {
         sm().settings.largeFileThresholdMB = 0.01;
 
         device.app.vaultAdapter.setFile("notes/small.md", "content");
-        sm().dirtyPaths.add("notes/small.md");
+        sm().dirtyPaths.set("notes/small.md", Date.now());
 
         await sm().smartPush(false);
 
@@ -453,7 +453,7 @@ describe("Size-based transfer routing (smartPush integration)", () => {
         sm().settings.largeFileThresholdMB = 0.001;
 
         device.app.vaultAdapter.setFile("notes/large.md", "x".repeat(2000));
-        sm().dirtyPaths.add("notes/large.md");
+        sm().dirtyPaths.set("notes/large.md", Date.now());
 
         await sm().smartPush(false);
 
@@ -486,7 +486,7 @@ describe("Inline transfer recording (smartPush integration)", () => {
 
     it("should record inline push transfer in history", async () => {
         device.app.vaultAdapter.setFile("notes/file.md", "content");
-        sm().dirtyPaths.add("notes/file.md");
+        sm().dirtyPaths.set("notes/file.md", Date.now());
 
         await sm().smartPush(false);
 
@@ -506,8 +506,8 @@ describe("Inline transfer recording (smartPush integration)", () => {
     it("should record multiple inline push transfers", async () => {
         device.app.vaultAdapter.setFile("notes/a.md", "content A");
         device.app.vaultAdapter.setFile("notes/b.md", "content B");
-        sm().dirtyPaths.add("notes/a.md");
-        sm().dirtyPaths.add("notes/b.md");
+        sm().dirtyPaths.set("notes/a.md", Date.now());
+        sm().dirtyPaths.set("notes/b.md", Date.now());
 
         await sm().smartPush(false);
 
@@ -596,7 +596,7 @@ describe("Pull-side size-based routing (smartPull integration)", () => {
      */
     async function pushFromA(path: string, content: string): Promise<void> {
         deviceA.app.vaultAdapter.setFile(path, content);
-        smA().dirtyPaths.add(path);
+        smA().dirtyPaths.set(path, Date.now());
         smA().settings.largeFileThresholdMB = 0; // All inline for push
         await smA().smartPush(false);
     }
@@ -651,7 +651,7 @@ describe("Pull-side size-based routing (smartPull integration)", () => {
 
         // DeviceB has local modifications for this file
         deviceB.app.vaultAdapter.setFile("notes/conflict.md", "local version");
-        smB().dirtyPaths.add("notes/conflict.md");
+        smB().dirtyPaths.set("notes/conflict.md", Date.now());
         smB().settings.largeFileThresholdMB = 0.001; // 1KB threshold
 
         await smB().smartPull();
@@ -1202,7 +1202,7 @@ describe("Background Pull execution (processLoop)", () => {
     /** Push a file from DeviceA to cloud (inline) and return the cloud fileId */
     async function pushFromA(path: string, content: string): Promise<string> {
         deviceA.app.vaultAdapter.setFile(path, content);
-        smA().dirtyPaths.add(path);
+        smA().dirtyPaths.set(path, Date.now());
         smA().settings.largeFileThresholdMB = 0;
         await smA().smartPush(false);
         return cloud.getFileId(path)!;
@@ -1303,7 +1303,7 @@ describe("Background Pull execution (processLoop)", () => {
 
         // DeviceB has local modifications
         deviceB.app.vaultAdapter.setFile("notes/conflict.md", "local version");
-        smB().dirtyPaths.add("notes/conflict.md");
+        smB().dirtyPaths.set("notes/conflict.md", Date.now());
         smB().localIndex["notes/conflict.md"] = {
             hash: "old-hash",
             mtime: Date.now(),
@@ -1585,7 +1585,7 @@ describe("Staleness & conflict check (executePush processLoop)", () => {
             size: 10,
         };
         sm().index["notes/pushme.md"] = { ...sm().localIndex["notes/pushme.md"] };
-        sm().dirtyPaths.add("notes/pushme.md");
+        sm().dirtyPaths.set("notes/pushme.md", Date.now());
 
         const queue = sm().backgroundTransferQueue;
         queue.enqueue(
@@ -1650,7 +1650,7 @@ describe("E2E full sync cycle with background transfer", () => {
 
         const content = "Large push E2E " + "x".repeat(3000);
         deviceA.app.vaultAdapter.setFile("notes/large.md", content);
-        smA().dirtyPaths.add("notes/large.md");
+        smA().dirtyPaths.set("notes/large.md", Date.now());
 
         // smartPush defers the large file
         await smA().smartPush(false);
@@ -1676,7 +1676,7 @@ describe("E2E full sync cycle with background transfer", () => {
         // DeviceA pushes a large file inline
         const content = "Large pull E2E " + "y".repeat(3000);
         deviceA.app.vaultAdapter.setFile("notes/large.md", content);
-        smA().dirtyPaths.add("notes/large.md");
+        smA().dirtyPaths.set("notes/large.md", Date.now());
         smA().settings.largeFileThresholdMB = 0;
         await smA().smartPush(false);
 
@@ -1702,12 +1702,12 @@ describe("E2E full sync cycle with background transfer", () => {
 
         // Small file (< 1KB)
         deviceA.app.vaultAdapter.setFile("notes/small.md", "Small inline");
-        smA().dirtyPaths.add("notes/small.md");
+        smA().dirtyPaths.set("notes/small.md", Date.now());
 
         // Large file (> 1KB)
         const largeContent = "Large bg " + "x".repeat(3000);
         deviceA.app.vaultAdapter.setFile("notes/large.md", largeContent);
-        smA().dirtyPaths.add("notes/large.md");
+        smA().dirtyPaths.set("notes/large.md", Date.now());
 
         await smA().smartPush(false);
 
@@ -1742,7 +1742,7 @@ describe("E2E full sync cycle with background transfer", () => {
 
         // First cycle: large file deferred
         deviceA.app.vaultAdapter.setFile("notes/first.md", "x".repeat(2000));
-        smA().dirtyPaths.add("notes/first.md");
+        smA().dirtyPaths.set("notes/first.md", Date.now());
         await smA().smartPush(false);
 
         // Complete background transfer
@@ -1752,7 +1752,7 @@ describe("E2E full sync cycle with background transfer", () => {
 
         // Second cycle: another large file
         deviceA.app.vaultAdapter.setFile("notes/second.md", "y".repeat(2000));
-        smA().dirtyPaths.add("notes/second.md");
+        smA().dirtyPaths.set("notes/second.md", Date.now());
         await smA().smartPush(false);
 
         smA().backgroundTransferQueue.resume();

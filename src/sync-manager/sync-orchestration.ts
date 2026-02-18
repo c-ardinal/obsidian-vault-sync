@@ -99,7 +99,7 @@ export async function scanObsidianChanges(ctx: SyncContext): Promise<void> {
                     );
                     continue;
                 }
-                ctx.dirtyPaths.add(filePath);
+                ctx.dirtyPaths.set(filePath, Date.now());
                 await ctx.log(`[Obsidian Scan] New: ${filePath}`, "debug");
                 continue;
             }
@@ -111,14 +111,14 @@ export async function scanObsidianChanges(ctx: SyncContext): Promise<void> {
                     const content = await ctx.app.vault.adapter.readBinary(filePath);
                     const { localHash, compareHash } = await computeLocalHash(ctx, content, indexEntry);
                     if (compareHash && localHash !== compareHash.toLowerCase()) {
-                        ctx.dirtyPaths.add(filePath);
+                        ctx.dirtyPaths.set(filePath, Date.now());
                         await ctx.log(
                             `[Obsidian Scan] Modified (hash mismatch vs localIndex): ${filePath}`,
                             "debug",
                         );
                     } else if (!indexEntry.hash) {
                         // No previous hash, but mtime changed. Assume dirty to be safe and update hash.
-                        ctx.dirtyPaths.add(filePath);
+                        ctx.dirtyPaths.set(filePath, Date.now());
                         await ctx.log(
                             `[Obsidian Scan] Modified (no prev hash in localIndex): ${filePath}`,
                             "debug",
@@ -133,7 +133,7 @@ export async function scanObsidianChanges(ctx: SyncContext): Promise<void> {
                     }
                 } catch {
                     // Read failed, assume dirty
-                    ctx.dirtyPaths.add(filePath);
+                    ctx.dirtyPaths.set(filePath, Date.now());
                 }
             }
         }
@@ -150,7 +150,7 @@ export async function scanObsidianChanges(ctx: SyncContext): Promise<void> {
 
             if (isMissing || isIgnored) {
                 if (ctx.index[path]) {
-                    ctx.dirtyPaths.add(path);
+                    ctx.dirtyPaths.set(path, Date.now());
                     await ctx.log(
                         `[Obsidian Scan] Marked for remote deletion (${isMissing ? "missing" : "ignored"}): ${path}`,
                         "debug",
@@ -203,7 +203,7 @@ export async function scanVaultChanges(ctx: SyncContext): Promise<void> {
                     continue;
                 }
                 // New file (not in local index)
-                ctx.dirtyPaths.add(file.path);
+                ctx.dirtyPaths.set(file.path, Date.now());
                 await ctx.log(`[Vault Scan] New: ${file.path}`, "debug");
             } else if (file.stat.mtime > indexEntry.mtime) {
                 // Mtime changed: verify content hash
@@ -211,13 +211,13 @@ export async function scanVaultChanges(ctx: SyncContext): Promise<void> {
                     const content = await ctx.app.vault.adapter.readBinary(file.path);
                     const { localHash, compareHash } = await computeLocalHash(ctx, content, indexEntry);
                     if (compareHash && localHash !== compareHash.toLowerCase()) {
-                        ctx.dirtyPaths.add(file.path);
+                        ctx.dirtyPaths.set(file.path, Date.now());
                         await ctx.log(
                             `[Vault Scan] Modified (hash mismatch vs localIndex): ${file.path}`,
                             "debug",
                         );
                     } else if (!compareHash) {
-                        ctx.dirtyPaths.add(file.path);
+                        ctx.dirtyPaths.set(file.path, Date.now());
                         await ctx.log(
                             `[Vault Scan] Modified (no prev hash in localIndex): ${file.path}`,
                             "debug",
@@ -248,7 +248,7 @@ export async function scanVaultChanges(ctx: SyncContext): Promise<void> {
 
             if (isMissing || isIgnored) {
                 if (ctx.index[path]) {
-                    ctx.dirtyPaths.add(path);
+                    ctx.dirtyPaths.set(path, Date.now());
                     await ctx.log(
                         `[Vault Scan] Marked for remote deletion (${isMissing ? "missing" : "ignored"}): ${path}`,
                         "debug",
@@ -1057,10 +1057,16 @@ export async function pullViaChangesAPI(
                 if (cloudFile.path === ctx.pluginDataPath) continue;
                 if (isManagedSeparately(cloudFile.path)) continue;
 
-                // Populate ancestorHash from remote index for Safety Guard
+                // Populate ancestorHash and plainHash from remote index.
+                // ancestorHash is needed for the Safety Guard in pullFileSafely.
+                // plainHash is needed for E2EE content-match detection (without it,
+                // pullFileSafely can't detect identical content pre-download).
                 const remoteEntry = remoteIndex[cloudFile.path];
                 if (remoteEntry) {
                     cloudFile.ancestorHash = remoteEntry.ancestorHash;
+                    if (remoteEntry.plainHash) {
+                        cloudFile.plainHash = remoteEntry.plainHash;
+                    }
                 }
 
                 // NEW: もしリモート禁止対象ファイルが上がってきたら、即座に削除
@@ -1156,7 +1162,7 @@ export async function pullViaChangesAPI(
                                     // Migrate Dirty State
                                     if (ctx.dirtyPaths.has(oldPath)) {
                                         ctx.dirtyPaths.delete(oldPath);
-                                        ctx.dirtyPaths.add(newPath);
+                                        ctx.dirtyPaths.set(newPath, Date.now());
                                     }
 
                                     // Update ID Map so we don't process this again or inconsistently
@@ -1355,7 +1361,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
             if (path === ctx.pluginDataPath) continue;
             if (isManagedSeparately(path)) continue;
             if (shouldNotBeOnRemote(ctx, path)) {
-                ctx.dirtyPaths.add(path);
+                ctx.dirtyPaths.set(path, Date.now());
             }
         }
     }
@@ -1368,7 +1374,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
         const missingFiles: string[] = [];
 
         // Identify missing files that were previously synced
-        for (const path of ctx.dirtyPaths) {
+        for (const path of ctx.dirtyPaths.keys()) {
             if (ctx.index[path]) {
                 // Quick check using adapter (async)
                 // We can batch this or just do it sequentially (robustness > speed here)
@@ -1444,7 +1450,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
 
                 // 1. Remove from dirtyPaths to prevent redundant file deletion attempts
                 // (Iterate copy to safely delete while iterating)
-                for (const dirtyPath of Array.from(ctx.dirtyPaths)) {
+                for (const dirtyPath of Array.from(ctx.dirtyPaths.keys())) {
                     if (dirtyPath.startsWith(prefix)) {
                         ctx.dirtyPaths.delete(dirtyPath);
                     }
@@ -1483,11 +1489,12 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
         mtime: number;
         size: number;
         content: ArrayBuffer;
+        dirtyAt: number | undefined;
     }> = [];
     const deleteQueue: string[] = [];
 
     const dirtyPathTasks: (() => Promise<void>)[] = [];
-    const dirtyPathsSnapshot = Array.from(ctx.dirtyPaths);
+    const dirtyPathsSnapshot = Array.from(ctx.dirtyPaths.keys());
 
     for (const path of dirtyPathsSnapshot) {
         dirtyPathTasks.push(async () => {
@@ -1680,6 +1687,10 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                     // Since dirtyPaths can come from `markDirty` (events) which didn't check hash,
                     // we MUST check hash here to filter out "false alarms" from events.
                     try {
+                        // Capture dirty timestamp before any async work so we can detect
+                        // if markDirty() was called again during our async operations
+                        const dirtyAt = ctx.dirtyPaths.get(path);
+
                         const content = await ctx.app.vault.adapter.readBinary(path);
                         // Get mtime AFTER reading content to ensure consistency
                         const statAfterRead = await ctx.app.vault.adapter.stat(path);
@@ -1719,7 +1730,11 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                             if (ctx.index[path]) {
                                 ctx.index[path].mtime = mtimeAfterRead;
                             }
-                            ctx.dirtyPaths.delete(path); // Remove from dirty since content matches
+                            // Only remove from dirty if the file wasn't re-dirtied during our async operations.
+                            // If markDirty() was called again (user edited during hash check), keep it dirty.
+                            if (ctx.dirtyPaths.get(path) === dirtyAt) {
+                                ctx.dirtyPaths.delete(path);
+                            }
                             await ctx.log(`[Smart Push] Skipped (${ctx.e2eeEnabled ? "plainHash" : "hash"} match): ${path}`, "debug");
                             return;
                         } else if (
@@ -1739,7 +1754,9 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                             };
                             ctx.index[path] = entry;
                             ctx.localIndex[path] = { ...entry };
-                            ctx.dirtyPaths.delete(path);
+                            if (ctx.dirtyPaths.get(path) === dirtyAt) {
+                                ctx.dirtyPaths.delete(path);
+                            }
                             await ctx.log(`[Smart Push] Adopted existing remote file: ${path}`);
                             return;
                         }
@@ -1750,6 +1767,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                             mtime: mtimeAfterRead,
                             size: content.byteLength,
                             content,
+                            dirtyAt,
                         });
                     } catch (e) {
                         await ctx.log(
@@ -1856,7 +1874,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                     const currentStat = await ctx.app.vault.adapter.stat(file.path);
                     if (currentStat && currentStat.mtime !== file.mtime) {
                         // File was modified after queue creation - re-mark as dirty and skip
-                        ctx.dirtyPaths.add(file.path);
+                        ctx.dirtyPaths.set(file.path, Date.now());
                         await ctx.log(
                             `[Smart Push] Skipped (modified during sync): ${file.path}`,
                             "debug",
@@ -2037,8 +2055,11 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                     ctx.index[file.path] = entry;
                     ctx.localIndex[file.path] = { ...entry };
 
-                    // Success: Remove from dirtyPaths
-                    ctx.dirtyPaths.delete(file.path);
+                    // Only remove from dirty if the file wasn't re-dirtied during upload.
+                    // If markDirty() was called again (user edited during upload), keep it dirty.
+                    if (ctx.dirtyPaths.get(file.path) === file.dirtyAt) {
+                        ctx.dirtyPaths.delete(file.path);
+                    }
 
                     ctx.logger.markActionTaken();
                     completed++;

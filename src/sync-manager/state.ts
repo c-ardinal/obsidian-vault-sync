@@ -286,13 +286,13 @@ export function markDirty(ctx: SyncContext, path: string): void {
     path = normalizePath(path);
     if (shouldIgnore(ctx, path)) return;
     if (ctx.syncingPaths.has(path)) return;
-    ctx.dirtyPaths.add(path);
+    ctx.dirtyPaths.set(path, Date.now());
 }
 
 export function markDeleted(ctx: SyncContext, path: string): void {
     if (shouldIgnore(ctx, path)) return;
     if (ctx.index[path]) {
-        ctx.dirtyPaths.add(path);
+        ctx.dirtyPaths.set(path, Date.now());
         ctx.log(`[Dirty] Marked for deletion: ${path}`, "debug");
     }
 }
@@ -305,7 +305,7 @@ export function markFolderDeleted(ctx: SyncContext, folderPath: string): void {
     const prefix = folderPath + "/";
     for (const path of Object.keys(ctx.index)) {
         if (path.startsWith(prefix) && !shouldIgnore(ctx, path)) {
-            ctx.dirtyPaths.add(path);
+            ctx.dirtyPaths.set(path, Date.now());
             ctx.log(`[Dirty] Marked for deletion (child): ${path}`, "debug");
         }
     }
@@ -321,7 +321,7 @@ export function markRenamed(ctx: SyncContext, oldPath: string, newPath: string):
     // 未同期ファイルのリネーム/移動（oldPath がインデックスになく dirtyPaths にある）
     if (ctx.dirtyPaths.has(oldPath) && !ctx.index[oldPath]) {
         ctx.dirtyPaths.delete(oldPath);
-        ctx.dirtyPaths.add(newPath);
+        ctx.dirtyPaths.set(newPath, Date.now());
         ctx.log(`[Dirty] Removed (renamed before sync): ${oldPath}`, "debug");
         ctx.log(`[Dirty] Marked (renamed before sync): ${newPath}`, "debug");
         return;
@@ -348,7 +348,7 @@ export function markRenamed(ctx: SyncContext, oldPath: string, newPath: string):
         delete ctx.localIndex[oldPath];
     }
 
-    ctx.dirtyPaths.add(newPath);
+    ctx.dirtyPaths.set(newPath, Date.now());
     ctx.log(
         `[Dirty] Marked (${isMove ? "moved" : "renamed"}): ${newPath} (Migrated ID from ${oldPath})`,
         "debug",
@@ -365,7 +365,7 @@ export function markFolderRenamed(
 
     // Track folder-level move for optimization in smartPush
     ctx.pendingFolderMoves.set(newFolderPath, oldFolderPath);
-    ctx.dirtyPaths.add(newFolderPath); // Ensure the folder itself is processed
+    ctx.dirtyPaths.set(newFolderPath, Date.now()); // Ensure the folder itself is processed
 
     // If the old folder was marked for deletion (via previous event),
     // we remove it since it's now a move.
@@ -397,7 +397,7 @@ export function markFolderRenamed(
 
             // dirtyPaths を更新
             ctx.dirtyPaths.delete(oldPath);
-            ctx.dirtyPaths.add(newPath);
+            ctx.dirtyPaths.set(newPath, Date.now());
             ctx.log(
                 `[Dirty] Marked (folder move child): ${oldPath} -> ${newPath} (Migrated ID)`,
                 "debug",
