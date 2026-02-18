@@ -38,6 +38,11 @@ export class MockCloudAdapter implements CloudAdapter {
     private changeLog: Array<{ fileId: string; removed: boolean; file?: CloudFile }> = [];
     private currentToken = 0;
     private logger: (msg: string) => void = () => {};
+    private resumableSessions = new Map<string, {
+        path: string; mtime: number; totalSize: number;
+        existingFileId?: string; chunks: ArrayBuffer[];
+    }>();
+    private nextSessionId = 1;
 
     // --- Auth (no-op) ---
     isAuthenticated(): boolean {
@@ -165,6 +170,46 @@ export class MockCloudAdapter implements CloudAdapter {
 
     async fileExistsById(fileId: string): Promise<boolean> {
         return this.files.has(fileId);
+    }
+
+    // --- Resumable Chunked Upload ---
+    async initiateResumableSession(
+        path: string,
+        totalSize: number,
+        mtime: number,
+        existingFileId?: string,
+    ): Promise<string> {
+        const uri = `mock-session-${this.nextSessionId++}`;
+        this.resumableSessions.set(uri, {
+            path, mtime, totalSize, existingFileId, chunks: [],
+        });
+        return uri;
+    }
+
+    async uploadChunk(
+        sessionUri: string,
+        chunk: ArrayBuffer,
+        offset: number,
+        totalSize: number,
+        path: string,
+        mtime: number,
+    ): Promise<CloudFile | null> {
+        const session = this.resumableSessions.get(sessionUri);
+        if (!session) throw new Error(`Unknown session: ${sessionUri}`);
+        session.chunks.push(chunk.slice(0));
+
+        // Intermediate chunk: more data expected
+        if (offset + chunk.byteLength < totalSize) return null;
+
+        // Final chunk: combine all chunks and delegate to uploadFile
+        const combined = new Uint8Array(totalSize);
+        let pos = 0;
+        for (const c of session.chunks) {
+            combined.set(new Uint8Array(c), pos);
+            pos += c.byteLength;
+        }
+        this.resumableSessions.delete(sessionUri);
+        return this.uploadFile(path, combined.buffer, mtime, session.existingFileId);
     }
 
     // --- Changes API ---

@@ -15,7 +15,7 @@
 9. ✅ **移行後の整合性検証** - サンプリングによる検証を実装
 11. ✅ **移行ロックタイムアウト** - 1時間→24時間に延長
 
-## 未対応課題（要実装）
+## 対応済み課題（実装完了）
 
 ### 1. ~~デュアルハッシュトラッキングの完全実装（優先度：高）~~ ✅ 対応済み
 
@@ -36,9 +36,15 @@ CloudAdapter.deleteFileにJSDocコメントでフォルダ削除もサポート�
 
 vault-lock.json検出時にNoticeで通知（10秒間表示）。i18n対応済み。
 
+### 6. ~~E2EEハッシュ不一致の修正（優先度：高）~~ ✅ 対応済み
+
+- `sync-orchestration.ts`: `hashContent()` でCRLF→LF正規化を適用し、`plainHash`計算と一致するよう修正
+- `merge.ts`: マージ後の`ancestorHash`にplainHash（平文ハッシュ）を使用するよう修正
+- Windows環境でのCRLF改行がハッシュ不一致を引き起こし、不要なマージが発生する問題を解消
+
 ## テスト課題
 
-~~テスト失敗~~ ✅ 全613テストパス（11テストファイル）
+~~テスト失敗~~ ✅ 全797テストパス（13テストファイル）
 
 ## TypeScript型安全性
 
@@ -62,11 +68,22 @@ vault-lock.json検出時にNoticeで通知（10秒間表示）。i18n対応済�
 i18n対応済み（EN/JA）。`plugin.checkPasswordStrength` としてエンジンに公開。
 E2EEセットアップモーダルでリアルタイムにパスワード強度フィードバックを表示。
 
-### 3. ストリーミング暗号化
+### 3. ~~ストリーミング暗号化~~ ✅ 対応済み
 
-大容量ファイル対応として（将来改善）：
-- Web Streams APIを使用したチャンク単位の暗号化
-- メモリ使用量の削減
+VSC2チャンク分割暗号化フォーマットとストリーミングアップロードを実装。
+
+- **VSC2ワイヤフォーマット**: `[magic "VSC2"][chunkSize LE][totalChunks LE][per-chunk: IV(12) + ciphertext]`
+- **Phase 1 — チャンク分割暗号化/復号** (`src/encryption/chunked-crypto.ts`)
+  - ファイルを~1MBチャンクで分割暗号化、事前確保バッファに書き込み
+  - ピークメモリ: 4倍 → 2倍に削減
+- **Phase 2 — Content-Rangeチャンクアップロード** (`src/adapters/encrypted-adapter.ts`)
+  - 暗号化チャンクを5MiBバッチでHTTPアップロード (256KiBアラインメント対応)
+  - CloudAdapterに`initiateResumableSession` + `uploadChunk`を追加
+  - GoogleDriveAdapterで`uploadFileResumable`をリファクタリング
+  - ピークメモリ: 4倍 → 1.1倍に削減
+- **閾値**: `largeFileThresholdMB`設定値（デフォルト5MB）以上でVSC2、未満でVSC1レガシー
+- **後方互換**: `isChunkedFormat()`で自動判定、既存VSC1ファイルは変更なしで復号可能
+- 49件のテストを追加
 
 ## パフォーマンス最適化
 
@@ -79,6 +96,21 @@ E2EEセットアップモーダルでリアルタイムにパスワード強度�
 
 EncryptedAdapterに同期サイクルスコープのダウンロードキャッシュを実装。
 `executeSmartSync` 完了時に自動クリア。マージ中の重複ダウンロード・復号を排除。
+
+### 3. ~~バックグラウンド転送キュー~~ ✅ 対応済み
+
+大容量ファイルを同期サイクル外で非同期転送するキューシステムを実装。
+
+- **BackgroundTransferQueue** (`src/sync-manager/background-transfer.ts`)
+  - Push/Pull両方向対応、陳腐化検出、リモートコンフリクト検出
+  - リトライ機構（最大3回）、帯域スロットリング（`bgTransferIntervalSec`設定）
+  - JSONLログローテーション（7日保持）
+  - オンライン/オフライン検出と自動レジューム
+- **インライン転送トラッキング** (`src/sync-manager/sync-orchestration.ts`)
+  - 通常の同期サイクル内転送もTransferHistoryに記録
+- **転送履歴UI** (`src/ui/transfer-status-modal.ts`)
+  - タイムラインUI、ファイル名/ディレクトリ2段表示
+- 83件のテストを追加
 
 ## 今後の機能拡張
 

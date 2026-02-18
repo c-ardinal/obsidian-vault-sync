@@ -753,9 +753,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
 
     /**
      * Upload using Google Drive's resumable upload protocol.
-     * Better for large files: supports interruption recovery.
-     * Step 1: Initiate resumable session → get session URI
-     * Step 2: PUT full content to session URI → get file metadata
+     * Delegates to initiateResumableSession + uploadChunk.
      */
     async uploadFileResumable(
         path: string,
@@ -763,6 +761,24 @@ export class GoogleDriveAdapter implements CloudAdapter {
         mtime: number,
         existingFileId?: string,
     ): Promise<CloudFile> {
+        const sessionUri = await this.initiateResumableSession(
+            path, content.byteLength, mtime, existingFileId,
+        );
+        return (await this.uploadChunk(
+            sessionUri, content, 0, content.byteLength, path, mtime,
+        ))!;
+    }
+
+    /**
+     * Initiate a resumable upload session.
+     * Returns a session URI for subsequent uploadChunk() calls.
+     */
+    async initiateResumableSession(
+        path: string,
+        totalSize: number,
+        mtime: number,
+        existingFileId?: string,
+    ): Promise<string> {
         const name = path.split("/").pop();
         const metadata: any = {
             name: name,
@@ -788,13 +804,12 @@ export class GoogleDriveAdapter implements CloudAdapter {
             method = "POST";
         }
 
-        // Step 1: Initiate resumable session
         const initResponse = await this.fetchWithAuth(initUrl, {
             method,
             headers: {
                 "Content-Type": "application/json; charset=UTF-8",
                 "X-Upload-Content-Type": "application/octet-stream",
-                "X-Upload-Content-Length": String(content.byteLength),
+                "X-Upload-Content-Length": String(totalSize),
             },
             body: JSON.stringify(metadata),
         });
@@ -803,23 +818,40 @@ export class GoogleDriveAdapter implements CloudAdapter {
         if (!sessionUri) {
             throw new Error("Resumable upload: no session URI returned");
         }
+        return sessionUri;
+    }
 
-        // Step 2: Upload content to session URI
+    /**
+     * Upload a chunk to a resumable session using Content-Range.
+     * Returns null for intermediate chunks (HTTP 308), CloudFile on final chunk.
+     */
+    async uploadChunk(
+        sessionUri: string,
+        chunk: ArrayBuffer,
+        offset: number,
+        totalSize: number,
+        path: string,
+        mtime: number,
+    ): Promise<CloudFile | null> {
+        const end = offset + chunk.byteLength - 1;
         const uploadResponse = await this.fetchWithAuth(sessionUri, {
             method: "PUT",
             headers: {
                 "Content-Type": "application/octet-stream",
-                "Content-Length": String(content.byteLength),
+                "Content-Length": String(chunk.byteLength),
+                "Content-Range": `bytes ${offset}-${end}/${totalSize}`,
             },
-            body: content,
+            body: chunk,
         });
+
+        if (uploadResponse.status === 308) return null; // Resume Incomplete
 
         const data = await uploadResponse.json();
         const result: CloudFile = {
             id: data.id,
             path: path,
             mtime: mtime,
-            size: parseInt(data.size || String(content.byteLength)),
+            size: parseInt(data.size || String(totalSize)),
             kind: "file",
             hash: data.md5Checksum,
         };

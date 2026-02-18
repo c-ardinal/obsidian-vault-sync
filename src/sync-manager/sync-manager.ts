@@ -181,7 +181,11 @@ export class SyncManager {
     get adapter(): CloudAdapter {
         if (this.settings.e2eeEnabled && this.cryptoEngine?.isUnlocked()) {
             if (!this.encryptedAdapter) {
-                this.encryptedAdapter = new EncryptedAdapter(this.baseAdapter, this.cryptoEngine);
+                this.encryptedAdapter = new EncryptedAdapter(
+                    this.baseAdapter,
+                    this.cryptoEngine,
+                    (this.settings.largeFileThresholdMB ?? 0) * 1024 * 1024,
+                );
             }
             return this.encryptedAdapter;
         }

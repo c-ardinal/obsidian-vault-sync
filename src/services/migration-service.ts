@@ -103,7 +103,7 @@ export class MigrationService {
         }
 
         // Wrap with Encryption using the current engine
-        return new EncryptedAdapter(tempAdapter, this.engine);
+        return new EncryptedAdapter(tempAdapter, this.engine, 0);
     }
 
     /**
