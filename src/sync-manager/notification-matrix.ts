@@ -217,6 +217,17 @@ const VERBOSE: Record<string, VisibilityMap> = {
     e2eeUnlockFailed: { "manual-sync": true },
     e2eeSetupKeychainFailed: { migration: true },
     e2eeInterruptedDone: { "manual-sync": true },
+    noticeE2EEPasswordChanged: { "manual-sync": true },
+    noticeE2EERecoveryComplete: { "manual-sync": true },
+    noticeE2EEDecryptFailed: {
+        "manual-sync": true,
+        "startup-sync": true,
+        "timer-sync": true,
+        "save-sync": true,
+        "modify-sync": true,
+        "layout-sync": true,
+        "full-scan": true,
+    },
 };
 
 // --------------------------------------------------------------------------

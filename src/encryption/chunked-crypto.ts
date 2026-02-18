@@ -1,4 +1,5 @@
 import type { ICryptoEngine } from "./interfaces";
+import { DecryptionError } from "./errors";
 
 /** VSC2 magic bytes: "VSC2" (VaultSync Chunked v2) */
 export const CHUNK_MAGIC = new Uint8Array([0x56, 0x53, 0x43, 0x32]);
@@ -94,7 +95,7 @@ export async function decryptChunked(
     engine: ICryptoEngine,
 ): Promise<ArrayBuffer> {
     if (data.byteLength < HEADER_SIZE) {
-        throw new Error("VSC2: data too short for header");
+        throw new DecryptionError("VSC2: data too short for header", "format");
     }
 
     const view = new DataView(data, 0, HEADER_SIZE);
@@ -107,14 +108,14 @@ export async function decryptChunked(
         magic[2] !== CHUNK_MAGIC[2] ||
         magic[3] !== CHUNK_MAGIC[3]
     ) {
-        throw new Error("VSC2: invalid magic bytes");
+        throw new DecryptionError("VSC2: invalid magic bytes", "format");
     }
 
     const chunkSize = view.getUint32(4, true);
     const totalChunks = view.getUint32(8, true);
 
-    if (chunkSize === 0) throw new Error("VSC2: chunkSize is 0");
-    if (totalChunks === 0) throw new Error("VSC2: totalChunks is 0");
+    if (chunkSize === 0) throw new DecryptionError("VSC2: chunkSize is 0", "format");
+    if (totalChunks === 0) throw new DecryptionError("VSC2: totalChunks is 0", "format");
 
     // Calculate max possible plaintext size for pre-allocation
     const maxPlaintextSize = totalChunks * chunkSize;
@@ -124,7 +125,7 @@ export async function decryptChunked(
 
     for (let i = 0; i < totalChunks; i++) {
         if (readOffset + IV_SIZE > data.byteLength) {
-            throw new Error(`VSC2: truncated data at chunk ${i} (missing IV)`);
+            throw new DecryptionError(`VSC2: truncated data at chunk ${i} (missing IV)`, "format", i);
         }
 
         // Read IV
@@ -142,17 +143,25 @@ export async function decryptChunked(
         }
 
         if (ciphertextSize < GCM_TAG_SIZE) {
-            throw new Error(`VSC2: truncated ciphertext at chunk ${i}`);
+            throw new DecryptionError(`VSC2: truncated ciphertext at chunk ${i}`, "format", i);
         }
 
         if (readOffset + ciphertextSize > data.byteLength) {
-            throw new Error(`VSC2: truncated data at chunk ${i} (missing ciphertext)`);
+            throw new DecryptionError(`VSC2: truncated data at chunk ${i} (missing ciphertext)`, "format", i);
         }
 
         const ciphertext = data.slice(readOffset, readOffset + ciphertextSize);
         readOffset += ciphertextSize;
 
-        const decrypted = await engine.decrypt(ciphertext, iv);
+        let decrypted: ArrayBuffer;
+        try {
+            decrypted = await engine.decrypt(ciphertext, iv);
+        } catch (e) {
+            if (e instanceof DecryptionError) throw e;
+            throw new DecryptionError(
+                `VSC2: decryption failed at chunk ${i}`, "authentication", i,
+            );
+        }
         output.set(new Uint8Array(decrypted), writeOffset);
         writeOffset += decrypted.byteLength;
     }

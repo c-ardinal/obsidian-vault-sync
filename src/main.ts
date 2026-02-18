@@ -275,6 +275,10 @@ export default class VaultSync extends Plugin {
             name: t("labelFullAudit"),
             callback: async () => {
                 this.syncManager.currentTrigger = "full-scan";
+                if (this.syncManager.e2eeLocked) {
+                    await this.syncManager.notify("noticeVaultLocked");
+                    return;
+                }
                 await this.syncManager.notify("noticeScanningLocalFiles");
                 await this.syncManager.requestBackgroundScan(false);
             },
@@ -304,6 +308,40 @@ export default class VaultSync extends Plugin {
                 if (!checking) {
                     this.syncManager.cryptoEngine?.showUnlockModal(this);
                 }
+                return true;
+            },
+        });
+
+        this.addCommand({
+            id: "e2ee-change-password",
+            name: t("labelE2EEChangePassword"),
+            checkCallback: (checking: boolean) => {
+                const engine = this.syncManager.cryptoEngine;
+                if (!engine?.showPasswordChangeModal || !engine.isUnlocked()) return false;
+                if (!checking) engine.showPasswordChangeModal(this);
+                return true;
+            },
+        });
+
+        this.addCommand({
+            id: "e2ee-show-recovery",
+            name: t("labelE2EEShowRecovery"),
+            checkCallback: (checking: boolean) => {
+                const engine = this.syncManager.cryptoEngine;
+                if (!engine?.showRecoveryExportModal || !engine.isUnlocked()) return false;
+                if (!checking) engine.showRecoveryExportModal(this);
+                return true;
+            },
+        });
+
+        this.addCommand({
+            id: "e2ee-recover",
+            name: t("labelE2EERecover"),
+            checkCallback: (checking: boolean) => {
+                const engine = this.syncManager.cryptoEngine;
+                if (!engine?.showRecoveryImportModal || !this.settings.e2eeEnabled) return false;
+                if (engine.isUnlocked()) return false;
+                if (!checking) engine.showRecoveryImportModal(this);
                 return true;
             },
         });

@@ -901,6 +901,9 @@ export async function pullFileSafely(
         return true;
     } catch (e) {
         await ctx.log(`[${logPrefix}] Pull failed: ${item.path} - ${e}`, "error");
+        if ((e as any)?.name === "DecryptionError") {
+            await ctx.notify("noticeE2EEDecryptFailed", item.path.split("/").pop());
+        }
         return false;
     } finally {
         ctx.syncingPaths.delete(item.path);

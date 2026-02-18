@@ -1,5 +1,6 @@
 import { CloudAdapter, CloudChanges, CloudFile, FileRevision } from "../types/adapter";
 import { ICryptoEngine } from "../encryption/interfaces";
+import { DecryptionError } from "../encryption/errors";
 import {
     isChunkedFormat,
     encryptChunked,
@@ -230,11 +231,18 @@ export class EncryptedAdapter implements CloudAdapter {
         }
         // Legacy VSC1
         if (data.byteLength < 12) {
-            throw new Error("Encrypted file is too short (missing IV).");
+            throw new DecryptionError("Encrypted file is too short (missing IV).", "format");
         }
         const iv = new Uint8Array(data.slice(0, 12));
         const ciphertext = data.slice(12);
-        return this.engine.decrypt(ciphertext, iv);
+        try {
+            return await this.engine.decrypt(ciphertext, iv);
+        } catch (e) {
+            if (e instanceof DecryptionError) throw e;
+            throw new DecryptionError(
+                "Decryption failed (wrong password or corrupted data)", "authentication",
+            );
+        }
     }
 
     /**

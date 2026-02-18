@@ -30,8 +30,16 @@ export interface ICryptoEngine {
     encrypt(data: ArrayBuffer): Promise<{ ciphertext: ArrayBuffer; iv: Uint8Array }>;
     decrypt(ciphertext: ArrayBuffer, iv: Uint8Array): Promise<ArrayBuffer>;
 
+    // Recovery
+    exportRecoveryCode?(): Promise<string>;
+    recoverFromCode?(recoveryCode: string, newPassword: string): Promise<string>;
+    getKeyFingerprint?(): Promise<string>;
+
     // UI Injection
     showSetupModal(plugin: any): void;
     showUnlockModal(plugin: any): void;
+    showPasswordChangeModal?(plugin: any): void;
+    showRecoveryExportModal?(plugin: any): void;
+    showRecoveryImportModal?(plugin: any): void;
     getSettingsSections(plugin: any): SettingSection[];
 }

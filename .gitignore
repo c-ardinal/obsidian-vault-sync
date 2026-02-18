@@ -145,5 +145,7 @@ CLAUDE.md
 
 #User
 .obsidian
+.vscode
+.playwright-mcp
 *.txt
 *.diff

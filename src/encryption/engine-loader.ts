@@ -5,7 +5,7 @@ import { ICryptoEngine } from "./interfaces";
 // SHA-256 hash of the approved e2ee-engine.js file.
 // Update via: npm run hash (in VaultSync-E2EE-Engine repo)
 const APPROVED_ENGINE_HASH: string =
-    "c08b6d879f5a729dc7eefbdb7425d545b2526332c29ae82d3e86e1ef08f71b32";
+    "f62d9a9d2f82ffa1672c091fdf1d82fc171dca2c532491ce2e8b8322c6bed815";
 
 /**
  * Compute SHA-256 hash of content

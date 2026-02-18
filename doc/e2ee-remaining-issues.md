@@ -44,7 +44,7 @@ vault-lock.json検出時にNoticeで通知（10秒間表示）。i18n対応済�
 
 ## テスト課題
 
-~~テスト失敗~~ ✅ 全797テストパス（13テストファイル）
+~~テスト失敗~~ ✅ 全807テストパス（14テストファイル）
 
 ## TypeScript型安全性
 
@@ -116,7 +116,29 @@ EncryptedAdapterに同期サイクルスコープのダウンロードキャッ�
 
 ### Phase 5（e2ee-plan.md参照）
 
-1. **パスワード変更機能**: マスターキー再ラッピング
-2. **リカバリーコード**: マスターキーのBase64エクスポート
-3. **ファイル名暗号化**: dir-map.jsonによる難読化
-4. **マルチマスターキー**: デバイス固有鍵の導入
+1. ✅ **パスワード変更機能**: マスターキー再ラッピング
+
+エンジン側に`updatePassword`は実装済みだったが、UIモーダルを追加。
+`E2EEPasswordChangeModal`でパスワード入力→強度チェック→確認→`updatePassword`→vault-lock.vault再アップロード。
+コマンドパレット「E2EE: Change Encryption Password」で呼び出し。
+auto-unlock有効時はキーチェーン内パスワードも自動更新。
+
+2. ✅ **リカバリーコード**: マスターキーのBase64エクスポート/インポート
+
+- `exportRecoveryCode()`: マスターキーの生バイト(32B)をBase64エクスポート（44文字）
+- `recoverFromCode(code, newPassword)`: Base64→CryptoKeyインポート→新パスワードでre-wrap→新vault-lock blob
+- `getKeyFingerprint()`: SHA-256の先頭4バイト(8 hex文字)で視覚的に鍵を確認
+- UI: `E2EERecoveryExportModal`（コード表示+コピー+フィンガープリント）、`E2EERecoveryImportModal`（コード入力+新パスワード設定）
+- コマンドパレット: 「E2EE: Show Recovery Code」「E2EE: Recover Vault with Recovery Code」
+- エンジン側テスト9件追加（12テスト計）
+
+3. ✅ **復号エラー判別**: パスワード間違い vs データ破損
+
+- `DecryptionError`クラス（`cause: "authentication" | "format"`, オプショナル`chunkIndex`）
+- VSC1: IV不足→format、AES-GCM復号失敗→authentication
+- VSC2: ヘッダ不正/トランケーション→format（チャンクインデックス付き）、チャンク復号失敗→authentication
+- `merge.ts`の`pullFileSafely`でDecryptionError検出→`noticeE2EEDecryptFailed`通知
+- プラグイン側テスト10件追加（807テスト計）
+
+4. **ファイル名暗号化**: dir-map.jsonによる難読化
+5. **マルチマスターキー**: デバイス固有鍵の導入

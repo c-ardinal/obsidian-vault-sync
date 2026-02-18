@@ -120,6 +120,9 @@ export const i18n: Record<string, Record<string, string>> = {
             "🔒 [E2EE] This vault is encrypted on another device. Please enter your password to unlock.",
         noticeVaultLocked: "🔒 [E2EE] Vault is locked. Sync paused.",
         noticeEngineVerifyFailed: "❌ [E2EE] Engine verification failed. Please reinstall the plugin.",
+        noticeE2EEPasswordChanged: "✅ [E2EE] Encryption password changed successfully.",
+        noticeE2EERecoveryComplete: "✅ [E2EE] Vault recovered successfully with recovery code.",
+        noticeE2EEDecryptFailed: "❌ [E2EE] Decryption failed. Wrong password or corrupted data.",
 
         noticeMergeSuccess: "✅ [Conflict] Auto-resolved",
         noticeCheckOtherDevice:
@@ -177,6 +180,9 @@ export const i18n: Record<string, Record<string, string>> = {
         labelViewHistory: "View History in Cloud (VaultSync)",
         labelE2EESetup: "E2EE: Start Vault Encryption",
         labelE2EEUnlock: "E2EE: Unlock Vault Encryption",
+        labelE2EEChangePassword: "E2EE: Change Encryption Password",
+        labelE2EEShowRecovery: "E2EE: Show Recovery Code",
+        labelE2EERecover: "E2EE: Recover Vault with Recovery Code",
 
         // Transfer Status
         labelTransferStatus: "Transfer Status (VaultSync)",
@@ -251,6 +257,25 @@ export const i18n: Record<string, Record<string, string>> = {
         e2eeUnlockAutoUnlock: "Remember password and auto-unlock on startup",
         e2eeUnlockSuccess: "Unlocked!",
         e2eeUnlockFailed: "Invalid password.",
+
+        // E2EE Password Change Modal
+        e2eeChangePasswordTitle: "Change Encryption Password",
+        e2eeChangePasswordDesc: "Enter a new password to re-encrypt your master key.\nExisting encrypted data will remain unchanged.",
+        e2eeChangePasswordNewLabel: "New Password",
+        e2eeChangePasswordConfirmLabel: "Confirm New Password",
+        e2eeChangePasswordButton: "Change Password",
+
+        // E2EE Recovery Code Modal
+        e2eeRecoveryExportTitle: "Recovery Code",
+        e2eeRecoveryExportDesc: "This code can restore access to your vault if you forget your password.",
+        e2eeRecoveryWarning: "Store this code in a safe place. Anyone with this code can decrypt your vault.",
+        e2eeRecoveryCopy: "Copy to Clipboard",
+        e2eeRecoveryCopied: "Copied!",
+        e2eeRecoveryClose: "Close",
+        e2eeRecoveryImportTitle: "Recover Vault",
+        e2eeRecoveryImportDesc: "Enter your recovery code and set a new password to restore vault access.",
+        e2eeRecoveryCodeLabel: "Recovery Code",
+        e2eeRecoveryRestoreButton: "Recover Vault",
     },
     ja: {
         // Settings UI
@@ -379,6 +404,9 @@ export const i18n: Record<string, Record<string, string>> = {
             "🔒 [E2EE] このVaultは他デバイスで暗号化されています。パスワードを入力してロックを解除してください。",
         noticeVaultLocked: "🔒 [E2EE] Vaultがロック中のため同期を一時停止しています。",
         noticeEngineVerifyFailed: "❌ [E2EE] エンジンの検証に失敗しました。プラグインを再インストールしてください。",
+        noticeE2EEPasswordChanged: "✅ [E2EE] 暗号化パスワードを変更しました。",
+        noticeE2EERecoveryComplete: "✅ [E2EE] リカバリーコードでVaultを復元しました。",
+        noticeE2EEDecryptFailed: "❌ [E2EE] 復号に失敗しました。パスワードが間違っているか、データが破損しています。",
         noticeMergeSuccess: "✅ [競合] 自動解決されました",
         noticeCheckOtherDevice:
             "⚠️ [競合] マージに失敗した可能性が有ります。詳細は他デバイスを確認してください",
@@ -435,6 +463,9 @@ export const i18n: Record<string, Record<string, string>> = {
         labelViewHistory: "クラウドの変更履歴を表示 (VaultSync)",
         labelE2EESetup: "E2EE: Vaultの暗号化を開始する",
         labelE2EEUnlock: "E2EE: Vaultの暗号化を解除する",
+        labelE2EEChangePassword: "E2EE: 暗号化パスワードを変更する",
+        labelE2EEShowRecovery: "E2EE: リカバリーコードを表示する",
+        labelE2EERecover: "E2EE: リカバリーコードでVaultを復元する",
 
         // Transfer Status
         labelTransferStatus: "転送ステータス (VaultSync)",
@@ -509,6 +540,25 @@ export const i18n: Record<string, Record<string, string>> = {
         e2eeUnlockAutoUnlock: "パスワードを保存し、次回から自動でロック解除する",
         e2eeUnlockSuccess: "ロック解除しました！",
         e2eeUnlockFailed: "パスワードが正しくありません。",
+
+        // E2EE Password Change Modal
+        e2eeChangePasswordTitle: "暗号化パスワードの変更",
+        e2eeChangePasswordDesc: "新しいパスワードを入力してマスターキーを再暗号化します。\n既存の暗号化データはそのまま維持されます。",
+        e2eeChangePasswordNewLabel: "新しいパスワード",
+        e2eeChangePasswordConfirmLabel: "新しいパスワード (確認)",
+        e2eeChangePasswordButton: "パスワードを変更",
+
+        // E2EE Recovery Code Modal
+        e2eeRecoveryExportTitle: "リカバリーコード",
+        e2eeRecoveryExportDesc: "パスワードを忘れた場合にVaultへのアクセスを復元できるコードです。",
+        e2eeRecoveryWarning: "このコードを安全な場所に保管してください。このコードがあればVaultを復号できます。",
+        e2eeRecoveryCopy: "クリップボードにコピー",
+        e2eeRecoveryCopied: "コピーしました！",
+        e2eeRecoveryClose: "閉じる",
+        e2eeRecoveryImportTitle: "Vaultの復元",
+        e2eeRecoveryImportDesc: "リカバリーコードと新しいパスワードを入力してVaultへのアクセスを復元します。",
+        e2eeRecoveryCodeLabel: "リカバリーコード",
+        e2eeRecoveryRestoreButton: "Vaultを復元",
     },
 };
 
