@@ -20,6 +20,7 @@ import { loadCommunication, saveIndex, saveLocalIndex, clearPendingPushStates } 
 import { pullFileSafely } from "./merge";
 import { TransferPriority, type TransferRecord } from "./transfer-types";
 import { formatSize } from "../utils/format";
+import { basename, dirname } from "../utils/path";
 
 // ==========================================================================
 // Helpers
@@ -485,7 +486,7 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
                 `[Smart Pull] Active merge lock detected: ${path} by ${lock.holder} (expires in ${Math.round((lock.expiresAt - now) / 1000)}s)`,
                 "warn",
             );
-            await ctx.notify("noticeWaitOtherDeviceMerge", path.split("/").pop());
+            await ctx.notify("noticeWaitOtherDeviceMerge", basename(path));
             if (ctx.localIndex[path] && !ctx.localIndex[path].pendingConflict) {
                 ctx.localIndex[path].pendingConflict = true;
                 localIndexChanged = true;
@@ -647,7 +648,7 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
 
                             await ctx.notify(
                                 "noticeFileMoved",
-                                `${oldPath.split("/").pop()} → ${newPath.split("/").pop()}`,
+                                `${basename(oldPath)} → ${basename(newPath)}`,
                             );
 
                             // Check if content also changed. If hash matches, we're done with this file.
@@ -849,7 +850,7 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
 
                 completed++;
                 await ctx.log(`[Smart Pull] [${completed}/${total}] Deleted locally: ${path}`);
-                await ctx.notify("noticeFileTrashed", path.split("/").pop());
+                await ctx.notify("noticeFileTrashed", basename(path));
             } catch (e) {
                 await ctx.log(`[Smart Pull] Delete failed: ${path} - ${e}`, "error");
             }
@@ -1041,7 +1042,7 @@ export async function pullViaChangesAPI(
                             ctx.logger.markActionTaken();
                             completed++;
                             await ctx.log(`[Smart Pull] Deleted: ${pathToDelete}`);
-                            await ctx.notify("noticeFileTrashed", pathToDelete.split("/").pop());
+                            await ctx.notify("noticeFileTrashed", basename(pathToDelete));
                         } catch (e) {
                             await ctx.log(
                                 `[Smart Pull] Delete failed: ${pathToDelete} - ${e}`,
@@ -1092,7 +1093,7 @@ export async function pullViaChangesAPI(
                         `[Smart Pull] Waiting: ${cloudFile.path} is being merged by ${mergeLock.holder} (expires in ${Math.round((mergeLock.expiresAt - now) / 1000)}s)`,
                         "warn",
                     );
-                    await ctx.notify("noticeWaitOtherDeviceMerge", cloudFile.path.split("/").pop());
+                    await ctx.notify("noticeWaitOtherDeviceMerge", basename(cloudFile.path));
                     // Mark as pending conflict so next sync shows "merge result applied"
                     if (ctx.localIndex[cloudFile.path]) {
                         ctx.localIndex[cloudFile.path].pendingConflict = true;
@@ -1163,7 +1164,7 @@ export async function pullViaChangesAPI(
 
                                     await ctx.notify(
                                         "noticeFileRenamed",
-                                        `${oldPath.split("/").pop()} -> ${newPath.split("/").pop()}`,
+                                        `${basename(oldPath)} -> ${basename(newPath)}`,
                                     );
                                 } else {
                                     // Source doesn't exist locally? Just removed from index/map then.
@@ -1220,7 +1221,7 @@ export async function pullViaChangesAPI(
 
                         // Notify individual confirmation
                         confirmedCountTotal++;
-                        await ctx.notify("noticeSyncConfirmed", cloudFile.path.split("/").pop());
+                        await ctx.notify("noticeSyncConfirmed", basename(cloudFile.path));
                     }
 
                     // Strategy B: 他デバイスのマージ結果を適用済み（ハッシュ一致）であることを通知
@@ -1229,7 +1230,7 @@ export async function pullViaChangesAPI(
                         await saveLocalIndex(ctx);
                         await ctx.notify(
                             "noticeRemoteMergeSynced",
-                            cloudFile.path.split("/").pop(),
+                            basename(cloudFile.path),
                         );
                     }
 
@@ -1379,7 +1380,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
         }
 
         for (const path of missingFiles) {
-            let folder = path.substring(0, path.lastIndexOf("/"));
+            let folder = dirname(path);
             while (folder) {
                 if (checkedFolders.has(folder)) break; // Optimization
                 if (shouldIgnore(ctx, folder)) break;
@@ -1396,7 +1397,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                     ctx.deletedFolders.add(folder);
                     await ctx.log(`[Smart Push] Inferred deleted folder: ${folder}`, "debug");
                     // Continue walking up to check parent
-                    folder = folder.substring(0, folder.lastIndexOf("/"));
+                    folder = dirname(folder);
                 } else {
                     // Folder exists, stop walking up
                     break;
@@ -1428,7 +1429,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                         ctx.logger.markActionTaken();
                         folderDeletedCount++;
                         await ctx.log(`[Smart Push] Deleted remote folder: ${folderPath}`);
-                        await ctx.notify("noticeFileTrashed", folderPath.split("/").pop());
+                        await ctx.notify("noticeFileTrashed", basename(folderPath));
                     }
                 } else {
                     await ctx.log(
@@ -1527,10 +1528,8 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                 // Optimal Folder Move
                                 const oldMeta = await ctx.adapter.getFileMetadata(oldPath);
                                 if (oldMeta?.id) {
-                                    const newName = path.split("/").pop()!;
-                                    const lastSlash = path.lastIndexOf("/");
-                                    const newParentPath =
-                                        lastSlash > 0 ? path.substring(0, lastSlash) : "";
+                                    const newName = basename(path);
+                                    const newParentPath = dirname(path);
 
                                     await ctx.adapter.moveFile(oldMeta.id, newName, newParentPath);
                                     ctx.logger.markActionTaken();
@@ -1541,7 +1540,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                     );
                                     await ctx.notify(
                                         "noticeFileMoved",
-                                        `${oldPath.split("/").pop()} → ${newName}`,
+                                        `${basename(oldPath)} → ${newName}`,
                                     );
 
                                     // Cleanup pending moves for children as they are now moved too
@@ -1603,9 +1602,8 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                     if (indexEntry?.pendingMove && indexEntry.fileId) {
                         const moveInfo = indexEntry.pendingMove;
                         try {
-                            const newName = path.split("/").pop()!;
-                            const lastSlash = path.lastIndexOf("/");
-                            const newParentPath = lastSlash > 0 ? path.substring(0, lastSlash) : "";
+                            const newName = basename(path);
+                            const newParentPath = dirname(path);
 
                             const moved = await ctx.adapter.moveFile(
                                 indexEntry.fileId,
@@ -1635,11 +1633,8 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                             ctx.startActivity();
 
                             // Determine if this is a rename (same dir) or move (different dir)
-                            const oldDir = moveInfo.oldPath.substring(
-                                0,
-                                moveInfo.oldPath.lastIndexOf("/"),
-                            );
-                            const newDir = path.substring(0, path.lastIndexOf("/"));
+                            const oldDir = dirname(moveInfo.oldPath);
+                            const newDir = dirname(path);
                             const isMove = oldDir !== newDir;
 
                             if (isMove) {
@@ -1649,7 +1644,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                 );
                                 await ctx.notify(
                                     "noticeFileMoved",
-                                    `${moveInfo.oldPath.split("/").pop()} → ${newName}`,
+                                    `${basename(moveInfo.oldPath)} → ${newName}`,
                                 );
                             } else {
                                 await ctx.log(
@@ -1658,7 +1653,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                 );
                                 await ctx.notify(
                                     "noticeFileRenamed",
-                                    `${moveInfo.oldPath.split("/").pop()} -> ${newName}`,
+                                    `${basename(moveInfo.oldPath)} -> ${newName}`,
                                 );
                             }
                             // Don't return — fall through to hash check.
@@ -1983,7 +1978,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                             );
                                             await ctx.notify(
                                                 "noticeFilePushed",
-                                                file.path.split("/").pop(),
+                                                basename(file.path),
                                             );
                                         } catch (uploadErr) {
                                             await ctx.log(
@@ -2051,7 +2046,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                         `[Smart Push] [${completed}/${totalOps}] Pushed: ${file.path}`,
                         "notice",
                     );
-                    await ctx.notify("noticeFilePushed", file.path.split("/").pop());
+                    await ctx.notify("noticeFilePushed", basename(file.path));
 
                     // Record inline transfer for history tracking
                     ctx.backgroundTransferQueue.recordInlineTransfer({
@@ -2151,7 +2146,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                             `[Smart Push] [${completed}/${totalOps}] Deleted remote: ${path}`,
                             "notice",
                         );
-                        await ctx.notify("noticeFileTrashed", path.split("/").pop());
+                        await ctx.notify("noticeFileTrashed", basename(path));
                     } else {
                         // Zombie entry: in localIndex but not in shared index.
                         // Already "deleted" on remote by others or previous run.

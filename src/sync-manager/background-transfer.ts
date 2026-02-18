@@ -1,5 +1,6 @@
 import { md5 } from "../utils/md5";
 import { formatSize } from "../utils/format";
+import { basename } from "../utils/path";
 import type { CloudFile } from "../types/adapter";
 import type { SyncContext } from "./context";
 import { hashContent } from "./file-utils";
@@ -406,7 +407,7 @@ export class BackgroundTransferQueue {
             `[Background Transfer] Pushed: ${item.path} (${formatSize(item.size)})`,
             "notice",
         );
-        await ctx.notify("noticeFilePushed", item.path.split("/").pop());
+        await ctx.notify("noticeFilePushed", basename(item.path));
 
         // Record completion
         const record: TransferRecord = {

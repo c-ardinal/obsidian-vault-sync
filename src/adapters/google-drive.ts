@@ -2,6 +2,7 @@ import { CloudAdapter, CloudChanges, CloudFile } from "../types/adapter";
 import { generateCodeChallenge, generateCodeVerifier } from "../auth/pkce";
 import { DEFAULT_SETTINGS, SETTINGS_LIMITS, OAUTH_REDIRECT_URI } from "../constants";
 import { toHex } from "../utils/format";
+import { basename } from "../utils/path";
 import { Platform } from "obsidian";
 
 export class GoogleDriveAdapter implements CloudAdapter {
@@ -618,7 +619,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
     async getFileMetadata(path: string): Promise<CloudFile | null> {
         try {
             const parentId = await this.resolveParentId(path, false);
-            const name = path.split("/").pop();
+            const name = basename(path);
             const query = `name = '${this.escapeQueryValue(
                 name || "",
             )}' and '${parentId}' in parents and trashed = false`;
@@ -684,7 +685,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
         mtime: number,
         existingFileId?: string,
     ): Promise<CloudFile> {
-        const name = path.split("/").pop();
+        const name = basename(path);
         const metadata: any = {
             name: name,
             modifiedTime: new Date(mtime).toISOString(),
@@ -778,7 +779,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
         mtime: number,
         existingFileId?: string,
     ): Promise<string> {
-        const name = path.split("/").pop();
+        const name = basename(path);
         const metadata: any = {
             name: name,
             modifiedTime: new Date(mtime).toISOString(),

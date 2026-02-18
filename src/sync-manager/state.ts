@@ -1,6 +1,6 @@
 import { md5 } from "../utils/md5";
 import { toHex } from "../utils/format";
-import { normalizePath } from "../utils/path";
+import { normalizePath, dirname } from "../utils/path";
 import type { SyncContext } from "./context";
 import type { CommunicationData } from "./types";
 import { isManagedSeparately, shouldNotBeOnRemote, shouldIgnore } from "./file-utils";
@@ -314,8 +314,8 @@ export function markFolderDeleted(ctx: SyncContext, folderPath: string): void {
 export function markRenamed(ctx: SyncContext, oldPath: string, newPath: string): void {
     if (shouldIgnore(ctx, newPath)) return;
 
-    const oldDir = oldPath.substring(0, oldPath.lastIndexOf("/"));
-    const newDir = newPath.substring(0, newPath.lastIndexOf("/"));
+    const oldDir = dirname(oldPath);
+    const newDir = dirname(newPath);
     const isMove = oldDir !== newDir;
 
     // 未同期ファイルのリネーム/移動（oldPath がインデックスになく dirtyPaths にある）

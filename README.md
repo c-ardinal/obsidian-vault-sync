@@ -107,7 +107,7 @@ To use this plugin, you must create a Google Cloud Project and obtain your own *
 2. **Add Scopes**: 1. Under "Data access", select "Add or remove scopes". 2. Check `.../auth/drive.file` (See, edit, create, and delete only the specific Google Drive files you use with this app). 3. Click "Update". 4. Click "Save" at the bottom.
 3. ~~**Auth Period Persistence**: ※ If left in "Testing" state, re-authentication is required every 7 days.~~
     1. ~~Go to "Summary" and click "Publish App".~~
-    2. ~~Click "Confirm".~~
+    2. ~~Click "Confirm".~~  
        ※ Publishing the app without following proper procedures may trigger a warning from Google. These instructions are currently under review.
 
 ### 3. Create Credentials (Client ID / Secret)

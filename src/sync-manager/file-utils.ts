@@ -1,4 +1,4 @@
-import { normalizePath } from "../utils/path";
+import { normalizePath, basename } from "../utils/path";
 import { matchWildcard } from "../utils/wildcard";
 import { md5 } from "../utils/md5";
 import type { SyncContext } from "./context";
@@ -88,7 +88,7 @@ export async function getLocalFiles(ctx: SyncContext) {
                     path,
                     mtime: stat.mtime,
                     size: stat.size,
-                    name: path.split("/").pop() || "",
+                    name: basename(path),
                 });
             }
         }

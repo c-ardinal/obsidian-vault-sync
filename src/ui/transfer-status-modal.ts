@@ -2,6 +2,7 @@ import { App, Modal, setIcon } from "obsidian";
 import { SyncManager } from "../sync-manager";
 import type { TransferItem, TransferRecord } from "../sync-manager/transfer-types";
 import { formatSize } from "../utils/format";
+import { basename, dirname } from "../utils/path";
 
 export class TransferStatusModal extends Modal {
     private refreshTimer: number | null = null;
@@ -141,9 +142,8 @@ export class TransferStatusModal extends Modal {
         });
 
         const row2 = content.createDiv({ cls: "vault-sync-transfer-row2" });
-        const lastSlash = item.path.lastIndexOf("/");
-        const fileName = lastSlash >= 0 ? item.path.slice(lastSlash + 1) : item.path;
-        const dirPath = lastSlash >= 0 ? item.path.slice(0, lastSlash) : "";
+        const fileName = basename(item.path);
+        const dirPath = dirname(item.path);
         row2.createDiv({ cls: "vault-sync-transfer-filename", text: fileName });
         if (dirPath) {
             row2.createDiv({ cls: "vault-sync-transfer-dirpath", text: dirPath });
@@ -199,9 +199,8 @@ export class TransferStatusModal extends Modal {
             text: this.formatSize(record.size),
         });
         const row2 = content.createDiv({ cls: "vault-sync-transfer-row2" });
-        const lastSlash = record.path.lastIndexOf("/");
-        const fileName = lastSlash >= 0 ? record.path.slice(lastSlash + 1) : record.path;
-        const dirPath = lastSlash >= 0 ? record.path.slice(0, lastSlash) : "";
+        const fileName = basename(record.path);
+        const dirPath = dirname(record.path);
         row2.createDiv({ cls: "vault-sync-transfer-filename", text: fileName });
         if (dirPath) {
             row2.createDiv({ cls: "vault-sync-transfer-dirpath", text: dirPath });

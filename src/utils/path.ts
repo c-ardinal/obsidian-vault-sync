@@ -30,3 +30,8 @@ export function basename(path: string): string {
     const idx = path.lastIndexOf("/");
     return idx >= 0 ? path.substring(idx + 1) : path;
 }
+
+export function dirname(path: string): string {
+    const idx = path.lastIndexOf("/");
+    return idx >= 0 ? path.substring(0, idx) : "";
+}
