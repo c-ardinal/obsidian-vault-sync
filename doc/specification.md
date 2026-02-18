@@ -1,7 +1,7 @@
 # VaultSync - 仕様書
 
-**Version**: 2.2
-**Last Updated**: 2026-02-18
+**Version**: 2.3
+**Last Updated**: 2026-02-19
 
 Obsidian向けクラウドストレージ同期プラグイン。ローカルのObsidian VaultとGoogle Drive上のフォルダを同期し、全プラットフォームでのデータ一貫性を保つ。
 
@@ -46,13 +46,14 @@ Obsidian向けクラウドストレージ同期プラグイン。ローカルの
 | **EncryptedAdapter**        | `adapters/encrypted-adapter.ts`       | CloudAdapterのプロキシ。E2EE有効時に暗号化/復号を透過的に挿入。VSC1/VSC2自動判定              |
 | **SecureStorage**           | `secure-storage.ts`                   | 認証情報の保存。Obsidian Secret Storage (Keychain) を優先し、未対応環境では暗号化バイナリで保存 |
 | **VaultLockService**        | `services/vault-lock-service.ts`      | vault-lock.vault と migration.lock の管理。常に非暗号化アダプタ経由                            |
-| **ChunkedCrypto**           | `encryption/chunked-crypto.ts`        | VSC2チャンク分割暗号化/復号。大容量ファイルのピークメモリ削減                                  |
+| **ChunkedCrypto**           | E2EE Engine (`chunked-crypto.ts`)     | VSC2チャンク分割暗号化/復号。大容量ファイルのピークメモリ削減（E2EE Engineリポジトリに配置）   |
 | **ICryptoEngine**           | `encryption/interfaces.ts`            | E2EEエンジンの抽象インターフェース（暗号化/復号/リカバリー/UI注入）                            |
 | **DecryptionError**         | `encryption/errors.ts`                | 復号エラーの分類（authentication / format）                                                     |
 | **BackgroundTransferQueue** | `sync-manager/background-transfer.ts` | 大容量ファイルの非同期Push/Pull。リトライ・陳腐化検出・JSONL履歴                               |
 | **RevisionCache**           | `revision-cache.ts`                   | 履歴コンテンツのセッション内キャッシュ                                                         |
 | **HistoryModal**            | `ui/history-modal.ts`                 | 履歴確認・Diff表示・ロールバックUI                                                             |
 | **TransferStatusModal**     | `ui/transfer-status-modal.ts`         | 転送ステータス・履歴のタイムラインUI                                                           |
+| **SyncLogger**              | `sync-manager/logger.ts`              | レベルベースログ管理。バッファリング・条件付きフラッシュ・開発者モード即時出力                  |
 | **NotificationMatrix**      | `sync-manager/notification-matrix.ts` | 通知表示制御。トリガー×通知レベルのマトリックスで表示/非表示を決定                             |
 | **i18n**                    | `i18n.ts`                             | 多言語対応 (ja/en)                                                                             |
 
@@ -75,7 +76,8 @@ ObsidianVaultSync/           ← App Root (設定で変更可)
 
 | ファイル                         | 場所                 | 用途                                                                       |
 | :------------------------------- | :------------------- | :------------------------------------------------------------------------- |
-| `sync-index.json`                | プラグインフォルダ内 | ローカルインデックス（ファイルハッシュ・mtime・ancestorHash等）            |
+| `sync-index.json`                | プラグインフォルダ内 | クラウド共有インデックス（ファイルハッシュ・mtime・ancestorHash等）        |
+| `local-index.json`              | `data/local/`        | デバイス専用インデックス（前回同期時点のリビジョン記録。同期対象外）       |
 | `.sync-state`                    | `data/local/`        | 暗号化認証情報（Keychain未対応時のフォールバック。移行後は自動削除される） |
 | `open-data.json/local-data.json` | プラグインフォルダ内 | プラグイン設定                                                             |
 
@@ -229,21 +231,42 @@ ObsidianVaultSync/           ← App Root (設定で変更可)
 - 必須メソッド (`encrypt`, `decrypt`, `isUnlocked` 等) の存在を検証
 - 検証失敗時は `noticeEngineVerifyFailed` 通知を表示し、エンジンを読み込まない
 
-### 6.8 今後の対応アイテム
+## 7. 国際化 (i18n)
 
-#### ファイル名・構造の難読化
+- Obsidianの言語設定（`window.localStorage.getItem("language")`）に連動
+- 対応言語: 日本語 (ja) / 英語 (en, デフォルト)
+
+---
+
+## 8. 今後の対応アイテム
+
+### 8.1 E2EE: ファイル名・構造の難読化
 
 - **背景**: ファイルの中身は暗号化されるが、ファイル名から機密情報が漏洩するリスクがある
 - **方式**: `dir-map.json` によるファイル名マッピング
 - **リスク**: `dir-map.json` が単一障害点となり、競合解決が非常に困難になる
 - **優先度**: コンテンツ暗号化の安定化を優先し、将来バージョンで対応
 
-#### マルチマスターキー
+### 8.2 E2EE: マルチマスターキー
 
 - **背景**: 現在は全デバイスが同一マスターキーを共有。デバイス固有鍵を導入することで、特定デバイスの鍵失効が可能になる
 - **優先度**: 現時点ではリカバリーコード機能で十分な運用が可能。将来バージョンで検討
 
-## 7. 国際化 (i18n)
+### 8.3 マージアルゴリズム拡張
 
-- Obsidianの言語設定（`window.localStorage.getItem("language")`）に連動
-- 対応言語: 日本語 (ja) / 英語 (en, デフォルト)
+詳細は [競合解決仕様 §8](spec/conflict-resolution.md) を参照。
+
+1. **Intra-line Character Merge**: 同一行内の異なるオフセットへの変更を文字レベルで救済
+2. **Structural Table Merge**: Markdownテーブルのカラム操作を意味論的に統合
+3. **Block Move Tracking**: 章や段落の「移動」を検知し、移動先に編集を適用
+
+### 8.4 クラウドストレージ対応拡張
+
+詳細は [同期エンジン仕様 §12](spec/sync-engine.md) を参照。
+
+| クラウド     | Changes API                 | Hash比較     | 履歴   | 備考     |
+| :----------- | :-------------------------- | :----------- | :----- | :------- |
+| Dropbox      | 対応 (list_folder/continue) | content_hash | 対応   | -        |
+| OneDrive     | 対応 (delta API)            | quickXorHash | 対応   | -        |
+| S3           | 非対応                      | ETag         | 非対応 | 基本のみ |
+| WebDAV       | 非対応                      | 非対応       | 非対応 | 基本のみ |
