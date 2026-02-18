@@ -78,14 +78,13 @@ When E2EE is enabled:
 - A `vault-lock.vault` file protects the master key (derived via PBKDF2 from your password)
 - Smart sync features (3-way merge, conflict detection) work seamlessly with encrypted data
 - Password can be optionally stored in OS-level secure storage for auto-unlock
+- Enables password changes without re-encrypting data
+- Exports the master key as a Base64 string, enabling **recovery code generation** for password loss recovery
+- Reduces peak memory for files above the configurable threshold with **streaming encryption for large files**
 
 ### Setup
 
-1. Download the E2EE Engine from the [releases page](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine/releases)
-2. Place `e2ee-engine.js` into your plugin directory: `.obsidian/plugins/obsidian-vault-sync/`
-3. Restart Obsidian — a setup wizard will guide you through password creation and vault migration
-
-For details, build instructions, and the encryption specification, see the **[VaultSync E2EE Engine repository](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine)**.
+For details, available commands, build instructions, and the encryption specification, see the **[VaultSync E2EE Engine repository](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine)**.
 
 ---
 

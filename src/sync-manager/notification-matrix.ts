@@ -24,7 +24,8 @@ export type SyncTrigger =
     | "pull-conflict" // Pull時競合検出
     | "auth" // 認証
     | "migration" // 移行
-    | "history-modal"; // 履歴モーダル
+    | "history-modal" // 履歴モーダル
+    | "e2ee-modal"; // E2EEモーダル
 
 type VisibilityMap = Partial<Record<SyncTrigger, boolean>>;
 
@@ -213,15 +214,16 @@ const VERBOSE: Record<string, VisibilityMap> = {
     noticeEngineVerifyFailed: {
         "startup-sync": true,
     },
-    e2eeUnlockSuccess: { "manual-sync": true },
-    e2eeUnlockFailed: { "manual-sync": true },
+    e2eeUnlockSuccess: { "e2ee-modal": true },
+    e2eeUnlockFailed: { "e2ee-modal": true },
     e2eeSetupKeychainFailed: { migration: true },
     e2eeInterruptedDone: { "manual-sync": true },
-    noticeE2EEPasswordChanged: { "manual-sync": true },
-    noticeE2EERecoveryComplete: { "manual-sync": true },
+    noticeE2EEPasswordChanged: { "e2ee-modal": true },
+    noticeE2EERecoveryComplete: { "e2ee-modal": true },
     noticeE2EEDecryptFailed: {
-        "manual-sync": true,
+        "initial-sync": true,
         "startup-sync": true,
+        "manual-sync": true,
         "timer-sync": true,
         "save-sync": true,
         "modify-sync": true,
@@ -324,4 +326,5 @@ export const TRIGGER_PRIORITY: Record<SyncTrigger, number> = {
     auth: 0,
     migration: 11,
     "history-modal": 0,
+    "e2ee-modal": 0,
 };
