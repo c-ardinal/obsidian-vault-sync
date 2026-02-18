@@ -7,3 +7,5 @@ export type {
     CommunicationData,
     SyncTrigger,
 } from "./types";
+export type { TransferItem, TransferRecord, TransferCallbacks } from "./transfer-types";
+export { TransferPriority } from "./transfer-types";

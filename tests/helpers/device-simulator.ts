@@ -14,6 +14,8 @@ const DEFAULT_SETTINGS: SyncManagerSettings = {
     enableLogging: false,
     isDeveloperMode: false,
     exclusionPatterns: "",
+    largeFileThresholdMB: 0, // Disabled in tests (all files inline)
+    bgTransferIntervalSec: 0,
     syncAppearance: true,
     syncCommunityPlugins: true,
     syncCoreConfig: true,
@@ -108,7 +110,7 @@ export class DeviceSimulator {
      */
     editFile(path: string, newContent: string): void {
         this.app.vaultAdapter.setFile(path, newContent);
-        this.sm.dirtyPaths.add(path);
+        this.sm.dirtyPaths.set(path, Date.now());
     }
 
     /**
@@ -362,7 +364,7 @@ export class DeviceSimulator {
     /**
      * Get dirty paths.
      */
-    getDirtyPaths(): Set<string> {
+    getDirtyPaths(): Map<string, number> {
         return this.sm.dirtyPaths;
     }
 

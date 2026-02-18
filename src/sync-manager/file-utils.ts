@@ -1,4 +1,4 @@
-import { normalizePath } from "../utils/path";
+import { normalizePath, basename } from "../utils/path";
 import { matchWildcard } from "../utils/wildcard";
 import { md5 } from "../utils/md5";
 import type { SyncContext } from "./context";
@@ -88,7 +88,7 @@ export async function getLocalFiles(ctx: SyncContext) {
                     path,
                     mtime: stat.mtime,
                     size: stat.size,
-                    name: path.split("/").pop() || "",
+                    name: basename(path),
                 });
             }
         }
@@ -176,9 +176,8 @@ export function shouldNotBeOnRemote(ctx: SyncContext, path: string): boolean {
         : normalizedPath + "/";
 
     // 0. 自分のプラグインの内部ファイルの制御
-    if (normalizedPath.startsWith(".obsidian/plugins/obsidian-vault-sync/")) {
-        const pluginDirPrefix = ".obsidian/plugins/obsidian-vault-sync/";
-        const subPath = normalizedPath.substring(pluginDirPrefix.length);
+    if (normalizedPath.startsWith(PLUGIN_DIR)) {
+        const subPath = normalizedPath.substring(PLUGIN_DIR.length);
         const normalizedSubPath = subPath.endsWith("/") ? subPath : subPath + "/";
 
         if (normalizedSubPath.startsWith("logs/")) {
@@ -344,10 +343,14 @@ export function shouldIgnore(ctx: SyncContext, path: string): boolean {
  * @param content - ArrayBuffer containing the file content
  * @returns MD5 hash of the content as a lowercase hex string
  */
+export function normalizeLineEndings(s: string): string {
+    return s.replace(/\r\n/g, "\n");
+}
+
 export async function hashContent(content: ArrayBuffer): Promise<string> {
     // Normalize line endings for consistent hash calculation across platforms
     const contentStr = new TextDecoder().decode(content);
-    const normalizedContent = contentStr.replace(/\r\n/g, "\n");
+    const normalizedContent = normalizeLineEndings(contentStr);
     const normalizedBuffer = new TextEncoder().encode(normalizedContent).buffer;
     return md5(normalizedBuffer);
 }

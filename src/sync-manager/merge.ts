@@ -2,9 +2,16 @@ import { TFile } from "obsidian";
 import { md5 } from "../utils/md5";
 import { diff_match_patch } from "diff-match-patch";
 import type { SyncContext } from "./context";
-import { ensureLocalFolder, hashContent } from "./file-utils";
+import { ensureLocalFolder, hashContent, normalizeLineEndings } from "./file-utils";
 import { checkMergeLock, acquireMergeLock, releaseMergeLock, saveLocalIndex } from "./state";
 import { listRevisions, getRevisionContent } from "./history";
+import { basename } from "../utils/path";
+
+function markSettingsUpdatedIfNeeded(ctx: SyncContext, path: string): void {
+    if (path.endsWith("/open-data.json")) {
+        ctx.settingsUpdated = true;
+    }
+}
 
 // === Pure Functions ===
 
@@ -60,12 +67,11 @@ export function linesToChars3(
  * Check if the subset content's lines are a strict subsequence of the superset content.
  */
 export function isContentSubset(subset: string, superset: string): boolean {
-    const normalize = (s: string) => s.replace(/\r\n/g, "\n");
-    const subLines = normalize(subset)
+    const subLines = normalizeLineEndings(subset)
         .split("\n")
         .map((l) => l.trim())
         .filter((l) => l.length > 0);
-    const superLines = normalize(superset)
+    const superLines = normalizeLineEndings(superset)
         .split("\n")
         .map((l) => l.trim())
         .filter((l) => l.length > 0);
@@ -93,7 +99,6 @@ export function isContentSubset(subset: string, superset: string): boolean {
  * Check if two contents are semantically equivalent (same lines, possibly different order)
  */
 export function areSemanticallyEquivalent(contentA: string, contentB: string): boolean {
-    const normalizeLineEndings = (s: string) => s.replace(/\r\n/g, "\n");
     const localNorm = normalizeLineEndings(contentA);
     const remoteNorm = normalizeLineEndings(contentB);
 
@@ -222,10 +227,9 @@ export async function perform3WayMerge(
         const baseBuffer = await getRevisionContent(ctx, path, baseRev.id);
         const baseContentStr = new TextDecoder().decode(baseBuffer);
 
-        const normalize = (s: string) => s.replace(/\r\n/g, "\n");
-        const baseNorm = normalize(baseContentStr);
-        const localNorm = normalize(localContentStr);
-        const remoteNorm = normalize(remoteContentStr);
+        const baseNorm = normalizeLineEndings(baseContentStr);
+        const localNorm = normalizeLineEndings(localContentStr);
+        const remoteNorm = normalizeLineEndings(remoteContentStr);
 
         await ctx.log(
             `[Merge] Content lengths (raw/norm) - Base: ${baseContentStr.length}/${baseNorm.length}, Local: ${localContentStr.length}/${localNorm.length}, Remote: ${remoteContentStr.length}/${remoteNorm.length}`,
@@ -374,7 +378,7 @@ export async function pullFileSafely(
         await ctx.log(
             `[${logPrefix}] Skipping pull: ${item.path} is being merged by ${lockStatus.holder} (expires in ${lockStatus.expiresIn}s)`,
         );
-        await ctx.notify("noticeWaitOtherDeviceMerge", item.path.split("/").pop());
+        await ctx.notify("noticeWaitOtherDeviceMerge", basename(item.path));
         if (ctx.localIndex[item.path]) {
             ctx.localIndex[item.path].pendingConflict = true;
             await saveLocalIndex(ctx);
@@ -390,7 +394,7 @@ export async function pullFileSafely(
                 const localContent = await ctx.app.vault.adapter.readBinary(item.path);
                 // Normalize line endings for consistent hash calculation across platforms
                 const localContentStr = new TextDecoder().decode(localContent);
-                const normalizedContent = localContentStr.replace(/\r\n/g, "\n");
+                const normalizedContent = normalizeLineEndings(localContentStr);
                 const currentHash = md5(new TextEncoder().encode(normalizedContent).buffer);
                 const localBase = ctx.localIndex[item.path];
 
@@ -462,13 +466,13 @@ export async function pullFileSafely(
                         if (localBase?.pendingConflict) {
                             delete ctx.localIndex[item.path].pendingConflict;
                             await saveLocalIndex(ctx);
-                            await ctx.notify("noticeRemoteMergeSynced", item.path.split("/").pop());
+                            await ctx.notify("noticeRemoteMergeSynced", basename(item.path));
                         } else {
                             await saveLocalIndex(ctx);
                         }
 
                         if (!ctx.settings.hasCompletedFirstSync) {
-                            await ctx.notify("noticeSyncConfirmed", item.path.split("/").pop());
+                            await ctx.notify("noticeSyncConfirmed", basename(item.path));
                         }
                         await ctx.log(`[${logPrefix}] Skipped (content match): ${item.path}`);
                         return true;
@@ -534,19 +538,16 @@ export async function pullFileSafely(
                             if (wasPendingConflict) {
                                 await ctx.notify(
                                     "noticeRemoteMergeSynced",
-                                    item.path.split("/").pop(),
+                                    basename(item.path),
                                 );
                             } else {
-                                await ctx.notify("noticeFilePulled", item.path.split("/").pop());
+                                await ctx.notify("noticeFilePulled", basename(item.path));
                             }
                             ctx.syncingPaths.add(item.path);
                             const remoteContent = await ctx.adapter.downloadFile(fileId || "");
                             await ctx.app.vault.adapter.writeBinary(item.path, remoteContent);
 
-                            // Detect if this is the plugin's own settings file
-                            if (item.path.endsWith("/open-data.json")) {
-                                ctx.settingsUpdated = true;
-                            }
+                            markSettingsUpdatedIfNeeded(ctx, item.path);
 
                             const stat = await ctx.app.vault.adapter.stat(item.path);
                             // Calculate plainHash for downloaded content
@@ -582,7 +583,7 @@ export async function pullFileSafely(
                             );
                             await ctx.notify(
                                 "noticeWaitOtherDeviceMerge",
-                                item.path.split("/").pop(),
+                                basename(item.path),
                             );
                             if (ctx.localIndex[item.path]) {
                                 ctx.localIndex[item.path].pendingConflict = true;
@@ -591,7 +592,7 @@ export async function pullFileSafely(
                         }
                         await ctx.log(`[${logPrefix}] Lock acquired successfully.`);
 
-                        await ctx.notify("noticeMergingFile", item.path.split("/").pop());
+                        await ctx.notify("noticeMergingFile", basename(item.path));
 
                         let baseHash = localBase.ancestorHash;
                         let origin = "ancestorHash";
@@ -652,7 +653,7 @@ export async function pullFileSafely(
 
                             if (merged) {
                                 const mergedStr = new TextDecoder().decode(merged);
-                                const normalizedMerged = mergedStr.replace(/\r\n/g, "\n");
+                                const normalizedMerged = normalizeLineEndings(mergedStr);
                                 const normalizedBuffer = new TextEncoder().encode(
                                     normalizedMerged,
                                 ).buffer;
@@ -661,13 +662,10 @@ export async function pullFileSafely(
                                     normalizedBuffer,
                                 );
 
-                                // Detect if this is the plugin's own settings file
-                                if (item.path.endsWith("/open-data.json")) {
-                                    ctx.settingsUpdated = true;
-                                }
+                                markSettingsUpdatedIfNeeded(ctx, item.path);
 
                                 const mergedHash = md5(normalizedBuffer);
-                                const remoteNorm = remoteContentStr.replace(/\r\n/g, "\n");
+                                const remoteNorm = normalizeLineEndings(remoteContentStr);
 
                                 const isIdenticalToRemote =
                                     (item.hash && mergedHash === item.hash.toLowerCase()) ||
@@ -692,7 +690,7 @@ export async function pullFileSafely(
                                     };
                                     await ctx.notify(
                                         "noticeRemoteMergeSynced",
-                                        item.path.split("/").pop(),
+                                        basename(item.path),
                                     );
                                     ctx.index[item.path] = entry;
                                     ctx.localIndex[item.path] = { ...entry };
@@ -719,7 +717,7 @@ export async function pullFileSafely(
                                         };
                                         ctx.index[item.path] = entryCloud;
                                         ctx.localIndex[item.path] = entryLocal;
-                                        ctx.dirtyPaths.add(item.path);
+                                        ctx.dirtyPaths.set(item.path, Date.now());
                                         await saveLocalIndex(ctx);
 
                                         await ctx.log(
@@ -730,14 +728,14 @@ export async function pullFileSafely(
                                             // Successfully merged our changes on top of a remote merge result from another device
                                             await ctx.notify(
                                                 "noticeRemoteMergeSynced",
-                                                item.path.split("/").pop(),
+                                                basename(item.path),
                                             );
                                             delete ctx.localIndex[item.path].pendingConflict;
                                             await saveLocalIndex(ctx);
                                         } else {
                                             await ctx.notify(
                                                 "noticeMergeSuccess",
-                                                item.path.split("/").pop(),
+                                                basename(item.path),
                                             );
                                         }
                                     } else {
@@ -755,7 +753,7 @@ export async function pullFileSafely(
                                             lastAction: "merge" as const,
                                             ancestorHash: item.hash?.toLowerCase() || "",
                                         };
-                                        ctx.dirtyPaths.add(item.path);
+                                        ctx.dirtyPaths.set(item.path, Date.now());
                                         await saveLocalIndex(ctx);
                                     }
                                 }
@@ -803,10 +801,7 @@ export async function pullFileSafely(
                         // Calculate plainHash for downloaded content
                         remotePlainHash = await hashContent(remoteContent);
 
-                        // Detect if this is the plugin's own settings file
-                        if (item.path.endsWith("/open-data.json")) {
-                            ctx.settingsUpdated = true;
-                        }
+                        markSettingsUpdatedIfNeeded(ctx, item.path);
                     } else {
                         const exists = await ctx.app.vault.adapter.exists(item.path);
                         if (exists) {
@@ -833,7 +828,7 @@ export async function pullFileSafely(
                         await releaseMergeLock(ctx, item.path, logPrefix);
                     }
 
-                    await ctx.notify("noticeConflictSaved", conflictPath.split("/").pop());
+                    await ctx.notify("noticeConflictSaved", basename(conflictPath));
                     ctx.logger.markActionTaken();
                     return true;
                 } else {
@@ -846,7 +841,7 @@ export async function pullFileSafely(
                         delete ctx.localIndex[item.path].pendingConflict;
                         await saveLocalIndex(ctx);
 
-                        await ctx.notify("noticeRemoteMergeSynced", item.path.split("/").pop());
+                        await ctx.notify("noticeRemoteMergeSynced", basename(item.path));
                     }
 
                     if (isRemoteDeleted) {
@@ -896,11 +891,14 @@ export async function pullFileSafely(
         ctx.localIndex[item.path] = { ...entry };
         await saveLocalIndex(ctx);
 
-        await ctx.notify("noticeFilePulled", item.path.split("/").pop());
+        await ctx.notify("noticeFilePulled", basename(item.path));
         ctx.logger.markActionTaken();
         return true;
     } catch (e) {
         await ctx.log(`[${logPrefix}] Pull failed: ${item.path} - ${e}`, "error");
+        if ((e as any)?.name === "DecryptionError") {
+            await ctx.notify("noticeE2EEDecryptFailed", basename(item.path));
+        }
         return false;
     } finally {
         ctx.syncingPaths.delete(item.path);

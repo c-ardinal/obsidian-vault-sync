@@ -55,6 +55,43 @@ export interface CloudAdapter {
         existingFileId?: string,
     ): Promise<CloudFile>;
     /**
+     * Upload a file using resumable upload protocol (optional).
+     * Preferred for large files as it allows resuming interrupted transfers.
+     * Falls back to regular uploadFile if not implemented.
+     */
+    uploadFileResumable?(
+        path: string,
+        content: ArrayBuffer,
+        mtime: number,
+        existingFileId?: string,
+    ): Promise<CloudFile>;
+
+    /**
+     * Initiate a resumable upload session for chunked transfer (optional).
+     * Returns a session URI for subsequent uploadChunk() calls.
+     */
+    initiateResumableSession?(
+        path: string,
+        totalSize: number,
+        mtime: number,
+        existingFileId?: string,
+    ): Promise<string>;
+
+    /**
+     * Upload a chunk to a resumable session using Content-Range (optional).
+     * All chunks except the last must be a multiple of 256 KiB.
+     * Returns null for intermediate chunks (HTTP 308), CloudFile on final (HTTP 200).
+     */
+    uploadChunk?(
+        sessionUri: string,
+        chunk: ArrayBuffer,
+        offset: number,
+        totalSize: number,
+        path: string,
+        mtime: number,
+    ): Promise<CloudFile | null>;
+
+    /**
      * Delete a file or folder by its cloud ID.
      * When a folder is deleted, the cloud provider handles cascading
      * deletion of all children automatically.

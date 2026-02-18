@@ -1,8 +1,16 @@
 import { md5 } from "../utils/md5";
-import { normalizePath } from "../utils/path";
+import { toHex } from "../utils/format";
+import { normalizePath, dirname } from "../utils/path";
 import type { SyncContext } from "./context";
 import type { CommunicationData } from "./types";
 import { isManagedSeparately, shouldNotBeOnRemote, shouldIgnore } from "./file-utils";
+
+function generateDeviceId(): string {
+    const randomArray = new Uint8Array(4);
+    if (typeof crypto !== "undefined") crypto.getRandomValues(randomArray);
+    const suffix = toHex(randomArray);
+    return md5(new TextEncoder().encode(Date.now().toString() + suffix).buffer).substring(0, 8);
+}
 
 // === Communication.json Management ===
 
@@ -178,14 +186,7 @@ export async function loadLocalIndex(ctx: SyncContext): Promise<void> {
             ctx.deviceId = parsed.deviceId || "";
 
             if (!ctx.deviceId) {
-                const randomArray = new Uint8Array(4);
-                if (typeof crypto !== "undefined") crypto.getRandomValues(randomArray);
-                const suffix = Array.from(randomArray)
-                    .map((b) => b.toString(16).padStart(2, "0"))
-                    .join("");
-                ctx.deviceId = md5(
-                    new TextEncoder().encode(Date.now().toString() + suffix).buffer,
-                ).substring(0, 8);
+                ctx.deviceId = generateDeviceId();
 
                 // Set folder BEFORE logging
                 ctx.logFolder = `${ctx.pluginDir}/logs/${ctx.deviceId}`;
@@ -204,14 +205,7 @@ export async function loadLocalIndex(ctx: SyncContext): Promise<void> {
             }
         } else {
             ctx.localIndex = { ...ctx.index };
-            const randomArray = new Uint8Array(4);
-            if (typeof crypto !== "undefined") crypto.getRandomValues(randomArray);
-            const suffix = Array.from(randomArray)
-                .map((b) => b.toString(16).padStart(2, "0"))
-                .join("");
-            ctx.deviceId = md5(
-                new TextEncoder().encode(Date.now().toString() + suffix).buffer,
-            ).substring(0, 8);
+            ctx.deviceId = generateDeviceId();
 
             const isAlreadyLogged = ctx.logFolder === `${ctx.pluginDir}/logs/${ctx.deviceId}`;
 
@@ -230,11 +224,7 @@ export async function loadLocalIndex(ctx: SyncContext): Promise<void> {
             ctx.deviceId && ctx.logFolder === `${ctx.pluginDir}/logs/${ctx.deviceId}`;
 
         // Fallback device ID
-        ctx.deviceId =
-            ctx.deviceId ||
-            md5(
-                new TextEncoder().encode(Date.now().toString() + Math.random().toString()).buffer,
-            ).substring(0, 8);
+        ctx.deviceId = ctx.deviceId || generateDeviceId();
         ctx.logFolder = `${ctx.pluginDir}/logs/${ctx.deviceId}`;
 
         if (!isAlreadyLogged) {
@@ -296,13 +286,13 @@ export function markDirty(ctx: SyncContext, path: string): void {
     path = normalizePath(path);
     if (shouldIgnore(ctx, path)) return;
     if (ctx.syncingPaths.has(path)) return;
-    ctx.dirtyPaths.add(path);
+    ctx.dirtyPaths.set(path, Date.now());
 }
 
 export function markDeleted(ctx: SyncContext, path: string): void {
     if (shouldIgnore(ctx, path)) return;
     if (ctx.index[path]) {
-        ctx.dirtyPaths.add(path);
+        ctx.dirtyPaths.set(path, Date.now());
         ctx.log(`[Dirty] Marked for deletion: ${path}`, "debug");
     }
 }
@@ -315,7 +305,7 @@ export function markFolderDeleted(ctx: SyncContext, folderPath: string): void {
     const prefix = folderPath + "/";
     for (const path of Object.keys(ctx.index)) {
         if (path.startsWith(prefix) && !shouldIgnore(ctx, path)) {
-            ctx.dirtyPaths.add(path);
+            ctx.dirtyPaths.set(path, Date.now());
             ctx.log(`[Dirty] Marked for deletion (child): ${path}`, "debug");
         }
     }
@@ -324,14 +314,14 @@ export function markFolderDeleted(ctx: SyncContext, folderPath: string): void {
 export function markRenamed(ctx: SyncContext, oldPath: string, newPath: string): void {
     if (shouldIgnore(ctx, newPath)) return;
 
-    const oldDir = oldPath.substring(0, oldPath.lastIndexOf("/"));
-    const newDir = newPath.substring(0, newPath.lastIndexOf("/"));
+    const oldDir = dirname(oldPath);
+    const newDir = dirname(newPath);
     const isMove = oldDir !== newDir;
 
     // 未同期ファイルのリネーム/移動（oldPath がインデックスになく dirtyPaths にある）
     if (ctx.dirtyPaths.has(oldPath) && !ctx.index[oldPath]) {
         ctx.dirtyPaths.delete(oldPath);
-        ctx.dirtyPaths.add(newPath);
+        ctx.dirtyPaths.set(newPath, Date.now());
         ctx.log(`[Dirty] Removed (renamed before sync): ${oldPath}`, "debug");
         ctx.log(`[Dirty] Marked (renamed before sync): ${newPath}`, "debug");
         return;
@@ -358,7 +348,7 @@ export function markRenamed(ctx: SyncContext, oldPath: string, newPath: string):
         delete ctx.localIndex[oldPath];
     }
 
-    ctx.dirtyPaths.add(newPath);
+    ctx.dirtyPaths.set(newPath, Date.now());
     ctx.log(
         `[Dirty] Marked (${isMove ? "moved" : "renamed"}): ${newPath} (Migrated ID from ${oldPath})`,
         "debug",
@@ -375,7 +365,7 @@ export function markFolderRenamed(
 
     // Track folder-level move for optimization in smartPush
     ctx.pendingFolderMoves.set(newFolderPath, oldFolderPath);
-    ctx.dirtyPaths.add(newFolderPath); // Ensure the folder itself is processed
+    ctx.dirtyPaths.set(newFolderPath, Date.now()); // Ensure the folder itself is processed
 
     // If the old folder was marked for deletion (via previous event),
     // we remove it since it's now a move.
@@ -407,7 +397,7 @@ export function markFolderRenamed(
 
             // dirtyPaths を更新
             ctx.dirtyPaths.delete(oldPath);
-            ctx.dirtyPaths.add(newPath);
+            ctx.dirtyPaths.set(newPath, Date.now());
             ctx.log(
                 `[Dirty] Marked (folder move child): ${oldPath} -> ${newPath} (Migrated ID)`,
                 "debug",

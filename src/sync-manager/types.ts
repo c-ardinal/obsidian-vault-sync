@@ -1,24 +1,27 @@
-export interface SyncManagerSettings {
-    concurrency: number;
-    notificationLevel: "verbose" | "standard" | "error";
-    conflictResolutionStrategy: "smart-merge" | "force-local" | "force-remote" | "always-fork";
-    enableLogging: boolean;
-    isDeveloperMode: boolean;
-    exclusionPatterns: string;
+import type { VaultSyncSettings } from "../types/settings";
 
-    // Sync Scope Options
-    syncAppearance: boolean;
-    syncCommunityPlugins: boolean;
-    syncCoreConfig: boolean;
-    syncImagesAndMedia: boolean;
-    syncDotfiles: boolean;
-    syncPluginSettings: boolean;
-    syncFlexibleData: boolean;
-    syncDeviceLogs: boolean;
-    syncWorkspace: boolean;
-    hasCompletedFirstSync: boolean;
-    e2eeEnabled: boolean;
-}
+export type SyncManagerSettings = Pick<
+    VaultSyncSettings,
+    | "concurrency"
+    | "largeFileThresholdMB"
+    | "bgTransferIntervalSec"
+    | "notificationLevel"
+    | "conflictResolutionStrategy"
+    | "enableLogging"
+    | "isDeveloperMode"
+    | "exclusionPatterns"
+    | "syncAppearance"
+    | "syncCommunityPlugins"
+    | "syncCoreConfig"
+    | "syncImagesAndMedia"
+    | "syncDotfiles"
+    | "syncPluginSettings"
+    | "syncFlexibleData"
+    | "syncDeviceLogs"
+    | "syncWorkspace"
+    | "hasCompletedFirstSync"
+    | "e2eeEnabled"
+>;
 
 export interface LocalFileIndex {
     [path: string]: {
@@ -44,6 +47,12 @@ export interface LocalFileIndex {
          *  Contains the old path from which the file was moved. */
         pendingMove?: {
             oldPath: string;
+        };
+        /** If set, a background transfer is in progress for this file */
+        pendingTransfer?: {
+            direction: "push" | "pull";
+            enqueuedAt: number;
+            snapshotHash: string;
         };
     };
 }

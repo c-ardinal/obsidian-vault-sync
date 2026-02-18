@@ -27,9 +27,7 @@
 
             <!-- English -->
             <div id="en" class="lang active">
-                <a href="https://github.com/c-ardinal/obsidian-vault-sync" class="back-link"
-                    >&larr; Back to GitHub</a
-                >
+                <a href="../" class="back-link">&larr; Back to Top</a>
                 <header>
                     <h1>Privacy Policy</h1>
                 </header>
@@ -80,9 +78,15 @@
                 <h2>End-to-End Encryption (E2EE)</h2>
                 <p>
                     When E2EE is enabled, all vault content is encrypted on your device before
-                    upload. The encryption password is never transmitted or stored remotely. Only
-                    encrypted data is stored on your cloud storage, and decryption occurs
-                    exclusively on your local device.
+                    upload using AES-256-GCM. The encryption password is never transmitted or
+                    stored remotely. Only encrypted data is stored on your cloud storage, and
+                    decryption occurs exclusively on your local device.
+                </p>
+                <p>
+                    Password changes re-wrap the master key locally without re-encrypting data.
+                    Recovery codes (Base64-encoded master key) are generated and displayed
+                    exclusively on your device and are never transmitted to any server. Key
+                    fingerprints are computed locally for visual verification.
                 </p>
 
                 <h2>Third-Party Services</h2>
@@ -127,14 +131,12 @@
                     >.
                 </p>
 
-                <p class="updated">Last updated: February 16, 2026</p>
+                <p class="updated">Last updated: February 18, 2026</p>
             </div>
 
             <!-- Japanese -->
             <div id="ja" class="lang">
-                <a href="https://github.com/c-ardinal/obsidian-vault-sync" class="back-link"
-                    >&larr; GitHubに戻る</a
-                >
+                <a href="../#ja" class="back-link">&larr; トップに戻る</a>
                 <header>
                     <h1>プライバシーポリシー</h1>
                 </header>
@@ -178,9 +180,14 @@
 
                 <h2>エンドツーエンド暗号化（E2EE）</h2>
                 <p>
-                    E2EEが有効な場合、すべてのVaultコンテンツはアップロード前にデバイス上で暗号化されます。
+                    E2EEが有効な場合、すべてのVaultコンテンツはアップロード前にAES-256-GCMでデバイス上にて暗号化されます。
                     暗号化パスワードやトークンがクラウドストレージに送信・保存されることはありません。
                     クラウドストレージには暗号化されたデータのみが保存され、復号化はローカルデバイス上でのみ行われます。
+                </p>
+                <p>
+                    パスワード変更時はデータの再暗号化を行わず、マスターキーのローカルでの再ラッピングのみ実施します。
+                    リカバリーコード（Base64エンコードされたマスターキー）はデバイス上でのみ生成・表示され、外部サーバーに送信されることはありません。
+                    鍵フィンガープリントもローカルで計算されます。
                 </p>
 
                 <h2>第三者サービス</h2>
@@ -223,7 +230,7 @@
                     >でIssueを作成してください。
                 </p>
 
-                <p class="updated">最終更新日: 2026年2月16日</p>
+                <p class="updated">最終更新日: 2026年2月18日</p>
             </div>
         </div>
 

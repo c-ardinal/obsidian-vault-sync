@@ -78,14 +78,13 @@ When E2EE is enabled:
 - A `vault-lock.vault` file protects the master key (derived via PBKDF2 from your password)
 - Smart sync features (3-way merge, conflict detection) work seamlessly with encrypted data
 - Password can be optionally stored in OS-level secure storage for auto-unlock
+- Enables password changes without re-encrypting data
+- Exports the master key as a Base64 string, enabling **recovery code generation** for password loss recovery
+- Reduces peak memory for files above the configurable threshold with **streaming encryption for large files**
 
 ### Setup
 
-1. Download the E2EE Engine from the [releases page](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine/releases)
-2. Place `e2ee-engine.js` into your plugin directory: `.obsidian/plugins/obsidian-vault-sync/`
-3. Restart Obsidian — a setup wizard will guide you through password creation and vault migration
-
-For details, build instructions, and the encryption specification, see the **[VaultSync E2EE Engine repository](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine)**.
+For details, available commands, build instructions, and the encryption specification, see the **[VaultSync E2EE Engine repository](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine)**.
 
 ---
 
@@ -108,7 +107,7 @@ To use this plugin, you must create a Google Cloud Project and obtain your own *
 2. **Add Scopes**: 1. Under "Data access", select "Add or remove scopes". 2. Check `.../auth/drive.file` (See, edit, create, and delete only the specific Google Drive files you use with this app). 3. Click "Update". 4. Click "Save" at the bottom.
 3. ~~**Auth Period Persistence**: ※ If left in "Testing" state, re-authentication is required every 7 days.~~
     1. ~~Go to "Summary" and click "Publish App".~~
-    2. ~~Click "Confirm".~~
+    2. ~~Click "Confirm".~~  
        ※ Publishing the app without following proper procedures may trigger a warning from Google. These instructions are currently under review.
 
 ### 3. Create Credentials (Client ID / Secret)

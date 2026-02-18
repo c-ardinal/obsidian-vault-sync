@@ -18,6 +18,54 @@ import {
 } from "./file-utils";
 import { loadCommunication, saveIndex, saveLocalIndex, clearPendingPushStates } from "./state";
 import { pullFileSafely } from "./merge";
+import { TransferPriority, type TransferRecord } from "./transfer-types";
+import { formatSize } from "../utils/format";
+import { basename, dirname } from "../utils/path";
+
+// ==========================================================================
+// Helpers
+// ==========================================================================
+
+async function computeLocalHash(
+    ctx: SyncContext,
+    content: ArrayBuffer,
+    indexEntry: { hash?: string; plainHash?: string },
+): Promise<{ localHash: string; compareHash: string | undefined }> {
+    const useE2EE = ctx.e2eeEnabled && !!indexEntry.plainHash;
+    const localHash = useE2EE ? await hashContent(content) : md5(content);
+    const compareHash = useE2EE ? indexEntry.plainHash : indexEntry.hash;
+    return { localHash, compareHash };
+}
+
+async function downloadRemoteIndex(ctx: SyncContext, fileId: string): Promise<LocalFileIndex> {
+    const content = await ctx.adapter.downloadFile(fileId);
+    const decompressed = await tryDecompress(content);
+    const data = JSON.parse(new TextDecoder().decode(decompressed));
+    return data.index || {};
+}
+
+function getThresholdBytes(ctx: SyncContext): number {
+    return (ctx.settings.largeFileThresholdMB ?? 0) * 1024 * 1024;
+}
+
+function generateTransferId(direction: "push" | "pull"): string {
+    return `bg-${direction}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function markPendingTransfer(
+    ctx: SyncContext,
+    path: string,
+    direction: "push" | "pull",
+    snapshotHash: string,
+): void {
+    if (ctx.localIndex[path]) {
+        ctx.localIndex[path].pendingTransfer = {
+            direction,
+            enqueuedAt: Date.now(),
+            snapshotHash,
+        };
+    }
+}
 
 // ==========================================================================
 // Scanning
@@ -51,7 +99,7 @@ export async function scanObsidianChanges(ctx: SyncContext): Promise<void> {
                     );
                     continue;
                 }
-                ctx.dirtyPaths.add(filePath);
+                ctx.dirtyPaths.set(filePath, Date.now());
                 await ctx.log(`[Obsidian Scan] New: ${filePath}`, "debug");
                 continue;
             }
@@ -61,19 +109,16 @@ export async function scanObsidianChanges(ctx: SyncContext): Promise<void> {
                 // Mtime changed: verify content hash to confirm actual modification
                 try {
                     const content = await ctx.app.vault.adapter.readBinary(filePath);
-                    // For E2EE: use normalized hash (CRLF→LF) to match plainHash computation
-                    const useE2EEHash = ctx.e2eeEnabled && indexEntry.plainHash;
-                    const localHash = useE2EEHash ? await hashContent(content) : md5(content);
-                    const compareHash = useE2EEHash ? indexEntry.plainHash : indexEntry.hash;
+                    const { localHash, compareHash } = await computeLocalHash(ctx, content, indexEntry);
                     if (compareHash && localHash !== compareHash.toLowerCase()) {
-                        ctx.dirtyPaths.add(filePath);
+                        ctx.dirtyPaths.set(filePath, Date.now());
                         await ctx.log(
                             `[Obsidian Scan] Modified (hash mismatch vs localIndex): ${filePath}`,
                             "debug",
                         );
                     } else if (!indexEntry.hash) {
                         // No previous hash, but mtime changed. Assume dirty to be safe and update hash.
-                        ctx.dirtyPaths.add(filePath);
+                        ctx.dirtyPaths.set(filePath, Date.now());
                         await ctx.log(
                             `[Obsidian Scan] Modified (no prev hash in localIndex): ${filePath}`,
                             "debug",
@@ -88,7 +133,7 @@ export async function scanObsidianChanges(ctx: SyncContext): Promise<void> {
                     }
                 } catch {
                     // Read failed, assume dirty
-                    ctx.dirtyPaths.add(filePath);
+                    ctx.dirtyPaths.set(filePath, Date.now());
                 }
             }
         }
@@ -105,7 +150,7 @@ export async function scanObsidianChanges(ctx: SyncContext): Promise<void> {
 
             if (isMissing || isIgnored) {
                 if (ctx.index[path]) {
-                    ctx.dirtyPaths.add(path);
+                    ctx.dirtyPaths.set(path, Date.now());
                     await ctx.log(
                         `[Obsidian Scan] Marked for remote deletion (${isMissing ? "missing" : "ignored"}): ${path}`,
                         "debug",
@@ -158,25 +203,21 @@ export async function scanVaultChanges(ctx: SyncContext): Promise<void> {
                     continue;
                 }
                 // New file (not in local index)
-                ctx.dirtyPaths.add(file.path);
+                ctx.dirtyPaths.set(file.path, Date.now());
                 await ctx.log(`[Vault Scan] New: ${file.path}`, "debug");
             } else if (file.stat.mtime > indexEntry.mtime) {
                 // Mtime changed: verify content hash
                 try {
                     const content = await ctx.app.vault.adapter.readBinary(file.path);
-
-                    // For E2EE: use normalized hash (CRLF→LF) to match plainHash computation
-                    const useE2EEHash = ctx.e2eeEnabled && indexEntry.plainHash;
-                    const localHash = useE2EEHash ? await hashContent(content) : md5(content);
-                    const compareHash = useE2EEHash ? indexEntry.plainHash : indexEntry.hash;
+                    const { localHash, compareHash } = await computeLocalHash(ctx, content, indexEntry);
                     if (compareHash && localHash !== compareHash.toLowerCase()) {
-                        ctx.dirtyPaths.add(file.path);
+                        ctx.dirtyPaths.set(file.path, Date.now());
                         await ctx.log(
                             `[Vault Scan] Modified (hash mismatch vs localIndex): ${file.path}`,
                             "debug",
                         );
                     } else if (!compareHash) {
-                        ctx.dirtyPaths.add(file.path);
+                        ctx.dirtyPaths.set(file.path, Date.now());
                         await ctx.log(
                             `[Vault Scan] Modified (no prev hash in localIndex): ${file.path}`,
                             "debug",
@@ -207,7 +248,7 @@ export async function scanVaultChanges(ctx: SyncContext): Promise<void> {
 
             if (isMissing || isIgnored) {
                 if (ctx.index[path]) {
-                    ctx.dirtyPaths.add(path);
+                    ctx.dirtyPaths.set(path, Date.now());
                     await ctx.log(
                         `[Vault Scan] Marked for remote deletion (${isMissing ? "missing" : "ignored"}): ${path}`,
                         "debug",
@@ -318,6 +359,8 @@ export async function executeSmartSync(ctx: SyncContext, scanVault: boolean): Pr
     if (ALWAYS_SHOW_ACTIVITY.has(ctx.currentTrigger)) {
         ctx.startActivity();
     }
+    // Pause background transfers during sync cycle to avoid race conditions
+    ctx.backgroundTransferQueue.pause();
     try {
         await ctx.log("=== SMART SYNC START ===");
         await ctx.notify("noticeSyncing");
@@ -374,6 +417,10 @@ export async function executeSmartSync(ctx: SyncContext, scanVault: boolean): Pr
         }
         await ctx.logger.endCycle();
         ctx.endActivity();
+        // Resume background transfers after sync cycle completes
+        ctx.backgroundTransferQueue.resume();
+        // Flush any buffered transfer history records to disk
+        ctx.backgroundTransferQueue.flushHistory().catch(() => {});
     }
 }
 
@@ -439,7 +486,7 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
                 `[Smart Pull] Active merge lock detected: ${path} by ${lock.holder} (expires in ${Math.round((lock.expiresAt - now) / 1000)}s)`,
                 "warn",
             );
-            await ctx.notify("noticeWaitOtherDeviceMerge", path.split("/").pop());
+            await ctx.notify("noticeWaitOtherDeviceMerge", basename(path));
             if (ctx.localIndex[path] && !ctx.localIndex[path].pendingConflict) {
                 ctx.localIndex[path].pendingConflict = true;
                 localIndexChanged = true;
@@ -513,10 +560,7 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
         `[Smart Pull] Index hash differs (local: ${localIndexHash}, remote: ${remoteIndexHash}). Fetching remote index...`,
     );
 
-    const remoteIndexContent = await ctx.adapter.downloadFile(remoteIndexMeta.id);
-    const decompressed = await tryDecompress(remoteIndexContent);
-    const remoteIndexData = JSON.parse(new TextDecoder().decode(decompressed));
-    const remoteIndex: LocalFileIndex = remoteIndexData.index || {};
+    const remoteIndex = await downloadRemoteIndex(ctx, remoteIndexMeta.id);
 
     // === CORRUPTION CHECK ===
     // If index is empty but file is large (>200 bytes), assume corruption.
@@ -604,7 +648,7 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
 
                             await ctx.notify(
                                 "noticeFileMoved",
-                                `${oldPath.split("/").pop()} → ${newPath.split("/").pop()}`,
+                                `${basename(oldPath)} → ${basename(newPath)}`,
                             );
 
                             // Check if content also changed. If hash matches, we're done with this file.
@@ -719,17 +763,74 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
         return false;
     }
 
-    // Download changed files
+    // === SIZE-BASED ROUTING: Partition pull items into inline and background ===
+    const pullThresholdBytes = getThresholdBytes(ctx);
+    const inlineDownloads: typeof toDownload = [];
+    let deferredPullCount = 0;
+
+    if (pullThresholdBytes > 0) {
+        for (const item of toDownload) {
+            const remoteSize = remoteIndex[item.path]?.size ?? 0;
+            const hasLocalConflict = ctx.dirtyPaths.has(item.path);
+            const isDeletionConflict = !item.fileId; // Dummy entry for deletion conflict
+
+            if (!hasLocalConflict && !isDeletionConflict && remoteSize > pullThresholdBytes) {
+                // Defer to background queue
+                ctx.backgroundTransferQueue.enqueue({
+                    id: generateTransferId("pull"),
+                    direction: "pull",
+                    path: item.path,
+                    fileId: item.fileId,
+                    size: remoteSize,
+                    priority: TransferPriority.NORMAL,
+                    status: "pending",
+                    retryCount: 0,
+                    createdAt: Date.now(),
+                    remoteHash: item.hash,
+                });
+                markPendingTransfer(ctx, item.path, "pull", item.hash || "");
+                deferredPullCount++;
+                await ctx.log(
+                    `[Smart Pull] Deferred to background (${formatSize(remoteSize)}): ${item.path}`,
+                );
+            } else {
+                inlineDownloads.push(item);
+            }
+        }
+    } else {
+        inlineDownloads.push(...toDownload);
+    }
+
+    // Download changed files (inline only — large files deferred above)
     const tasks: (() => Promise<void>)[] = [];
     let completed = 0;
-    const total = toDownload.length + toDeleteLocal.length;
+    const total = inlineDownloads.length + toDeleteLocal.length;
 
-    for (const item of toDownload) {
+    for (const item of inlineDownloads) {
         tasks.push(async () => {
-            const success = await pullFileSafely(ctx, item, "Smart Pull");
-            if (success) {
-                completed++;
-                await ctx.log(`[Smart Pull] [${completed}/${total}] Synced: ${item.path}`);
+            const pullStartTime = Date.now();
+            const estimatedSize = ctx.localIndex[item.path]?.size ?? 0;
+            ctx.backgroundTransferQueue.markInlineStart(item.path, "pull", estimatedSize);
+            try {
+                const success = await pullFileSafely(ctx, item, "Smart Pull");
+                if (success) {
+                    completed++;
+                    await ctx.log(`[Smart Pull] [${completed}/${total}] Synced: ${item.path}`);
+                    // Record inline transfer for history tracking
+                    const pulledSize = ctx.localIndex[item.path]?.size ?? 0;
+                    ctx.backgroundTransferQueue.recordInlineTransfer({
+                        id: `inline-pull-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                        direction: "pull",
+                        path: item.path,
+                        size: pulledSize,
+                        status: "completed",
+                        startedAt: pullStartTime,
+                        completedAt: Date.now(),
+                        transferMode: "inline",
+                    });
+                }
+            } finally {
+                ctx.backgroundTransferQueue.markInlineEnd(item.path);
             }
         });
     }
@@ -749,7 +850,7 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
 
                 completed++;
                 await ctx.log(`[Smart Pull] [${completed}/${total}] Deleted locally: ${path}`);
-                await ctx.notify("noticeFileTrashed", path.split("/").pop());
+                await ctx.notify("noticeFileTrashed", basename(path));
             } catch (e) {
                 await ctx.log(`[Smart Pull] Delete failed: ${path} - ${e}`, "error");
             }
@@ -839,8 +940,14 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
     };
     await saveIndex(ctx);
 
-    if (total > 0) {
-        await ctx.notify("noticePullCompleted", total.toString());
+    if (deferredPullCount > 0) {
+        await ctx.log(
+            `[Smart Pull] ${deferredPullCount} large file(s) queued for background transfer.`,
+        );
+    }
+
+    if (total > 0 || deferredPullCount > 0) {
+        await ctx.notify("noticePullCompleted", (total + deferredPullCount).toString());
         return true;
     }
     return false;
@@ -896,10 +1003,7 @@ export async function pullViaChangesAPI(
         try {
             const remoteIndexMeta = await ctx.adapter.getFileMetadata(ctx.pluginDataPath);
             if (remoteIndexMeta?.id) {
-                const remoteIndexContent = await ctx.adapter.downloadFile(remoteIndexMeta.id);
-                const decompressed = await tryDecompress(remoteIndexContent);
-                const remoteIndexData = JSON.parse(new TextDecoder().decode(decompressed));
-                remoteIndex = remoteIndexData.index || {};
+                remoteIndex = await downloadRemoteIndex(ctx, remoteIndexMeta.id);
             }
         } catch (e) {
             await ctx.log(
@@ -938,7 +1042,7 @@ export async function pullViaChangesAPI(
                             ctx.logger.markActionTaken();
                             completed++;
                             await ctx.log(`[Smart Pull] Deleted: ${pathToDelete}`);
-                            await ctx.notify("noticeFileTrashed", pathToDelete.split("/").pop());
+                            await ctx.notify("noticeFileTrashed", basename(pathToDelete));
                         } catch (e) {
                             await ctx.log(
                                 `[Smart Pull] Delete failed: ${pathToDelete} - ${e}`,
@@ -953,10 +1057,16 @@ export async function pullViaChangesAPI(
                 if (cloudFile.path === ctx.pluginDataPath) continue;
                 if (isManagedSeparately(cloudFile.path)) continue;
 
-                // Populate ancestorHash from remote index for Safety Guard
+                // Populate ancestorHash and plainHash from remote index.
+                // ancestorHash is needed for the Safety Guard in pullFileSafely.
+                // plainHash is needed for E2EE content-match detection (without it,
+                // pullFileSafely can't detect identical content pre-download).
                 const remoteEntry = remoteIndex[cloudFile.path];
                 if (remoteEntry) {
                     cloudFile.ancestorHash = remoteEntry.ancestorHash;
+                    if (remoteEntry.plainHash) {
+                        cloudFile.plainHash = remoteEntry.plainHash;
+                    }
                 }
 
                 // NEW: もしリモート禁止対象ファイルが上がってきたら、即座に削除
@@ -989,7 +1099,7 @@ export async function pullViaChangesAPI(
                         `[Smart Pull] Waiting: ${cloudFile.path} is being merged by ${mergeLock.holder} (expires in ${Math.round((mergeLock.expiresAt - now) / 1000)}s)`,
                         "warn",
                     );
-                    await ctx.notify("noticeWaitOtherDeviceMerge", cloudFile.path.split("/").pop());
+                    await ctx.notify("noticeWaitOtherDeviceMerge", basename(cloudFile.path));
                     // Mark as pending conflict so next sync shows "merge result applied"
                     if (ctx.localIndex[cloudFile.path]) {
                         ctx.localIndex[cloudFile.path].pendingConflict = true;
@@ -1052,7 +1162,7 @@ export async function pullViaChangesAPI(
                                     // Migrate Dirty State
                                     if (ctx.dirtyPaths.has(oldPath)) {
                                         ctx.dirtyPaths.delete(oldPath);
-                                        ctx.dirtyPaths.add(newPath);
+                                        ctx.dirtyPaths.set(newPath, Date.now());
                                     }
 
                                     // Update ID Map so we don't process this again or inconsistently
@@ -1060,7 +1170,7 @@ export async function pullViaChangesAPI(
 
                                     await ctx.notify(
                                         "noticeFileRenamed",
-                                        `${oldPath.split("/").pop()} -> ${newPath.split("/").pop()}`,
+                                        `${basename(oldPath)} -> ${basename(newPath)}`,
                                     );
                                 } else {
                                     // Source doesn't exist locally? Just removed from index/map then.
@@ -1117,7 +1227,7 @@ export async function pullViaChangesAPI(
 
                         // Notify individual confirmation
                         confirmedCountTotal++;
-                        await ctx.notify("noticeSyncConfirmed", cloudFile.path.split("/").pop());
+                        await ctx.notify("noticeSyncConfirmed", basename(cloudFile.path));
                     }
 
                     // Strategy B: 他デバイスのマージ結果を適用済み（ハッシュ一致）であることを通知
@@ -1126,7 +1236,7 @@ export async function pullViaChangesAPI(
                         await saveLocalIndex(ctx);
                         await ctx.notify(
                             "noticeRemoteMergeSynced",
-                            cloudFile.path.split("/").pop(),
+                            basename(cloudFile.path),
                         );
                     }
 
@@ -1134,13 +1244,59 @@ export async function pullViaChangesAPI(
                     continue;
                 }
 
-                tasks.push(async () => {
-                    const success = await pullFileSafely(ctx, cloudFile, "Changes API");
-                    if (success) {
-                        completed++;
-                        await ctx.log(`[Changes API] Synced: ${cloudFile.path}`);
-                    }
-                });
+                // === SIZE-BASED ROUTING for pull ===
+                const changesThreshold = getThresholdBytes(ctx);
+                const hasLocalConflict = ctx.dirtyPaths.has(cloudFile.path);
+
+                if (
+                    changesThreshold > 0 &&
+                    !hasLocalConflict &&
+                    cloudFile.size > changesThreshold
+                ) {
+                    // Defer large file to background queue
+                    ctx.backgroundTransferQueue.enqueue({
+                        id: generateTransferId("pull"),
+                        direction: "pull",
+                        path: cloudFile.path,
+                        fileId: cloudFile.id,
+                        size: cloudFile.size,
+                        priority: TransferPriority.NORMAL,
+                        status: "pending",
+                        retryCount: 0,
+                        createdAt: Date.now(),
+                        remoteHash: cloudFile.hash,
+                    });
+                    markPendingTransfer(ctx, cloudFile.path, "pull", cloudFile.hash || "");
+                    await ctx.log(
+                        `[Changes API] Deferred to background (${formatSize(cloudFile.size)}): ${cloudFile.path}`,
+                    );
+                } else {
+                    tasks.push(async () => {
+                        const pullStartTime = Date.now();
+                        ctx.backgroundTransferQueue.markInlineStart(cloudFile.path, "pull", cloudFile.size);
+                        try {
+                            const success = await pullFileSafely(ctx, cloudFile, "Changes API");
+                            if (success) {
+                                completed++;
+                                await ctx.log(`[Changes API] Synced: ${cloudFile.path}`);
+                                // Record inline transfer for history tracking
+                                const pulledSize = ctx.localIndex[cloudFile.path]?.size ?? 0;
+                                ctx.backgroundTransferQueue.recordInlineTransfer({
+                                    id: `inline-pull-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                                    direction: "pull",
+                                    path: cloudFile.path,
+                                    size: pulledSize,
+                                    status: "completed",
+                                    startedAt: pullStartTime,
+                                    completedAt: Date.now(),
+                                    transferMode: "inline",
+                                });
+                            }
+                        } finally {
+                            ctx.backgroundTransferQueue.markInlineEnd(cloudFile.path);
+                        }
+                    });
+                }
             }
         }
 
@@ -1205,7 +1361,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
             if (path === ctx.pluginDataPath) continue;
             if (isManagedSeparately(path)) continue;
             if (shouldNotBeOnRemote(ctx, path)) {
-                ctx.dirtyPaths.add(path);
+                ctx.dirtyPaths.set(path, Date.now());
             }
         }
     }
@@ -1218,7 +1374,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
         const missingFiles: string[] = [];
 
         // Identify missing files that were previously synced
-        for (const path of ctx.dirtyPaths) {
+        for (const path of ctx.dirtyPaths.keys()) {
             if (ctx.index[path]) {
                 // Quick check using adapter (async)
                 // We can batch this or just do it sequentially (robustness > speed here)
@@ -1230,7 +1386,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
         }
 
         for (const path of missingFiles) {
-            let folder = path.substring(0, path.lastIndexOf("/"));
+            let folder = dirname(path);
             while (folder) {
                 if (checkedFolders.has(folder)) break; // Optimization
                 if (shouldIgnore(ctx, folder)) break;
@@ -1247,7 +1403,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                     ctx.deletedFolders.add(folder);
                     await ctx.log(`[Smart Push] Inferred deleted folder: ${folder}`, "debug");
                     // Continue walking up to check parent
-                    folder = folder.substring(0, folder.lastIndexOf("/"));
+                    folder = dirname(folder);
                 } else {
                     // Folder exists, stop walking up
                     break;
@@ -1279,7 +1435,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                         ctx.logger.markActionTaken();
                         folderDeletedCount++;
                         await ctx.log(`[Smart Push] Deleted remote folder: ${folderPath}`);
-                        await ctx.notify("noticeFileTrashed", folderPath.split("/").pop());
+                        await ctx.notify("noticeFileTrashed", basename(folderPath));
                     }
                 } else {
                     await ctx.log(
@@ -1294,7 +1450,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
 
                 // 1. Remove from dirtyPaths to prevent redundant file deletion attempts
                 // (Iterate copy to safely delete while iterating)
-                for (const dirtyPath of Array.from(ctx.dirtyPaths)) {
+                for (const dirtyPath of Array.from(ctx.dirtyPaths.keys())) {
                     if (dirtyPath.startsWith(prefix)) {
                         ctx.dirtyPaths.delete(dirtyPath);
                     }
@@ -1333,11 +1489,12 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
         mtime: number;
         size: number;
         content: ArrayBuffer;
+        dirtyAt: number | undefined;
     }> = [];
     const deleteQueue: string[] = [];
 
     const dirtyPathTasks: (() => Promise<void>)[] = [];
-    const dirtyPathsSnapshot = Array.from(ctx.dirtyPaths);
+    const dirtyPathsSnapshot = Array.from(ctx.dirtyPaths.keys());
 
     for (const path of dirtyPathsSnapshot) {
         dirtyPathTasks.push(async () => {
@@ -1378,10 +1535,8 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                 // Optimal Folder Move
                                 const oldMeta = await ctx.adapter.getFileMetadata(oldPath);
                                 if (oldMeta?.id) {
-                                    const newName = path.split("/").pop()!;
-                                    const lastSlash = path.lastIndexOf("/");
-                                    const newParentPath =
-                                        lastSlash > 0 ? path.substring(0, lastSlash) : "";
+                                    const newName = basename(path);
+                                    const newParentPath = dirname(path);
 
                                     await ctx.adapter.moveFile(oldMeta.id, newName, newParentPath);
                                     ctx.logger.markActionTaken();
@@ -1392,7 +1547,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                     );
                                     await ctx.notify(
                                         "noticeFileMoved",
-                                        `${oldPath.split("/").pop()} → ${newName}`,
+                                        `${basename(oldPath)} → ${newName}`,
                                     );
 
                                     // Cleanup pending moves for children as they are now moved too
@@ -1454,9 +1609,8 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                     if (indexEntry?.pendingMove && indexEntry.fileId) {
                         const moveInfo = indexEntry.pendingMove;
                         try {
-                            const newName = path.split("/").pop()!;
-                            const lastSlash = path.lastIndexOf("/");
-                            const newParentPath = lastSlash > 0 ? path.substring(0, lastSlash) : "";
+                            const newName = basename(path);
+                            const newParentPath = dirname(path);
 
                             const moved = await ctx.adapter.moveFile(
                                 indexEntry.fileId,
@@ -1486,11 +1640,8 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                             ctx.startActivity();
 
                             // Determine if this is a rename (same dir) or move (different dir)
-                            const oldDir = moveInfo.oldPath.substring(
-                                0,
-                                moveInfo.oldPath.lastIndexOf("/"),
-                            );
-                            const newDir = path.substring(0, path.lastIndexOf("/"));
+                            const oldDir = dirname(moveInfo.oldPath);
+                            const newDir = dirname(path);
                             const isMove = oldDir !== newDir;
 
                             if (isMove) {
@@ -1500,7 +1651,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                 );
                                 await ctx.notify(
                                     "noticeFileMoved",
-                                    `${moveInfo.oldPath.split("/").pop()} → ${newName}`,
+                                    `${basename(moveInfo.oldPath)} → ${newName}`,
                                 );
                             } else {
                                 await ctx.log(
@@ -1509,7 +1660,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                 );
                                 await ctx.notify(
                                     "noticeFileRenamed",
-                                    `${moveInfo.oldPath.split("/").pop()} -> ${newName}`,
+                                    `${basename(moveInfo.oldPath)} -> ${newName}`,
                                 );
                             }
                             // Don't return — fall through to hash check.
@@ -1536,6 +1687,10 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                     // Since dirtyPaths can come from `markDirty` (events) which didn't check hash,
                     // we MUST check hash here to filter out "false alarms" from events.
                     try {
+                        // Capture dirty timestamp before any async work so we can detect
+                        // if markDirty() was called again during our async operations
+                        const dirtyAt = ctx.dirtyPaths.get(path);
+
                         const content = await ctx.app.vault.adapter.readBinary(path);
                         // Get mtime AFTER reading content to ensure consistency
                         const statAfterRead = await ctx.app.vault.adapter.stat(path);
@@ -1557,16 +1712,12 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                         }
 
                         // For E2EE: Compare plainHash instead of encrypted hash
-                        // Since the same plaintext produces different ciphertext with AES-GCM (random IV)
-                        let contentMatches = false;
-                        if (ctx.e2eeEnabled && localIndexEntry?.plainHash) {
-                            // E2EE enabled: compare plaintext hashes
-                            const currentPlainHash = await hashContent(content);
-                            contentMatches = localIndexEntry.plainHash === currentPlainHash;
-                        } else if (localIndexEntry?.hash) {
-                            // No E2EE or no plainHash: use regular hash comparison
-                            contentMatches = localIndexEntry.hash.toLowerCase() === currentHash;
-                        }
+                        const { localHash: computedHash, compareHash: baseHash } = await computeLocalHash(
+                            ctx, content, localIndexEntry || {},
+                        );
+                        const contentMatches = baseHash
+                            ? computedHash === baseHash.toLowerCase()
+                            : false;
 
                         if (
                             contentMatches &&
@@ -1579,7 +1730,11 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                             if (ctx.index[path]) {
                                 ctx.index[path].mtime = mtimeAfterRead;
                             }
-                            ctx.dirtyPaths.delete(path); // Remove from dirty since content matches
+                            // Only remove from dirty if the file wasn't re-dirtied during our async operations.
+                            // If markDirty() was called again (user edited during hash check), keep it dirty.
+                            if (ctx.dirtyPaths.get(path) === dirtyAt) {
+                                ctx.dirtyPaths.delete(path);
+                            }
                             await ctx.log(`[Smart Push] Skipped (${ctx.e2eeEnabled ? "plainHash" : "hash"} match): ${path}`, "debug");
                             return;
                         } else if (
@@ -1599,7 +1754,9 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                             };
                             ctx.index[path] = entry;
                             ctx.localIndex[path] = { ...entry };
-                            ctx.dirtyPaths.delete(path);
+                            if (ctx.dirtyPaths.get(path) === dirtyAt) {
+                                ctx.dirtyPaths.delete(path);
+                            }
                             await ctx.log(`[Smart Push] Adopted existing remote file: ${path}`);
                             return;
                         }
@@ -1610,6 +1767,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                             mtime: mtimeAfterRead,
                             size: content.byteLength,
                             content,
+                            dirtyAt,
                         });
                     } catch (e) {
                         await ctx.log(
@@ -1630,17 +1788,64 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
         await runParallel(dirtyPathTasks, 20);
     }
 
-    const totalOps = uploadQueue.length + deleteQueue.length;
-    if (totalOps === 0 && folderDeletedCount === 0 && moveCount === 0) {
+    // === SIZE-BASED ROUTING: Partition uploadQueue into inline and background ===
+    const thresholdBytes = getThresholdBytes(ctx);
+    const inlineUploadQueue: typeof uploadQueue = [];
+    let deferredCount = 0;
+
+    if (thresholdBytes > 0) {
+        for (const file of uploadQueue) {
+            const isMetadata = file.path === ctx.pluginDataPath;
+            const isMergeResult = ctx.localIndex[file.path]?.lastAction === "merge";
+            if (!isMetadata && !isMergeResult && file.size > thresholdBytes) {
+                // Defer to background queue
+                const snapshotHash = md5(file.content);
+                ctx.backgroundTransferQueue.enqueue({
+                    id: generateTransferId("push"),
+                    direction: "push",
+                    path: file.path,
+                    size: file.size,
+                    priority: TransferPriority.NORMAL,
+                    status: "pending",
+                    retryCount: 0,
+                    createdAt: Date.now(),
+                    content: file.content,
+                    mtime: file.mtime,
+                    snapshotHash,
+                });
+                markPendingTransfer(ctx, file.path, "push", snapshotHash);
+                deferredCount++;
+                await ctx.log(
+                    `[Smart Push] Deferred to background (${formatSize(file.size)}): ${file.path}`,
+                );
+            } else {
+                inlineUploadQueue.push(file);
+            }
+        }
+    } else {
+        // Background transfers disabled (threshold = 0)
+        inlineUploadQueue.push(...uploadQueue);
+    }
+
+    const totalOps = inlineUploadQueue.length + deleteQueue.length;
+    if (totalOps === 0 && folderDeletedCount === 0 && moveCount === 0 && deferredCount === 0) {
         await ctx.log("[Smart Push] No changes after filtering.", "debug");
         return false;
+    }
+
+    if (totalOps === 0 && deferredCount > 0 && folderDeletedCount === 0 && moveCount === 0) {
+        // All files were deferred — still need to report activity
+        await ctx.log(
+            `[Smart Push] All ${deferredCount} file(s) deferred to background transfer.`,
+        );
+        return true;
     }
 
     ctx.startActivity(); // Spin for upload/delete work
 
     // ctx.onActivityStart();
     try {
-        // Ensure folders exist on remote
+        // Ensure folders exist on remote (for both inline and deferred — deferred files need folders too)
         // OPTIMIZATION: Removed listFiles() call here. We just pass the folders we need.
         // The adapter's ensureFoldersExist is smart enough to check existence efficiently (O(depth) vs O(total_files))
         const foldersToCreate = new Set<string>();
@@ -1660,14 +1865,16 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
         const tasks: (() => Promise<void>)[] = [];
         let completed = 0;
 
-        for (const file of uploadQueue) {
+        for (const file of inlineUploadQueue) {
             tasks.push(async () => {
+                const taskStartTime = Date.now();
+                ctx.backgroundTransferQueue.markInlineStart(file.path, "push", file.size);
                 try {
                     // Check if file was modified after queue creation (user still typing)
                     const currentStat = await ctx.app.vault.adapter.stat(file.path);
                     if (currentStat && currentStat.mtime !== file.mtime) {
                         // File was modified after queue creation - re-mark as dirty and skip
-                        ctx.dirtyPaths.add(file.path);
+                        ctx.dirtyPaths.set(file.path, Date.now());
                         await ctx.log(
                             `[Smart Push] Skipped (modified during sync): ${file.path}`,
                             "debug",
@@ -1789,7 +1996,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                             );
                                             await ctx.notify(
                                                 "noticeFilePushed",
-                                                file.path.split("/").pop(),
+                                                basename(file.path),
                                             );
                                         } catch (uploadErr) {
                                             await ctx.log(
@@ -1848,8 +2055,11 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                     ctx.index[file.path] = entry;
                     ctx.localIndex[file.path] = { ...entry };
 
-                    // Success: Remove from dirtyPaths
-                    ctx.dirtyPaths.delete(file.path);
+                    // Only remove from dirty if the file wasn't re-dirtied during upload.
+                    // If markDirty() was called again (user edited during upload), keep it dirty.
+                    if (ctx.dirtyPaths.get(file.path) === file.dirtyAt) {
+                        ctx.dirtyPaths.delete(file.path);
+                    }
 
                     ctx.logger.markActionTaken();
                     completed++;
@@ -1857,9 +2067,23 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                         `[Smart Push] [${completed}/${totalOps}] Pushed: ${file.path}`,
                         "notice",
                     );
-                    await ctx.notify("noticeFilePushed", file.path.split("/").pop());
+                    await ctx.notify("noticeFilePushed", basename(file.path));
+
+                    // Record inline transfer for history tracking
+                    ctx.backgroundTransferQueue.recordInlineTransfer({
+                        id: `inline-push-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                        direction: "push",
+                        path: file.path,
+                        size: file.size,
+                        status: "completed",
+                        startedAt: taskStartTime,
+                        completedAt: Date.now(),
+                        transferMode: "inline",
+                    });
                 } catch (e) {
                     await ctx.log(`[Smart Push] Upload failed: ${file.path} - ${e}`, "error");
+                } finally {
+                    ctx.backgroundTransferQueue.markInlineEnd(file.path);
                 }
             });
         }
@@ -1943,7 +2167,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                             `[Smart Push] [${completed}/${totalOps}] Deleted remote: ${path}`,
                             "notice",
                         );
-                        await ctx.notify("noticeFileTrashed", path.split("/").pop());
+                        await ctx.notify("noticeFileTrashed", basename(path));
                     } else {
                         // Zombie entry: in localIndex but not in shared index.
                         // Already "deleted" on remote by others or previous run.
@@ -2009,6 +2233,11 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
 
         if (completed > 0) {
             await ctx.notify("noticePushCompleted", completed.toString());
+        }
+        if (deferredCount > 0) {
+            await ctx.log(
+                `[Smart Push] ${deferredCount} large file(s) queued for background transfer.`,
+            );
         }
         return true;
     } finally {

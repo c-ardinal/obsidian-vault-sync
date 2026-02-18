@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { EncryptedAdapter } from "../../../src/adapters/encrypted-adapter";
 import type { CloudAdapter, FileRevision } from "../../../src/types/adapter";
 import type { ICryptoEngine } from "../../../src/encryption/interfaces";
+import { createMockEngine as sharedMockEngine } from "../../helpers/mock-crypto-engine";
 
 /**
  * Minimal mock for CloudAdapter with history support.
@@ -49,10 +50,7 @@ function buildEncryptedBuffer(iv: Uint8Array, ciphertext: ArrayBuffer): ArrayBuf
 }
 
 function createMockEngine(): ICryptoEngine {
-    return {
-        initializeNewVault: async () => "",
-        unlockVault: async () => {},
-        isUnlocked: () => true,
+    return sharedMockEngine({
         encrypt: async (data: ArrayBuffer) => {
             const iv = new Uint8Array(12).fill(0xAA);
             return { ciphertext: data, iv };
@@ -60,10 +58,7 @@ function createMockEngine(): ICryptoEngine {
         decrypt: async (ciphertext: ArrayBuffer, _iv: Uint8Array) => {
             return ciphertext;
         },
-        showSetupModal: () => {},
-        showUnlockModal: () => {},
-        getSettingsSections: () => [],
-    };
+    });
 }
 
 describe("EncryptedAdapter History Support", () => {

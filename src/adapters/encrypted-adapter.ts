@@ -1,11 +1,14 @@
 import { CloudAdapter, CloudChanges, CloudFile, FileRevision } from "../types/adapter";
 import { ICryptoEngine } from "../encryption/interfaces";
+import { DecryptionError } from "../encryption/errors";
 
 /**
  * A proxy adapter that transparently encrypts/decrypts file content
  * before it is sent to/received from the underlying cloud storage.
  *
- * It uses an external ICryptoEngine for actual crypto operations.
+ * All encryption logic is delegated to the ICryptoEngine implementation.
+ * This adapter handles only routing (VSC1 vs VSC2 based on threshold)
+ * and HTTP batching for streaming uploads.
  */
 export class EncryptedAdapter implements CloudAdapter {
     readonly supportsChangesAPI: boolean;
@@ -15,9 +18,13 @@ export class EncryptedAdapter implements CloudAdapter {
     /** Sync-cycle scoped cache: fileId -> decrypted content. Call clearDownloadCache() between cycles. */
     private downloadCache = new Map<string, ArrayBuffer>();
 
+    private static readonly UPLOAD_BATCH_SIZE = 5 * 1024 * 1024; // 5 MiB
+    private static readonly ALIGN = 262144; // 256 KiB
+
     constructor(
         private baseAdapter: CloudAdapter,
         private engine: ICryptoEngine,
+        private largeFileThresholdBytes: number = 0,
     ) {
         this.supportsChangesAPI = baseAdapter.supportsChangesAPI;
         this.supportsHash = baseAdapter.supportsHash;
@@ -67,15 +74,7 @@ export class EncryptedAdapter implements CloudAdapter {
         if (cached) return cached.slice(0);
 
         const encryptedContent = await this.baseAdapter.downloadFile(fileId);
-
-        if (encryptedContent.byteLength < 12) {
-            throw new Error("Encrypted file is too short (missing IV).");
-        }
-
-        const iv = new Uint8Array(encryptedContent.slice(0, 12));
-        const ciphertext = encryptedContent.slice(12);
-
-        const decrypted = await this.engine.decrypt(ciphertext, iv);
+        const decrypted = await this.decryptContent(encryptedContent);
         this.downloadCache.set(fileId, decrypted);
         return decrypted;
     }
@@ -91,20 +90,38 @@ export class EncryptedAdapter implements CloudAdapter {
         mtime: number,
         existingFileId?: string,
     ): Promise<CloudFile> {
-        // Encrypt using engine
-        const { iv, ciphertext } = await this.engine.encrypt(content);
-
-        // Combine IV + ciphertext
-        const combined = new Uint8Array(iv.byteLength + ciphertext.byteLength);
-        combined.set(iv, 0);
-        combined.set(new Uint8Array(ciphertext), iv.byteLength);
-
-        // Upload (isolate buffer to avoid shared ArrayBuffer issues)
-        const isolated = combined.buffer.slice(combined.byteOffset, combined.byteOffset + combined.byteLength);
-        const result = await this.baseAdapter.uploadFile(path, isolated, mtime, existingFileId);
-        // Invalidate cache for this file since content changed
+        const encrypted = await this.encryptContent(content);
+        const result = await this.baseAdapter.uploadFile(path, encrypted, mtime, existingFileId);
         this.downloadCache.delete(result.id);
         return result;
+    }
+
+    async uploadFileResumable(
+        path: string,
+        content: ArrayBuffer,
+        mtime: number,
+        existingFileId?: string,
+    ): Promise<CloudFile> {
+        // Streaming chunked upload (best memory efficiency)
+        if (
+            this.largeFileThresholdBytes > 0 &&
+            content.byteLength >= this.largeFileThresholdBytes &&
+            this.baseAdapter.initiateResumableSession &&
+            this.baseAdapter.uploadChunk
+        ) {
+            return this.uploadChunkedStreaming(path, content, mtime, existingFileId);
+        }
+
+        // Fallback: full encryption then single upload
+        const encrypted = await this.encryptContent(content);
+        if (this.baseAdapter.uploadFileResumable) {
+            const r = await this.baseAdapter.uploadFileResumable(path, encrypted, mtime, existingFileId);
+            this.downloadCache.delete(r.id);
+            return r;
+        }
+        const r = await this.baseAdapter.uploadFile(path, encrypted, mtime, existingFileId);
+        this.downloadCache.delete(r.id);
+        return r;
     }
 
     async deleteFile(fileId: string): Promise<void> {
@@ -157,15 +174,7 @@ export class EncryptedAdapter implements CloudAdapter {
             throw new Error("Base adapter does not support getRevisionContent");
         }
         const encryptedContent = await this.baseAdapter.getRevisionContent(path, revisionId);
-
-        if (encryptedContent.byteLength < 12) {
-            throw new Error("Encrypted revision is too short (missing IV).");
-        }
-
-        const iv = new Uint8Array(encryptedContent.slice(0, 12));
-        const ciphertext = encryptedContent.slice(12);
-
-        return await this.engine.decrypt(ciphertext, iv);
+        return this.decryptContent(encryptedContent);
     }
 
     async setRevisionKeepForever(path: string, revisionId: string, keepForever: boolean): Promise<void> {
@@ -184,5 +193,116 @@ export class EncryptedAdapter implements CloudAdapter {
 
     setLogger(logger: (msg: string, level?: string) => void): void {
         this.baseAdapter.setLogger(logger);
+    }
+
+    // === Private: Encryption / Decryption (pure engine delegation) ===
+
+    /** Encrypt content using VSC2 (chunked) or VSC1 (single blob) based on threshold. */
+    private async encryptContent(content: ArrayBuffer): Promise<ArrayBuffer> {
+        if (this.largeFileThresholdBytes > 0 && content.byteLength >= this.largeFileThresholdBytes) {
+            return this.engine.encryptChunked(content);
+        }
+        return this.engine.encryptToBlob(content);
+    }
+
+    /** Decrypt content, auto-detecting VSC2 (chunked) or VSC1 (single blob) format. */
+    private async decryptContent(data: ArrayBuffer): Promise<ArrayBuffer> {
+        try {
+            if (this.engine.isChunkedFormat(data)) {
+                return await this.engine.decryptChunked(data);
+            }
+            if (data.byteLength < this.engine.ivSize) {
+                throw new DecryptionError("Encrypted file is too short (missing IV).", "format");
+            }
+            return await this.engine.decryptFromBlob(data);
+        } catch (e) {
+            if (e instanceof DecryptionError) throw e;
+            // Re-wrap engine DecryptionError (cross-module boundary) or other errors
+            if (e instanceof Error && e.name === "DecryptionError") {
+                throw new DecryptionError(
+                    e.message,
+                    (e as any).cause ?? "authentication",
+                    (e as any).chunkIndex,
+                );
+            }
+            throw new DecryptionError(
+                "Decryption failed (wrong password or corrupted data)", "authentication",
+            );
+        }
+    }
+
+    /**
+     * Streaming chunked upload.
+     * Delegates chunk encryption to the engine, then batches encrypted chunks
+     * into 256 KiB-aligned HTTP uploads. Peak memory: plaintext + ~6 MiB buffer.
+     */
+    private async uploadChunkedStreaming(
+        path: string,
+        plaintext: ArrayBuffer,
+        mtime: number,
+        existingFileId?: string,
+    ): Promise<CloudFile> {
+        const totalEncSize = this.engine.calculateChunkedSize(plaintext.byteLength);
+
+        const sessionUri = await this.baseAdapter.initiateResumableSession!(
+            path, totalEncSize, mtime, existingFileId,
+        );
+
+        const BATCH = EncryptedAdapter.UPLOAD_BATCH_SIZE;
+        const ALIGN = EncryptedAdapter.ALIGN;
+        // Buffer: BATCH + max encrypted chunk size + safety margin
+        const maxEncChunkSize = this.engine.ivSize + this.engine.getOptimalChunkSize() + this.engine.tagSize;
+        const buf = new Uint8Array(BATCH + maxEncChunkSize + 64);
+        let bufPos = 0;
+        let httpOffset = 0;
+
+        // Write VSC2 header
+        const header = this.engine.buildChunkedHeader(plaintext.byteLength);
+        buf.set(header, 0);
+        bufPos = header.byteLength;
+
+        for await (const { iv, ciphertext, index, totalChunks } of this.engine.encryptChunks(plaintext)) {
+            buf.set(iv, bufPos);
+            bufPos += iv.byteLength;
+            buf.set(new Uint8Array(ciphertext), bufPos);
+            bufPos += ciphertext.byteLength;
+
+            const isLast = index === totalChunks - 1;
+
+            if (bufPos >= BATCH || isLast) {
+                if (isLast) {
+                    // Final: upload whatever remains
+                    const result = await this.baseAdapter.uploadChunk!(
+                        sessionUri,
+                        buf.buffer.slice(buf.byteOffset, buf.byteOffset + bufPos),
+                        httpOffset,
+                        totalEncSize,
+                        path,
+                        mtime,
+                    );
+                    if (result) {
+                        this.downloadCache.delete(result.id);
+                        return result;
+                    }
+                } else {
+                    // Intermediate: flush 256 KiB-aligned portion
+                    const aligned = Math.floor(bufPos / ALIGN) * ALIGN;
+                    if (aligned > 0) {
+                        await this.baseAdapter.uploadChunk!(
+                            sessionUri,
+                            buf.buffer.slice(buf.byteOffset, buf.byteOffset + aligned),
+                            httpOffset,
+                            totalEncSize,
+                            path,
+                            mtime,
+                        );
+                        httpOffset += aligned;
+                        buf.copyWithin(0, aligned, bufPos);
+                        bufPos -= aligned;
+                    }
+                }
+            }
+        }
+        throw new Error("Chunked streaming upload did not complete");
     }
 }

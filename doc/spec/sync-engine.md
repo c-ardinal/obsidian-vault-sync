@@ -208,14 +208,17 @@ isInterrupted: boolean;           // Full Scan中断フラグ
 
 ## 10. CloudAdapter インターフェース
 
+正式な定義は `src/types/adapter.ts` を参照。以下は概要。
+
 ```typescript
 interface CloudAdapter {
     name: string;
+    vaultName: string;
 
     // === Feature Flags ===
-    readonly supportsChangesAPI: boolean; // Changes API対応
-    readonly supportsHash: boolean; // ファイルハッシュ対応
-    readonly supportsHistory: boolean; // 履歴機能対応
+    readonly supportsChangesAPI: boolean;
+    readonly supportsHash: boolean;
+    readonly supportsHistory: boolean;
 
     // 初期化（オプション: ルートフォルダ探索等の事前準備）
     initialize?(): Promise<void>;
@@ -230,20 +233,18 @@ interface CloudAdapter {
     getFileMetadata(path: string): Promise<CloudFile | null>;
     getFileMetadataById(fileId: string, knownPath?: string): Promise<CloudFile | null>;
     downloadFile(fileId: string): Promise<ArrayBuffer>;
-    uploadFile(
-        path: string,
-        content: ArrayBuffer,
-        mtime: number,
-        existingFileId?: string,
-    ): Promise<CloudFile>;
+    uploadFile(path: string, content: ArrayBuffer, mtime: number, existingFileId?: string): Promise<CloudFile>;
     deleteFile(fileId: string): Promise<void>;
+    moveFile(fileId: string, newName: string, newParentPath: string | null): Promise<CloudFile>;
     createFolder(path: string): Promise<string>;
-    ensureFoldersExist(
-        folderPaths: string[],
-        onProgress?: (current: number, total: number, name: string) => void,
-    ): Promise<void>;
+    ensureFoldersExist(folderPaths: string[], onProgress?: (...) => void): Promise<void>;
     fileExistsById(fileId: string): Promise<boolean>;
     listFiles(folderId?: string): Promise<CloudFile[]>;
+
+    // Resumable Upload（オプション: 大容量ファイル対応）
+    uploadFileResumable?(path: string, content: ArrayBuffer, mtime: number, existingFileId?: string): Promise<CloudFile>;
+    initiateResumableSession?(path: string, totalSize: number, mtime: number, existingFileId?: string): Promise<string>;
+    uploadChunk?(sessionUri: string, chunk: ArrayBuffer, offset: number, totalSize: number, path: string, mtime: number): Promise<CloudFile | null>;
 
     // Changes API（supportsChangesAPI=true時のみ）
     getStartPageToken(): Promise<string>;
@@ -252,8 +253,14 @@ interface CloudAdapter {
     // 履歴（supportsHistory=true時のみ）
     listRevisions?(path: string): Promise<FileRevision[]>;
     getRevisionContent?(path: string, revisionId: string): Promise<ArrayBuffer>;
+    setRevisionKeepForever?(path: string, revisionId: string, keepForever: boolean): Promise<void>;
+    deleteRevision?(path: string, revisionId: string): Promise<void>;
 
-    setLogger(logger: (msg: string) => void): void;
+    // ユーティリティ
+    setLogger(logger: (msg: string, level?: string) => void): void;
+    reset?(): void;
+    getAppRootId?(): Promise<string>;
+    cloneWithNewVaultName?(newVaultName: string): CloudAdapter;
 }
 ```
 

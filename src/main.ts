@@ -3,6 +3,7 @@ import { GoogleDriveAdapter } from "./adapters/google-drive";
 import { SyncManager, type SyncTrigger } from "./sync-manager";
 import { SecureStorage } from "./secure-storage";
 import { HistoryModal } from "./ui/history-modal";
+import { TransferStatusModal } from "./ui/transfer-status-modal";
 import { DEFAULT_SETTINGS, SETTINGS_LIMITS } from "./constants";
 import {
     DATA_LOCAL_DIR,
@@ -15,6 +16,7 @@ import { getSettingsSections } from "./ui/settings-schema";
 import { loadExternalCryptoEngine } from "./encryption/engine-loader";
 import { ICryptoEngine } from "./encryption/interfaces";
 import { checkPasswordStrength } from "./encryption/password-strength";
+import { toHex } from "./utils/format";
 
 export default class VaultSync extends Plugin {
     settings!: VaultSyncSettings;
@@ -92,6 +94,9 @@ export default class VaultSync extends Plugin {
         // 5. Establish Identity & Log Folder (loads local-index.json)
         // This is the earliest point where we can log to the correct device-specific folder.
         await this.syncManager.loadLocalIndex();
+
+        // 5.1 Load transfer history (must be after loadLocalIndex sets the correct logFolder)
+        await this.syncManager.loadTransferHistory();
 
         // 5.5 Load external crypto engine (Moved here to ensure logs are captured in sync log)
         const engine = await loadExternalCryptoEngine(
@@ -271,6 +276,10 @@ export default class VaultSync extends Plugin {
             name: t("labelFullAudit"),
             callback: async () => {
                 this.syncManager.currentTrigger = "full-scan";
+                if (this.syncManager.e2eeLocked) {
+                    await this.syncManager.notify("noticeVaultLocked");
+                    return;
+                }
                 await this.syncManager.notify("noticeScanningLocalFiles");
                 await this.syncManager.requestBackgroundScan(false);
             },
@@ -301,6 +310,53 @@ export default class VaultSync extends Plugin {
                     this.syncManager.cryptoEngine?.showUnlockModal(this);
                 }
                 return true;
+            },
+        });
+
+        this.addCommand({
+            id: "e2ee-change-password",
+            name: t("labelE2EEChangePassword"),
+            checkCallback: (checking: boolean) => {
+                const engine = this.syncManager.cryptoEngine;
+                if (!engine?.showPasswordChangeModal || !engine.isUnlocked()) return false;
+                if (!checking) engine.showPasswordChangeModal(this);
+                return true;
+            },
+        });
+
+        this.addCommand({
+            id: "e2ee-show-recovery",
+            name: t("labelE2EEShowRecovery"),
+            checkCallback: (checking: boolean) => {
+                const engine = this.syncManager.cryptoEngine;
+                if (!engine?.showRecoveryExportModal || !engine.isUnlocked()) return false;
+                if (!checking) engine.showRecoveryExportModal(this);
+                return true;
+            },
+        });
+
+        this.addCommand({
+            id: "e2ee-recover",
+            name: t("labelE2EERecover"),
+            checkCallback: (checking: boolean) => {
+                const engine = this.syncManager.cryptoEngine;
+                if (!engine?.showRecoveryImportModal || !this.settings.e2eeEnabled) return false;
+                if (engine.isUnlocked()) return false;
+                if (!checking) engine.showRecoveryImportModal(this);
+                return true;
+            },
+        });
+
+        // 2.5 Transfer Status ribbon + command
+        this.addRibbonIcon("arrow-up-down", t("labelTransferStatus"), () => {
+            new TransferStatusModal(this.app, this.syncManager).open();
+        });
+
+        this.addCommand({
+            id: "transfer-status",
+            name: t("labelTransferStatus"),
+            callback: () => {
+                new TransferStatusModal(this.app, this.syncManager).open();
             },
         });
 
@@ -375,6 +431,10 @@ export default class VaultSync extends Plugin {
         }
         if (this.mobileSyncFabEl) {
             this.mobileSyncFabEl.remove();
+        }
+        // Clean up background transfer queue (remove event listeners, flush history)
+        if (this.syncManager) {
+            this.syncManager.destroyTransferQueue();
         }
     }
 
@@ -790,7 +850,7 @@ export default class VaultSync extends Plugin {
         if (!this.settings.encryptionSecret) {
             const array = new Uint8Array(32);
             window.crypto.getRandomValues(array);
-            const newSecret = Array.from(array, (b) => b.toString(16).padStart(2, "0")).join("");
+            const newSecret = toHex(array);
             this.settings.encryptionSecret = newSecret;
             this.secureStorage.setMasterSecret(newSecret);
 

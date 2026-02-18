@@ -793,3 +793,399 @@
     text-overflow: ellipsis;
     font-family: var(--font-monospace);
 }
+
+/* === Transfer Status Modal === */
+.modal.mod-transfer-status-modal {
+    width: 60%;
+    height: 80%;
+    max-width: 60%;
+    max-height: 80%;
+    padding: 0;
+}
+
+.modal.mod-transfer-status-modal .modal-content {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+    padding: 0;
+}
+
+.vault-sync-transfer-container {
+    overflow-y: auto;
+    padding: 0 24px 24px;
+}
+
+.vault-sync-transfer-section {
+    margin-bottom: 20px;
+}
+
+.vault-sync-transfer-section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-top: 12px;
+    margin-bottom: 8px;
+}
+
+.vault-sync-transfer-section-header h3 {
+    margin: 0;
+    font-size: 1em;
+    color: var(--text-normal);
+}
+
+.vault-sync-transfer-cancel-all {
+    font-size: 0.8em;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background-color: var(--background-modifier-border);
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+.vault-sync-transfer-cancel-all:hover {
+    background-color: var(--background-modifier-hover);
+    color: var(--text-error);
+}
+
+.vault-sync-transfer-empty {
+    color: var(--text-muted);
+    font-size: 0.9em;
+    padding: 12px 0;
+    text-align: center;
+    font-style: italic;
+}
+
+/* Active transfers list */
+.vault-sync-transfer-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.vault-sync-transfer-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    background-color: var(--background-secondary);
+    flex-wrap: wrap;
+}
+
+.vault-sync-transfer-row.vault-sync-transfer-active {
+    border-left: 3px solid var(--text-accent);
+}
+
+.vault-sync-transfer-icon {
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    color: var(--text-muted);
+}
+
+.vault-sync-transfer-icon-push {
+    color: #4a90d9;
+}
+
+.vault-sync-transfer-icon-pull {
+    color: #2ea043;
+}
+
+.vault-sync-transfer-icon svg {
+    width: 16px;
+    height: 16px;
+}
+
+/* Direction label in active transfer row1 */
+.vault-sync-transfer-direction {
+    flex-shrink: 0;
+    font-size: 0.8em;
+    line-height: 1;
+    font-family: var(--font-monospace);
+    color: var(--text-muted);
+}
+
+.vault-sync-transfer-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.8em;
+    color: var(--text-accent);
+    flex-shrink: 0;
+}
+
+.vault-sync-transfer-spinner {
+    display: inline-flex;
+}
+
+.vault-sync-transfer-spinner .vault-sync-spinner {
+    width: 14px;
+    height: 14px;
+    border-width: 2px;
+}
+
+/* === History Timeline === */
+.vault-sync-transfer-timeline {
+    display: flex;
+    flex-direction: column;
+}
+
+.vault-sync-transfer-date-group {
+    margin-bottom: 4px;
+}
+
+.vault-sync-transfer-timeline-items {
+    display: flex;
+    flex-direction: column;
+    margin-left: 12px;
+    border-left: 2px solid var(--background-modifier-border);
+}
+
+.vault-sync-transfer-timeline-item {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    padding: 3px 0 3px 16px;
+}
+
+/* Status dot on the timeline line */
+.vault-sync-transfer-timeline-dot {
+    position: absolute;
+    left: -5px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: var(--background-modifier-border);
+}
+
+.vault-sync-transfer-success .vault-sync-transfer-timeline-dot {
+    background-color: var(--text-accent);
+}
+
+.vault-sync-transfer-error .vault-sync-transfer-timeline-dot {
+    background-color: var(--text-accent);
+}
+
+.vault-sync-transfer-cancelled .vault-sync-transfer-timeline-dot {
+    background-color: var(--text-accent);
+}
+
+/* 2-row card: [icon] [content] [status] horizontally, vertically centered */
+.vault-sync-transfer-timeline-card {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    background-color: var(--background-secondary);
+}
+
+.vault-sync-transfer-cancelled .vault-sync-transfer-timeline-card {
+    opacity: 0.7;
+}
+
+/* Content area (rows) */
+.vault-sync-transfer-card-content {
+    flex: 1;
+    min-width: 0;
+}
+
+/* Row 1: time + size */
+.vault-sync-transfer-row1 {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+}
+
+.vault-sync-transfer-time {
+    flex-shrink: 0;
+    font-size: 0.8em;
+    line-height: 1;
+    font-family: var(--font-monospace);
+    color: var(--text-muted);
+}
+
+.vault-sync-transfer-size {
+    flex-shrink: 0;
+    font-size: 0.8em;
+    line-height: 1;
+    font-family: var(--font-monospace);
+    color: var(--text-faint);
+}
+
+/* Status badge (right side, vertically centered) */
+.vault-sync-transfer-status-badge {
+    flex-shrink: 0;
+    font-size: 0.78em;
+    padding: 1px 8px;
+    border-radius: 4px;
+}
+
+.vault-sync-transfer-success .vault-sync-transfer-status-badge {
+    color: var(--text-success);
+    background-color: hsla(140, 70%, 50%, 0.1);
+}
+
+.vault-sync-transfer-error .vault-sync-transfer-status-badge {
+    color: var(--text-error);
+    background-color: hsla(0, 70%, 50%, 0.1);
+}
+
+.vault-sync-transfer-cancelled .vault-sync-transfer-status-badge {
+    color: var(--text-muted);
+    background-color: var(--background-modifier-border);
+}
+
+/* Row 2: filename + directory path */
+.vault-sync-transfer-row2 {
+    min-width: 0;
+}
+
+.vault-sync-transfer-filename {
+    font-size: 0.88em;
+    font-family: var(--font-monospace);
+    color: var(--text-normal);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.vault-sync-transfer-dirpath {
+    font-size: 0.72em;
+    font-family: var(--font-monospace);
+    color: var(--text-faint);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.vault-sync-transfer-error-msg {
+    font-size: 0.75em;
+    color: var(--text-error);
+    margin-top: 3px;
+    word-break: break-all;
+}
+
+/* Hide default close button on mobile (custom vault-sync-close-btn is used instead) */
+.is-mobile .modal.mod-transfer-status-modal .modal-close-button {
+    display: none;
+}
+
+/* Mobile adjustments */
+.is-mobile .modal.mod-transfer-status-modal {
+    width: 100vw;
+    height: 100vh;
+    max-width: 100vw;
+    max-height: 100vh;
+    border-radius: 0;
+    background-color: var(--background-primary);
+}
+
+.is-mobile .modal.mod-transfer-status-modal .modal-content {
+    padding-top: env(safe-area-inset-top);
+}
+
+.is-mobile .vault-sync-transfer-container {
+    padding: 0 12px 12px;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+}
+
+.is-mobile .vault-sync-transfer-row {
+    padding: 8px 10px;
+}
+
+.is-mobile .vault-sync-transfer-direction {
+    font-size: 0.75em;
+}
+
+.is-mobile .vault-sync-transfer-filename {
+    font-size: 0.82em;
+}
+
+.is-mobile .vault-sync-transfer-dirpath {
+    font-size: 0.68em;
+}
+
+/* Date header within transfer modal: align with timeline and fix background */
+.vault-sync-transfer-date-group .vault-sync-revision-date-header {
+    position: relative;
+    background-color: transparent;
+    z-index: auto;
+    box-shadow: none;
+}
+
+.vault-sync-transfer-date-group .vault-sync-revision-date-header::before {
+    box-shadow: none;
+}
+
+/* Timeline: tighter spacing on mobile */
+.is-mobile .vault-sync-transfer-timeline-items {
+    margin-left: 8px;
+}
+
+.is-mobile .vault-sync-transfer-date-group .vault-sync-revision-date-header {
+    margin-left: 8px;
+    padding-left: 12px;
+}
+
+.is-mobile .vault-sync-transfer-timeline-item {
+    padding: 2px 0 2px 12px;
+}
+
+.is-mobile .vault-sync-transfer-timeline-dot {
+    left: -5px;
+    width: 8px;
+    height: 8px;
+}
+
+/* Card: stack status badge below content on narrow screens */
+.is-mobile .vault-sync-transfer-timeline-card {
+    flex-wrap: wrap;
+    gap: 4px 8px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    background-color: var(--background-secondary);
+}
+
+.is-mobile .vault-sync-transfer-icon {
+    width: 18px;
+    height: 18px;
+}
+
+.is-mobile .vault-sync-transfer-icon svg {
+    width: 14px;
+    height: 14px;
+}
+
+.is-mobile .vault-sync-transfer-card-content {
+    flex-basis: 0;
+    min-width: 60%;
+}
+
+.is-mobile .vault-sync-transfer-time {
+    font-size: 0.75em;
+}
+
+.is-mobile .vault-sync-transfer-size {
+    font-size: 0.75em;
+}
+
+.is-mobile .vault-sync-transfer-status-badge {
+    font-size: 0.72em;
+    padding: 1px 6px;
+}
+
+.is-mobile .vault-sync-transfer-section-header {
+    padding-top: 8px;
+}
+
+.is-mobile .vault-sync-transfer-cancel-all {
+    font-size: 0.75em;
+    padding: 2px 6px;
+}

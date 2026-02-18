@@ -102,7 +102,7 @@ export class ScenarioRunner {
                     break;
                 case "delete":
                     await device.app.vault.adapter.remove(step.path);
-                    (device as any).sm.dirtyPaths.add(step.path);
+                    (device as any).sm.dirtyPaths.set(step.path, Date.now());
                     break;
                 case "wait":
                     await new Promise((r) => setTimeout(r, 50));

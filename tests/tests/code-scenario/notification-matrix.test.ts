@@ -84,6 +84,8 @@ const DEFAULT_SETTINGS: SyncManagerSettings = {
     enableLogging: false,
     isDeveloperMode: false,
     exclusionPatterns: "",
+    largeFileThresholdMB: 0,
+    bgTransferIntervalSec: 0,
     syncAppearance: true,
     syncCommunityPlugins: true,
     syncCoreConfig: true,

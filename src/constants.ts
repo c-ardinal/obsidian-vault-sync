@@ -8,6 +8,8 @@ export const SETTINGS_LIMITS = {
     onModifyDelay: { min: 0, max: 60, default: 5, disabled: -1 },
     onLayoutChangeDelay: { min: 0, max: 60, default: 0, disabled: -1 },
     concurrency: { min: 1, max: 10, default: 5 },
+    largeFileThresholdMB: { min: 0, max: 100, default: 5 },
+    bgTransferIntervalSec: { min: 0, max: 60, default: 0 },
     startupDelay: { min: 0, max: 600, default: 0 },
 } as const;
 
@@ -36,6 +38,8 @@ export const DEFAULT_SETTINGS: VaultSyncSettings = {
     },
     enableAutoSyncInInterval: true,
     concurrency: SETTINGS_LIMITS.concurrency.default,
+    largeFileThresholdMB: 5,
+    bgTransferIntervalSec: 0,
     notificationLevel: "standard",
     conflictResolutionStrategy: "smart-merge",
     isDeveloperMode: false,

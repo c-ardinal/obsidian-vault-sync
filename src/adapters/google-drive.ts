@@ -1,9 +1,9 @@
 import { CloudAdapter, CloudChanges, CloudFile } from "../types/adapter";
 import { generateCodeChallenge, generateCodeVerifier } from "../auth/pkce";
 import { DEFAULT_SETTINGS, SETTINGS_LIMITS, OAUTH_REDIRECT_URI } from "../constants";
+import { toHex } from "../utils/format";
+import { basename } from "../utils/path";
 import { Platform } from "obsidian";
-
-const DEFAULT_ROOT_FOLDER = "ObsidianVaultSync";
 
 export class GoogleDriveAdapter implements CloudAdapter {
     name = "Google Drive";
@@ -20,7 +20,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
     private idToPathCache: Map<string, string> = new Map(); // ID -> fullPath
     private resolvePathCache: Map<string, string> = new Map(); // ID -> fullPath (built during resolution)
     private outsideFolderIds: Set<string> = new Set(); // IDs confirmed to be outside vaultRootId
-    private cloudRootFolder: string = DEFAULT_ROOT_FOLDER;
+    private cloudRootFolder: string = DEFAULT_SETTINGS.cloudRootFolder;
 
     constructor(
         private _clientId: string,
@@ -51,15 +51,15 @@ export class GoogleDriveAdapter implements CloudAdapter {
     }
 
     private validateRootFolder(folder: string | undefined): string {
-        if (!folder || folder.trim() === "") return DEFAULT_ROOT_FOLDER;
+        if (!folder || folder.trim() === "") return DEFAULT_SETTINGS.cloudRootFolder;
         // Disallow slashes, special chars, too long names
         const sanitized = folder.trim();
         if (sanitized.startsWith("/") || sanitized.includes("\\") || sanitized.length > 255) {
-            return DEFAULT_ROOT_FOLDER;
+            return DEFAULT_SETTINGS.cloudRootFolder;
         }
         // Disallow illegal characters for folder names
         if (/[<>:"|?*]/.test(sanitized)) {
-            return DEFAULT_ROOT_FOLDER;
+            return DEFAULT_SETTINGS.cloudRootFolder;
         }
         return sanitized;
     }
@@ -186,7 +186,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
         // SEC-003: Secure Random State
         const array = new Uint8Array(32);
         window.crypto.getRandomValues(array);
-        this.currentAuthState = Array.from(array, (b) => b.toString(16).padStart(2, "0")).join("");
+        this.currentAuthState = toHex(array);
 
         // Persist state/verifier for mobile/background survivability
         window.localStorage.setItem("vault-sync-verifier", this.codeVerifier);
@@ -619,7 +619,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
     async getFileMetadata(path: string): Promise<CloudFile | null> {
         try {
             const parentId = await this.resolveParentId(path, false);
-            const name = path.split("/").pop();
+            const name = basename(path);
             const query = `name = '${this.escapeQueryValue(
                 name || "",
             )}' and '${parentId}' in parents and trashed = false`;
@@ -685,7 +685,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
         mtime: number,
         existingFileId?: string,
     ): Promise<CloudFile> {
-        const name = path.split("/").pop();
+        const name = basename(path);
         const metadata: any = {
             name: name,
             modifiedTime: new Date(mtime).toISOString(),
@@ -746,6 +746,117 @@ export class GoogleDriveAdapter implements CloudAdapter {
         // CACHE for immediate identity check
         this.idToPathCache.set(result.id, result.path);
         // Also feed resolvePathCache to prevent redundant lookups if other tools use it
+        this.resolvePathCache.set(result.id, result.path);
+
+        return result;
+    }
+
+    /**
+     * Upload using Google Drive's resumable upload protocol.
+     * Delegates to initiateResumableSession + uploadChunk.
+     */
+    async uploadFileResumable(
+        path: string,
+        content: ArrayBuffer,
+        mtime: number,
+        existingFileId?: string,
+    ): Promise<CloudFile> {
+        const sessionUri = await this.initiateResumableSession(
+            path, content.byteLength, mtime, existingFileId,
+        );
+        return (await this.uploadChunk(
+            sessionUri, content, 0, content.byteLength, path, mtime,
+        ))!;
+    }
+
+    /**
+     * Initiate a resumable upload session.
+     * Returns a session URI for subsequent uploadChunk() calls.
+     */
+    async initiateResumableSession(
+        path: string,
+        totalSize: number,
+        mtime: number,
+        existingFileId?: string,
+    ): Promise<string> {
+        const name = basename(path);
+        const metadata: any = {
+            name: name,
+            modifiedTime: new Date(mtime).toISOString(),
+        };
+
+        let activeFileId = existingFileId;
+        if (!activeFileId) {
+            const existing = await this.getFileMetadata(path);
+            if (existing) activeFileId = existing.id;
+        }
+
+        let initUrl: string;
+        let method: string;
+
+        if (activeFileId) {
+            initUrl = `https://www.googleapis.com/upload/drive/v3/files/${activeFileId}?uploadType=resumable&fields=id,md5Checksum,size`;
+            method = "PATCH";
+        } else {
+            const parentId = await this.resolveParentId(path, true);
+            metadata.parents = [parentId];
+            initUrl = `https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,md5Checksum,size`;
+            method = "POST";
+        }
+
+        const initResponse = await this.fetchWithAuth(initUrl, {
+            method,
+            headers: {
+                "Content-Type": "application/json; charset=UTF-8",
+                "X-Upload-Content-Type": "application/octet-stream",
+                "X-Upload-Content-Length": String(totalSize),
+            },
+            body: JSON.stringify(metadata),
+        });
+
+        const sessionUri = initResponse.headers.get("Location");
+        if (!sessionUri) {
+            throw new Error("Resumable upload: no session URI returned");
+        }
+        return sessionUri;
+    }
+
+    /**
+     * Upload a chunk to a resumable session using Content-Range.
+     * Returns null for intermediate chunks (HTTP 308), CloudFile on final chunk.
+     */
+    async uploadChunk(
+        sessionUri: string,
+        chunk: ArrayBuffer,
+        offset: number,
+        totalSize: number,
+        path: string,
+        mtime: number,
+    ): Promise<CloudFile | null> {
+        const end = offset + chunk.byteLength - 1;
+        const uploadResponse = await this.fetchWithAuth(sessionUri, {
+            method: "PUT",
+            headers: {
+                "Content-Type": "application/octet-stream",
+                "Content-Length": String(chunk.byteLength),
+                "Content-Range": `bytes ${offset}-${end}/${totalSize}`,
+            },
+            body: chunk,
+        });
+
+        if (uploadResponse.status === 308) return null; // Resume Incomplete
+
+        const data = await uploadResponse.json();
+        const result: CloudFile = {
+            id: data.id,
+            path: path,
+            mtime: mtime,
+            size: parseInt(data.size || String(totalSize)),
+            kind: "file",
+            hash: data.md5Checksum,
+        };
+
+        this.idToPathCache.set(result.id, result.path);
         this.resolvePathCache.set(result.id, result.path);
 
         return result;

@@ -31,6 +31,10 @@ export class VaultLockService {
         await adapter.uploadFile(VAULT_LOCK_PATH, content, Date.now(), existing?.id);
     }
 
+    async uploadLockFile(blob: string): Promise<void> {
+        await this.uploadLockFileToAdapter(this.baseAdapter, blob);
+    }
+
     async createMigrationLock(deviceId: string): Promise<void> {
         const content = new TextEncoder().encode(
             JSON.stringify({ deviceId, timestamp: Date.now() }),
