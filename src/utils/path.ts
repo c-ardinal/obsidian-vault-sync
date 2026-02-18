@@ -25,3 +25,8 @@ export function normalizePath(path: string): string {
 
     return res;
 }
+
+export function basename(path: string): string {
+    const idx = path.lastIndexOf("/");
+    return idx >= 0 ? path.substring(idx + 1) : path;
+}

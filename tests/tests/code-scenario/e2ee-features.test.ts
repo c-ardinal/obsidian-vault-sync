@@ -1,14 +1,11 @@
 import { describe, it, expect, vi } from "vitest";
 import { DecryptionError } from "../../../src/encryption/errors";
 import {
-    decryptChunked,
-    encryptChunked,
-    CHUNK_MAGIC,
-    HEADER_SIZE,
-    GCM_TAG_SIZE,
-    buildVSC2Header,
-    IV_SIZE,
-} from "../../../src/encryption/chunked-crypto";
+    createMockEngine,
+    createFailingEngine,
+    VSC2_MAGIC,
+    VSC2_HEADER_SIZE,
+} from "../../helpers/mock-crypto-engine";
 import { EncryptedAdapter } from "../../../src/adapters/encrypted-adapter";
 import type { CloudAdapter, CloudFile } from "../../../src/types/adapter";
 import type { ICryptoEngine } from "../../../src/encryption/interfaces";
@@ -16,43 +13,6 @@ import type { ICryptoEngine } from "../../../src/encryption/interfaces";
 // =============================================================================
 // Helpers
 // =============================================================================
-
-const MOCK_IV = new Uint8Array(12).fill(0xbb);
-const MOCK_TAG = new Uint8Array(16).fill(0xdd);
-
-function createMockEngine(): ICryptoEngine {
-    return {
-        initializeNewVault: async () => "",
-        unlockVault: async () => {},
-        isUnlocked: () => true,
-        encrypt: async (data: ArrayBuffer) => {
-            const plain = new Uint8Array(data);
-            const ct = new Uint8Array(plain.byteLength + GCM_TAG_SIZE);
-            ct.set(plain, 0);
-            ct.set(MOCK_TAG, plain.byteLength);
-            return {
-                ciphertext: ct.buffer.slice(ct.byteOffset, ct.byteOffset + ct.byteLength),
-                iv: new Uint8Array(MOCK_IV),
-            };
-        },
-        decrypt: async (ciphertext: ArrayBuffer, _iv: Uint8Array) => {
-            return ciphertext.slice(0, ciphertext.byteLength - GCM_TAG_SIZE);
-        },
-        showSetupModal: () => {},
-        showUnlockModal: () => {},
-        getSettingsSections: () => [],
-    };
-}
-
-/** Engine that always fails on decrypt (simulates wrong password). */
-function createFailingEngine(): ICryptoEngine {
-    return {
-        ...createMockEngine(),
-        decrypt: async () => {
-            throw new Error("OperationError");
-        },
-    };
-}
 
 function createMockBaseAdapter(
     storedContent?: ArrayBuffer,
@@ -117,7 +77,7 @@ describe("decryptChunked DecryptionError wrapping", () => {
     it("throws DecryptionError with format cause for data too short", async () => {
         const short = new ArrayBuffer(4);
         try {
-            await decryptChunked(short, engine);
+            await engine.decryptChunked(short);
             expect.unreachable("should have thrown");
         } catch (e) {
             expect(e).toBeInstanceOf(DecryptionError);
@@ -126,10 +86,10 @@ describe("decryptChunked DecryptionError wrapping", () => {
     });
 
     it("throws DecryptionError with format cause for invalid magic", async () => {
-        const buf = new ArrayBuffer(HEADER_SIZE);
+        const buf = new ArrayBuffer(VSC2_HEADER_SIZE);
         new Uint8Array(buf).fill(0xff);
         try {
-            await decryptChunked(buf, engine);
+            await engine.decryptChunked(buf);
             expect.unreachable("should have thrown");
         } catch (e) {
             expect(e).toBeInstanceOf(DecryptionError);
@@ -138,9 +98,14 @@ describe("decryptChunked DecryptionError wrapping", () => {
     });
 
     it("throws DecryptionError with format cause for zero chunkSize", async () => {
-        const header = buildVSC2Header(0, 1);
+        // Manually construct a VSC2 header with chunkSize=0
+        const header = new Uint8Array(VSC2_HEADER_SIZE);
+        header.set(VSC2_MAGIC, 0);
+        const dv = new DataView(header.buffer, header.byteOffset, VSC2_HEADER_SIZE);
+        dv.setUint32(4, 0, true); // chunkSize = 0
+        dv.setUint32(8, 1, true); // totalChunks = 1
         try {
-            await decryptChunked(header.buffer.slice(header.byteOffset, header.byteOffset + HEADER_SIZE) as ArrayBuffer, engine);
+            await engine.decryptChunked(header.buffer.slice(header.byteOffset, header.byteOffset + VSC2_HEADER_SIZE));
             expect.unreachable("should have thrown");
         } catch (e) {
             expect(e).toBeInstanceOf(DecryptionError);
@@ -150,14 +115,14 @@ describe("decryptChunked DecryptionError wrapping", () => {
     });
 
     it("throws DecryptionError with authentication cause on decrypt failure", async () => {
-        // Build a valid VSC2 with 1 chunk but use a failing engine
+        // Build a valid VSC2 with 1 chunk using good engine, then decrypt with failing engine
         const plaintext = new Uint8Array([1, 2, 3]);
         const goodEngine = createMockEngine();
-        const encrypted = await encryptChunked(plaintext.buffer, goodEngine, 100);
+        const encrypted = await goodEngine.encryptChunked(plaintext.buffer);
 
         const failEngine = createFailingEngine();
         try {
-            await decryptChunked(encrypted, failEngine);
+            await failEngine.decryptChunked(encrypted);
             expect.unreachable("should have thrown");
         } catch (e) {
             expect(e).toBeInstanceOf(DecryptionError);
@@ -206,7 +171,7 @@ describe("EncryptedAdapter DecryptionError wrapping", () => {
         // Build valid VSC2 encrypted data, then try to decrypt with failing engine
         const plaintext = new Uint8Array([10, 20, 30]);
         const goodEngine = createMockEngine();
-        const encrypted = await encryptChunked(plaintext.buffer, goodEngine, 100);
+        const encrypted = await goodEngine.encryptChunked(plaintext.buffer);
 
         const base = createMockBaseAdapter(encrypted);
         const adapter = new EncryptedAdapter(base, createFailingEngine());

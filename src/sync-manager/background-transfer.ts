@@ -1,4 +1,5 @@
 import { md5 } from "../utils/md5";
+import { formatSize } from "../utils/format";
 import type { CloudFile } from "../types/adapter";
 import type { SyncContext } from "./context";
 import { hashContent } from "./file-utils";
@@ -402,7 +403,7 @@ export class BackgroundTransferQueue {
         ctx.logger.markActionTaken();
 
         await ctx.log(
-            `[Background Transfer] Pushed: ${item.path} (${(item.size / 1024 / 1024).toFixed(1)}MB)`,
+            `[Background Transfer] Pushed: ${item.path} (${formatSize(item.size)})`,
             "notice",
         );
         await ctx.notify("noticeFilePushed", item.path.split("/").pop());
@@ -475,7 +476,7 @@ export class BackgroundTransferQueue {
             this.callbacks.onQueueChange?.(this.getPendingTransfers());
 
             await ctx.log(
-                `[Background Transfer] Pulled: ${item.path} (${(item.size / 1024 / 1024).toFixed(1)}MB)`,
+                `[Background Transfer] Pulled: ${item.path} (${formatSize(item.size)})`,
                 "notice",
             );
         } else {

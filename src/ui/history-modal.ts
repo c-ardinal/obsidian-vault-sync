@@ -13,6 +13,7 @@ import { SyncManager } from "../sync-manager";
 import { FileRevision } from "../types/adapter";
 import { diff_match_patch } from "diff-match-patch";
 import { PromptModal } from "./prompt-modal";
+import { formatSize } from "../utils/format";
 
 export class HistoryModal extends Modal {
     private revisions: FileRevision[] = [];
@@ -870,9 +871,7 @@ export class HistoryModal extends Modal {
         // Obsolete but kept for signature compatibility if needed
     }
     formatSize(bytes: number): string {
-        if (bytes < 1024) return `${bytes} B`;
-        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-        return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+        return formatSize(bytes);
     }
 
     onClose() {

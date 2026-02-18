@@ -1,11 +1,12 @@
 import * as obsidianModule from "obsidian";
 import { App, normalizePath } from "obsidian";
 import { ICryptoEngine } from "./interfaces";
+import { toHex } from "../utils/format";
 
 // SHA-256 hash of the approved e2ee-engine.js file.
 // Update via: npm run hash (in VaultSync-E2EE-Engine repo)
 const APPROVED_ENGINE_HASH: string =
-    "f62d9a9d2f82ffa1672c091fdf1d82fc171dca2c532491ce2e8b8322c6bed815";
+    "0d24c256338beeb31c9aad1dd674bc4559e12caa5f2ba31f85896b5cfe107310";
 
 /**
  * Compute SHA-256 hash of content
@@ -14,8 +15,7 @@ async function computeSHA256(content: string): Promise<string> {
     const encoder = new TextEncoder();
     const data = encoder.encode(content);
     const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+    return toHex(new Uint8Array(hashBuffer));
 }
 
 /**
@@ -102,6 +102,15 @@ export async function loadExternalCryptoEngine(
             "isUnlocked",
             "encrypt",
             "decrypt",
+            "encryptToBlob",
+            "decryptFromBlob",
+            "getOptimalChunkSize",
+            "isChunkedFormat",
+            "encryptChunked",
+            "decryptChunked",
+            "calculateChunkedSize",
+            "buildChunkedHeader",
+            "encryptChunks",
             "showSetupModal",
             "showUnlockModal",
             "getSettingsSections",

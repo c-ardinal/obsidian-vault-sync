@@ -1,8 +1,16 @@
 import { md5 } from "../utils/md5";
+import { toHex } from "../utils/format";
 import { normalizePath } from "../utils/path";
 import type { SyncContext } from "./context";
 import type { CommunicationData } from "./types";
 import { isManagedSeparately, shouldNotBeOnRemote, shouldIgnore } from "./file-utils";
+
+function generateDeviceId(): string {
+    const randomArray = new Uint8Array(4);
+    if (typeof crypto !== "undefined") crypto.getRandomValues(randomArray);
+    const suffix = toHex(randomArray);
+    return md5(new TextEncoder().encode(Date.now().toString() + suffix).buffer).substring(0, 8);
+}
 
 // === Communication.json Management ===
 
@@ -178,14 +186,7 @@ export async function loadLocalIndex(ctx: SyncContext): Promise<void> {
             ctx.deviceId = parsed.deviceId || "";
 
             if (!ctx.deviceId) {
-                const randomArray = new Uint8Array(4);
-                if (typeof crypto !== "undefined") crypto.getRandomValues(randomArray);
-                const suffix = Array.from(randomArray)
-                    .map((b) => b.toString(16).padStart(2, "0"))
-                    .join("");
-                ctx.deviceId = md5(
-                    new TextEncoder().encode(Date.now().toString() + suffix).buffer,
-                ).substring(0, 8);
+                ctx.deviceId = generateDeviceId();
 
                 // Set folder BEFORE logging
                 ctx.logFolder = `${ctx.pluginDir}/logs/${ctx.deviceId}`;
@@ -204,14 +205,7 @@ export async function loadLocalIndex(ctx: SyncContext): Promise<void> {
             }
         } else {
             ctx.localIndex = { ...ctx.index };
-            const randomArray = new Uint8Array(4);
-            if (typeof crypto !== "undefined") crypto.getRandomValues(randomArray);
-            const suffix = Array.from(randomArray)
-                .map((b) => b.toString(16).padStart(2, "0"))
-                .join("");
-            ctx.deviceId = md5(
-                new TextEncoder().encode(Date.now().toString() + suffix).buffer,
-            ).substring(0, 8);
+            ctx.deviceId = generateDeviceId();
 
             const isAlreadyLogged = ctx.logFolder === `${ctx.pluginDir}/logs/${ctx.deviceId}`;
 
@@ -230,11 +224,7 @@ export async function loadLocalIndex(ctx: SyncContext): Promise<void> {
             ctx.deviceId && ctx.logFolder === `${ctx.pluginDir}/logs/${ctx.deviceId}`;
 
         // Fallback device ID
-        ctx.deviceId =
-            ctx.deviceId ||
-            md5(
-                new TextEncoder().encode(Date.now().toString() + Math.random().toString()).buffer,
-            ).substring(0, 8);
+        ctx.deviceId = ctx.deviceId || generateDeviceId();
         ctx.logFolder = `${ctx.pluginDir}/logs/${ctx.deviceId}`;
 
         if (!isAlreadyLogged) {

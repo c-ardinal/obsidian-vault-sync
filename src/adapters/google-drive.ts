@@ -1,9 +1,8 @@
 import { CloudAdapter, CloudChanges, CloudFile } from "../types/adapter";
 import { generateCodeChallenge, generateCodeVerifier } from "../auth/pkce";
 import { DEFAULT_SETTINGS, SETTINGS_LIMITS, OAUTH_REDIRECT_URI } from "../constants";
+import { toHex } from "../utils/format";
 import { Platform } from "obsidian";
-
-const DEFAULT_ROOT_FOLDER = "ObsidianVaultSync";
 
 export class GoogleDriveAdapter implements CloudAdapter {
     name = "Google Drive";
@@ -20,7 +19,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
     private idToPathCache: Map<string, string> = new Map(); // ID -> fullPath
     private resolvePathCache: Map<string, string> = new Map(); // ID -> fullPath (built during resolution)
     private outsideFolderIds: Set<string> = new Set(); // IDs confirmed to be outside vaultRootId
-    private cloudRootFolder: string = DEFAULT_ROOT_FOLDER;
+    private cloudRootFolder: string = DEFAULT_SETTINGS.cloudRootFolder;
 
     constructor(
         private _clientId: string,
@@ -51,15 +50,15 @@ export class GoogleDriveAdapter implements CloudAdapter {
     }
 
     private validateRootFolder(folder: string | undefined): string {
-        if (!folder || folder.trim() === "") return DEFAULT_ROOT_FOLDER;
+        if (!folder || folder.trim() === "") return DEFAULT_SETTINGS.cloudRootFolder;
         // Disallow slashes, special chars, too long names
         const sanitized = folder.trim();
         if (sanitized.startsWith("/") || sanitized.includes("\\") || sanitized.length > 255) {
-            return DEFAULT_ROOT_FOLDER;
+            return DEFAULT_SETTINGS.cloudRootFolder;
         }
         // Disallow illegal characters for folder names
         if (/[<>:"|?*]/.test(sanitized)) {
-            return DEFAULT_ROOT_FOLDER;
+            return DEFAULT_SETTINGS.cloudRootFolder;
         }
         return sanitized;
     }
@@ -186,7 +185,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
         // SEC-003: Secure Random State
         const array = new Uint8Array(32);
         window.crypto.getRandomValues(array);
-        this.currentAuthState = Array.from(array, (b) => b.toString(16).padStart(2, "0")).join("");
+        this.currentAuthState = toHex(array);
 
         // Persist state/verifier for mobile/background survivability
         window.localStorage.setItem("vault-sync-verifier", this.codeVerifier);

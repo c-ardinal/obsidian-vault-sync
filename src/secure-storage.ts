@@ -1,4 +1,5 @@
 import { App, Platform, normalizePath } from "obsidian";
+import { toHex } from "./utils/format";
 
 const IV_LENGTH = 12;
 const SALT_LENGTH = 16;
@@ -159,7 +160,7 @@ export class SecureStorage {
     }
 
     private async getKey(salt: Uint8Array): Promise<CryptoKey> {
-        const saltHex = Array.from(salt, (b) => b.toString(16).padStart(2, "0")).join("");
+        const saltHex = toHex(salt);
         if (this.keyCache.has(saltHex)) return this.keyCache.get(saltHex)!;
 
         const enc = new TextEncoder();

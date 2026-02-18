@@ -1,29 +1,27 @@
-export interface SyncManagerSettings {
-    concurrency: number;
-    notificationLevel: "verbose" | "standard" | "error";
-    conflictResolutionStrategy: "smart-merge" | "force-local" | "force-remote" | "always-fork";
-    enableLogging: boolean;
-    isDeveloperMode: boolean;
-    exclusionPatterns: string;
-    /** Size threshold (MB) for background transfer. Files larger than this are transferred
-     *  asynchronously outside the sync cycle. Set to 0 to disable (all files inline). */
-    largeFileThresholdMB: number;
-    /** Delay (seconds) between consecutive background transfer items. 0 = no throttling. */
-    bgTransferIntervalSec: number;
+import type { VaultSyncSettings } from "../types/settings";
 
-    // Sync Scope Options
-    syncAppearance: boolean;
-    syncCommunityPlugins: boolean;
-    syncCoreConfig: boolean;
-    syncImagesAndMedia: boolean;
-    syncDotfiles: boolean;
-    syncPluginSettings: boolean;
-    syncFlexibleData: boolean;
-    syncDeviceLogs: boolean;
-    syncWorkspace: boolean;
-    hasCompletedFirstSync: boolean;
-    e2eeEnabled: boolean;
-}
+export type SyncManagerSettings = Pick<
+    VaultSyncSettings,
+    | "concurrency"
+    | "largeFileThresholdMB"
+    | "bgTransferIntervalSec"
+    | "notificationLevel"
+    | "conflictResolutionStrategy"
+    | "enableLogging"
+    | "isDeveloperMode"
+    | "exclusionPatterns"
+    | "syncAppearance"
+    | "syncCommunityPlugins"
+    | "syncCoreConfig"
+    | "syncImagesAndMedia"
+    | "syncDotfiles"
+    | "syncPluginSettings"
+    | "syncFlexibleData"
+    | "syncDeviceLogs"
+    | "syncWorkspace"
+    | "hasCompletedFirstSync"
+    | "e2eeEnabled"
+>;
 
 export interface LocalFileIndex {
     [path: string]: {

@@ -2,9 +2,15 @@ import { TFile } from "obsidian";
 import { md5 } from "../utils/md5";
 import { diff_match_patch } from "diff-match-patch";
 import type { SyncContext } from "./context";
-import { ensureLocalFolder, hashContent } from "./file-utils";
+import { ensureLocalFolder, hashContent, normalizeLineEndings } from "./file-utils";
 import { checkMergeLock, acquireMergeLock, releaseMergeLock, saveLocalIndex } from "./state";
 import { listRevisions, getRevisionContent } from "./history";
+
+function markSettingsUpdatedIfNeeded(ctx: SyncContext, path: string): void {
+    if (path.endsWith("/open-data.json")) {
+        ctx.settingsUpdated = true;
+    }
+}
 
 // === Pure Functions ===
 
@@ -60,12 +66,11 @@ export function linesToChars3(
  * Check if the subset content's lines are a strict subsequence of the superset content.
  */
 export function isContentSubset(subset: string, superset: string): boolean {
-    const normalize = (s: string) => s.replace(/\r\n/g, "\n");
-    const subLines = normalize(subset)
+    const subLines = normalizeLineEndings(subset)
         .split("\n")
         .map((l) => l.trim())
         .filter((l) => l.length > 0);
-    const superLines = normalize(superset)
+    const superLines = normalizeLineEndings(superset)
         .split("\n")
         .map((l) => l.trim())
         .filter((l) => l.length > 0);
@@ -93,7 +98,6 @@ export function isContentSubset(subset: string, superset: string): boolean {
  * Check if two contents are semantically equivalent (same lines, possibly different order)
  */
 export function areSemanticallyEquivalent(contentA: string, contentB: string): boolean {
-    const normalizeLineEndings = (s: string) => s.replace(/\r\n/g, "\n");
     const localNorm = normalizeLineEndings(contentA);
     const remoteNorm = normalizeLineEndings(contentB);
 
@@ -222,10 +226,9 @@ export async function perform3WayMerge(
         const baseBuffer = await getRevisionContent(ctx, path, baseRev.id);
         const baseContentStr = new TextDecoder().decode(baseBuffer);
 
-        const normalize = (s: string) => s.replace(/\r\n/g, "\n");
-        const baseNorm = normalize(baseContentStr);
-        const localNorm = normalize(localContentStr);
-        const remoteNorm = normalize(remoteContentStr);
+        const baseNorm = normalizeLineEndings(baseContentStr);
+        const localNorm = normalizeLineEndings(localContentStr);
+        const remoteNorm = normalizeLineEndings(remoteContentStr);
 
         await ctx.log(
             `[Merge] Content lengths (raw/norm) - Base: ${baseContentStr.length}/${baseNorm.length}, Local: ${localContentStr.length}/${localNorm.length}, Remote: ${remoteContentStr.length}/${remoteNorm.length}`,
@@ -390,7 +393,7 @@ export async function pullFileSafely(
                 const localContent = await ctx.app.vault.adapter.readBinary(item.path);
                 // Normalize line endings for consistent hash calculation across platforms
                 const localContentStr = new TextDecoder().decode(localContent);
-                const normalizedContent = localContentStr.replace(/\r\n/g, "\n");
+                const normalizedContent = normalizeLineEndings(localContentStr);
                 const currentHash = md5(new TextEncoder().encode(normalizedContent).buffer);
                 const localBase = ctx.localIndex[item.path];
 
@@ -543,10 +546,7 @@ export async function pullFileSafely(
                             const remoteContent = await ctx.adapter.downloadFile(fileId || "");
                             await ctx.app.vault.adapter.writeBinary(item.path, remoteContent);
 
-                            // Detect if this is the plugin's own settings file
-                            if (item.path.endsWith("/open-data.json")) {
-                                ctx.settingsUpdated = true;
-                            }
+                            markSettingsUpdatedIfNeeded(ctx, item.path);
 
                             const stat = await ctx.app.vault.adapter.stat(item.path);
                             // Calculate plainHash for downloaded content
@@ -652,7 +652,7 @@ export async function pullFileSafely(
 
                             if (merged) {
                                 const mergedStr = new TextDecoder().decode(merged);
-                                const normalizedMerged = mergedStr.replace(/\r\n/g, "\n");
+                                const normalizedMerged = normalizeLineEndings(mergedStr);
                                 const normalizedBuffer = new TextEncoder().encode(
                                     normalizedMerged,
                                 ).buffer;
@@ -661,13 +661,10 @@ export async function pullFileSafely(
                                     normalizedBuffer,
                                 );
 
-                                // Detect if this is the plugin's own settings file
-                                if (item.path.endsWith("/open-data.json")) {
-                                    ctx.settingsUpdated = true;
-                                }
+                                markSettingsUpdatedIfNeeded(ctx, item.path);
 
                                 const mergedHash = md5(normalizedBuffer);
-                                const remoteNorm = remoteContentStr.replace(/\r\n/g, "\n");
+                                const remoteNorm = normalizeLineEndings(remoteContentStr);
 
                                 const isIdenticalToRemote =
                                     (item.hash && mergedHash === item.hash.toLowerCase()) ||
@@ -803,10 +800,7 @@ export async function pullFileSafely(
                         // Calculate plainHash for downloaded content
                         remotePlainHash = await hashContent(remoteContent);
 
-                        // Detect if this is the plugin's own settings file
-                        if (item.path.endsWith("/open-data.json")) {
-                            ctx.settingsUpdated = true;
-                        }
+                        markSettingsUpdatedIfNeeded(ctx, item.path);
                     } else {
                         const exists = await ctx.app.vault.adapter.exists(item.path);
                         if (exists) {

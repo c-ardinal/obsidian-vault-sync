@@ -16,6 +16,7 @@ import { getSettingsSections } from "./ui/settings-schema";
 import { loadExternalCryptoEngine } from "./encryption/engine-loader";
 import { ICryptoEngine } from "./encryption/interfaces";
 import { checkPasswordStrength } from "./encryption/password-strength";
+import { toHex } from "./utils/format";
 
 export default class VaultSync extends Plugin {
     settings!: VaultSyncSettings;
@@ -849,7 +850,7 @@ export default class VaultSync extends Plugin {
         if (!this.settings.encryptionSecret) {
             const array = new Uint8Array(32);
             window.crypto.getRandomValues(array);
-            const newSecret = Array.from(array, (b) => b.toString(16).padStart(2, "0")).join("");
+            const newSecret = toHex(array);
             this.settings.encryptionSecret = newSecret;
             this.secureStorage.setMasterSecret(newSecret);
 

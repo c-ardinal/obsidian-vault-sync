@@ -1,6 +1,7 @@
 import { App, Modal, setIcon } from "obsidian";
 import { SyncManager } from "../sync-manager";
 import type { TransferItem, TransferRecord } from "../sync-manager/transfer-types";
+import { formatSize } from "../utils/format";
 
 export class TransferStatusModal extends Modal {
     private refreshTimer: number | null = null;
@@ -228,9 +229,7 @@ export class TransferStatusModal extends Modal {
     }
 
     private formatSize(bytes: number): string {
-        if (bytes < 1024) return `${bytes}B`;
-        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
-        return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+        return formatSize(bytes);
     }
 
     private formatTime(timestamp: number): string {

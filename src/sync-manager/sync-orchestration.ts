@@ -19,6 +19,52 @@ import {
 import { loadCommunication, saveIndex, saveLocalIndex, clearPendingPushStates } from "./state";
 import { pullFileSafely } from "./merge";
 import { TransferPriority, type TransferRecord } from "./transfer-types";
+import { formatSize } from "../utils/format";
+
+// ==========================================================================
+// Helpers
+// ==========================================================================
+
+async function computeLocalHash(
+    ctx: SyncContext,
+    content: ArrayBuffer,
+    indexEntry: { hash?: string; plainHash?: string },
+): Promise<{ localHash: string; compareHash: string | undefined }> {
+    const useE2EE = ctx.e2eeEnabled && !!indexEntry.plainHash;
+    const localHash = useE2EE ? await hashContent(content) : md5(content);
+    const compareHash = useE2EE ? indexEntry.plainHash : indexEntry.hash;
+    return { localHash, compareHash };
+}
+
+async function downloadRemoteIndex(ctx: SyncContext, fileId: string): Promise<LocalFileIndex> {
+    const content = await ctx.adapter.downloadFile(fileId);
+    const decompressed = await tryDecompress(content);
+    const data = JSON.parse(new TextDecoder().decode(decompressed));
+    return data.index || {};
+}
+
+function getThresholdBytes(ctx: SyncContext): number {
+    return (ctx.settings.largeFileThresholdMB ?? 0) * 1024 * 1024;
+}
+
+function generateTransferId(direction: "push" | "pull"): string {
+    return `bg-${direction}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function markPendingTransfer(
+    ctx: SyncContext,
+    path: string,
+    direction: "push" | "pull",
+    snapshotHash: string,
+): void {
+    if (ctx.localIndex[path]) {
+        ctx.localIndex[path].pendingTransfer = {
+            direction,
+            enqueuedAt: Date.now(),
+            snapshotHash,
+        };
+    }
+}
 
 // ==========================================================================
 // Scanning
@@ -62,10 +108,7 @@ export async function scanObsidianChanges(ctx: SyncContext): Promise<void> {
                 // Mtime changed: verify content hash to confirm actual modification
                 try {
                     const content = await ctx.app.vault.adapter.readBinary(filePath);
-                    // For E2EE: use normalized hash (CRLF→LF) to match plainHash computation
-                    const useE2EEHash = ctx.e2eeEnabled && indexEntry.plainHash;
-                    const localHash = useE2EEHash ? await hashContent(content) : md5(content);
-                    const compareHash = useE2EEHash ? indexEntry.plainHash : indexEntry.hash;
+                    const { localHash, compareHash } = await computeLocalHash(ctx, content, indexEntry);
                     if (compareHash && localHash !== compareHash.toLowerCase()) {
                         ctx.dirtyPaths.add(filePath);
                         await ctx.log(
@@ -165,11 +208,7 @@ export async function scanVaultChanges(ctx: SyncContext): Promise<void> {
                 // Mtime changed: verify content hash
                 try {
                     const content = await ctx.app.vault.adapter.readBinary(file.path);
-
-                    // For E2EE: use normalized hash (CRLF→LF) to match plainHash computation
-                    const useE2EEHash = ctx.e2eeEnabled && indexEntry.plainHash;
-                    const localHash = useE2EEHash ? await hashContent(content) : md5(content);
-                    const compareHash = useE2EEHash ? indexEntry.plainHash : indexEntry.hash;
+                    const { localHash, compareHash } = await computeLocalHash(ctx, content, indexEntry);
                     if (compareHash && localHash !== compareHash.toLowerCase()) {
                         ctx.dirtyPaths.add(file.path);
                         await ctx.log(
@@ -520,10 +559,7 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
         `[Smart Pull] Index hash differs (local: ${localIndexHash}, remote: ${remoteIndexHash}). Fetching remote index...`,
     );
 
-    const remoteIndexContent = await ctx.adapter.downloadFile(remoteIndexMeta.id);
-    const decompressed = await tryDecompress(remoteIndexContent);
-    const remoteIndexData = JSON.parse(new TextDecoder().decode(decompressed));
-    const remoteIndex: LocalFileIndex = remoteIndexData.index || {};
+    const remoteIndex = await downloadRemoteIndex(ctx, remoteIndexMeta.id);
 
     // === CORRUPTION CHECK ===
     // If index is empty but file is large (>200 bytes), assume corruption.
@@ -727,7 +763,7 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
     }
 
     // === SIZE-BASED ROUTING: Partition pull items into inline and background ===
-    const pullThresholdBytes = (ctx.settings.largeFileThresholdMB ?? 0) * 1024 * 1024;
+    const pullThresholdBytes = getThresholdBytes(ctx);
     const inlineDownloads: typeof toDownload = [];
     let deferredPullCount = 0;
 
@@ -739,9 +775,8 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
 
             if (!hasLocalConflict && !isDeletionConflict && remoteSize > pullThresholdBytes) {
                 // Defer to background queue
-                const itemId = `bg-pull-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
                 ctx.backgroundTransferQueue.enqueue({
-                    id: itemId,
+                    id: generateTransferId("pull"),
                     direction: "pull",
                     path: item.path,
                     fileId: item.fileId,
@@ -752,16 +787,10 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
                     createdAt: Date.now(),
                     remoteHash: item.hash,
                 });
-                if (ctx.localIndex[item.path]) {
-                    ctx.localIndex[item.path].pendingTransfer = {
-                        direction: "pull",
-                        enqueuedAt: Date.now(),
-                        snapshotHash: item.hash || "",
-                    };
-                }
+                markPendingTransfer(ctx, item.path, "pull", item.hash || "");
                 deferredPullCount++;
                 await ctx.log(
-                    `[Smart Pull] Deferred to background (${(remoteSize / 1024 / 1024).toFixed(1)}MB): ${item.path}`,
+                    `[Smart Pull] Deferred to background (${formatSize(remoteSize)}): ${item.path}`,
                 );
             } else {
                 inlineDownloads.push(item);
@@ -973,10 +1002,7 @@ export async function pullViaChangesAPI(
         try {
             const remoteIndexMeta = await ctx.adapter.getFileMetadata(ctx.pluginDataPath);
             if (remoteIndexMeta?.id) {
-                const remoteIndexContent = await ctx.adapter.downloadFile(remoteIndexMeta.id);
-                const decompressed = await tryDecompress(remoteIndexContent);
-                const remoteIndexData = JSON.parse(new TextDecoder().decode(decompressed));
-                remoteIndex = remoteIndexData.index || {};
+                remoteIndex = await downloadRemoteIndex(ctx, remoteIndexMeta.id);
             }
         } catch (e) {
             await ctx.log(
@@ -1212,7 +1238,7 @@ export async function pullViaChangesAPI(
                 }
 
                 // === SIZE-BASED ROUTING for pull ===
-                const changesThreshold = (ctx.settings.largeFileThresholdMB ?? 0) * 1024 * 1024;
+                const changesThreshold = getThresholdBytes(ctx);
                 const hasLocalConflict = ctx.dirtyPaths.has(cloudFile.path);
 
                 if (
@@ -1221,9 +1247,8 @@ export async function pullViaChangesAPI(
                     cloudFile.size > changesThreshold
                 ) {
                     // Defer large file to background queue
-                    const itemId = `bg-pull-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
                     ctx.backgroundTransferQueue.enqueue({
-                        id: itemId,
+                        id: generateTransferId("pull"),
                         direction: "pull",
                         path: cloudFile.path,
                         fileId: cloudFile.id,
@@ -1234,15 +1259,9 @@ export async function pullViaChangesAPI(
                         createdAt: Date.now(),
                         remoteHash: cloudFile.hash,
                     });
-                    if (ctx.localIndex[cloudFile.path]) {
-                        ctx.localIndex[cloudFile.path].pendingTransfer = {
-                            direction: "pull",
-                            enqueuedAt: Date.now(),
-                            snapshotHash: cloudFile.hash || "",
-                        };
-                    }
+                    markPendingTransfer(ctx, cloudFile.path, "pull", cloudFile.hash || "");
                     await ctx.log(
-                        `[Changes API] Deferred to background (${(cloudFile.size / 1024 / 1024).toFixed(1)}MB): ${cloudFile.path}`,
+                        `[Changes API] Deferred to background (${formatSize(cloudFile.size)}): ${cloudFile.path}`,
                     );
                 } else {
                     tasks.push(async () => {
@@ -1687,16 +1706,12 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                         }
 
                         // For E2EE: Compare plainHash instead of encrypted hash
-                        // Since the same plaintext produces different ciphertext with AES-GCM (random IV)
-                        let contentMatches = false;
-                        if (ctx.e2eeEnabled && localIndexEntry?.plainHash) {
-                            // E2EE enabled: compare plaintext hashes
-                            const currentPlainHash = await hashContent(content);
-                            contentMatches = localIndexEntry.plainHash === currentPlainHash;
-                        } else if (localIndexEntry?.hash) {
-                            // No E2EE or no plainHash: use regular hash comparison
-                            contentMatches = localIndexEntry.hash.toLowerCase() === currentHash;
-                        }
+                        const { localHash: computedHash, compareHash: baseHash } = await computeLocalHash(
+                            ctx, content, localIndexEntry || {},
+                        );
+                        const contentMatches = baseHash
+                            ? computedHash === baseHash.toLowerCase()
+                            : false;
 
                         if (
                             contentMatches &&
@@ -1761,7 +1776,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
     }
 
     // === SIZE-BASED ROUTING: Partition uploadQueue into inline and background ===
-    const thresholdBytes = (ctx.settings.largeFileThresholdMB ?? 0) * 1024 * 1024;
+    const thresholdBytes = getThresholdBytes(ctx);
     const inlineUploadQueue: typeof uploadQueue = [];
     let deferredCount = 0;
 
@@ -1771,9 +1786,9 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
             const isMergeResult = ctx.localIndex[file.path]?.lastAction === "merge";
             if (!isMetadata && !isMergeResult && file.size > thresholdBytes) {
                 // Defer to background queue
-                const itemId = `bg-push-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+                const snapshotHash = md5(file.content);
                 ctx.backgroundTransferQueue.enqueue({
-                    id: itemId,
+                    id: generateTransferId("push"),
                     direction: "push",
                     path: file.path,
                     size: file.size,
@@ -1783,19 +1798,12 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                     createdAt: Date.now(),
                     content: file.content,
                     mtime: file.mtime,
-                    snapshotHash: md5(file.content),
+                    snapshotHash,
                 });
-                // Set pendingTransfer marker in localIndex
-                if (ctx.localIndex[file.path]) {
-                    ctx.localIndex[file.path].pendingTransfer = {
-                        direction: "push",
-                        enqueuedAt: Date.now(),
-                        snapshotHash: md5(file.content),
-                    };
-                }
+                markPendingTransfer(ctx, file.path, "push", snapshotHash);
                 deferredCount++;
                 await ctx.log(
-                    `[Smart Push] Deferred to background (${(file.size / 1024 / 1024).toFixed(1)}MB): ${file.path}`,
+                    `[Smart Push] Deferred to background (${formatSize(file.size)}): ${file.path}`,
                 );
             } else {
                 inlineUploadQueue.push(file);
