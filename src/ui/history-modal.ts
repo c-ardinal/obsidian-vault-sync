@@ -763,6 +763,14 @@ export class HistoryModal extends Modal {
                     cur = { segments: [], isDiff: false };
                 }
                 if (part || i < parts.length - 1) {
+                    // Skip empty non-zero-op segments on rows that already have content.
+                    // diff-match-patch may produce diffs like [-1, "\ndeleted line"] where
+                    // splitting by \n yields ["", "deleted line"]. The empty first part
+                    // would otherwise attach a ghost {op:-1, text:""} to the previous
+                    // line's row, making it appear deleted/modified incorrectly.
+                    if (part === "" && op !== 0 && cur.segments.length > 0) {
+                        return;
+                    }
                     cur.segments.push({ op, text: part });
                     if (op !== 0) cur.isDiff = true;
                 }
