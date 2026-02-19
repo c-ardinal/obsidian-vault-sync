@@ -1,6 +1,6 @@
 {
     "name": "obsidian-vault-sync",
-    "version": "0.9.1",
+    "version": "0.10.0",
     "description": "Obsidian Cloud Storage Sync Plugin (Google Drive)",
     "type": "module",
     "main": "dist/obsidian-vault-sync/main.js",
