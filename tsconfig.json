@@ -13,5 +13,6 @@
         "strict": true,
         "outDir": "./dist"
     },
-    "include": ["**/*.ts"]
+    "include": ["**/*.ts"],
+    "exclude": ["functions/**", "node_modules/**", "dist/**"]
 }

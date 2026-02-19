@@ -56,6 +56,10 @@ export interface VaultSyncSettings {
     syncDeviceLogs: boolean; // logs/{deviceId}/*
     syncWorkspace: boolean; // workspace.json, workspace-mobile.json
 
+    // Authentication
+    authMethod: "default" | "custom-proxy" | "client-credentials";
+    customProxyUrl: string;
+
     // Security
     encryptionSecret: string;
     e2eeEnabled: boolean;

@@ -80,10 +80,6 @@ describe("SecureStorage", () => {
         // secretStorage is empty, should load from file
         const loaded = await storage.loadCredentials();
         expect(loaded).toEqual(data);
-
-        // After loading, it should have migrated to secretStorage
-        const secretId = (storage as any).secretId;
-        expect(app.secretStorage.getSecret(secretId)).toBe(JSON.stringify(data));
     });
 
     it("should fail gracefully if file corrupted and secretStorage empty", async () => {
@@ -109,31 +105,6 @@ describe("SecureStorage", () => {
         expect(errorSpy).toHaveBeenCalledWith("SecureStorage: Data too short");
 
         errorSpy.mockRestore();
-    });
-
-    it("should migrate legacy credentials to secretStorage and delete local file", async () => {
-        const legacyPath = ".sync-state";
-        const targetPath = "data/local/.sync-state";
-        const legacyData = { legacy: true };
-
-        // Save to file (simulating legacy)
-        const originalSecretStorage = app.secretStorage;
-        (app as any).secretStorage = null;
-        await storage.saveCredentials(legacyData);
-        (app as any).secretStorage = originalSecretStorage;
-
-        const content = await app.vault.adapter.readBinary(targetPath);
-        await app.vault.adapter.remove(targetPath);
-        await app.vault.adapter.writeBinary(legacyPath, content);
-
-        const loaded = await storage.loadCredentials();
-
-        expect(loaded).toEqual(legacyData);
-        // Verify migration and deletion
-        expect(await app.vault.adapter.exists(legacyPath)).toBe(false);
-        expect(await app.vault.adapter.exists(targetPath)).toBe(false); // Should be deleted now!
-        const secretId = (storage as any).secretId;
-        expect(app.secretStorage.getSecret(secretId)).toBe(JSON.stringify(legacyData));
     });
 
     it("should handle directory creation race condition in fallback mode", async () => {

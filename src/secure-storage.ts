@@ -8,7 +8,7 @@ const ALGORITHM = "AES-GCM";
 export class SecureStorage {
     private keyCache: Map<string, CryptoKey> = new Map(); // Cache keys by salt
     private filePath: string;
-    private legacyFilePath = ".sync-state";
+
 
     private vaultHash: string;
     private secretId: string;
@@ -80,7 +80,7 @@ export class SecureStorage {
     }
 
     private async cleanupFiles() {
-        const paths = [this.filePath, this.legacyFilePath];
+        const paths = [this.filePath];
         for (const path of paths) {
             try {
                 if (await this.app.vault.adapter.exists(path)) {
@@ -271,22 +271,6 @@ export class SecureStorage {
         }
 
         // 2. Fallback to file storage
-        // MIGRATION: Check if legacy file exists in root and move it
-        if (await this.app.vault.adapter.exists(this.legacyFilePath)) {
-            try {
-                console.log(
-                    `[SecureStorage] Migrating legacy credentials from ${this.legacyFilePath} to ${this.filePath}`,
-                );
-                await this.ensureDir(this.filePath);
-                const legacyContent = await this.app.vault.adapter.readBinary(this.legacyFilePath);
-                await this.app.vault.adapter.writeBinary(this.filePath, legacyContent);
-                await this.app.vault.adapter.remove(this.legacyFilePath);
-                console.log("SecureStorage: Migrated credentials from root to plugin folder.");
-            } catch (e) {
-                console.error("SecureStorage: Migration failed", e);
-            }
-        }
-
         if (!(await this.app.vault.adapter.exists(this.filePath))) {
             console.log(`[SecureStorage] No credentials file found at ${this.filePath}`);
             return null;
@@ -320,24 +304,7 @@ export class SecureStorage {
             const decoded = new TextDecoder().decode(decrypted);
             console.log(`[SecureStorage] Successfully loaded credentials from file.`);
 
-            const creds = JSON.parse(decoded);
-
-            // MIGRATION: If secretStorage is available but empty, migrate the file content there
-            if (this.app.secretStorage && creds) {
-                try {
-                    const id = this.secretId;
-                    this.app.secretStorage.setSecret(id, decoded);
-                    console.log(
-                        `[SecureStorage] Migrated file credentials to SecretStorage: ${id}. Deleting local files.`,
-                    );
-                    // SEC-007: Delete all local credential files after successful migration to Keychain
-                    await this.cleanupFiles();
-                } catch (e) {
-                    console.warn("[SecureStorage] Failed to migrate to SecretStorage", e);
-                }
-            }
-
-            return creds;
+            return JSON.parse(decoded);
         } catch (e) {
             console.error(
                 "SecureStorage: Failed to decrypt file. Key changed or file corrupted.",
