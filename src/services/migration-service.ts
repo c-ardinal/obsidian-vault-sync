@@ -6,7 +6,7 @@ import { EncryptedAdapter } from "../adapters/encrypted-adapter";
 import { getLocalFiles, shouldIgnore, runParallel, hashContent } from "../sync-manager/file-utils";
 import { SyncContext } from "../sync-manager/context";
 
-export interface MigrationProgress {
+interface MigrationProgress {
     current: number;
     total: number;
     fileName: string;

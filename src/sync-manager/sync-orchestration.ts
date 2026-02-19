@@ -587,7 +587,6 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
         path: string;
         fileId: string;
         hash?: string;
-        mergeLock?: { holder: string; expiresAt: number };
     }> = [];
     const toDeleteLocal: string[] = [];
 
@@ -700,7 +699,6 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
                 fileId: remoteEntry.fileId,
                 hash: remoteEntry.hash,
                 plainHash: remoteEntry.plainHash,
-                mergeLock: remoteEntry.mergeLock,
                 ancestorHash: remoteEntry.ancestorHash,
             } as any);
         } else if (
@@ -714,7 +712,6 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
                 fileId: remoteEntry.fileId,
                 hash: remoteEntry.hash,
                 plainHash: remoteEntry.plainHash,
-                mergeLock: remoteEntry.mergeLock,
                 ancestorHash: remoteEntry.ancestorHash,
             } as any);
         }

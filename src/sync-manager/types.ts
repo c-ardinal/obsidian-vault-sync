@@ -37,9 +37,7 @@ export interface LocalFileIndex {
         /** Hash of the common ancestor (last known synced state between devices).
          *  Set on pull, preserved on push. Used as base for 3-way merge. */
         ancestorHash?: string;
-        /** @deprecated Merge locks are now stored in communication.json, not sync-index.json */
-        mergeLock?: { holder: string; expiresAt: number };
-        /** True when this device detected a conflict and is waiting for another device to resolve it */
+/** True when this device detected a conflict and is waiting for another device to resolve it */
         pendingConflict?: boolean;
         /** If true, force upload even if hash matches (used for renaming to trigger PATCH) */
         forcePush?: boolean;

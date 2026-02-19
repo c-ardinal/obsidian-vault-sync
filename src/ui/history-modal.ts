@@ -867,9 +867,6 @@ export class HistoryModal extends Modal {
         return rowEl;
     }
 
-    private renderLineDiff(container: HTMLElement, diffs: [number, string][], showLineNo: boolean) {
-        // Obsolete but kept for signature compatibility if needed
-    }
     formatSize(bytes: number): string {
         return formatSize(bytes);
     }

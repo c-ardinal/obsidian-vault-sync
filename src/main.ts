@@ -14,7 +14,6 @@ import {
 import { t } from "./i18n";
 import { getSettingsSections } from "./ui/settings-schema";
 import { loadExternalCryptoEngine } from "./encryption/engine-loader";
-import { ICryptoEngine } from "./encryption/interfaces";
 import { checkPasswordStrength } from "./encryption/password-strength";
 import { toHex } from "./utils/format";
 
@@ -64,13 +63,10 @@ export default class VaultSync extends Plugin {
             DEFAULT_SETTINGS.cloudRootFolder,
         );
 
-        // 2. Load settings (populates adapter if credentials exist, handles data.json migration)
+        // 2. Load settings (populates adapter if credentials exist)
         await this.loadSettings();
 
-        // 3. MIGRATION: Move files to new layout (ensures local-index.json is in the right place)
-        await this.migrateFileLayout();
-
-        // 4. Initialize SyncManager with REAL loaded settings
+        // 3. Initialize SyncManager with REAL loaded settings
         this.syncManager = new SyncManager(
             this.app,
             this.adapter,
@@ -438,24 +434,6 @@ export default class VaultSync extends Plugin {
         }
     }
 
-    private async manualSyncTrigger() {
-        const targets = [];
-        if (this.syncRibbonIconEl)
-            targets.push({ element: this.syncRibbonIconEl, originalIcon: "sync" });
-        if (this.mobileSyncFabEl)
-            targets.push({ element: this.mobileSyncFabEl, originalIcon: "sync" });
-
-        await this.syncManager.log("[Trigger] Activated via manual", "system");
-
-        if (targets.length > 0) {
-            await this.performSyncOperation(targets, () =>
-                this.syncManager.requestSmartSync("manual-sync"),
-            );
-        } else {
-            await this.syncManager.requestSmartSync("manual-sync");
-        }
-    }
-
     async performSyncOperation(
         targets: { element: HTMLElement; originalIcon: string }[],
         operation: () => Promise<void>,
@@ -710,62 +688,6 @@ export default class VaultSync extends Plugin {
 
         const openDataPath = `${this.manifest.dir}/${DATA_FLEXIBLE_DIR}/open-data.json`;
         const localDataPath = `${this.manifest.dir}/${DATA_LOCAL_DIR}/local-data.json`;
-        const legacyRemoteDataPath = `${this.manifest.dir}/${DATA_REMOTE_DIR}/data.json`;
-        const legacyRootDataPath = `${this.manifest.dir}/data.json`;
-
-        // MIGRATION: Split data.json (root or remote) into open-data.json and local-data.json
-        // Check for root data.json first (Obsidian standard), then remote data.json (VaultSync legacy)
-        let legacySourcePath = null;
-        if (await this.app.vault.adapter.exists(legacyRootDataPath)) {
-            legacySourcePath = legacyRootDataPath;
-        } else if (await this.app.vault.adapter.exists(legacyRemoteDataPath)) {
-            legacySourcePath = legacyRemoteDataPath;
-        }
-
-        if (legacySourcePath && !(await this.app.vault.adapter.exists(openDataPath))) {
-            try {
-                console.log(`VaultSync: Migrating ${legacySourcePath} to new structure...`);
-                const legacyContent = await this.app.vault.adapter.read(legacySourcePath);
-                const legacyData = JSON.parse(legacyContent);
-
-                // Extract Local Data
-                const localData = {
-                    encryptionSecret: legacyData.encryptionSecret,
-                    hasCompletedFirstSync: legacyData.hasCompletedFirstSync,
-                };
-                // Extract Open Data (Everything else)
-                const openData = { ...legacyData };
-                delete openData.encryptionSecret;
-                delete openData.hasCompletedFirstSync;
-                // Remove deprecated credential fields if they exist
-                delete openData.clientId;
-                delete openData.clientSecret;
-                delete openData.accessToken;
-                delete openData.refreshToken;
-
-                // Ensure directories exist
-                await this.app.vault.adapter
-                    .mkdir(`${this.manifest.dir}/${DATA_FLEXIBLE_DIR}`)
-                    .catch(() => {});
-                await this.app.vault.adapter
-                    .mkdir(`${this.manifest.dir}/${DATA_LOCAL_DIR}`)
-                    .catch(() => {});
-
-                // Write new files
-                await this.app.vault.adapter.write(
-                    localDataPath,
-                    JSON.stringify(localData, null, 2),
-                );
-                await this.app.vault.adapter.write(openDataPath, JSON.stringify(openData, null, 2));
-
-                // Remove old file
-                await this.app.vault.adapter.remove(legacySourcePath);
-                console.log("VaultSync: Migration complete.");
-            } catch (e) {
-                console.error("VaultSync: Failed to migrate data.json", e);
-            }
-        }
-
         // Load Open Data
         if (await this.app.vault.adapter.exists(openDataPath)) {
             try {
@@ -786,39 +708,7 @@ export default class VaultSync extends Plugin {
             }
         }
 
-        // Fallback: Try load from root (very old legacy)
-        if (Object.keys(loadedSettings).length === 0) {
-            const rootData = (await this.loadData()) || {};
-            loadedSettings = { ...rootData };
-        }
-
         this.settings = Object.assign({}, DEFAULT_SETTINGS, loadedSettings);
-
-        // MIGRATION: Structured Triggers
-        if (!(this.settings as any).triggerConfigStrategy) {
-            this.settings.triggerConfigStrategy = "unified";
-            const oldSettings = loadedSettings as any;
-            if (
-                oldSettings.autoSyncIntervalSec !== undefined ||
-                oldSettings.enableStartupSync !== undefined
-            ) {
-                const triggers = {
-                    enableStartupSync: oldSettings.enableStartupSync ?? true,
-                    autoSyncIntervalSec:
-                        oldSettings.autoSyncIntervalSec ?? SETTINGS_LIMITS.autoSyncInterval.default,
-                    onSaveDelaySec:
-                        oldSettings.onSaveDelaySec ?? SETTINGS_LIMITS.onSaveDelay.default,
-                    onModifyDelaySec:
-                        oldSettings.onModifyDelaySec ?? SETTINGS_LIMITS.onModifyDelay.default,
-                    onLayoutChangeDelaySec:
-                        oldSettings.onLayoutChangeDelaySec ??
-                        SETTINGS_LIMITS.onLayoutChangeDelay.default,
-                };
-                this.settings.unifiedTriggers = { ...triggers };
-                this.settings.desktopTriggers = { ...triggers };
-                this.settings.mobileTriggers = { ...triggers };
-            }
-        }
 
         // SEC-010: Initialize SecureStorage early to use its Keychain methods
         this.secureStorage = new SecureStorage(
@@ -832,17 +722,7 @@ export default class VaultSync extends Plugin {
             const keychainSecret = await this.secureStorage.getExtraSecret("encryption-secret");
             if (keychainSecret) {
                 this.settings.encryptionSecret = keychainSecret;
-                // Update internal secret for file-based fallback support
                 this.secureStorage.setMasterSecret(keychainSecret);
-            } else if (this.settings.encryptionSecret) {
-                // Migrate from file to Keychain
-                console.log("VaultSync: Migrating encryptionSecret to Keychain...");
-                await this.secureStorage.setExtraSecret(
-                    "encryption-secret",
-                    this.settings.encryptionSecret,
-                );
-                // After migration, we save settings to clean up the local file
-                await this.saveSettings();
             }
         }
 
@@ -877,26 +757,6 @@ export default class VaultSync extends Plugin {
             );
         }
 
-        // MIGRATION: Check if legacy credentials exist in settings (unencrypted) and move them
-        const data: any = this.settings;
-        if (data && (data.clientId || data.accessToken)) {
-            console.log("VaultSync: Migrating credentials to secure storage...");
-            await this.saveCredentials(
-                data.clientId || "",
-                data.clientSecret || "",
-                data.accessToken || null,
-                data.refreshToken || null,
-            );
-
-            // Access settings directly to delete properties
-            const settingsAny = this.settings as any;
-            delete settingsAny["clientId"];
-            delete settingsAny["clientSecret"];
-            delete settingsAny["accessToken"];
-            delete settingsAny["refreshToken"];
-            await this.saveSettings();
-            console.log("VaultSync: Migration complete.");
-        }
     }
 
     async saveSettings() {
@@ -962,50 +822,6 @@ export default class VaultSync extends Plugin {
         );
     }
 
-    async migrateFileLayout() {
-        const moves = [
-            { old: "sync-index.json", new: `${DATA_REMOTE_DIR}/sync-index.json` },
-            { old: "sync-index_raw.json", new: `${DATA_REMOTE_DIR}/sync-index_raw.json` },
-            { old: "communication.json", new: `${DATA_REMOTE_DIR}/communication.json` },
-            { old: "local-index.json", new: `${DATA_LOCAL_DIR}/local-index.json` },
-            { old: "dirty.json", new: `${DATA_LOCAL_DIR}/dirty.json` },
-            // Note: .sync-state migration handled/accessed by SecureStorage as well,
-            // but we can move it here if it exists in old standard location.
-            { old: ".sync-state", new: `${DATA_LOCAL_DIR}/.sync-state` },
-        ];
-
-        // Ensure directories exist
-        const dirs = [
-            `${this.manifest.dir}/${DATA_LOCAL_DIR}`,
-            `${this.manifest.dir}/${DATA_REMOTE_DIR}`,
-            `${this.manifest.dir}/${DATA_FLEXIBLE_DIR}`,
-        ];
-        for (const dir of dirs) {
-            if (!(await this.app.vault.adapter.exists(dir))) {
-                await this.app.vault.createFolder(dir).catch(() => {});
-            }
-        }
-
-        for (const move of moves) {
-            const oldPath = `${this.manifest.dir}/${move.old}`;
-            const newPath = `${this.manifest.dir}/${move.new}`;
-
-            if (
-                (await this.app.vault.adapter.exists(oldPath)) &&
-                !(await this.app.vault.adapter.exists(newPath))
-            ) {
-                try {
-                    // Copy then remove to be safe
-                    const content = await this.app.vault.adapter.readBinary(oldPath);
-                    await this.app.vault.adapter.writeBinary(newPath, content);
-                    await this.app.vault.adapter.remove(oldPath);
-                    console.log(`VaultSync: Migrated ${move.old} to ${move.new}`);
-                } catch (e) {
-                    console.error(`VaultSync: Failed to migrate ${move.old}`, e);
-                }
-            }
-        }
-    }
 }
 
 class VaultSyncSettingTab extends PluginSettingTab {

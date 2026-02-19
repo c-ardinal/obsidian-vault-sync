@@ -252,7 +252,6 @@ export class GoogleDriveAdapter implements CloudAdapter {
     }
 
     async handleCallback(url: string | URL): Promise<void> {
-        // Legacy: Not used in new flow, but kept for interface compatibility if needed
         const urlObj = typeof url === "string" ? new URL(url) : url;
         const code = urlObj.searchParams.get("code");
         const state = urlObj.searchParams.get("state");
