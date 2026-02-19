@@ -240,6 +240,12 @@ export async function saveIndex(ctx: SyncContext): Promise<void> {
         startPageToken: ctx.startPageToken,
     });
 
+    // Ensure parent directory exists (may not on fresh install)
+    const dir = ctx.pluginDataPath.replace(/\/[^/]+$/, "");
+    if (!(await ctx.app.vault.adapter.exists(dir))) {
+        await ctx.app.vault.adapter.mkdir(dir);
+    }
+
     await ctx.app.vault.adapter.write(ctx.pluginDataPath, data);
 
     const rawPath = ctx.pluginDataPath.replace(".json", "_raw.json");

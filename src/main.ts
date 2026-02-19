@@ -16,6 +16,13 @@ import { getSettingsSections } from "./ui/settings-schema";
 import { loadExternalCryptoEngine } from "./encryption/engine-loader";
 import { checkPasswordStrength } from "./encryption/password-strength";
 import { toHex } from "./utils/format";
+import {
+    openDemoHistoryModal,
+    openDemoTransferStatusModal,
+    showDemoNotifications,
+    startDemoSyncAnimation,
+    openDemoPromptModal,
+} from "./ui/dev-screenshot-helpers";
 
 export default class VaultSync extends Plugin {
     settings!: VaultSyncSettings;
@@ -353,6 +360,67 @@ export default class VaultSync extends Plugin {
             name: t("labelTransferStatus"),
             callback: () => {
                 new TransferStatusModal(this.app, this.syncManager).open();
+            },
+        });
+
+        // 2.6 Dev-only screenshot helper commands (visible only in developer mode)
+        this.addCommand({
+            id: "dev-demo-history",
+            name: "[Dev] Screenshot: History / Diff Viewer",
+            checkCallback: (checking: boolean) => {
+                if (!this.settings.isDeveloperMode) return false;
+                if (!checking) {
+                    openDemoHistoryModal(this.app, this.syncManager);
+                }
+                return true;
+            },
+        });
+
+        this.addCommand({
+            id: "dev-demo-transfer-status",
+            name: "[Dev] Screenshot: Transfer Status",
+            checkCallback: (checking: boolean) => {
+                if (!this.settings.isDeveloperMode) return false;
+                if (!checking) {
+                    openDemoTransferStatusModal(this.app, this.syncManager);
+                }
+                return true;
+            },
+        });
+
+        this.addCommand({
+            id: "dev-demo-notifications",
+            name: "[Dev] Screenshot: Notification Showcase",
+            checkCallback: (checking: boolean) => {
+                if (!this.settings.isDeveloperMode) return false;
+                if (!checking) {
+                    showDemoNotifications(this.syncManager);
+                }
+                return true;
+            },
+        });
+
+        this.addCommand({
+            id: "dev-demo-sync-animation",
+            name: "[Dev] Screenshot: Sync Animation (5s)",
+            checkCallback: (checking: boolean) => {
+                if (!this.settings.isDeveloperMode) return false;
+                if (!checking) {
+                    startDemoSyncAnimation(this.syncRibbonIconEl, this.mobileSyncFabEl);
+                }
+                return true;
+            },
+        });
+
+        this.addCommand({
+            id: "dev-demo-prompt-modal",
+            name: "[Dev] Screenshot: Restore As Dialog",
+            checkCallback: (checking: boolean) => {
+                if (!this.settings.isDeveloperMode) return false;
+                if (!checking) {
+                    openDemoPromptModal(this.app, this.syncManager);
+                }
+                return true;
             },
         });
 
@@ -796,12 +864,16 @@ export default class VaultSync extends Plugin {
         // Ensure directories exist
         const flexibleDir = `${this.manifest.dir}/${DATA_FLEXIBLE_DIR}`;
         const localDir = `${this.manifest.dir}/${DATA_LOCAL_DIR}`;
+        const remoteDir = `${this.manifest.dir}/${DATA_REMOTE_DIR}`;
 
         if (!(await this.app.vault.adapter.exists(flexibleDir))) {
             await this.app.vault.createFolder(flexibleDir).catch(() => {});
         }
         if (!(await this.app.vault.adapter.exists(localDir))) {
             await this.app.vault.createFolder(localDir).catch(() => {});
+        }
+        if (!(await this.app.vault.adapter.exists(remoteDir))) {
+            await this.app.vault.createFolder(remoteDir).catch(() => {});
         }
 
         // Split Settings
