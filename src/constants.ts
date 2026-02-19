@@ -1,6 +1,9 @@
 import { VaultSyncSettings } from "./types/settings";
 
-export const OAUTH_REDIRECT_URI = "https://c-ardinal.github.io/obsidian-vault-sync/callback/";
+export const AUTH_PROXY_BASE_URL = "https://obsidian-vault-sync.c-ardinal.workers.dev";
+
+// Unified callback endpoint (handles both proxy and client-credentials modes)
+export const OAUTH_REDIRECT_URI = `${AUTH_PROXY_BASE_URL}/api/auth/callback`;
 
 export const SETTINGS_LIMITS = {
     autoSyncInterval: { min: 1, max: 86400, default: 1800, disabled: -1 },
@@ -58,6 +61,9 @@ export const DEFAULT_SETTINGS: VaultSyncSettings = {
     syncFlexibleData: true,
     syncDeviceLogs: false,
     syncWorkspace: false,
+
+    authMethod: "default" as const,
+    customProxyUrl: "",
 
     encryptionSecret: "",
     hasCompletedFirstSync: false,

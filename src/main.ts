@@ -396,7 +396,25 @@ export default class VaultSync extends Plugin {
                 return;
             }
 
-            if (params.code) {
+            if (params.access_token && params.refresh_token) {
+                // Proxy mode: tokens delivered directly from auth proxy callback
+                try {
+                    this.adapter.setTokens(params.access_token, params.refresh_token);
+                    await this.saveCredentials(
+                        this.adapter.clientId,
+                        this.adapter.clientSecret,
+                        params.access_token,
+                        params.refresh_token,
+                    );
+                    await this.syncManager.notify("noticeAuthSuccess");
+
+                    window.localStorage.removeItem("vault-sync-state");
+                } catch (e: any) {
+                    await this.syncManager.notify("noticeAuthFailed", e.message);
+                    console.error("VaultSync: Auth failed via proxy protocol handler", e);
+                }
+            } else if (params.code) {
+                // Client-credentials mode: exchange code for token locally
                 try {
                     await this.adapter.exchangeCodeForToken(params.code);
                     const tokens = this.adapter.getTokens();
@@ -408,7 +426,6 @@ export default class VaultSync extends Plugin {
                     );
                     await this.syncManager.notify("noticeAuthSuccess");
 
-                    // Cleanup storage
                     window.localStorage.removeItem("vault-sync-verifier");
                     window.localStorage.removeItem("vault-sync-state");
                 } catch (e: any) {
@@ -755,7 +772,23 @@ export default class VaultSync extends Plugin {
                 this.app.vault.getName(),
                 this.settings.cloudRootFolder,
             );
+
+            // Backward compatibility: existing users with clientId/clientSecret
+            // should default to client-credentials mode if authMethod is not explicitly set
+            if (
+                !loadedSettings.authMethod &&
+                credentials.clientId &&
+                credentials.clientSecret
+            ) {
+                this.settings.authMethod = "client-credentials";
+            }
         }
+
+        // Apply auth config to adapter
+        this.adapter.setAuthConfig(
+            this.settings.authMethod,
+            this.settings.customProxyUrl,
+        );
 
     }
 
@@ -843,48 +876,93 @@ class VaultSyncSettingTab extends PluginSettingTab {
         // 1. Authentication (Manually handled due to complex UI)
         containerEl.createEl("h3", { text: t("settingAuthSection") });
 
+        // Auth Method dropdown
         new Setting(containerEl)
-            .setName(t("settingClientId"))
-            .setDesc(t("settingClientIdDesc"))
-            .addText((text) =>
-                text.setValue(this.plugin.adapter.clientId).onChange(async (value) => {
-                    // Update adapter temporarily so config is live
-                    this.plugin.adapter.updateConfig(
-                        value,
-                        this.plugin.adapter.clientSecret,
-                        this.plugin.app.vault.getName(),
-                        this.plugin.settings.cloudRootFolder,
-                    );
-                    // Persist securely
-                    await this.plugin.saveCredentials(
-                        value,
-                        this.plugin.adapter.clientSecret,
-                        this.plugin.adapter.getTokens().accessToken,
-                        this.plugin.adapter.getTokens().refreshToken,
-                    );
-                }),
-            );
+            .setName(t("settingAuthMethod"))
+            .setDesc(t("settingAuthMethodDesc"))
+            .addDropdown((dropdown) => {
+                dropdown
+                    .addOption("default", t("settingAuthMethodDefault"))
+                    .addOption("custom-proxy", t("settingAuthMethodCustomProxy"))
+                    .addOption("client-credentials", t("settingAuthMethodClientCredentials"))
+                    .setValue(this.plugin.settings.authMethod)
+                    .onChange(async (value) => {
+                        this.plugin.settings.authMethod = value as "default" | "custom-proxy" | "client-credentials";
+                        this.plugin.adapter.setAuthConfig(
+                            this.plugin.settings.authMethod,
+                            this.plugin.settings.customProxyUrl,
+                        );
+                        await this.plugin.saveSettings();
+                        this.display(); // Re-render to show/hide fields
+                    });
+            });
 
-        new Setting(containerEl)
-            .setName(t("settingClientSecret"))
-            .setDesc(t("settingClientSecretDesc"))
-            .addText((text) =>
-                text.setValue(this.plugin.adapter.clientSecret).onChange(async (value) => {
-                    this.plugin.adapter.updateConfig(
-                        this.plugin.adapter.clientId,
-                        value,
-                        this.plugin.app.vault.getName(),
-                        this.plugin.settings.cloudRootFolder,
-                    );
-                    await this.plugin.saveCredentials(
-                        this.plugin.adapter.clientId,
-                        value,
-                        this.plugin.adapter.getTokens().accessToken,
-                        this.plugin.adapter.getTokens().refreshToken,
-                    );
-                }),
-            );
+        const authMethod = this.plugin.settings.authMethod;
 
+        // Custom Proxy URL (only for custom-proxy mode)
+        if (authMethod === "custom-proxy") {
+            new Setting(containerEl)
+                .setName(t("settingCustomProxyUrl"))
+                .setDesc(t("settingCustomProxyUrlDesc"))
+                .addText((text) =>
+                    text
+                        .setPlaceholder("https://your-proxy.example.com")
+                        .setValue(this.plugin.settings.customProxyUrl)
+                        .onChange(async (value) => {
+                            this.plugin.settings.customProxyUrl = value;
+                            this.plugin.adapter.setAuthConfig(
+                                this.plugin.settings.authMethod,
+                                value,
+                            );
+                            await this.plugin.saveSettings();
+                        }),
+                );
+        }
+
+        // Client ID / Secret (only for client-credentials mode)
+        if (authMethod === "client-credentials") {
+            new Setting(containerEl)
+                .setName(t("settingClientId"))
+                .setDesc(t("settingClientIdDesc"))
+                .addText((text) =>
+                    text.setValue(this.plugin.adapter.clientId).onChange(async (value) => {
+                        this.plugin.adapter.updateConfig(
+                            value,
+                            this.plugin.adapter.clientSecret,
+                            this.plugin.app.vault.getName(),
+                            this.plugin.settings.cloudRootFolder,
+                        );
+                        await this.plugin.saveCredentials(
+                            value,
+                            this.plugin.adapter.clientSecret,
+                            this.plugin.adapter.getTokens().accessToken,
+                            this.plugin.adapter.getTokens().refreshToken,
+                        );
+                    }),
+                );
+
+            new Setting(containerEl)
+                .setName(t("settingClientSecret"))
+                .setDesc(t("settingClientSecretDesc"))
+                .addText((text) =>
+                    text.setValue(this.plugin.adapter.clientSecret).onChange(async (value) => {
+                        this.plugin.adapter.updateConfig(
+                            this.plugin.adapter.clientId,
+                            value,
+                            this.plugin.app.vault.getName(),
+                            this.plugin.settings.cloudRootFolder,
+                        );
+                        await this.plugin.saveCredentials(
+                            this.plugin.adapter.clientId,
+                            value,
+                            this.plugin.adapter.getTokens().accessToken,
+                            this.plugin.adapter.getTokens().refreshToken,
+                        );
+                    }),
+                );
+        }
+
+        // Login button (always shown)
         new Setting(containerEl)
             .setName(t("settingLogin"))
             .setDesc(t("settingLoginDesc"))

@@ -1,9 +1,11 @@
 import { CloudAdapter, CloudChanges, CloudFile } from "../types/adapter";
 import { generateCodeChallenge, generateCodeVerifier } from "../auth/pkce";
-import { DEFAULT_SETTINGS, SETTINGS_LIMITS, OAUTH_REDIRECT_URI } from "../constants";
+import { DEFAULT_SETTINGS, SETTINGS_LIMITS, OAUTH_REDIRECT_URI, AUTH_PROXY_BASE_URL } from "../constants";
 import { toHex } from "../utils/format";
 import { basename } from "../utils/path";
 import { Platform } from "obsidian";
+
+export type AuthMethod = "default" | "custom-proxy" | "client-credentials";
 
 export class GoogleDriveAdapter implements CloudAdapter {
     name = "Google Drive";
@@ -106,6 +108,37 @@ export class GoogleDriveAdapter implements CloudAdapter {
     private codeVerifier: string | null = null;
     private currentAuthState: string | null = null;
 
+    private authMethod: AuthMethod = "default";
+    private proxyUrl: string = "";
+
+    setAuthConfig(method: AuthMethod, proxyUrl?: string) {
+        this.authMethod = method;
+        if (proxyUrl && method === "custom-proxy") {
+            try {
+                const parsed = new URL(proxyUrl);
+                if (parsed.protocol !== "https:") {
+                    throw new Error("Custom proxy URL must use HTTPS");
+                }
+                this.proxyUrl = proxyUrl;
+            } catch {
+                this.proxyUrl = "";
+            }
+        } else {
+            this.proxyUrl = "";
+        }
+    }
+
+    private getProxyBaseUrl(): string | null {
+        switch (this.authMethod) {
+            case "default":
+                return AUTH_PROXY_BASE_URL;
+            case "custom-proxy":
+                return this.proxyUrl.replace(/\/+$/, ""); // trim trailing slashes
+            case "client-credentials":
+                return null;
+        }
+    }
+
     isAuthenticated(): boolean {
         return !!this.accessToken;
     }
@@ -172,30 +205,37 @@ export class GoogleDriveAdapter implements CloudAdapter {
     }
 
     private getRedirectUri(): string {
-        // Use GitHub Pages as the intermediate server (bouncer)
-        // This allows the browser to receive the code and redirect to obsidian:// URI scheme
-        // solving the issue where localhost is not accessible on mobile.
-        // Users must configure their Google Cloud "Web Application" credentials with this URI.
+        // Unified callback endpoint on Cloudflare Pages
+        // Handles both proxy mode (server-side token exchange) and
+        // client-credentials mode (code passthrough to obsidian://)
         return OAUTH_REDIRECT_URI;
     }
 
     async getAuthUrl(): Promise<string> {
-        this.codeVerifier = await generateCodeVerifier();
-        const challenge = await generateCodeChallenge(this.codeVerifier);
-
         // SEC-003: Secure Random State
         const array = new Uint8Array(32);
         window.crypto.getRandomValues(array);
-        this.currentAuthState = toHex(array);
+        const randomState = toHex(array);
 
-        // Persist state/verifier for mobile/background survivability
-        window.localStorage.setItem("vault-sync-verifier", this.codeVerifier);
+        const proxyBase = this.getProxyBaseUrl();
+        if (proxyBase) {
+            // Proxy mode: state prefix "p:" signals server-side token exchange
+            this.currentAuthState = `p:${randomState}`;
+            window.localStorage.setItem("vault-sync-state", this.currentAuthState);
+            const params = new URLSearchParams({ state: this.currentAuthState });
+            return `${proxyBase}/api/auth/login?${params.toString()}`;
+        }
+
+        // Client-credentials mode: state prefix "d:" signals code passthrough
+        this.currentAuthState = `d:${randomState}`;
         window.localStorage.setItem("vault-sync-state", this.currentAuthState);
+        this.codeVerifier = await generateCodeVerifier();
+        const challenge = await generateCodeChallenge(this.codeVerifier);
+        window.localStorage.setItem("vault-sync-verifier", this.codeVerifier);
 
         const params = new URLSearchParams({
             client_id: this.clientId,
             redirect_uri: this.getRedirectUri(),
-            // Must be 'response_type=code' for authorization code flow
             response_type: "code",
             scope: "https://www.googleapis.com/auth/drive.file",
             code_challenge: challenge,
@@ -210,6 +250,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
 
     verifyState(state: string): boolean {
         const savedState = this.currentAuthState || window.localStorage.getItem("vault-sync-state");
+        if (!savedState) return false;
         return state === savedState;
     }
 
@@ -377,6 +418,46 @@ export class GoogleDriveAdapter implements CloudAdapter {
     }
 
     private async refreshTokens() {
+        const proxyBase = this.getProxyBaseUrl();
+
+        if (proxyBase) {
+            await this.refreshTokensViaProxy(proxyBase);
+        } else {
+            await this.refreshTokensDirect();
+        }
+    }
+
+    private async refreshTokensViaProxy(proxyBase: string) {
+        await this.log(
+            `Refreshing tokens via proxy... RT present: ${!!this.refreshToken}`,
+            "system",
+        );
+
+        const response = await fetch(`${proxyBase}/api/auth/refresh`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ refresh_token: this.refreshToken }),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            const err = data.error_description || data.error || JSON.stringify(data);
+            console.error(`VaultSync: Proxy refresh failed (${response.status}): ${err}`);
+            if (data.error === "invalid_grant" || data.error === "unauthorized_client") {
+                this.accessToken = null;
+                this.refreshToken = null;
+                if (this.onAuthFailure) this.onAuthFailure();
+            }
+            return;
+        }
+
+        this.accessToken = data.access_token;
+        if (data.refresh_token) this.refreshToken = data.refresh_token;
+        await this.log("Token refresh via proxy successful.", "system");
+    }
+
+    private async refreshTokensDirect() {
         await this.log(
             `Refreshing tokens... ClientID present: ${!!this.clientId}, Secret present: ${!!this.clientSecret}, RT present: ${!!this.refreshToken}`,
             "system",
@@ -400,12 +481,9 @@ export class GoogleDriveAdapter implements CloudAdapter {
         if (!response.ok) {
             const err = data.error_description || data.error || JSON.stringify(data);
             console.error(`VaultSync: Refresh failed (${response.status}): ${err}`);
-            // If invalid_grant, specific handling might be needed (logout), but for now just logging.
-            // Invalidating token to prevent infinite loops of 401s if callers rely on token presence
             if (data.error === "invalid_grant" || data.error === "unauthorized_client") {
                 this.accessToken = null;
                 this.refreshToken = null;
-                // Notify main plugin to clear persisted credentials
                 if (this.onAuthFailure) this.onAuthFailure();
             }
             return;
