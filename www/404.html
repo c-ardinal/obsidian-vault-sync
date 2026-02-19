@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>404 - Page Not Found | VaultSync</title>
+        <style>
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                background-color: #1e1e1e;
+                color: #dcddde;
+                margin: 0;
+                padding: 0;
+            }
+            .error-container {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                min-height: 100vh;
+                text-align: center;
+                position: relative;
+            }
+            .error-code {
+                font-size: 8rem;
+                font-weight: 900;
+                color: #5865f2;
+                line-height: 1;
+                margin: 0;
+                opacity: 0.15;
+                position: absolute;
+                user-select: none;
+            }
+            .error-icon {
+                margin-bottom: 1.5rem;
+                position: relative;
+            }
+            .error-icon svg {
+                width: 48px;
+                height: 48px;
+                stroke: #5865f2;
+                stroke-width: 1.5;
+                fill: none;
+            }
+            .error-title {
+                font-size: 1.5rem;
+                color: #fff;
+                margin: 0 0 0.5rem 0;
+            }
+            .error-description {
+                color: #72767d;
+                font-size: 0.95rem;
+                margin: 0 0 2rem 0;
+                max-width: 360px;
+                line-height: 1.6;
+            }
+            .error-home {
+                display: inline-block;
+                background-color: #5865f2;
+                color: #fff;
+                padding: 10px 24px;
+                border-radius: 4px;
+                font-size: 0.9rem;
+                font-weight: bold;
+                text-decoration: none;
+                transition: background-color 0.2s;
+            }
+            .error-home:hover {
+                background-color: #4752c4;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="error-container">
+            <p class="error-code">404</p>
+            <div class="error-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10" />
+                    <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" />
+                </svg>
+            </div>
+            <h1 class="error-title">Page Not Found</h1>
+            <p class="error-description">
+                The page you're looking for doesn't exist or has been moved.
+            </p>
+            <a href="/" class="error-home">Back to Home</a>
+        </div>
+    </body>
+</html>
