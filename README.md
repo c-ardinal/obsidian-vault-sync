@@ -1,14 +1,55 @@
-# VaultSync (Obsidian Cloud Sync)
+<p align="center">
+  <img src="img/vaultsync_logotype_v2.webp" alt="VaultSync" width="420">
+</p>
 
-[ [🇺🇸 English](README.md) | [🇯🇵 日本語](README_ja.md) ]
+<p align="center">
+  <b>Obsidian Cloud Sync</b>
+</p>
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![GitHub Release](https://img.shields.io/github/v/release/c-ardinal/obsidian-vault-sync?label=Release&logo=github)](https://github.com/c-ardinal/obsidian-vault-sync/releases)
-[![CI Status](https://img.shields.io/github/actions/workflow/status/c-ardinal/obsidian-vault-sync/test.yml?branch=main&label=CI&logo=github-actions)](https://github.com/c-ardinal/obsidian-vault-sync/actions/workflows/test.yml)
-[![Platform: Windows | MacOS | Linux](https://img.shields.io/badge/Platform-Windows%20%7C%20MacOS%20%7C%20Linux-lightgrey)](#)
+<p align="center">
+  <a href="README.md">🇺🇸 English</a> | <a href="README_ja.md">🇯🇵 日本語</a>
+</p>
 
-A high-speed, intelligent cloud storage sync plugin for Obsidian.  
+<p align="center">
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+  <a href="https://github.com/c-ardinal/obsidian-vault-sync/releases"><img src="https://img.shields.io/github/v/release/c-ardinal/obsidian-vault-sync?label=Release&logo=github" alt="GitHub Release"></a>
+  <a href="https://github.com/c-ardinal/obsidian-vault-sync/actions/workflows/test.yml"><img src="https://img.shields.io/github/actions/workflow/status/c-ardinal/obsidian-vault-sync/test.yml?branch=main&label=CI&logo=github-actions" alt="CI Status"></a>
+  <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20MacOS%20%7C%20Linux-lightgrey" alt="Platform: Windows | MacOS | Linux">
+</p>
+
+---
+
+A high-speed, intelligent cloud storage sync plugin for Obsidian.
 Leveraging Google Drive, it provides robust data consistency and a fast synchronization experience across PC and mobile devices (iOS/Android).
+
+### Architecture
+
+```mermaid
+graph LR
+    subgraph "<b>Your Devices</b>"
+        A["🖥️ Desktop<br/>Obsidian"]
+        B["📱 Mobile<br/>Obsidian"]
+    end
+
+    subgraph "<b>Google</b>"
+        C[("☁️ Google Drive")]
+        D["🔐 Google OAuth"]
+    end
+
+    E["🌐 Auth Proxy<br/><i>Cloudflare Pages</i>"]
+
+    A <--->|"<b>Vault Data</b><br/>Direct Sync"| C
+    B <--->|"<b>Vault Data</b><br/>Direct Sync"| C
+    A -.->|"Auth Only"| E
+    B -.->|"Auth Only"| E
+    E -.->|"OAuth Flow"| D
+
+    style C fill:#4285F4,color:#fff
+    style E fill:#F48120,color:#fff
+```
+
+> **Vault data is always transferred directly** between your device and Google Drive.
+> The auth proxy is only used during the initial OAuth login (and can be bypassed with your own Client ID).
 
 ---
 
@@ -32,6 +73,10 @@ Leveraging Google Drive, it provides robust data consistency and a fast synchron
 - **Secure Authentication & Storage**: OAuth2 authentication via the built-in authentication proxy (no setup required) or your own Client ID/Secret with PKCE. Credentials are separated from the main settings and saved using system-standard secure storage (Keychain/Credential Manager).
 - **End-to-End Encryption (E2EE)**: Optional client-side encryption for your vault data. When enabled with the [E2EE Engine](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine), all files are encrypted locally before upload and decrypted after download — your cloud provider never sees plaintext content.
 
+|               Transfer Status               |                   Selective Sync                   |
+| :-----------------------------------------: | :------------------------------------------------: |
+| ![Transfer Status](img/transfer_status.png) | ![Sync Scope Settings](img/setting_sync_scope.png) |
+
 ---
 
 ## 📖 Usage
@@ -42,15 +87,60 @@ Leveraging Google Drive, it provides robust data consistency and a fast synchron
 - **Command Palette**: Press `Ctrl+P` (or `Cmd+P`) and search for `VaultSync: Sync with Cloud`.
 - **Auto-Sync**: Depending on your settings, sync will trigger on file save, when you stop editing, or at fixed intervals.
 
+|             Sync Notifications              |                     Sync Triggers                      |
+| :-----------------------------------------: | :----------------------------------------------------: |
+| ![Sync Notifications](img/notification.png) | ![Sync Trigger Settings](img/setting_sync_trigger.png) |
+
 ### History and Restoration
 
 - **File History**: Right-click a file and select "View History in Cloud (VaultSync)" to see diffs against past revisions.
 - **Advanced Diff Viewer**: Provides powerful comparison tools including Unified/Split view toggle, inline character-level highlighting, jump navigation between changes (with looping), and adjustable context lines.
 - **Full Scan**: If you are concerned about consistency, run `VaultSync: Audit & Fix Consistency (Full Scan)` from the command palette to perform a forced sync check.
 
+<p align="center">
+  <img src="img/cloud_history.gif" alt="Cloud History & Diff Viewer" width="700">
+</p>
+
 ---
 
 ## 🔧 Sync Engine Specifications
+
+### Smart Sync Flow
+
+```mermaid
+flowchart TD
+    A(["🔄 Start Sync"]) --> B{"Cloud index<br/>exists?"}
+    B -->|No| F["Full Scan<br/><i>Build index from scratch</i>"]
+    B -->|Yes| C{"Index changed<br/>since last sync?"}
+    C -->|No change| D(["✅ Already in sync<br/><i>Skip</i>"])
+    C -->|Changed| E["Diff Detection<br/><i>MD5 hash comparison</i>"]
+    F --> E
+    E --> G{"Conflicts<br/>detected?"}
+    G -->|No| H["Push / Pull<br/>changed files"]
+    G -->|Yes| I["3-way Merge"]
+    I --> J{"Auto-resolved?"}
+    J -->|Yes| H
+    J -->|No| K["Create Conflict Fork<br/><code>(Conflict YYYY-MM-DD…)</code>"]
+    H --> L(["✅ Sync Complete"])
+    K --> L
+```
+
+### 3-way Merge
+
+When the same file is edited on multiple devices, VaultSync resolves conflicts using a three-way merge based on a common ancestor.
+
+```mermaid
+graph TD
+    A["📄 Common Ancestor<br/><i>Last synced version</i>"]
+    A -->|"Local edits"| B["📝 Local Version"]
+    A -->|"Remote edits"| C["☁️ Remote Version"]
+    B --> D{"🔀 3-way Merge"}
+    C --> D
+    D -->|"Non-overlapping changes"| E["✅ Merged Result"]
+    D -->|"Overlapping edits"| F["⚠️ Conflict Fork"]
+```
+
+### Other Specifications
 
 - **Conflict Resolution**: In addition to 3-way Merge, you can choose from "Smart Merge", "Force Local", "Force Remote", or "Always Fork" strategies. If a conflict cannot be resolved automatically, the local file is backed up as `(Conflict YYYY-MM-DDTHH-mm-ss)`.
 - **Selective Sync**: You can control the synchronization of files within `.obsidian/` (plugins, themes, hotkeys, etc.) by category. Device-specific data like `workspace.json` and `cache/` are automatically excluded.
@@ -72,6 +162,27 @@ Leveraging Google Drive, it provides robust data consistency and a fast synchron
 ## 🔑 End-to-End Encryption (E2EE)
 
 VaultSync supports optional End-to-End Encryption through a separate, open-source encryption engine.
+
+```mermaid
+flowchart LR
+    subgraph "Your Device"
+        A["📄 Plaintext"]
+        B["🔒 Encrypted"]
+        D["🔒 Encrypted"]
+        E["📄 Plaintext"]
+    end
+
+    subgraph "Google Drive"
+        C[("☁️ Encrypted<br/>Data Only")]
+    end
+
+    A -->|"AES-256-GCM<br/>Encrypt"| B
+    B -->|"Upload"| C
+    C -->|"Download"| D
+    D -->|"Decrypt"| E
+
+    style C fill:#4285F4,color:#fff
+```
 
 When E2EE is enabled:
 

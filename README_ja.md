@@ -1,14 +1,55 @@
-# VaultSync (Obsidian Cloud Sync)
+<p align="center">
+  <img src="img/vaultsync_logotype_v2.webp" alt="VaultSync" width="420">
+</p>
 
-[ [🇺🇸 English](README.md) | [🇯🇵 日本語](README_ja.md) ]
+<p align="center">
+  <b>Obsidian Cloud Sync</b>
+</p>
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![GitHub Release](https://img.shields.io/github/v/release/c-ardinal/obsidian-vault-sync?label=Release&logo=github)](https://github.com/c-ardinal/obsidian-vault-sync/releases)
-[![CI Status](https://img.shields.io/github/actions/workflow/status/c-ardinal/obsidian-vault-sync/test.yml?branch=main&label=CI&logo=github-actions)](https://github.com/c-ardinal/obsidian-vault-sync/actions/workflows/test.yml)
-[![Platform: Windows | MacOS | Linux](https://img.shields.io/badge/Platform-Windows%20%7C%20MacOS%20%7C%20Linux-lightgrey)](#)
+<p align="center">
+  <a href="README.md">🇺🇸 English</a> | <a href="README_ja.md">🇯🇵 日本語</a>
+</p>
 
-Obsidian向けの高速・インテリジェントなクラウドストレージ同期プラグインです。  
+<p align="center">
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+  <a href="https://github.com/c-ardinal/obsidian-vault-sync/releases"><img src="https://img.shields.io/github/v/release/c-ardinal/obsidian-vault-sync?label=Release&logo=github" alt="GitHub Release"></a>
+  <a href="https://github.com/c-ardinal/obsidian-vault-sync/actions/workflows/test.yml"><img src="https://img.shields.io/github/actions/workflow/status/c-ardinal/obsidian-vault-sync/test.yml?branch=main&label=CI&logo=github-actions" alt="CI Status"></a>
+  <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20MacOS%20%7C%20Linux-lightgrey" alt="Platform: Windows | MacOS | Linux">
+</p>
+
+---
+
+Obsidian向けの高速・インテリジェントなクラウドストレージ同期プラグインです。
 Google Driveを活用し、PCとモバイルデバイス（iOS/Android）間での強固なデータ一貫性と高速な同期体験を提供します。
+
+### アーキテクチャ
+
+```mermaid
+graph LR
+    subgraph "<b>ユーザーのデバイス</b>"
+        A["🖥️ デスクトップ<br/>Obsidian"]
+        B["📱 モバイル<br/>Obsidian"]
+    end
+
+    subgraph "<b>Google</b>"
+        C[("☁️ Google Drive")]
+        D["🔐 Google OAuth"]
+    end
+
+    E["🌐 認証プロキシ<br/><i>Cloudflare Pages</i>"]
+
+    A <--->|"<b>Vaultデータ</b><br/>直接同期"| C
+    B <--->|"<b>Vaultデータ</b><br/>直接同期"| C
+    A -.->|"認証のみ"| E
+    B -.->|"認証のみ"| E
+    E -.->|"OAuthフロー"| D
+
+    style C fill:#4285F4,color:#fff
+    style E fill:#F48120,color:#fff
+```
+
+> **Vaultデータは常にデバイスとGoogle Drive間で直接転送されます。**
+> 認証プロキシはOAuthログイン時にのみ使用され、独自のClient IDを使えばバイパスも可能です。
 
 ---
 
@@ -32,6 +73,10 @@ Google Driveを活用し、PCとモバイルデバイス（iOS/Android）間で�
 - **安全な認証 & 保存**: 内蔵の認証プロキシ（設定不要）または独自の Client ID/Secret（PKCE対応）によるOAuth2認証。認証情報は設定ファイルから分離され、OS標準のセキュアなストレージ（Keychain/Credential Manager）を活用して安全に保存されます。
 - **エンドツーエンド暗号化 (E2EE)**: [E2EE Engine](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine) を導入することで、Vault データをクライアント側で暗号化できます。アップロード前に暗号化、ダウンロード後に復号され、クラウド上に平文が残ることはありません。
 
+|               転送ステータス               |                   選択的同期                    |
+| :----------------------------------------: | :---------------------------------------------: |
+| ![転送ステータス](img/transfer_status.png) | ![同期スコープ設定](img/setting_sync_scope.png) |
+
 ---
 
 ## 📖 使い方
@@ -42,20 +87,65 @@ Google Driveを活用し、PCとモバイルデバイス（iOS/Android）間で�
 - **コマンドパレット**: `Ctrl+P` (または `Cmd+P`) を押し、`VaultSync: Sync with Cloud` を選択します。
 - **自動同期**: 設定により、ファイル保存時や編集の停止時、一定時間ごとに自動で同期が行われます。
 
+|             同期通知              |                 同期トリガー設定                  |
+| :-------------------------------: | :-----------------------------------------------: |
+| ![同期通知](img/notification.png) | ![同期トリガー設定](img/setting_sync_trigger.png) |
+
 ### 履歴と復元
 
 - **ファイル履歴**: ファイルを右クリックし、「クラウドの変更履歴を表示 (VaultSync)」を選択すると、Google Drive上の過去リビジョンとの比較が可能です。
 - **高機能diffビューア**: Unified/左右分割表示の切り替え、行内差分のハイライト、差分箇所へのジャンプ機能（ループ対応）、表示コンテキスト行数の動的調整など、開発者ツール級の強力な比較機能を提供します。
 - **フルスキャン**: 整合性に不安がある場合、コマンドパレットから `VaultSync: Audit & Fix Consistency (Full Scan)` を実行して強制的に同期状態をチェックできます。
 
+<p align="center">
+  <img src="img/cloud_history.gif" alt="クラウド履歴 & Diffビューア" width="700">
+</p>
+
 ---
 
 ## 🔧 同期エンジンの仕様
 
-- **Conflict Resolution**: 3-way Mergeによる自動解決に加え、「スマートマージ」「ローカル優先」「クラウド優先」「常にフォーク」の戦略を選択可能です。自動解決できない場合はローカルファイルを `(Conflict YYYY-MM-DDTHH-mm-ss)` として退避します。
-- **Selective Sync**: `.obsidian/` 内のファイル（プラグイン、テーマ、ホットキー等）をカテゴリ別に同期制御可能です。`workspace.json` や `cache/` など、デバイス固有のデータは自動的に除外されます。
-- **Device Communication**: `communication.json` を通じてデバイス間でのマージロック制御を行い、同時に同じファイルを編集した際の上書きを防止します。
-- **Atomic Updates**: 各ファイル転送完了ごとに個別のインデックスエントリを更新。インデックスはGzip圧縮され、効率的に同期されます。
+### スマート同期フロー
+
+```mermaid
+flowchart TD
+    A(["🔄 同期開始"]) --> B{"クラウド上に<br/>インデックスあり？"}
+    B -->|なし| F["フルスキャン<br/><i>インデックスを一から構築</i>"]
+    B -->|あり| C{"前回の同期から<br/>変更あり？"}
+    C -->|変更なし| D(["✅ 同期済み<br/><i>スキップ</i>"])
+    C -->|変更あり| E["差分検知<br/><i>MD5ハッシュ比較</i>"]
+    F --> E
+    E --> G{"競合を<br/>検出？"}
+    G -->|なし| H["変更ファイルを<br/>Push / Pull"]
+    G -->|あり| I["3-way マージ"]
+    I --> J{"自動解決<br/>できた？"}
+    J -->|はい| H
+    J -->|いいえ| K["競合フォーク作成<br/><code>(Conflict YYYY-MM-DD…)</code>"]
+    H --> L(["✅ 同期完了"])
+    K --> L
+```
+
+### 3-way マージ
+
+同じファイルが複数デバイスで編集された場合、共通の祖先を基に三方向マージで競合を解決します。
+
+```mermaid
+graph TD
+    A["📄 共通祖先<br/><i>最後に同期されたバージョン</i>"]
+    A -->|"ローカルの編集"| B["📝 ローカル版"]
+    A -->|"リモートの編集"| C["☁️ リモート版"]
+    B --> D{"🔀 3-way マージ"}
+    C --> D
+    D -->|"重複しない変更"| E["✅ マージ結果"]
+    D -->|"重複する編集"| F["⚠️ 競合フォーク"]
+```
+
+### その他の仕様
+
+- **競合解決戦略**: 3-way Mergeによる自動解決に加え、「スマートマージ」「ローカル優先」「クラウド優先」「常にフォーク」の戦略を選択可能です。自動解決できない場合はローカルファイルを `(Conflict YYYY-MM-DDTHH-mm-ss)` として退避します。
+- **選択的同期**: `.obsidian/` 内のファイル（プラグイン、テーマ、ホットキー等）をカテゴリ別に同期制御可能です。`workspace.json` や `cache/` など、デバイス固有のデータは自動的に除外されます。
+- **デバイス間通信**: `communication.json` を通じてデバイス間でのマージロック制御を行い、同時に同じファイルを編集した際の上書きを防止します。
+- **アトミック更新**: 各ファイル転送完了ごとに個別のインデックスエントリを更新。インデックスはGzip圧縮され、効率的に同期されます。
 
 ---
 
@@ -72,6 +162,27 @@ Google Driveを活用し、PCとモバイルデバイス（iOS/Android）間で�
 ## 🔑 エンドツーエンド暗号化 (E2EE)
 
 VaultSync は、別途公開されているオープンソースの暗号化エンジンを通じて、オプションでエンドツーエンド暗号化に対応しています。
+
+```mermaid
+flowchart LR
+    subgraph "ユーザーのデバイス"
+        A["📄 平文"]
+        B["🔒 暗号化済み"]
+        D["🔒 暗号化済み"]
+        E["📄 平文"]
+    end
+
+    subgraph "Google Drive"
+        C[("☁️ 暗号化データ<br/>のみ保存")]
+    end
+
+    A -->|"AES-256-GCM<br/>暗号化"| B
+    B -->|"アップロード"| C
+    C -->|"ダウンロード"| D
+    D -->|"復号"| E
+
+    style C fill:#4285F4,color:#fff
+```
 
 E2EE を有効にすると:
 
