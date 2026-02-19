@@ -48,7 +48,7 @@
                 <h2>Data We Collect</h2>
                 <p>
                     The Plugin does <strong>not</strong> collect, transmit, or store any personal
-                    data on external servers. All operations occur directly between your local
+                    data on external servers. All sync operations occur directly between your local
                     device and your cloud storage account.
                 </p>
                 <ul>
@@ -56,6 +56,23 @@
                     <li>No user data is sent to the developer</li>
                     <li>No cookies or local identifiers for tracking purposes</li>
                 </ul>
+
+                <h2>Authentication Proxy</h2>
+                <p>
+                    By default, the Plugin uses an authentication proxy hosted on Cloudflare Pages
+                    to facilitate the OAuth login flow. This proxy handles the following data
+                    <strong>transiently</strong> (in-memory only, never persisted):
+                </p>
+                <ul>
+                    <li>OAuth authorization codes (exchanged for tokens and immediately discarded)</li>
+                    <li>Access tokens and refresh tokens (forwarded to the Plugin and immediately discarded)</li>
+                </ul>
+                <p>
+                    No vault data, file contents, or file metadata passes through this proxy. The
+                    proxy is used solely for the initial login and token refresh operations. You
+                    may opt out of using this proxy by configuring your own OAuth credentials in
+                    the Plugin settings.
+                </p>
 
                 <h2>Data Storage</h2>
                 <ul>
@@ -91,8 +108,19 @@
 
                 <h2>Third-Party Services</h2>
                 <p>
-                    The Plugin integrates with the following cloud storage providers. Only the
-                    services you choose to connect are accessed.
+                    The Plugin integrates with the following services. Only the services you choose
+                    to connect are accessed.
+                </p>
+                <h3>Cloudflare Pages</h3>
+                <p>
+                    The default authentication proxy runs on
+                    <a href="https://www.cloudflare.com/" target="_blank" rel="noopener"
+                        >Cloudflare Pages</a
+                    >. Cloudflare may process request metadata (IP addresses, request headers) in
+                    accordance with their
+                    <a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener"
+                        >Privacy Policy</a
+                    >. No vault data is sent to Cloudflare.
                 </p>
                 <h3>Google Drive</h3>
                 <p>
@@ -131,7 +159,7 @@
                     >.
                 </p>
 
-                <p class="updated">Last updated: February 18, 2026</p>
+                <p class="updated">Last updated: February 19, 2026</p>
             </div>
 
             <!-- Japanese -->
@@ -154,13 +182,25 @@
                 <h2>収集するデータ</h2>
                 <p>
                     本プラグインは、個人データを外部サーバーに<strong>収集・送信・保存しません</strong>。
-                    すべての操作は、あなたのローカルデバイスとクラウドストレージアカウント間で直接行われます。
+                    すべての同期操作は、あなたのローカルデバイスとクラウドストレージアカウント間で直接行われます。
                 </p>
                 <ul>
                     <li>アナリティクスやトラッキングは行いません</li>
                     <li>ユーザーデータが開発者に送信されることはありません</li>
                     <li>トラッキング目的のCookieやローカル識別子は使用しません</li>
                 </ul>
+
+                <h2>認証プロキシ</h2>
+                <p>
+                    デフォルトでは、本プラグインはCloudflare Pages上にホストされた認証プロキシを使用してOAuthログインフローを仲介します。このプロキシは以下のデータを<strong>一時的に</strong>（メモリ上のみで、永続化しません）処理します：
+                </p>
+                <ul>
+                    <li>OAuth認可コード（トークンへの交換後、即座に破棄）</li>
+                    <li>アクセストークンおよびリフレッシュトークン（プラグインへの転送後、即座に破棄）</li>
+                </ul>
+                <p>
+                    Vaultデータ、ファイルの内容、ファイルのメタデータがこのプロキシを経由することはありません。プロキシは初回ログインおよびトークンリフレッシュ操作にのみ使用されます。プラグイン設定で独自のOAuth認証情報を設定することで、このプロキシの使用を回避できます。
+                </p>
 
                 <h2>データの保存</h2>
                 <ul>
@@ -192,8 +232,12 @@
 
                 <h2>第三者サービス</h2>
                 <p>
-                    本プラグインは以下のクラウドストレージプロバイダと連携します。<br />
+                    本プラグインは以下のサービスと連携します。<br />
                     連携先として選択したサービスにのみアクセスします。
+                </p>
+                <h3>Cloudflare Pages</h3>
+                <p>
+                    デフォルトの認証プロキシは<a href="https://www.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Pages</a>上で動作しています。Cloudflareはリクエストメタデータ（IPアドレス、リクエストヘッダ）を同社の<a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener">プライバシーポリシー</a>に従って処理する場合があります。VaultデータがCloudflareに送信されることはありません。
                 </p>
                 <h3>Google Drive</h3>
                 <p>
@@ -230,7 +274,7 @@
                     >でIssueを作成してください。
                 </p>
 
-                <p class="updated">最終更新日: 2026年2月18日</p>
+                <p class="updated">最終更新日: 2026年2月19日</p>
             </div>
         </div>
 

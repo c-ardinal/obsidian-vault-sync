@@ -17,6 +17,7 @@ Leveraging Google Drive, it provides robust data consistency and a fast synchron
 - **Obsidian**: v0.15.0 or higher
 - **Google Account**: Required to access the Google Drive API
 - **Network**: Internet connection (required during sync)
+- **Google Cloud Project** _(optional)_: Only required if you choose to use your own Client ID / Client Secret instead of the default authentication proxy
 
 ---
 
@@ -28,7 +29,7 @@ Leveraging Google Drive, it provides robust data consistency and a fast synchron
 - **Revision History & Diff Viewer**: Retrieves file revisions from Google Drive, allowing for diff visualization against the local version and restoration of past versions.
 - **Mobile Optimized**: Built on the `fetch` API to run on both desktop and mobile. Features include auto-sync on edit-stop or save, and layout change triggers (e.g., when switching tabs).
 - **Granular Sync Settings**: Selectively sync settings, plugins, themes, and hotkeys within `.obsidian`. Cache and temporary files are automatically excluded.
-- **Secure Authentication & Storage**: OAuth2 authentication using PKCE. Credentials are separated from the main settings and saved using system-standard secure storage (Keychain/Credential Manager).
+- **Secure Authentication & Storage**: OAuth2 authentication via the built-in authentication proxy (no setup required) or your own Client ID/Secret with PKCE. Credentials are separated from the main settings and saved using system-standard secure storage (Keychain/Credential Manager).
 - **End-to-End Encryption (E2EE)**: Optional client-side encryption for your vault data. When enabled with the [E2EE Engine](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine), all files are encrypted locally before upload and decrypted after download — your cloud provider never sees plaintext content.
 
 ---
@@ -60,14 +61,15 @@ Leveraging Google Drive, it provides robust data consistency and a fast synchron
 
 ## 🔒 Privacy and Security
 
-- **Direct Communication**: This plugin communicates directly with the Google Drive API without going through any third-party servers.
-- **Auth Protection**: Sensitive information such as Client IDs, tokens, and encryption secrets are stored directly in the OS-standard secure storage (Keychain/Credential Manager) via Obsidian's Secret Storage API. This minimizes the presence of sensitive files within the Vault. In environments where Secret Storage is unavailable, the plugin automatically falls back to local file storage encrypted with a device-specific key (AES-GCM) to maintain high security.
+- **Direct Communication**: All vault data is synchronized directly between your device and Google Drive. No vault content passes through the authentication proxy or any third-party server.
+- **Authentication Proxy**: By default, the plugin uses an authentication proxy hosted on [Cloudflare Pages](https://www.cloudflare.com/) to facilitate the OAuth login flow. This proxy handles OAuth authorization codes and tokens **transiently** (in-memory only, never persisted). You can bypass this proxy by configuring your own Client ID / Client Secret. For details, see our [Privacy Policy](https://obsidian-vault-sync.pages.dev/privacy/).
+- **Auth Protection**: Sensitive information such as tokens and encryption secrets are stored directly in the OS-standard secure storage (Keychain/Credential Manager) via Obsidian's Secret Storage API. This minimizes the presence of sensitive files within the Vault. In environments where Secret Storage is unavailable, the plugin automatically falls back to local file storage encrypted with a device-specific key (AES-GCM) to maintain high security.
 - **Data Location**: Your synced data is stored exclusively in your own Google Drive storage (in the root folder you specify).
 - **Important**: By default, synced data (Markdown files, etc.) is uploaded to Google Drive in **plain text (without encryption)**. While protected by Google Drive's security model (HTTPS transfer, server-side encryption), the data is readable on the server side. If you require End-to-End Encryption, please install the [VaultSync E2EE Engine](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine) — see the section below for details.
 
 ---
 
-## 🔐 End-to-End Encryption (E2EE)
+## 🔑 End-to-End Encryption (E2EE)
 
 VaultSync supports optional End-to-End Encryption through a separate, open-source encryption engine.
 
@@ -90,46 +92,80 @@ For details, available commands, build instructions, and the encryption specific
 
 ## 🚀 Setup Instructions
 
-To use this plugin, you must create a Google Cloud Project and obtain your own **Client ID / Client Secret**. Obtaining it is free.
+VaultSync offers three authentication methods. Choose the one that suits your needs.
 
-### 1. Create a Google Cloud Project
+### Method A: Default (Recommended)
+
+The simplest way to get started. The plugin uses the developer-provided authentication proxy to handle the OAuth login — no Google Cloud setup required.
+
+1. Open Obsidian Settings > "VaultSync".
+2. Ensure the Login Method is set to **"Default"**.
+3. Click the **"Login"** button.
+4. A browser will open with the Google login screen.
+5. After successful login, you will be automatically redirected back to Obsidian. Completion is confirmed when the success notification appears.
+    - If you are not automatically redirected, please click the "Open Obsidian" button on the browser screen.
+    - If it still doesn't return, please manually switch back to the Obsidian app.
+6. Restart Obsidian after the success notification appears.
+
+> **Note**: The authentication proxy only handles OAuth codes and tokens transiently (in-memory). No vault data passes through the proxy. See the [Privacy Policy](https://obsidian-vault-sync.pages.dev/privacy/) for details.
+
+### Method B: Custom Auth Proxy
+
+If you prefer to host your own authentication proxy server instead of using the default one.
+
+1. Deploy an authentication proxy compatible with the VaultSync API (see the `www/functions/` directory for the reference implementation).
+2. Open Obsidian Settings > "VaultSync".
+3. Set the Login Method to **"Use Custom Auth Proxy"**.
+4. Enter your proxy URL (must use HTTPS).
+5. Click the **"Login"** button and complete the Google login flow.
+6. Restart Obsidian after the success notification appears.
+
+### Method C: Client ID / Secret
+
+For full control, you can create your own Google Cloud Project and use your own OAuth credentials. The plugin will communicate directly with Google — no proxy is used.
+
+#### 1. Create a Google Cloud Project
 
 1. Access the [Google Cloud Console](https://console.cloud.google.com/).
 2. Create a new project.
 3. Search for **Google Drive API** in "APIs & Services" > "Library" and click "Enable".
 
-### 2. Configure OAuth Consent Screen
+#### 2. Configure OAuth Consent Screen
 
 1. **Create OAuth Consent Screen**:
     1. Go to "APIs & Services" > "OAuth Consent Screen" > "Summary" and click "Get Started" (or "Configure").
     2. Enter the required app information. Select "External" for User Type.
     3. Once completed, click "Create".
-2. **Add Scopes**: 1. Under "Data access", select "Add or remove scopes". 2. Check `.../auth/drive.file` (See, edit, create, and delete only the specific Google Drive files you use with this app). 3. Click "Update". 4. Click "Save" at the bottom.
-3. ~~**Auth Period Persistence**: ※ If left in "Testing" state, re-authentication is required every 7 days.~~
-    1. ~~Go to "Summary" and click "Publish App".~~
-    2. ~~Click "Confirm".~~  
-       ※ Publishing the app without following proper procedures may trigger a warning from Google. These instructions are currently under review.
+2. **Add Scopes**:
+    1. Under "Data access", select "Add or remove scopes".
+    2. Check `.../auth/drive.file` (See, edit, create, and delete only the specific Google Drive files you use with this app).
+    3. Click "Update".
+    4. Click "Save" at the bottom.
+3. **Auth Period Persistence**:
+   If the project remains in "Testing" state, re-authentication is required every 7 days.
+   To avoid this, you need to publish the project, but this requires preparing a Terms of Service, Privacy Policy, etc. and passing Google's review.
+   Please proceed carefully.
 
-### 3. Create Credentials (Client ID / Secret)
+#### 3. Create Credentials (Client ID / Secret)
 
 1. Go to "APIs & Services" > "Credentials" > "Create Credentials" > "OAuth Client ID".
 2. Select **"Web Application"** as the Application type.
 3. Under "Authorized redirect URIs", click "Add URI".
-4. Enter `https://c-ardinal.github.io/obsidian-vault-sync/callback/`.
-    - This is a relay page used to return to Obsidian after authentication. The process happens entirely within your browser, and no data is sent to external servers.
-    - You may also use your own self-hosted redirect URI if preferred.
+4. Enter `https://obsidian-vault-sync.pages.dev/api/auth/callback`.
 5. Click "Create".
 6. Copy the generated **Client ID** and **Client Secret**.
     - **Important**: The Client Secret is confidential. Never share it with others.
 
-### 4. Apply to Plugin
+#### 4. Apply to Plugin
 
 1. Open Obsidian Settings > "VaultSync".
-2. Enter the Client ID and Client Secret, then click the "Login" button.
-3. A browser will open, and the Google login screen will appear.
-4. After successful login, you will be automatically redirected back to Obsidian. Completion is confirmed when the success notification appears.
+2. Set the Login Method to **"Use Client ID / Secret"**.
+3. Enter the Client ID and Client Secret, then click the **"Login"** button.
+4. A browser will open with the Google login screen.
+5. After successful login, you will be automatically redirected back to Obsidian. Completion is confirmed when the success notification appears.
     - If you are not automatically redirected, please click the "Open Obsidian" button on the browser screen.
     - If it still doesn't return, please manually switch back to the Obsidian app.
+6. Restart Obsidian after the success notification appears.
 
 ---
 
