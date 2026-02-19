@@ -1,6 +1,6 @@
 import { VaultSyncSettings } from "./types/settings";
 
-export const AUTH_PROXY_BASE_URL = "https://obsidian-vault-sync.c-ardinal.workers.dev";
+export const AUTH_PROXY_BASE_URL = "https://obsidian-vault-sync.pages.dev";
 
 // Unified callback endpoint (handles both proxy and client-credentials modes)
 export const OAUTH_REDIRECT_URI = `${AUTH_PROXY_BASE_URL}/api/auth/callback`;
