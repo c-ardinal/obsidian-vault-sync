@@ -42,17 +42,18 @@
                 <p>
                     VaultSync is a free, open-source plugin that synchronizes your Obsidian vault
                     files with cloud storage services. All sync operations occur directly between
-                    your local device and your cloud storage account. The Plugin does not operate
-                    any intermediary servers.
+                    your local device and your cloud storage account. The Plugin provides an
+                    authentication proxy hosted on Cloudflare Pages solely for facilitating the
+                    OAuth login process; no vault data passes through this proxy.
                 </p>
 
                 <h2>User Responsibilities</h2>
                 <ul>
                     <li>
-                        <strong>Cloud Account Setup</strong>: You are responsible for creating and
-                        configuring your own Google Cloud Project, including obtaining OAuth
-                        credentials (Client ID / Client Secret). The Plugin does not provide
-                        shared credentials.
+                        <strong>Authentication</strong>: By default, the Plugin uses a
+                        developer-provided authentication proxy for OAuth login. Alternatively,
+                        you may configure your own Google Cloud Project with OAuth credentials
+                        (Client ID / Client Secret) or a custom authentication proxy.
                     </li>
                     <li>
                         <strong>Data Backup</strong>: You are responsible for maintaining backups
@@ -92,6 +93,11 @@
                     service and privacy policies. The developer is not responsible for any changes,
                     outages, or issues with third-party services.
                 </p>
+                <p>
+                    The default authentication proxy is hosted on
+                    <a href="https://www.cloudflare.com/" target="_blank" rel="noopener"
+                        >Cloudflare Pages</a
+                    >. Your use of this proxy is subject to Cloudflare's terms of service.</p>
 
                 <h2>Disclaimer of Warranties</h2>
                 <p>
@@ -139,7 +145,7 @@
                     >.
                 </p>
 
-                <p class="updated">Last updated: February 16, 2026</p>
+                <p class="updated">Last updated: February 19, 2026</p>
             </div>
 
             <!-- Japanese -->
@@ -155,13 +161,13 @@
 
                 <h2>サービスの内容</h2>
                 <p>
-                    VaultSyncは、ObsidianのVaultファイルをクラウドストレージサービスと同期する無料のオープンソースプラグインです。すべての同期処理はローカルデバイスとクラウドストレージ間で直接行われます。本プラグインは中間サーバーを運用しません。
+                    VaultSyncは、ObsidianのVaultファイルをクラウドストレージサービスと同期する無料のオープンソースプラグインです。すべての同期処理はローカルデバイスとクラウドストレージ間で直接行われます。本プラグインはOAuthログインプロセスを仲介するための認証プロキシをCloudflare Pages上でホストしていますが、Vaultデータがこのプロキシを経由することはありません。
                 </p>
 
                 <h2>ユーザーの責任</h2>
                 <ul>
                     <li>
-                        <strong>クラウドアカウントの設定</strong>：OAuth認証情報（クライアントID / クライアントシークレット）の取得を含む、Google Cloud Projectの作成および設定はユーザーの責任で行ってください。本プラグインは共有認証情報を提供しません。
+                        <strong>認証</strong>：デフォルトでは、開発者が提供する認証プロキシを使用してOAuthログインを行います。また、独自のGoogle Cloud ProjectでOAuth認証情報（クライアントID / クライアントシークレット）を設定するか、カスタム認証プロキシを使用することも可能です。
                     </li>
                     <li>
                         <strong>データのバックアップ</strong>：Vaultデータのバックアップはユーザーの責任で管理してください。本プラグインは信頼性の高い同期を目指して設計されていますが、データ損失がゼロであることを保証するソフトウェアはありません。
@@ -187,6 +193,9 @@
                 <h2>第三者サービス</h2>
                 <p>
                     本プラグインはサードパーティのクラウドストレージサービス（現在はGoogle Drive）と連携します。これらのサービスの利用は、各サービスの利用規約およびプライバシーポリシーに従います。開発者は、サードパーティサービスの変更、停止、またはその他の問題について責任を負いません。
+                </p>
+                <p>
+                    デフォルトの認証プロキシは<a href="https://www.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Pages</a>上でホストされています。このプロキシの利用にはCloudflareの利用規約が適用されます。
                 </p>
 
                 <h2>保証の免責</h2>
@@ -226,7 +235,7 @@
                     >でIssueを作成してください。
                 </p>
 
-                <p class="updated">最終更新日: 2026年2月16日</p>
+                <p class="updated">最終更新日: 2026年2月19日</p>
             </div>
         </div>
 

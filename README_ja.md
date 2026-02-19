@@ -1,14 +1,55 @@
-# VaultSync (Obsidian Cloud Sync)
+<p align="center">
+  <img src="img/vaultsync_logotype_v2.webp" alt="VaultSync" width="420">
+</p>
 
-[ [🇺🇸 English](README.md) | [🇯🇵 日本語](README_ja.md) ]
+<p align="center">
+  <b>Obsidian Cloud Sync</b>
+</p>
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![GitHub Release](https://img.shields.io/github/v/release/c-ardinal/obsidian-vault-sync?label=Release&logo=github)](https://github.com/c-ardinal/obsidian-vault-sync/releases)
-[![CI Status](https://img.shields.io/github/actions/workflow/status/c-ardinal/obsidian-vault-sync/test.yml?branch=main&label=CI&logo=github-actions)](https://github.com/c-ardinal/obsidian-vault-sync/actions/workflows/test.yml)
-[![Platform: Windows | MacOS | Linux](https://img.shields.io/badge/Platform-Windows%20%7C%20MacOS%20%7C%20Linux-lightgrey)](#)
+<p align="center">
+  <a href="README.md">🇺🇸 English</a> | <a href="README_ja.md">🇯🇵 日本語</a>
+</p>
 
-Obsidian向けの高速・インテリジェントなクラウドストレージ同期プラグインです。  
+<p align="center">
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+  <a href="https://github.com/c-ardinal/obsidian-vault-sync/releases"><img src="https://img.shields.io/github/v/release/c-ardinal/obsidian-vault-sync?label=Release&logo=github" alt="GitHub Release"></a>
+  <a href="https://github.com/c-ardinal/obsidian-vault-sync/actions/workflows/test.yml"><img src="https://img.shields.io/github/actions/workflow/status/c-ardinal/obsidian-vault-sync/test.yml?branch=main&label=CI&logo=github-actions" alt="CI Status"></a>
+  <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20MacOS%20%7C%20Linux-lightgrey" alt="Platform: Windows | MacOS | Linux">
+</p>
+
+---
+
+Obsidian向けの高速・インテリジェントなクラウドストレージ同期プラグインです。
 Google Driveを活用し、PCとモバイルデバイス（iOS/Android）間での強固なデータ一貫性と高速な同期体験を提供します。
+
+### アーキテクチャ
+
+```mermaid
+graph LR
+    subgraph "<b>ユーザーのデバイス</b>"
+        A["🖥️ デスクトップ<br/>Obsidian"]
+        B["📱 モバイル<br/>Obsidian"]
+    end
+
+    subgraph "<b>Google</b>"
+        C[("☁️ Google Drive")]
+        D["🔐 Google OAuth"]
+    end
+
+    E["🌐 認証プロキシ<br/><i>Cloudflare Pages</i>"]
+
+    A <--->|"<b>Vaultデータ</b><br/>直接同期"| C
+    B <--->|"<b>Vaultデータ</b><br/>直接同期"| C
+    A -.->|"認証のみ"| E
+    B -.->|"認証のみ"| E
+    E -.->|"OAuthフロー"| D
+
+    style C fill:#4285F4,color:#fff
+    style E fill:#F48120,color:#fff
+```
+
+> **Vaultデータは常にデバイスとGoogle Drive間で直接転送されます。**
+> 認証プロキシはOAuthログイン時にのみ使用され、独自のClient IDを使えばバイパスも可能です。
 
 ---
 
@@ -16,7 +57,8 @@ Google Driveを活用し、PCとモバイルデバイス（iOS/Android）間で�
 
 - **Obsidian**: v0.15.0 以上
 - **Google アカウント**: Google Drive API を利用するために必要
-- **ネットワーク**: インネット接続環境（同期実行時）
+- **ネットワーク**: インターネット接続環境（同期実行時）
+- **Google Cloud Project** _(任意)_: デフォルトの認証プロキシを使用せず、独自の Client ID / Client Secret を使用する場合のみ必要
 
 ---
 
@@ -28,8 +70,12 @@ Google Driveを活用し、PCとモバイルデバイス（iOS/Android）間で�
 - **履歴・差分表示 (Revision History)**: Google Drive上のファイルリビジョンを取得し、ローカルとの差分表示や過去バージョンの復元が可能です。
 - **モバイル最適化**: 基盤に `fetch` APIを採用し、デスクトップ/モバイルの両方で動作。編集停止時や保存時の自動同期、レイアウト変更トリガー（タブ切り替え時）を搭載。
 - **詳細な同期設定**: `.obsidian` 内の設定、プラグイン、外観、ホットキーなどを個別に同期するか選択可能。キャッシュや一時ファイルは自動で除外されます。
-- **安全な認証 & 保存**: PKCEを用いたOAuth2認証。認証情報は設定ファイルから分離され、OS標準のセキュアなストレージ（Keychain/Credential Manager）を活用して安全に保存されます。
+- **安全な認証 & 保存**: 内蔵の認証プロキシ（設定不要）または独自の Client ID/Secret（PKCE対応）によるOAuth2認証。認証情報は設定ファイルから分離され、OS標準のセキュアなストレージ（Keychain/Credential Manager）を活用して安全に保存されます。
 - **エンドツーエンド暗号化 (E2EE)**: [E2EE Engine](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine) を導入することで、Vault データをクライアント側で暗号化できます。アップロード前に暗号化、ダウンロード後に復号され、クラウド上に平文が残ることはありません。
+
+|               転送ステータス               |                   選択的同期                    |
+| :----------------------------------------: | :---------------------------------------------: |
+| ![転送ステータス](img/transfer_status.png) | ![同期スコープ設定](img/setting_sync_scope.png) |
 
 ---
 
@@ -41,35 +87,102 @@ Google Driveを活用し、PCとモバイルデバイス（iOS/Android）間で�
 - **コマンドパレット**: `Ctrl+P` (または `Cmd+P`) を押し、`VaultSync: Sync with Cloud` を選択します。
 - **自動同期**: 設定により、ファイル保存時や編集の停止時、一定時間ごとに自動で同期が行われます。
 
+|             同期通知              |                 同期トリガー設定                  |
+| :-------------------------------: | :-----------------------------------------------: |
+| ![同期通知](img/notification.png) | ![同期トリガー設定](img/setting_sync_trigger.png) |
+
 ### 履歴と復元
 
 - **ファイル履歴**: ファイルを右クリックし、「クラウドの変更履歴を表示 (VaultSync)」を選択すると、Google Drive上の過去リビジョンとの比較が可能です。
 - **高機能diffビューア**: Unified/左右分割表示の切り替え、行内差分のハイライト、差分箇所へのジャンプ機能（ループ対応）、表示コンテキスト行数の動的調整など、開発者ツール級の強力な比較機能を提供します。
 - **フルスキャン**: 整合性に不安がある場合、コマンドパレットから `VaultSync: Audit & Fix Consistency (Full Scan)` を実行して強制的に同期状態をチェックできます。
 
+<p align="center">
+  <img src="img/cloud_history.gif" alt="クラウド履歴 & Diffビューア" width="700">
+</p>
+
 ---
 
 ## 🔧 同期エンジンの仕様
 
-- **Conflict Resolution**: 3-way Mergeによる自動解決に加え、「スマートマージ」「ローカル優先」「クラウド優先」「常にフォーク」の戦略を選択可能です。自動解決できない場合はローカルファイルを `(Conflict YYYY-MM-DDTHH-mm-ss)` として退避します。
-- **Selective Sync**: `.obsidian/` 内のファイル（プラグイン、テーマ、ホットキー等）をカテゴリ別に同期制御可能です。`workspace.json` や `cache/` など、デバイス固有のデータは自動的に除外されます。
-- **Device Communication**: `communication.json` を通じてデバイス間でのマージロック制御を行い、同時に同じファイルを編集した際の上書きを防止します。
-- **Atomic Updates**: 各ファイル転送完了ごとに個別のインデックスエントリを更新。インデックスはGzip圧縮され、効率的に同期されます。
+### スマート同期フロー
+
+```mermaid
+flowchart TD
+    A(["🔄 同期開始"]) --> B{"クラウド上に<br/>インデックスあり？"}
+    B -->|なし| F["フルスキャン<br/><i>インデックスを一から構築</i>"]
+    B -->|あり| C{"前回の同期から<br/>変更あり？"}
+    C -->|変更なし| D(["✅ 同期済み<br/><i>スキップ</i>"])
+    C -->|変更あり| E["差分検知<br/><i>MD5ハッシュ比較</i>"]
+    F --> E
+    E --> G{"競合を<br/>検出？"}
+    G -->|なし| H["変更ファイルを<br/>Push / Pull"]
+    G -->|あり| I["3-way マージ"]
+    I --> J{"自動解決<br/>できた？"}
+    J -->|はい| H
+    J -->|いいえ| K["競合フォーク作成<br/><code>(Conflict YYYY-MM-DD…)</code>"]
+    H --> L(["✅ 同期完了"])
+    K --> L
+```
+
+### 3-way マージ
+
+同じファイルが複数デバイスで編集された場合、共通の祖先を基に三方向マージで競合を解決します。
+
+```mermaid
+graph TD
+    A["📄 共通祖先<br/><i>最後に同期されたバージョン</i>"]
+    A -->|"ローカルの編集"| B["📝 ローカル版"]
+    A -->|"リモートの編集"| C["☁️ リモート版"]
+    B --> D{"🔀 3-way マージ"}
+    C --> D
+    D -->|"重複しない変更"| E["✅ マージ結果"]
+    D -->|"重複する編集"| F["⚠️ 競合フォーク"]
+```
+
+### その他の仕様
+
+- **競合解決戦略**: 3-way Mergeによる自動解決に加え、「スマートマージ」「ローカル優先」「クラウド優先」「常にフォーク」の戦略を選択可能です。自動解決できない場合はローカルファイルを `(Conflict YYYY-MM-DDTHH-mm-ss)` として退避します。
+- **選択的同期**: `.obsidian/` 内のファイル（プラグイン、テーマ、ホットキー等）をカテゴリ別に同期制御可能です。`workspace.json` や `cache/` など、デバイス固有のデータは自動的に除外されます。
+- **デバイス間通信**: `communication.json` を通じてデバイス間でのマージロック制御を行い、同時に同じファイルを編集した際の上書きを防止します。
+- **アトミック更新**: 各ファイル転送完了ごとに個別のインデックスエントリを更新。インデックスはGzip圧縮され、効率的に同期されます。
 
 ---
 
 ## 🔒 プライバシーとセキュリティ
 
-- **直接通信**: 本プラグインは外部のサードパーティサーバーを経由せず、直接 Google Drive API と通信します。
-- **認証保護**: クライアントIDやトークン、暗号化シークレットなどの機密情報は、ObsidianのSecret Storage APIを介して、OS標準のセキュアストレージ（Keychain/Credential Manager）に直接保管されます。これにより、Vault内に機密情報を含むファイルが残ることを最小限に抑えます。なお、Secret Storageが利用できない環境や古いOSでは、自動的にデバイス固有の秘密鍵（AES-GCM）で暗号化されたローカルファイル保存へとフォールバックし、安全性を維持します。
+- **直接通信**: すべてのVaultデータはデバイスとGoogle Drive間で直接同期されます。認証プロキシやサードパーティサーバーを経由してVaultの内容が送信されることはありません。
+- **認証プロキシ**: デフォルトでは、本プラグインは [Cloudflare Pages](https://www.cloudflare.com/) 上にホストされた認証プロキシを使用してOAuthログインフローを仲介します。このプロキシはOAuth認可コードとトークンを**一時的に**（メモリ上のみで永続化せず）処理します。独自の Client ID / Client Secret を設定することで、このプロキシの使用を回避できます。詳細は[プライバシーポリシー](https://obsidian-vault-sync.pages.dev/privacy/)をご覧ください。
+- **認証保護**: トークンや暗号化シークレットなどの機密情報は、ObsidianのSecret Storage APIを介して、OS標準のセキュアストレージ（Keychain/Credential Manager）に直接保管されます。これにより、Vault内に機密情報を含むファイルが残ることを最小限に抑えます。なお、Secret Storageが利用できない環境では、自動的にデバイス固有の秘密鍵（AES-GCM）で暗号化されたローカルファイル保存へとフォールバックし、安全性を維持します。
 - **データの所在**: 同期されたデータは、ユーザ自身の Google Drive 領域（指定したルートフォルダ）のみに保存されます。
 - **※重要**: デフォルトでは、同期されるデータ（Markdownファイル等）は Google Drive へ**平文（暗号化なし）でアップロードされます**。Google Drive 自体のセキュリティモデル（HTTPS 転送、サーバー側暗号化）で保護されますが、サーバー側でデータを読み取ることが可能です。エンドツーエンド暗号化が必要な場合は、[VaultSync E2EE Engine](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine) を導入してください。詳細は下記セクションをご覧ください。
 
 ---
 
-## 🔐 エンドツーエンド暗号化 (E2EE)
+## 🔑 エンドツーエンド暗号化 (E2EE)
 
 VaultSync は、別途公開されているオープンソースの暗号化エンジンを通じて、オプションでエンドツーエンド暗号化に対応しています。
+
+```mermaid
+flowchart LR
+    subgraph "ユーザーのデバイス"
+        A["📄 平文"]
+        B["🔒 暗号化済み"]
+        D["🔒 暗号化済み"]
+        E["📄 平文"]
+    end
+
+    subgraph "Google Drive"
+        C[("☁️ 暗号化データ<br/>のみ保存")]
+    end
+
+    A -->|"AES-256-GCM<br/>暗号化"| B
+    B -->|"アップロード"| C
+    C -->|"ダウンロード"| D
+    D -->|"復号"| E
+
+    style C fill:#4285F4,color:#fff
+```
 
 E2EE を有効にすると:
 
@@ -90,33 +203,67 @@ E2EE を有効にすると:
 
 ## 🚀 セットアップ手順
 
-本プラグインを利用するにあたり、Google Cloud Project を作成して **自分専用の Client ID / Client Secret** を取得する必要があります。
-取得は無料です。
+VaultSync には3つの認証方式があります。用途に合わせて選択してください。
 
-### 1. Google Cloud Project の作成
+### 方法A: デフォルト（推奨）
+
+最もシンプルな方法です。開発者が提供する認証プロキシを使用してOAuthログインを行います。Google Cloud の設定は不要です。
+
+1. Obsidian の設定 > 「VaultSync」を開きます。
+2. ログイン方式が **「デフォルト」** になっていることを確認します。
+3. **「ログイン」** ボタンを押します。
+4. ブラウザが起動し、Googleのログイン画面が表示されます。
+5. ログインに成功すると自動的にObsidianへ戻ります。認証成功を知らせる通知が表示されれば完了です。
+    - 自動的にObsidianに戻らない場合は、ブラウザ画面に表示される「Open Obsidian」ボタンを押して下さい。
+    - ボタンを押しても戻らない場合は手動でObsidianアプリに切り替えてください。
+6. ログイン成功の通知が表示されたらObsidianを再起動して下さい。
+
+> **補足**: 認証プロキシはOAuth認可コードとトークンを一時的（メモリ上のみ）に処理します。Vaultデータがプロキシを経由することはありません。詳細は[プライバシーポリシー](https://obsidian-vault-sync.pages.dev/privacy/)をご覧ください。
+
+### 方法B: カスタム認証プロキシ
+
+デフォルトの認証プロキシの代わりに、自前の認証プロキシサーバーを使用する場合の方法です。
+
+1. VaultSync API互換の認証プロキシをデプロイします（リファレンス実装は `www/functions/` ディレクトリを参照）。
+2. Obsidian の設定 > 「VaultSync」を開きます。
+3. ログイン方式を **「Use Custom Auth Proxy」** に変更します。
+4. プロキシのURL（HTTPS必須）を入力します。
+5. **「ログイン」** ボタンを押し、Googleのログインフローを完了します。
+6. ログイン成功の通知が表示されたらObsidianを再起動して下さい。
+
+### 方法C: Client ID / Secret
+
+完全なコントロールを必要とする場合、自分のGoogle Cloud Projectを作成し、独自のOAuth認証情報を使用できます。プロキシを経由せず、プラグインがGoogleと直接通信します。
+
+#### 1. Google Cloud Project の作成
 
 1. [Google Cloud Console](https://console.cloud.google.com/) にアクセスします。
 2. 新しいプロジェクトを作成します。
 3. 「APIとサービス」 > 「ライブラリ」から **Google Drive API** を検索し、「有効にする」を押します。
 
-### 2. OAuth 同意画面の設定
+#### 2. OAuth 同意画面の設定
 
 1. **OAuth 同意画面の作成**:
     1. 「APIとサービス」 > 「OAuth 同意画面」 > 「概要」から「開始」を押します。
     2. アプリ情報を入力して下さい。User Type は「外部」を選択してください。
     3. 全て記入したら「作成」を押します。
-2. **スコープの追加**: 1. 「データアクセス」から「スコープを追加または削除」を選択します。2. `.../auth/drive.file` （このアプリで使用する Google ドライブ上の特定のファイルのみの参照、編集、作成、削除）にチェックを入れます。3. 「更新」を押します。4. 画面下部の「Save」を押します。
-3. ~~**認証期間の永続化**: ※テスト状態のままだと7日ごとに再認証が必要になります~~
-    1. ~~「対象」から「アプリを公開」を押します。~~
-    2. ~~「確認」を押します。~~  
-       ※正しい手続きを踏まずにアプリを公開すると、Googleから警告を受ける可能性があるため手順見直し中。
+2. **スコープの追加**:
+    1. 「データアクセス」から「スコープを追加または削除」を選択します。
+    2. `.../auth/drive.file` （このアプリで使用する Google ドライブ上の特定のファイルのみの参照、編集、作成、削除）にチェックを入れます。
+    3. 「更新」を押します。
+    4. 画面下部の「Save」を押します。
+3. **認証期間の永続化**:
+   プロジェクトの状態が「テスト状態」のままだと7日ごとに再ログインが必要になります。  
+   再ログイン不要で利用し続けるにはプロジェクトを「公開状態」にする必要がありますが、  
+   利用規約・プライバシーポリシー等を用意した上でGoogleの審査を合格する必要があります。  
+   慎重に対応して下さい。
 
-### 3. 認証情報 (Client ID / Secret) の作成
+#### 3. 認証情報 (Client ID / Secret) の作成
 
 1. 「APIとサービス」 > 「認証情報」 > 「認証情報を作成」 > 「OAuth クライアント ID」を選択します。
 2. アプリケーションの種類として **「ウェブ アプリケーション」** を選択します。
 3. 「承認済みのリダイレクト URI」から「URIを追加」を押します。
-4. `https://c-ardinal.github.io/obsidian-vault-sync/callback/` と入力します。
+4. `https://obsidian-vault-sync.pages.dev/api/auth/callback` と入力します。
     - これは認証完了後にObsidianへ戻るための中継ページです。
       あなたのブラウザ上でのみ処理を行い、外部にデータを送信することは有りません。
     - ご自身で用意したサーバを指定しても問題ありません。
@@ -124,14 +271,16 @@ E2EE を有効にすると:
 6. 生成された **クライアント ID** と **クライアント シークレット** をコピーします。
     - **重要**: クライアントシークレットは機密情報です。他人には絶対に教えないでください。
 
-### 4. プラグインへの反映
+#### 4. プラグインへの反映
 
 1. Obsidian の設定 > 「VaultSync」を開きます。
-2. IDとシークレットを入力し、「ログイン」ボタンを押します。
-3. ブラウザが起動し、ログイン画面が表示されます。
-4. ログインに成功すると自動的にObsidianへ戻ります。認証成功を知らせる通知が表示されれば完了です。
+2. ログイン方式を **「Client ID / Secret」** に変更します。
+3. IDとシークレットを入力し、**「ログイン」** ボタンを押します。
+4. ブラウザが起動し、Googleのログイン画面が表示されます。
+5. ログインに成功すると自動的にObsidianへ戻ります。認証成功を知らせる通知が表示されれば完了です。
     - 自動的にObsidianに戻らない場合は、ブラウザ画面に表示される「Open Obsidian」ボタンを押して下さい。
     - ボタンを押しても戻らない場合は手動でObsidianアプリに切り替えてください。
+6. ログイン成功の通知が表示されたらObsidianを再起動して下さい。
 
 ---
 
