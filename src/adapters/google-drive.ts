@@ -8,7 +8,7 @@ import {
 } from "../constants";
 import { toHex } from "../utils/format";
 import { basename } from "../utils/path";
-import { Platform } from "obsidian";
+import { Platform, requestUrl } from "obsidian";
 
 export type AuthMethod = "default" | "custom-proxy" | "client-credentials";
 
@@ -504,13 +504,21 @@ export class GoogleDriveAdapter implements CloudAdapter {
             "system",
         );
 
-        let response: Response;
+        // Use Obsidian's requestUrl instead of fetch to bypass CORS restrictions.
+        // fetch to the proxy origin is blocked by browser CORS policy, while
+        // requestUrl operates at the native level and is not subject to CORS.
+        let status: number;
+        let text: string;
         try {
-            response = await fetch(`${proxyBase}/api/auth/refresh`, {
+            const result = await requestUrl({
+                url: `${proxyBase}/api/auth/refresh`,
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                contentType: "application/json",
                 body: JSON.stringify({ refresh_token: this.refreshToken }),
+                throw: false,
             });
+            status = result.status;
+            text = result.text;
         } catch (e) {
             await this.log(
                 `Proxy refresh network error: ${e instanceof Error ? e.message : String(e)}`,
@@ -522,11 +530,16 @@ export class GoogleDriveAdapter implements CloudAdapter {
             throw new Error("Token refresh failed: proxy unreachable");
         }
 
-        const data = await this.safeJsonParse(response, "proxy refresh");
+        let data: any;
+        try {
+            data = JSON.parse(text);
+        } catch {
+            throw new Error(`Invalid JSON from proxy refresh: ${text.slice(0, 200)}`);
+        }
 
-        if (!response.ok) {
+        if (status < 200 || status >= 300) {
             const err = data.error_description || data.error || JSON.stringify(data);
-            console.error(`VaultSync: Proxy refresh failure (${response.status}): ${err}`);
+            console.error(`VaultSync: Proxy refresh failure (${status}): ${err}`);
             if (data.error === "invalid_grant" || data.error === "unauthorized_client") {
                 this.accessToken = null;
                 this.refreshToken = null;

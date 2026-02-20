@@ -29,6 +29,8 @@ export class Platform {
     static isDesktopApp = true;
 }
 
+export const requestUrl = vi.fn();
+
 export class App {
     vault: any;
 }
