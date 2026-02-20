@@ -122,12 +122,26 @@ export default class VaultSync extends Plugin {
             "system",
         );
 
-        // Handle Token Expiry / Revocation
+        // Handle Token Expiry / Revocation (credential cleanup only;
+        // user-facing notification is handled by executeSmartSync catch)
         this.adapter.onAuthFailure = async () => {
             console.log("VaultSync: Auth failed (token expired/revoked). Clearing credentials.");
-            await this.syncManager.notify("noticeAuthFailed", "Session expired. Please login again.");
             await this.secureStorage.clearCredentials();
             this.adapter.setTokens(null, null);
+        };
+
+        // Persist refreshed tokens to secure storage
+        this.adapter.onTokenRefresh = async () => {
+            const tokens = this.adapter.getTokens();
+            if (tokens.accessToken && tokens.refreshToken) {
+                await this.secureStorage.saveCredentials({
+                    clientId: this.adapter.clientId,
+                    clientSecret: this.adapter.clientSecret,
+                    accessToken: tokens.accessToken,
+                    refreshToken: tokens.refreshToken,
+                    tokenExpiresAt: tokens.tokenExpiresAt,
+                });
+            }
         };
 
         // 6. Load shared index
@@ -228,13 +242,18 @@ export default class VaultSync extends Plugin {
                     const isFirstSync = !this.settings.hasCompletedFirstSync;
                     const trigger: SyncTrigger = isFirstSync ? "initial-sync" : "startup-sync";
 
-                    await this.syncManager.requestSmartSync(trigger, true);
+                    try {
+                        await this.syncManager.requestSmartSync(trigger, true);
 
-                    this.isReady = true;
-
-                    if (isFirstSync) {
-                        this.settings.hasCompletedFirstSync = true;
-                        await this.saveSettings();
+                        if (isFirstSync) {
+                            this.settings.hasCompletedFirstSync = true;
+                            await this.saveSettings();
+                        }
+                    } catch {
+                        // Startup sync may fail (e.g. not authenticated yet).
+                        // Don't block the plugin — timer/save/modify syncs must still fire.
+                    } finally {
+                        this.isReady = true;
                     }
                 }, this.settings.startupDelaySec * 1000);
             } else {
@@ -467,16 +486,24 @@ export default class VaultSync extends Plugin {
             if (params.access_token && params.refresh_token) {
                 // Proxy mode: tokens delivered directly from auth proxy callback
                 try {
-                    this.adapter.setTokens(params.access_token, params.refresh_token);
+                    // Compute tokenExpiresAt from expires_in (default 3600s for Google OAuth)
+                    const expiresIn = params.expires_in ? parseInt(params.expires_in, 10) : 3600;
+                    const tokenExpiresAt = Date.now() + expiresIn * 1000;
+
+                    this.adapter.setTokens(params.access_token, params.refresh_token, tokenExpiresAt);
                     await this.saveCredentials(
                         this.adapter.clientId,
                         this.adapter.clientSecret,
                         params.access_token,
                         params.refresh_token,
+                        tokenExpiresAt,
                     );
                     await this.syncManager.notify("noticeAuthSuccess");
 
                     window.localStorage.removeItem("vault-sync-state");
+
+                    // Auto-sync after successful authentication
+                    this.syncManager.requestSmartSync("manual-sync").catch(() => {});
                 } catch (e: any) {
                     await this.syncManager.notify("noticeAuthFailed", e.message);
                     console.error("VaultSync: Auth failed via proxy protocol handler", e);
@@ -491,11 +518,15 @@ export default class VaultSync extends Plugin {
                         this.adapter.clientSecret,
                         tokens.accessToken,
                         tokens.refreshToken,
+                        tokens.tokenExpiresAt,
                     );
                     await this.syncManager.notify("noticeAuthSuccess");
 
                     window.localStorage.removeItem("vault-sync-verifier");
                     window.localStorage.removeItem("vault-sync-state");
+
+                    // Auto-sync after successful authentication
+                    this.syncManager.requestSmartSync("manual-sync").catch(() => {});
                 } catch (e: any) {
                     await this.syncManager.notify("noticeAuthFailed", e.message);
                     console.error("VaultSync: Auth failed via protocol handler", e);
@@ -833,6 +864,7 @@ export default class VaultSync extends Plugin {
             this.adapter.setTokens(
                 credentials.accessToken || null,
                 credentials.refreshToken || null,
+                credentials.tokenExpiresAt || 0,
             );
             this.adapter.updateConfig(
                 credentials.clientId || "",
@@ -908,14 +940,16 @@ export default class VaultSync extends Plugin {
         clientSecret: string,
         accessToken: string | null,
         refreshToken: string | null,
+        tokenExpiresAt?: number,
     ) {
         this.adapter.setCredentials(clientId, clientSecret);
-        this.adapter.setTokens(accessToken, refreshToken);
+        this.adapter.setTokens(accessToken, refreshToken, tokenExpiresAt);
         await this.secureStorage.saveCredentials({
             clientId,
             clientSecret,
             accessToken,
             refreshToken,
+            tokenExpiresAt: tokenExpiresAt || 0,
         });
 
         // Also update live adapter config

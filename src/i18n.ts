@@ -131,6 +131,10 @@ export const i18n: Record<string, Record<string, string>> = {
         noticeE2EERecoveryComplete: "✅ [E2EE] Vault recovered successfully with recovery code.",
         noticeE2EEDecryptFailed: "❌ [E2EE] Decryption failed. Wrong password or corrupted data.",
 
+        noticeSyncFailedAuth: "❌ [Sync] Not authenticated. Please login from Settings.",
+        noticeSyncFailedNetwork: "❌ [Sync] Network error. Check your connection and try again.",
+        noticeSyncFailed: "❌ [Sync] Sync failed: {0}",
+
         noticeMergeSuccess: "✅ [Conflict] Auto-resolved",
         noticeCheckOtherDevice:
             "⚠️ [Conflict] Merge may have failed. Check other device for details",
@@ -421,6 +425,10 @@ export const i18n: Record<string, Record<string, string>> = {
         noticeE2EEPasswordChanged: "✅ [E2EE] 暗号化パスワードを変更しました。",
         noticeE2EERecoveryComplete: "✅ [E2EE] リカバリーコードでVaultを復元しました。",
         noticeE2EEDecryptFailed: "❌ [E2EE] 復号に失敗しました。パスワードが間違っているか、データが破損しています。",
+        noticeSyncFailedAuth: "❌ [同期] 未認証です。設定画面からログインしてください。",
+        noticeSyncFailedNetwork: "❌ [同期] ネットワークエラー。接続を確認してもう一度お試しください。",
+        noticeSyncFailed: "❌ [同期] 同期失敗: {0}",
+
         noticeMergeSuccess: "✅ [競合] 自動解決されました",
         noticeCheckOtherDevice:
             "⚠️ [競合] マージに失敗した可能性が有ります。詳細は他デバイスを確認してください",

@@ -409,6 +409,15 @@ export async function executeSmartSync(ctx: SyncContext, scanVault: boolean): Pr
         await ctx.log("=== SMART SYNC COMPLETED ===");
     } catch (e) {
         await ctx.log(`Smart Sync failed: ${e}`, "error");
+        // Classify error and notify user
+        const msg = e instanceof Error ? e.message : String(e);
+        if (msg.includes("Not authenticated") || msg.includes("Authentication failed") || msg.includes("Token revoked")) {
+            await ctx.notify("noticeSyncFailedAuth");
+        } else if (msg.includes("Network error") || msg.includes("Failed to fetch") || msg.includes("unreachable")) {
+            await ctx.notify("noticeSyncFailedNetwork");
+        } else {
+            await ctx.notify("noticeSyncFailed", msg.slice(0, 80));
+        }
         throw e;
     } finally {
         // Clear decryption cache between sync cycles to free memory
