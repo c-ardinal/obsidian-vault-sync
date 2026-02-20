@@ -411,9 +411,10 @@ export async function executeSmartSync(ctx: SyncContext, scanVault: boolean): Pr
         await ctx.log(`Smart Sync failed: ${e}`, "error");
         // Classify error and notify user
         const msg = e instanceof Error ? e.message : String(e);
-        if (msg.includes("Not authenticated") || msg.includes("Authentication failed") || msg.includes("Token revoked")) {
+        const msgLower = msg.toLowerCase();
+        if (msgLower.includes("not authenticated") || msgLower.includes("authentication failed") || msgLower.includes("token revoked")) {
             await ctx.notify("noticeSyncFailedAuth");
-        } else if (msg.includes("Network error") || msg.includes("Failed to fetch") || msg.includes("unreachable")) {
+        } else if (msgLower.includes("network error") || msgLower.includes("failed to fetch") || msgLower.includes("unreachable")) {
             await ctx.notify("noticeSyncFailedNetwork");
         } else {
             await ctx.notify("noticeSyncFailed", msg.slice(0, 80));

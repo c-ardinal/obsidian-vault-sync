@@ -1163,6 +1163,23 @@ class VaultSyncSettingTab extends PluginSettingTab {
                             if (item.key === "exclusionPatterns") {
                                 text.inputEl.addClass("vault-sync-exclusion-textarea");
                                 text.inputEl.rows = 10;
+                                // Glob pattern validation warning
+                                const warningEl = setting.settingEl.createDiv({ cls: "setting-item-description" });
+                                warningEl.style.cssText = "color:var(--text-error);font-size:0.85em;display:none;";
+                                const validatePatterns = () => {
+                                    const lines = text.inputEl.value.split("\n").filter((l: string) => l.trim());
+                                    const hasInvalid = lines.some((l: string) => {
+                                        const openBracket = (l.match(/\[/g) || []).length;
+                                        const closeBracket = (l.match(/\]/g) || []).length;
+                                        if (openBracket !== closeBracket) return true;
+                                        const openBrace = (l.match(/\{/g) || []).length;
+                                        const closeBrace = (l.match(/\}/g) || []).length;
+                                        return openBrace !== closeBrace;
+                                    });
+                                    warningEl.setText(this.plugin.t("settingExclusionPatternsInvalid"));
+                                    warningEl.style.display = hasInvalid ? "" : "none";
+                                };
+                                text.inputEl.addEventListener("input", validatePatterns);
                             }
                         });
                         break;

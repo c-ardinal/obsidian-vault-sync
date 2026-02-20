@@ -407,6 +407,14 @@ const MATRIX: MatrixEntry[] = [
         },
     },
     {
+        // ⚠️ 競合: マージロックが失効しました: {file}
+        key: "noticeMergeLockLost",
+        scenarios: {
+            pushConflict: { v: "Show", s: "Show" },
+            pullConflict: { v: "Show", s: "Show" },
+        },
+    },
+    {
         // ✅ 競合: 他デバイスの解決結果を反映しました: {file}
         key: "noticeRemoteMergeSynced",
         scenarios: {
@@ -600,8 +608,12 @@ const FORMAT_SPECS: FormatSpec[] = [
         specJa: "⚠️ [競合] マージに失敗した可能性が有ります。詳細は他デバイスを確認してください",
     },
     {
+        key: "noticeMergeLockLost",
+        specJa: "⚠️ [競合] マージロックが失効しました。ローカルに保存済み、次回同期でプッシュします。: {file}",
+    },
+    {
         key: "noticeWaitOtherDeviceMerge",
-        specJa: "⌛️ [競合] 他デバイスが解決するのを待機しています...: {file}",
+        specJa: "⌛️ [競合] 他デバイスが解決するのを待機しています...: {0}",
     },
     {
         key: "noticeRemoteMergeSynced",
@@ -624,7 +636,7 @@ const FORMAT_SPECS: FormatSpec[] = [
     { key: "noticeMigrationComplete", specJa: "✅ [E2EE] 移行完了！Vaultが暗号化されました。" },
     { key: "noticeMigrationFailed", specJa: "❌ [E2EE] 移行失敗。ログを確認してください。" },
     // ═══ E2EE Notifications ═══
-    { key: "noticeVaultLocked", specJa: "🔒 [E2EE] Vaultがロック中のため同期を一時停止しています。" },
+    { key: "noticeVaultLocked", specJa: "🔒 [E2EE] Vaultがロック中のため同期を一時停止しています。コマンドパレットから「E2EE: ロック解除」を実行してください。" },
     { key: "noticeE2EEAutoEnabled", specJa: "🔒 [E2EE] このVaultは他デバイスで暗号化されています。パスワードを入力してロックを解除してください。" },
     { key: "noticeEngineVerifyFailed", specJa: "❌ [E2EE] エンジンの検証に失敗しました。プラグインを再インストールしてください。" },
     { key: "e2eeUnlockSuccess", specJa: "ロック解除しました！" },
@@ -681,6 +693,7 @@ describe("Notification Visibility Matrix", () => {
             "noticeConflictSaved",
             "noticeConflictRemoteSaved",
             "noticeCheckOtherDevice",
+            "noticeMergeLockLost",
             "noticeWaitOtherDeviceMerge",
             "noticeRemoteMergeSynced",
             // Auth
@@ -789,8 +802,8 @@ describe("Notification Message Format Validation", () => {
         const keysWithFilename = [
             "noticeMergingFile",
             "noticeMergeSuccess",
+            "noticeMergeLockLost",
             "noticeRemoteMergeSynced",
-            "noticeWaitOtherDeviceMerge",
             "noticeConflictSaved",
             "noticeConflictRemoteSaved",
             "noticeFilePulled",
@@ -949,6 +962,7 @@ const NEVER_DURING_CLEAN_SYNC: string[] = [
     // Conflict notifications: no conflicts in clean sync
     "noticeMergingFile",
     "noticeMergeSuccess",
+    "noticeMergeLockLost",
     "noticeConflictSaved",
     "noticeConflictRemoteSaved",
     "noticeCheckOtherDevice",

@@ -583,7 +583,7 @@ export async function pullFileSafely(
                             );
                             await ctx.notify(
                                 "noticeWaitOtherDeviceMerge",
-                                basename(item.path),
+                                `${basename(item.path)} (${lockResult.expiresIn}s)`,
                             );
                             if (ctx.localIndex[item.path]) {
                                 ctx.localIndex[item.path].pendingConflict = true;
@@ -742,6 +742,7 @@ export async function pullFileSafely(
                                         await ctx.log(
                                             `[${logPrefix}] Lock lost during merge. Content saved locally, queued for push on next cycle.`,
                                         );
+                                        await ctx.notify("noticeMergeLockLost", basename(item.path));
                                         const statLockLost = await ctx.app.vault.adapter.stat(
                                             item.path,
                                         );

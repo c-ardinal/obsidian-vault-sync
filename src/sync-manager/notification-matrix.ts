@@ -176,6 +176,7 @@ const VERBOSE: Record<string, VisibilityMap> = {
     // ═══ Conflict ═══
     noticeMergingFile: { "push-conflict": true, "pull-conflict": true },
     noticeMergeSuccess: { "push-conflict": true, "pull-conflict": true },
+    noticeMergeLockLost: { "push-conflict": true, "pull-conflict": true },
     noticeConflictSaved: { "push-conflict": true, "pull-conflict": true },
     noticeConflictRemoteSaved: { "push-conflict": true, "pull-conflict": true },
     noticeCheckOtherDevice: { "push-conflict": true, "pull-conflict": true },
