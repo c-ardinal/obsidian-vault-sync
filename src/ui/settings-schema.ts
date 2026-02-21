@@ -348,6 +348,6 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                   },
               ]
             : []),
-        ...(plugin.syncManager.cryptoEngine?.getSettingsSections(plugin) || []),
+        ...(plugin.syncManager.cryptoEngine?.getSettingsSections(plugin.buildE2EEContext()) || []),
     ];
 };

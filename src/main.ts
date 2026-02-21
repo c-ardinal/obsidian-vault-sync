@@ -15,6 +15,7 @@ import { t } from "./i18n";
 import { VaultSyncSettingTab } from "./ui/vault-sync-setting-tab";
 import { loadExternalCryptoEngine } from "./encryption/engine-loader";
 import { checkPasswordStrength } from "./encryption/password-strength";
+import type { E2EEPluginContext } from "./encryption/interfaces";
 import { toHex } from "./utils/format";
 import {
     openDemoHistoryModal,
@@ -54,6 +55,26 @@ export default class VaultSync extends Plugin {
         if (this.settingTab) {
             this.settingTab.display();
         }
+    }
+
+    public buildE2EEContext(): E2EEPluginContext {
+        return {
+            app: this.app,
+            t: (key: string) => this.t(key),
+            checkPasswordStrength: this.checkPasswordStrength,
+            settings: this.settings,
+            saveSettings: () => this.saveSettings(),
+            refreshSettingsUI: () => this.refreshSettingsUI(),
+            cryptoEngine: this.syncManager.cryptoEngine!,
+            vaultLockService: this.syncManager.vaultLockService,
+            secureStorage: this.syncManager.secureStorage,
+            migrationService: this.syncManager.migrationService,
+            notify: (key: string) => this.syncManager.notify(key),
+            log: (msg: string, level: "system" | "error" | "warn" | "notice" | "info" | "debug") => this.syncManager.log(msg, level),
+            setCurrentTrigger: (trigger: string) => {
+                this.syncManager.currentTrigger = trigger as SyncTrigger;
+            },
+        };
     }
 
     /**
@@ -248,7 +269,7 @@ export default class VaultSync extends Plugin {
                         }
 
                         if (!autoUnlocked) {
-                            this.syncManager.cryptoEngine?.showUnlockModal(this);
+                            this.syncManager.cryptoEngine?.showUnlockModal(this.buildE2EEContext());
                         }
                     }
 
@@ -327,7 +348,7 @@ export default class VaultSync extends Plugin {
             checkCallback: (checking: boolean) => {
                 if (!this.syncManager.cryptoEngine || this.settings.e2eeEnabled) return false;
                 if (!checking) {
-                    this.syncManager.cryptoEngine.showSetupModal(this);
+                    this.syncManager.cryptoEngine.showSetupModal(this.buildE2EEContext());
                 }
                 return true;
             },
@@ -343,7 +364,7 @@ export default class VaultSync extends Plugin {
                     !this.syncManager.cryptoEngine.isUnlocked();
                 if (!isLocked) return false;
                 if (!checking) {
-                    this.syncManager.cryptoEngine?.showUnlockModal(this);
+                    this.syncManager.cryptoEngine?.showUnlockModal(this.buildE2EEContext());
                 }
                 return true;
             },
@@ -355,7 +376,7 @@ export default class VaultSync extends Plugin {
             checkCallback: (checking: boolean) => {
                 const engine = this.syncManager.cryptoEngine;
                 if (!engine?.showPasswordChangeModal || !engine.isUnlocked()) return false;
-                if (!checking) engine.showPasswordChangeModal(this);
+                if (!checking) engine.showPasswordChangeModal(this.buildE2EEContext());
                 return true;
             },
         });
@@ -366,7 +387,7 @@ export default class VaultSync extends Plugin {
             checkCallback: (checking: boolean) => {
                 const engine = this.syncManager.cryptoEngine;
                 if (!engine?.showRecoveryExportModal || !engine.isUnlocked()) return false;
-                if (!checking) engine.showRecoveryExportModal(this);
+                if (!checking) engine.showRecoveryExportModal(this.buildE2EEContext());
                 return true;
             },
         });
@@ -378,7 +399,7 @@ export default class VaultSync extends Plugin {
                 const engine = this.syncManager.cryptoEngine;
                 if (!engine?.showRecoveryImportModal || !this.settings.e2eeEnabled) return false;
                 if (engine.isUnlocked()) return false;
-                if (!checking) engine.showRecoveryImportModal(this);
+                if (!checking) engine.showRecoveryImportModal(this.buildE2EEContext());
                 return true;
             },
         });
