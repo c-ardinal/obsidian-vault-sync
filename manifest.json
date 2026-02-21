@@ -1,7 +1,7 @@
 {
     "id": "obsidian-vault-sync",
     "name": "VaultSync",
-    "version": "0.10.0_0d1d9a78",
+    "version": "0.10.0_1de857dc",
     "minAppVersion": "0.15.0",
     "description": "A plugin to automatically synchronize Obsidian vaults via cloud storage. (Only Google Drive is supported at this time)",
     "author": "c-ardinal",

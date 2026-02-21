@@ -428,9 +428,7 @@ export async function executeSmartSync(ctx: SyncContext, scanVault: boolean): Pr
         throw e;
     } finally {
         // Clear decryption cache between sync cycles to free memory
-        if ("clearDownloadCache" in ctx.adapter && typeof (ctx.adapter as any).clearDownloadCache === "function") {
-            (ctx.adapter as any).clearDownloadCache();
-        }
+        ctx.adapter.clearDownloadCache?.();
         await ctx.logger.endCycle();
         ctx.endActivity();
         // Resume background transfers after sync cycle completes

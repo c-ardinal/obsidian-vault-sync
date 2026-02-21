@@ -278,6 +278,11 @@ export class SyncManager {
         await this.backgroundTransferQueue.loadHistoryFromDisk();
     }
 
+    /** Cancel all pending background transfers. */
+    public cancelAllTransfers(): void {
+        this.backgroundTransferQueue.cancelAll();
+    }
+
     /** Clean up background transfer queue (event listeners, flush history). Call on plugin unload. */
     public destroyTransferQueue(): void {
         this.backgroundTransferQueue.destroy();

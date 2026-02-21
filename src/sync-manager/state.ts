@@ -85,7 +85,7 @@ export async function acquireMergeLock(
         if (attempt < LOCK_MAX_ATTEMPTS - 1) {
             const jitter = LOCK_JITTER_MIN_MS + Math.random() * LOCK_JITTER_RANGE_MS;
             await ctx.log(
-                `[Communication] Lock contention for ${path} (attempt ${attempt + 1}/${MAX_ATTEMPTS}). Retrying in ${Math.round(jitter)}ms...`,
+                `[Communication] Lock contention for ${path} (attempt ${attempt + 1}/${LOCK_MAX_ATTEMPTS}). Retrying in ${Math.round(jitter)}ms...`,
                 "warn",
             );
             await new Promise((r) => setTimeout(r, jitter));

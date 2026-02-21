@@ -75,6 +75,9 @@ class MockCloudAdapter implements CloudAdapter {
     getStartPageToken = async () => "token";
     setLogger = () => {};
     onAuthFailure = () => {};
+    reset = () => {};
+    getAppRootId = async () => "mock-root";
+    cloneWithNewVaultName = () => this as CloudAdapter;
 }
 
 const DEFAULT_SETTINGS: SyncManagerSettings = {

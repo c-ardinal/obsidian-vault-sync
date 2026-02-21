@@ -225,6 +225,24 @@ export class GoogleDriveAdapter implements CloudAdapter {
         return cloned;
     }
 
+    getBaseAdapter(): CloudAdapter {
+        return this;
+    }
+
+    async getFolderIdByName(name: string, parentId?: string): Promise<string | null> {
+        const safeName = name.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        let query = `name = '${safeName}' and trashed = false and mimeType = 'application/vnd.google-apps.folder'`;
+        if (parentId) {
+            const safeParentId = parentId.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+            query += ` and '${safeParentId}' in parents`;
+        }
+        const resp = await this.fetchWithAuth(
+            `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name)`,
+        );
+        const data = await resp.json();
+        return data.files?.[0]?.id || null;
+    }
+
     private getRedirectUri(): string {
         // Unified callback endpoint on Cloudflare Pages
         // Handles both proxy mode (server-side token exchange) and
