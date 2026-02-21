@@ -34,7 +34,7 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                     .setValue(this.plugin.settings.authMethod)
                     .onChange(async (value) => {
                         this.plugin.settings.authMethod = value as "default" | "custom-proxy" | "client-credentials";
-                        this.plugin.adapter.setAuthConfig(
+                        this.plugin.setAuthConfig(
                             this.plugin.settings.authMethod,
                             this.plugin.settings.customProxyUrl,
                         );
@@ -56,7 +56,7 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                         .setValue(this.plugin.settings.customProxyUrl)
                         .onChange(async (value) => {
                             this.plugin.settings.customProxyUrl = value;
-                            this.plugin.adapter.setAuthConfig(
+                            this.plugin.setAuthConfig(
                                 this.plugin.settings.authMethod,
                                 value,
                             );
@@ -71,19 +71,8 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                 .setName(t("settingClientId"))
                 .setDesc(t("settingClientIdDesc"))
                 .addText((text) =>
-                    text.setValue(this.plugin.adapter.clientId).onChange(async (value) => {
-                        this.plugin.adapter.updateConfig(
-                            value,
-                            this.plugin.adapter.clientSecret,
-                            this.plugin.vaultOps.getVaultName(),
-                            this.plugin.settings.cloudRootFolder,
-                        );
-                        await this.plugin.saveCredentials(
-                            value,
-                            this.plugin.adapter.clientSecret,
-                            this.plugin.adapter.getTokens().accessToken,
-                            this.plugin.adapter.getTokens().refreshToken,
-                        );
+                    text.setValue(this.plugin.getClientId()).onChange(async (value) => {
+                        await this.plugin.updateClientCredential("clientId", value);
                     }),
                 );
 
@@ -91,19 +80,8 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                 .setName(t("settingClientSecret"))
                 .setDesc(t("settingClientSecretDesc"))
                 .addText((text) =>
-                    text.setValue(this.plugin.adapter.clientSecret).onChange(async (value) => {
-                        this.plugin.adapter.updateConfig(
-                            this.plugin.adapter.clientId,
-                            value,
-                            this.plugin.vaultOps.getVaultName(),
-                            this.plugin.settings.cloudRootFolder,
-                        );
-                        await this.plugin.saveCredentials(
-                            this.plugin.adapter.clientId,
-                            value,
-                            this.plugin.adapter.getTokens().accessToken,
-                            this.plugin.adapter.getTokens().refreshToken,
-                        );
+                    text.setValue(this.plugin.getClientSecret()).onChange(async (value) => {
+                        await this.plugin.updateClientCredential("clientSecret", value);
                     }),
                 );
         }
@@ -115,13 +93,13 @@ export class VaultSyncSettingTab extends PluginSettingTab {
             .addButton((button) =>
                 button
                     .setButtonText(
-                        this.plugin.adapter.isAuthenticated()
+                        this.plugin.isAdapterAuthenticated()
                             ? t("settingRelogin")
                             : t("settingLogin"),
                     )
                     .setCta()
                     .onClick(async () => {
-                        await this.plugin.adapter.login();
+                        await this.plugin.adapterLogin();
                     }),
             );
 

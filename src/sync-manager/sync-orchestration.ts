@@ -602,6 +602,8 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
         path: string;
         fileId: string;
         hash?: string;
+        plainHash?: string;
+        ancestorHash?: string;
     }> = [];
     const toDeleteLocal: string[] = [];
 
@@ -716,7 +718,7 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
                 hash: remoteEntry.hash,
                 plainHash: remoteEntry.plainHash,
                 ancestorHash: remoteEntry.ancestorHash,
-            } as any);
+            });
         } else if (
             remoteEntry.hash &&
             localBaseEntry.hash &&
@@ -729,7 +731,7 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
                 hash: remoteEntry.hash,
                 plainHash: remoteEntry.plainHash,
                 ancestorHash: remoteEntry.ancestorHash,
-            } as any);
+            });
         }
     }
 
@@ -750,7 +752,7 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
                     `[Smart Pull] Conflict: ${path} removed from remote but modified locally. Queuing for merge check.`,
                     "warn",
                 );
-                toDownload.push({ path, fileId: "" } as any); // Dummy fileId for deletion conflict
+                toDownload.push({ path, fileId: "" }); // Dummy fileId for deletion conflict
             } else {
                 toDeleteLocal.push(path);
             }

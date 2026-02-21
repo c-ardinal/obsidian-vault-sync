@@ -998,4 +998,48 @@ export default class VaultSync extends Plugin {
         );
     }
 
+    // === Adapter Facade (eliminates LoD chains in SettingTab) ===
+
+    setAuthConfig(method: "default" | "custom-proxy" | "client-credentials", proxyUrl: string): void {
+        this.adapter.setAuthConfig(method, proxyUrl);
+    }
+
+    getClientId(): string {
+        return this.adapter.clientId;
+    }
+
+    getClientSecret(): string {
+        return this.adapter.clientSecret;
+    }
+
+    isAdapterAuthenticated(): boolean {
+        return this.adapter.isAuthenticated();
+    }
+
+    async adapterLogin(): Promise<void> {
+        await this.adapter.login();
+    }
+
+    /**
+     * Update a single client credential field (clientId or clientSecret).
+     * Consolidates updateConfig + saveCredentials into one call.
+     */
+    async updateClientCredential(field: "clientId" | "clientSecret", value: string): Promise<void> {
+        const clientId = field === "clientId" ? value : this.adapter.clientId;
+        const clientSecret = field === "clientSecret" ? value : this.adapter.clientSecret;
+        const tokens = this.adapter.getTokens();
+        this.adapter.updateConfig(
+            clientId,
+            clientSecret,
+            this.vaultOps.getVaultName(),
+            this.settings.cloudRootFolder,
+        );
+        await this.saveCredentials(
+            clientId,
+            clientSecret,
+            tokens.accessToken,
+            tokens.refreshToken,
+        );
+    }
+
 }
