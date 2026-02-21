@@ -55,35 +55,51 @@ export async function acquireMergeLock(
     ctx: SyncContext,
     path: string,
 ): Promise<{ acquired: boolean; holder?: string; expiresIn?: number }> {
-    const comm = await loadCommunication(ctx);
-    const existing = comm.mergeLocks[path];
-    const now = Date.now();
+    const MAX_ATTEMPTS = 3;
 
-    if (existing && existing.expiresAt > now && existing.holder !== ctx.deviceId) {
-        return {
-            acquired: false,
-            holder: existing.holder,
-            expiresIn: Math.floor((existing.expiresAt - now) / 1000),
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+        const comm = await loadCommunication(ctx);
+        const existing = comm.mergeLocks[path];
+        const now = Date.now();
+
+        if (existing && existing.expiresAt > now && existing.holder !== ctx.deviceId) {
+            return {
+                acquired: false,
+                holder: existing.holder,
+                expiresIn: Math.floor((existing.expiresAt - now) / 1000),
+            };
+        }
+
+        comm.mergeLocks[path] = {
+            holder: ctx.deviceId,
+            expiresAt: now + 60000,
         };
+        await saveCommunication(ctx, comm);
+
+        const verify = await loadCommunication(ctx);
+        const verifyLock = verify.mergeLocks[path];
+        if (verifyLock && verifyLock.holder === ctx.deviceId) {
+            return { acquired: true };
+        }
+
+        // Verification failed — another device wrote concurrently. Retry with jitter.
+        if (attempt < MAX_ATTEMPTS - 1) {
+            const jitter = 200 + Math.random() * 600;
+            await ctx.log(
+                `[Communication] Lock contention for ${path} (attempt ${attempt + 1}/${MAX_ATTEMPTS}). Retrying in ${Math.round(jitter)}ms...`,
+                "warn",
+            );
+            await new Promise((r) => setTimeout(r, jitter));
+        } else {
+            return {
+                acquired: false,
+                holder: verifyLock?.holder,
+                expiresIn: verifyLock ? Math.floor((verifyLock.expiresAt - now) / 1000) : 0,
+            };
+        }
     }
 
-    comm.mergeLocks[path] = {
-        holder: ctx.deviceId,
-        expiresAt: now + 60000,
-    };
-    await saveCommunication(ctx, comm);
-
-    const verify = await loadCommunication(ctx);
-    const verifyLock = verify.mergeLocks[path];
-    if (verifyLock && verifyLock.holder === ctx.deviceId) {
-        return { acquired: true };
-    } else {
-        return {
-            acquired: false,
-            holder: verifyLock?.holder,
-            expiresIn: verifyLock ? Math.floor((verifyLock.expiresAt - now) / 1000) : 0,
-        };
-    }
+    return { acquired: false };
 }
 
 export async function releaseMergeLock(
@@ -143,7 +159,7 @@ export async function loadIndex(
         ctx.startPageToken = parsed.startPageToken || null;
 
         if (data.byteLength !== decompressed.byteLength) {
-            await ctx.log("[Index] Detected compressed local index. Normalizing to plain text...");
+            await ctx.log("[Index] Detected compressed local index. Normalizing to plain text...", "info");
             await saveIndex(ctx);
         }
 
@@ -161,7 +177,7 @@ export async function loadIndex(
                 const parsed = JSON.parse(data);
                 ctx.index = parsed.index || {};
                 ctx.startPageToken = parsed.startPageToken || null;
-                await ctx.log("[Index] Successfully recovered from raw index.");
+                await ctx.log("[Index] Successfully recovered from raw index.", "info");
                 await saveIndex(ctx);
                 return;
             }

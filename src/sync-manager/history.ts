@@ -44,7 +44,7 @@ export async function setRevisionKeepForever(
         );
     }
     await ctx.adapter.setRevisionKeepForever(path, revisionId, keepForever);
-    await ctx.log(`[History] Set keepForever=${keepForever} for ${path} (rev: ${revisionId})`);
+    await ctx.log(`[History] Set keepForever=${keepForever} for ${path} (rev: ${revisionId})`, "info");
 }
 
 export async function deleteRevision(ctx: SyncContext, path: string, revisionId: string): Promise<void> {
@@ -54,7 +54,7 @@ export async function deleteRevision(ctx: SyncContext, path: string, revisionId:
         );
     }
     await ctx.adapter.deleteRevision(path, revisionId);
-    await ctx.log(`[History] Deleted revision ${revisionId} for ${path}`);
+    await ctx.log(`[History] Deleted revision ${revisionId} for ${path}`, "info");
 }
 
 export async function restoreRevision(
@@ -62,7 +62,7 @@ export async function restoreRevision(
     path: string,
     revision: FileRevision,
 ): Promise<void> {
-    await ctx.log(`[History] Starting rollback for ${path} to revision ${revision.id}`);
+    await ctx.log(`[History] Starting rollback for ${path} to revision ${revision.id}`, "info");
     try {
         const content = await getRevisionContent(ctx, path, revision.id);
 
@@ -76,11 +76,12 @@ export async function restoreRevision(
         const timestamp = new Date().toISOString();
         await ctx.log(
             `[History] Rollback executed: File=${path}, Revision=${revision.id}, Time=${timestamp}`,
+            "info",
         );
 
         await ctx.notify("noticeFileRestored");
     } catch (e) {
-        await ctx.log(`[History] Rollback failed: ${e}`);
+        await ctx.log(`[History] Rollback failed: ${e}`, "error");
         throw e;
     }
 }

@@ -362,7 +362,7 @@ export async function executeSmartSync(ctx: SyncContext, scanVault: boolean): Pr
     // Pause background transfers during sync cycle to avoid race conditions
     ctx.backgroundTransferQueue.pause();
     try {
-        await ctx.log("=== SMART SYNC START ===");
+        await ctx.log("=== SMART SYNC START ===", "info");
         await ctx.notify("noticeSyncing");
 
         // Clean up recentlyDeletedFromRemote: remove entries for files that no longer exist locally
@@ -401,12 +401,12 @@ export async function executeSmartSync(ctx: SyncContext, scanVault: boolean): Pr
         }
 
         if (ctx.settingsUpdated) {
-            await ctx.log("[Smart Sync] Remote settings update detected. Reloading...");
+            await ctx.log("[Smart Sync] Remote settings update detected. Reloading...", "info");
             await ctx.onSettingsUpdated();
             ctx.settingsUpdated = false;
         }
 
-        await ctx.log("=== SMART SYNC COMPLETED ===");
+        await ctx.log("=== SMART SYNC COMPLETED ===", "info");
     } catch (e) {
         await ctx.log(`Smart Sync failed: ${e}`, "error");
         // Classify error and notify user
@@ -568,6 +568,7 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
     // Hashes differ - download remote index and compare
     await ctx.log(
         `[Smart Pull] Index hash differs (local: ${localIndexHash}, remote: ${remoteIndexHash}). Fetching remote index...`,
+        "info",
     );
 
     const remoteIndex = await downloadRemoteIndex(ctx, remoteIndexMeta.id);
@@ -639,6 +640,7 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
                         if (sourceExists && !targetExists) {
                             await ctx.log(
                                 `[Smart Pull] Remote Rename detected (Full Scan): ${oldPath} -> ${newPath}`,
+                                "info",
                             );
                             await ctx.app.vault.adapter.rename(oldPath, newPath);
 
@@ -753,6 +755,7 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
 
     await ctx.log(
         `[Smart Pull] Changes: ${toDownload.length} to download, ${toDeleteLocal.length} to delete`,
+        "info",
     );
 
     if (toDownload.length === 0 && toDeleteLocal.length === 0) {
@@ -799,6 +802,7 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
                 deferredPullCount++;
                 await ctx.log(
                     `[Smart Pull] Deferred to background (${formatSize(remoteSize)}): ${item.path}`,
+                    "info",
                 );
             } else {
                 inlineDownloads.push(item);
@@ -822,7 +826,7 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
                 const success = await pullFileSafely(ctx, item, "Smart Pull");
                 if (success) {
                     completed++;
-                    await ctx.log(`[Smart Pull] [${completed}/${total}] Synced: ${item.path}`);
+                    await ctx.log(`[Smart Pull] [${completed}/${total}] Synced: ${item.path}`, "info");
                     // Record inline transfer for history tracking
                     const pulledSize = ctx.localIndex[item.path]?.size ?? 0;
                     ctx.backgroundTransferQueue.recordInlineTransfer({
@@ -856,7 +860,7 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
                 delete ctx.localIndex[path];
 
                 completed++;
-                await ctx.log(`[Smart Pull] [${completed}/${total}] Deleted locally: ${path}`);
+                await ctx.log(`[Smart Pull] [${completed}/${total}] Deleted locally: ${path}`, "info");
                 await ctx.notify("noticeFileTrashed", basename(path));
             } catch (e) {
                 await ctx.log(`[Smart Pull] Delete failed: ${path} - ${e}`, "error");
@@ -893,7 +897,7 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
                     const meta = await ctx.adapter.getFileMetadata(folder);
                     if (meta?.id) {
                         await ctx.adapter.deleteFile(meta.id);
-                        await ctx.log(`[Smart Pull] [Cleanup] Wiped forbidden folder: ${folder}`);
+                        await ctx.log(`[Smart Pull] [Cleanup] Wiped forbidden folder: ${folder}`, "info");
                         // Cleanup index entries
                         const prefix = folder + "/";
                         for (const path of Object.keys(ctx.index)) {
@@ -916,7 +920,7 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
             tasks.push(async () => {
                 try {
                     await ctx.adapter.deleteFile(file.fileId);
-                    await ctx.log(`[Smart Pull] [Cleanup] Deleted forbidden file: ${file.path}`);
+                    await ctx.log(`[Smart Pull] [Cleanup] Deleted forbidden file: ${file.path}`, "info");
                     delete ctx.index[file.path];
                     delete ctx.localIndex[file.path];
                 } catch (e) {
@@ -950,6 +954,7 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
     if (deferredPullCount > 0) {
         await ctx.log(
             `[Smart Pull] ${deferredPullCount} large file(s) queued for background transfer.`,
+            "info",
         );
     }
 
@@ -1048,7 +1053,7 @@ export async function pullViaChangesAPI(
                             delete ctx.localIndex[pathToDelete]; // Added for consistency
                             ctx.logger.markActionTaken();
                             completed++;
-                            await ctx.log(`[Smart Pull] Deleted: ${pathToDelete}`);
+                            await ctx.log(`[Smart Pull] Deleted: ${pathToDelete}`, "info");
                             await ctx.notify("noticeFileTrashed", basename(pathToDelete));
                         } catch (e) {
                             await ctx.log(
@@ -1148,6 +1153,7 @@ export async function pullViaChangesAPI(
                                 if (sourceExists) {
                                     await ctx.log(
                                         `[Changes API] Remote Rename detected: ${oldPath} -> ${newPath}. Renaming locally.`,
+                                        "info",
                                     );
 
                                     // Execute Rename
@@ -1276,6 +1282,7 @@ export async function pullViaChangesAPI(
                     markPendingTransfer(ctx, cloudFile.path, "pull", cloudFile.hash || "");
                     await ctx.log(
                         `[Changes API] Deferred to background (${formatSize(cloudFile.size)}): ${cloudFile.path}`,
+                        "info",
                     );
                 } else {
                     tasks.push(async () => {
@@ -1285,7 +1292,7 @@ export async function pullViaChangesAPI(
                             const success = await pullFileSafely(ctx, cloudFile, "Changes API");
                             if (success) {
                                 completed++;
-                                await ctx.log(`[Changes API] Synced: ${cloudFile.path}`);
+                                await ctx.log(`[Changes API] Synced: ${cloudFile.path}`, "info");
                                 // Record inline transfer for history tracking
                                 const pulledSize = ctx.localIndex[cloudFile.path]?.size ?? 0;
                                 ctx.backgroundTransferQueue.recordInlineTransfer({
@@ -1441,7 +1448,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                         await ctx.adapter.deleteFile(meta.id);
                         ctx.logger.markActionTaken();
                         folderDeletedCount++;
-                        await ctx.log(`[Smart Push] Deleted remote folder: ${folderPath}`);
+                        await ctx.log(`[Smart Push] Deleted remote folder: ${folderPath}`, "info");
                         await ctx.notify("noticeFileTrashed", basename(folderPath));
                     }
                 } else {
@@ -1485,7 +1492,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
         return false;
     }
 
-    await ctx.log(`[Smart Push] Pushing ${ctx.dirtyPaths.size} dirty files...`);
+    await ctx.log(`[Smart Push] Pushing ${ctx.dirtyPaths.size} dirty files...`, "info");
 
     // Load communication data to check for active merge locks
     const commData = await loadCommunication(ctx);
@@ -1551,6 +1558,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                     ctx.startActivity();
                                     await ctx.log(
                                         `[Smart Push] Moved folder: ${oldPath} -> ${path}`,
+                                        "info",
                                     );
                                     await ctx.notify(
                                         "noticeFileMoved",
@@ -1594,7 +1602,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                             // Create folder on remote (fallback / new folder)
                             await ctx.adapter.ensureFoldersExist([path]);
                             ctx.logger.markActionTaken();
-                            await ctx.log(`[Smart Push] Synced folder: ${path}`);
+                            await ctx.log(`[Smart Push] Synced folder: ${path}`, "info");
                             // Remove from dirty paths as it's handled
                             ctx.dirtyPaths.delete(path);
                             ctx.pendingFolderMoves.delete(path); // Cleanup even on fallback
@@ -1764,7 +1772,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                             if (ctx.dirtyPaths.get(path) === dirtyAt) {
                                 ctx.dirtyPaths.delete(path);
                             }
-                            await ctx.log(`[Smart Push] Adopted existing remote file: ${path}`);
+                            await ctx.log(`[Smart Push] Adopted existing remote file: ${path}`, "info");
                             return;
                         }
 
@@ -1824,6 +1832,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                 deferredCount++;
                 await ctx.log(
                     `[Smart Push] Deferred to background (${formatSize(file.size)}): ${file.path}`,
+                    "info",
                 );
             } else {
                 inlineUploadQueue.push(file);
@@ -1844,6 +1853,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
         // All files were deferred — still need to report activity
         await ctx.log(
             `[Smart Push] All ${deferredCount} file(s) deferred to background transfer.`,
+            "info",
         );
         return true;
     }
@@ -2233,7 +2243,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
             }
 
             await saveIndex(ctx);
-            await ctx.log(`[Smart Push] Index uploaded. Hash: ${uploadedIndex.hash}`);
+            await ctx.log(`[Smart Push] Index uploaded. Hash: ${uploadedIndex.hash}`, "info");
         } catch (e) {
             await ctx.log(`[Smart Push] Failed to upload index: ${e}`, "error");
         }
@@ -2244,6 +2254,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
         if (deferredCount > 0) {
             await ctx.log(
                 `[Smart Push] ${deferredCount} large file(s) queued for background transfer.`,
+                "info",
             );
         }
         return true;
@@ -2303,7 +2314,7 @@ export function isProgressStale(ctx: SyncContext): boolean {
 export async function executeFullScan(ctx: SyncContext): Promise<void> {
     ctx.logger.startCycle(ctx.currentTrigger);
     try {
-        await ctx.log("=== BACKGROUND FULL SCAN START ===");
+        await ctx.log("=== BACKGROUND FULL SCAN START ===", "info");
 
         // Initialize or resume progress
         if (!ctx.fullScanProgress) {
@@ -2408,7 +2419,7 @@ export async function executeFullScan(ctx: SyncContext): Promise<void> {
         }
 
         // Scan completed
-        await ctx.log("=== BACKGROUND FULL SCAN COMPLETED ===");
+        await ctx.log("=== BACKGROUND FULL SCAN COMPLETED ===", "info");
         ctx.fullScanProgress = null;
         await saveIndex(ctx);
     } catch (e) {
