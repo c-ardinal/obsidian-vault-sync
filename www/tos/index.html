@@ -63,9 +63,10 @@
                     <li>
                         <strong>E2EE Password Management</strong>: If you enable End-to-End
                         Encryption, you are solely responsible for remembering your encryption
-                        password and backing up the <code>vault-lock.vault</code> file. There is
-                        no password recovery mechanism. Lost passwords or vault-lock files will
-                        result in permanent, unrecoverable data loss.
+                        password, backing up the <code>vault-lock.vault</code> file, and
+                        securely storing any generated recovery codes. While recovery codes
+                        allow password reset, if both the password and recovery code are lost,
+                        data will be permanently and irreversibly inaccessible.
                     </li>
                     <li>
                         <strong>Credential Security</strong>: You must keep your OAuth Client
@@ -173,7 +174,7 @@
                         <strong>データのバックアップ</strong>：Vaultデータのバックアップはユーザーの責任で管理してください。本プラグインは信頼性の高い同期を目指して設計されていますが、データ損失がゼロであることを保証するソフトウェアはありません。
                     </li>
                     <li>
-                        <strong>E2EEパスワードの管理</strong>：エンドツーエンド暗号化を有効にした場合、暗号化パスワードの記憶および<code>vault-lock.vault</code>ファイルのバックアップはユーザーの責任です。パスワードの復旧手段はありません。パスワードまたはvault-lockファイルの紛失は、永久的かつ復旧不可能なデータ損失につながります。
+                        <strong>E2EEパスワードの管理</strong>：エンドツーエンド暗号化を有効にした場合、暗号化パスワードの記憶、<code>vault-lock.vault</code>ファイルのバックアップ、および生成したリカバリーコードの安全な保管はユーザーの責任です。リカバリーコードによりパスワードの再設定が可能ですが、パスワードとリカバリーコードの両方を紛失した場合、データは永久的かつ復旧不可能となります。
                     </li>
                     <li>
                         <strong>認証情報のセキュリティ</strong>：OAuthクライアントシークレットおよびE2EEパスワードは機密情報です。第三者と共有しないでください。

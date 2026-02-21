@@ -59,18 +59,10 @@ export class VaultLockService {
     }
 
     async getFolderId(name: string, parentId?: string): Promise<string | null> {
-        // Escape single quotes to prevent query injection
-        const safeName = name.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-        let query = `name = '${safeName}' and trashed = false and mimeType = 'application/vnd.google-apps.folder'`;
-        if (parentId) {
-            const safeParentId = parentId.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-            query += ` and '${safeParentId}' in parents`;
+        if (!this.baseAdapter.getFolderIdByName) {
+            throw new Error("Adapter does not support folder search by name");
         }
-        const resp = await (this.baseAdapter as any).fetchWithAuth(
-            `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name)`,
-        );
-        const data = await resp.json();
-        return data.files?.[0]?.id || null;
+        return this.baseAdapter.getFolderIdByName(name, parentId);
     }
 
     async renameFolder(id: string, newName: string): Promise<void> {

@@ -176,11 +176,29 @@ const VERBOSE: Record<string, VisibilityMap> = {
     // ═══ Conflict ═══
     noticeMergingFile: { "push-conflict": true, "pull-conflict": true },
     noticeMergeSuccess: { "push-conflict": true, "pull-conflict": true },
+    noticeMergeLockLost: { "push-conflict": true, "pull-conflict": true },
     noticeConflictSaved: { "push-conflict": true, "pull-conflict": true },
     noticeConflictRemoteSaved: { "push-conflict": true, "pull-conflict": true },
     noticeCheckOtherDevice: { "push-conflict": true, "pull-conflict": true },
     noticeWaitOtherDeviceMerge: { "push-conflict": true, "pull-conflict": true },
     noticeRemoteMergeSynced: { "push-conflict": true, "pull-conflict": true },
+
+    // ═══ Sync Errors (shown for all sync triggers) ═══
+    noticeSyncFailedAuth: {
+        "initial-sync": true, "startup-sync": true, "manual-sync": true,
+        "timer-sync": true, "save-sync": true, "modify-sync": true,
+        "layout-sync": true, "full-scan": true,
+    },
+    noticeSyncFailedNetwork: {
+        "initial-sync": true, "startup-sync": true, "manual-sync": true,
+        "timer-sync": true, "save-sync": true, "modify-sync": true,
+        "layout-sync": true, "full-scan": true,
+    },
+    noticeSyncFailed: {
+        "initial-sync": true, "startup-sync": true, "manual-sync": true,
+        "timer-sync": true, "save-sync": true, "modify-sync": true,
+        "layout-sync": true, "full-scan": true,
+    },
 
     // ═══ Auth ═══
     noticeAuthSuccess: { auth: true },
@@ -273,6 +291,13 @@ const STANDARD: Record<string, VisibilityMap> = {
 // Public API
 // --------------------------------------------------------------------------
 
+/** Critical notifications shown even in "error" (minimal) notification level. */
+const ALWAYS_SHOW = new Set([
+    "noticeSyncFailedAuth",
+    "noticeSyncFailedNetwork",
+    "noticeSyncFailed",
+]);
+
 /**
  * Look up whether a notification should be shown.
  *
@@ -286,9 +311,10 @@ export function shouldShowNotification(
     trigger: SyncTrigger,
     level: "verbose" | "standard" | "error",
 ): boolean {
-    if (level === "error") return false;
+    // Critical error notifications bypass the "error" (minimal) level
+    if (level === "error" && !ALWAYS_SHOW.has(key)) return false;
 
-    const matrix = level === "verbose" ? VERBOSE : STANDARD;
+    const matrix = level === "error" ? VERBOSE : level === "verbose" ? VERBOSE : STANDARD;
     const entry = matrix[key];
     if (!entry) return true; // Unknown key → safe default: show
 

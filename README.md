@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <b>Obsidian Cloud Sync</b>
+  <b>Cloud sync plugin for Obsidian</b>
 </p>
 
 <p align="center">
@@ -97,9 +97,9 @@ graph LR
 - **Advanced Diff Viewer**: Provides powerful comparison tools including Unified/Split view toggle, inline character-level highlighting, jump navigation between changes (with looping), and adjustable context lines.
 - **Full Scan**: If you are concerned about consistency, run `VaultSync: Audit & Fix Consistency (Full Scan)` from the command palette to perform a forced sync check.
 
-<p align="center">
-  <img src="img/cloud_history.gif" alt="Cloud History & Diff Viewer" width="700">
-</p>
+|              Cloud History              |             Diff Viewer             |
+| :-------------------------------------: | :---------------------------------: |
+| ![Cloud History](img/cloud_history.gif) | ![Diff Viewer](img/diff_viewer.gif) |
 
 ---
 
@@ -197,6 +197,8 @@ When E2EE is enabled:
 
 ### Setup
 
+The E2EE Engine is provided as a standalone `e2ee-engine.js` file. Place it in the VaultSync plugin directory (`.obsidian/plugins/obsidian-vault-sync/`). VaultSync will automatically detect and load the engine on startup, verifying its integrity via SHA-256 hash before activation.
+
 For details, available commands, build instructions, and the encryption specification, see the **[VaultSync E2EE Engine repository](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine)**.
 
 ---
@@ -233,7 +235,7 @@ If you prefer to host your own authentication proxy server instead of using the 
 
 ### Method C: Client ID / Secret
 
-For full control, you can create your own Google Cloud Project and use your own OAuth credentials. The plugin will communicate directly with Google — no proxy is used.
+For full control, you can create your own Google Cloud Project and use your own OAuth credentials. In this mode, the callback page on Cloudflare Pages is used only as a redirect relay to pass the authorization code back to Obsidian via the `obsidian://` protocol. The plugin then exchanges the code for tokens directly with Google — no credentials or tokens pass through the proxy.
 
 #### 1. Create a Google Cloud Project
 
@@ -263,6 +265,8 @@ For full control, you can create your own Google Cloud Project and use your own 
 2. Select **"Web Application"** as the Application type.
 3. Under "Authorized redirect URIs", click "Add URI".
 4. Enter `https://obsidian-vault-sync.pages.dev/api/auth/callback`.
+    - This page acts as a redirect relay: it receives the authorization code from Google and forwards it to the Obsidian app via the `obsidian://` protocol. No tokens or credentials are stored.
+    - You may also use your own server as the redirect URI.
 5. Click "Create".
 6. Copy the generated **Client ID** and **Client Secret**.
     - **Important**: The Client Secret is confidential. Never share it with others.
@@ -314,13 +318,13 @@ A: You might be performing an initial sync with many files, or your network migh
 Check the notification messages or enable logging in the settings for details.
 
 **Q: I want to exclude specific folders or files from syncing.**  
-A: Add glob patterns to the "Exclusion patterns" in the settings.  
+A: Add glob patterns to the "Exclude Files/Folders" setting.  
 For example, adding `secret/**` will exclude the `secret` folder and all files within it from synchronization.
 
-**Q: On the mobile version, I'm not redirected back to the app after authentication.**  
-A: Browser security settings may prevent automatic redirection.  
-Once the authentication completion screen appears, please manually switch back to the Obsidian app.  
-If authentication still doesn't complete, please try the "Manual Auth Mode" in the settings.
+**Q: On the mobile version, I'm not redirected back to the app after authentication.**
+A: Browser security settings may prevent automatic redirection.
+Once the authentication completion screen appears, please manually switch back to the Obsidian app.
+If authentication still doesn't complete, try using a different Login Method (e.g., "Use Client ID / Secret") in the settings.
 
 ## License
 

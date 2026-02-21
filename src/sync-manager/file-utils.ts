@@ -93,7 +93,7 @@ export async function getLocalFiles(ctx: SyncContext) {
             }
         }
     } catch (e) {
-        await ctx.log(`  Failed to list .obsidian: ${e}`);
+        await ctx.log(`  Failed to list .obsidian: ${e}`, "warn");
     }
 
     return [...standardFiles, ...obsidianFiles];

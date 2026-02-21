@@ -6,6 +6,13 @@ import { ensureLocalFolder, hashContent, normalizeLineEndings } from "./file-uti
 import { checkMergeLock, acquireMergeLock, releaseMergeLock, saveLocalIndex } from "./state";
 import { listRevisions, getRevisionContent } from "./history";
 import { basename } from "../utils/path";
+import {
+    MERGE_MAX_INLINE_DOWNLOAD_BYTES,
+    MERGE_DMP_MATCH_THRESHOLD,
+    MERGE_DMP_MATCH_DISTANCE,
+    MERGE_DMP_PATCH_DELETE_THRESHOLD,
+    MERGE_PATCH_MARGINS,
+} from "./constants";
 
 function markSettingsUpdatedIfNeeded(ctx: SyncContext, path: string): void {
     if (path.endsWith("/open-data.json")) {
@@ -137,9 +144,11 @@ export async function findCommonAncestorHash(
 
         await ctx.log(
             `[Merge] Finding common ancestor for ${path}: local=${localHash.substring(0, 8)}, remote=${remoteHash.substring(0, 8)}`,
+            "debug",
         );
         await ctx.log(
             `[Merge] Available revisions: ${revisions.map((r) => r.hash?.substring(0, 8) || "no-hash").join(", ")}`,
+            "debug",
         );
 
         const localLower = localHash.toLowerCase();
@@ -155,10 +164,10 @@ export async function findCommonAncestorHash(
             if (localIdx !== -1 && remoteIdx !== -1) break;
         }
 
-        await ctx.log(`[Merge] localIdx=${localIdx}, remoteIdx=${remoteIdx} (Latest Occurrences)`);
+        await ctx.log(`[Merge] localIdx=${localIdx}, remoteIdx=${remoteIdx} (Latest Occurrences)`, "debug");
 
         if (localIdx === -1 || remoteIdx === -1) {
-            await ctx.log(`[Merge] Could not find both versions in history`);
+            await ctx.log(`[Merge] Could not find both versions in history`, "warn");
             return null;
         }
 
@@ -167,10 +176,11 @@ export async function findCommonAncestorHash(
         const foundHash = revisions[pivotIdx].hash;
         await ctx.log(
             `[Merge] Selected ancestor at index ${pivotIdx}: ${foundHash?.substring(0, 8)}`,
+            "debug",
         );
         return foundHash || null;
     } catch (e) {
-        await ctx.log(`[Merge] Error finding common ancestor: ${e}`);
+        await ctx.log(`[Merge] Error finding common ancestor: ${e}`, "error");
         return null;
     }
 }
@@ -189,24 +199,25 @@ export async function perform3WayMerge(
     try {
         const strategy = ctx.settings.conflictResolutionStrategy;
         if (strategy === "force-local") {
-            await ctx.log(`[Merge] Strategy is 'Force Local'. Overwriting remote changes.`);
+            await ctx.log(`[Merge] Strategy is 'Force Local'. Overwriting remote changes.`, "info");
             return new TextEncoder().encode(localContentStr).buffer;
         }
         if (strategy === "force-remote") {
-            await ctx.log(`[Merge] Strategy is 'Force Remote'. Overwriting local changes.`);
+            await ctx.log(`[Merge] Strategy is 'Force Remote'. Overwriting local changes.`, "info");
             return new TextEncoder().encode(remoteContentStr).buffer;
         }
         if (strategy === "always-fork") {
-            await ctx.log(`[Merge] Strategy is 'Always Fork'. Skipping auto-merge.`);
+            await ctx.log(`[Merge] Strategy is 'Always Fork'. Skipping auto-merge.`, "info");
             return null;
         }
 
-        await ctx.log(`[Merge] Attempting 3-way merge for ${path}...`);
-        await ctx.log(`[Merge] Looking for base revision with hash: ${baseHash}`);
+        await ctx.log(`[Merge] Attempting 3-way merge for ${path}...`, "info");
+        await ctx.log(`[Merge] Looking for base revision with hash: ${baseHash}`, "debug");
 
         const revisions = await listRevisions(ctx, path);
         await ctx.log(
             `[Merge] Found ${revisions.length} revisions: ${revisions.map((r) => r.hash?.substring(0, 8) || "no-hash").join(", ")}`,
+            "debug",
         );
 
         const baseRev = revisions
@@ -215,14 +226,15 @@ export async function perform3WayMerge(
             .find((r) => r.hash && r.hash.toLowerCase() === baseHash.toLowerCase());
 
         if (!baseRev) {
-            await ctx.log(`[Merge] No base revision found matching hash ${baseHash}.`);
+            await ctx.log(`[Merge] No base revision found matching hash ${baseHash}.`, "warn");
             await ctx.log(
                 `[Merge] Available hashes: ${revisions.map((r) => r.hash || "null").join(", ")}`,
+                "debug",
             );
             return null;
         }
 
-        await ctx.log(`[Merge] Found base revision: ${baseRev.id} (hash: ${baseRev.hash})`);
+        await ctx.log(`[Merge] Found base revision: ${baseRev.id} (hash: ${baseRev.hash})`, "debug");
 
         const baseBuffer = await getRevisionContent(ctx, path, baseRev.id);
         const baseContentStr = new TextDecoder().decode(baseBuffer);
@@ -233,16 +245,17 @@ export async function perform3WayMerge(
 
         await ctx.log(
             `[Merge] Content lengths (raw/norm) - Base: ${baseContentStr.length}/${baseNorm.length}, Local: ${localContentStr.length}/${localNorm.length}, Remote: ${remoteContentStr.length}/${remoteNorm.length}`,
+            "debug",
         );
 
-        await ctx.log(`[Merge DEBUG] Base Content:\n---\n${baseNorm}\n---`);
-        await ctx.log(`[Merge DEBUG] Local Content:\n---\n${localNorm}\n---`);
-        await ctx.log(`[Merge DEBUG] Remote Content:\n---\n${remoteNorm}\n---`);
+        await ctx.log(`[Merge DEBUG] Base Content:\n---\n${baseNorm}\n---`, "debug");
+        await ctx.log(`[Merge DEBUG] Local Content:\n---\n${localNorm}\n---`, "debug");
+        await ctx.log(`[Merge DEBUG] Remote Content:\n---\n${remoteNorm}\n---`, "debug");
 
         const dmp = new diff_match_patch();
-        dmp.Match_Threshold = 0.5;
-        dmp.Match_Distance = 250;
-        dmp.Patch_DeleteThreshold = 0.5;
+        dmp.Match_Threshold = MERGE_DMP_MATCH_THRESHOLD;
+        dmp.Match_Distance = MERGE_DMP_MATCH_DISTANCE;
+        dmp.Patch_DeleteThreshold = MERGE_DMP_PATCH_DELETE_THRESHOLD;
 
         const {
             chars1: charsBase,
@@ -268,9 +281,8 @@ export async function perform3WayMerge(
         };
         const localAddedLines = getUniqueLines(localNorm, baseNorm);
 
-        const margins = [4, 2, 1];
-        for (const margin of margins) {
-            await ctx.log(`[Merge] Attempting merge with Patch_Margin=${margin}...`);
+        for (const margin of MERGE_PATCH_MARGINS) {
+            await ctx.log(`[Merge] Attempting merge with Patch_Margin=${margin}...`, "debug");
             dmp.Patch_Margin = margin;
 
             const patches = dmp.patch_make(charsBase, diffs);
@@ -281,6 +293,7 @@ export async function perform3WayMerge(
             if (!allSuccess) {
                 await ctx.log(
                     `[Merge] Bulk apply failed (margin=${margin}). Attempting atomic recovery...`,
+                    "warn",
                 );
                 let currentMerged = charsLocal;
                 for (let i = 0; i < patches.length; i++) {
@@ -301,6 +314,7 @@ export async function perform3WayMerge(
                 } else {
                     await ctx.log(
                         `[Merge] Encoding error during decode (idx=${idx}, margin=${margin})`,
+                        "warn",
                     );
                     decodeError = true;
                     break;
@@ -310,6 +324,7 @@ export async function perform3WayMerge(
 
             await ctx.log(
                 `[Merge DEBUG] Merged Content (margin=${margin}):\n---\n${mergedText}\n---`,
+                "debug",
             );
 
             let validationFailed = false;
@@ -324,6 +339,7 @@ export async function perform3WayMerge(
                     if (!mergedLines.has(line)) {
                         await ctx.log(
                             `[Merge] VALIDATION FAILED (margin=${margin}): Local line was lost: "${line.substring(0, 40)}..."`,
+                            "warn",
                         );
                         validationFailed = true;
                         break;
@@ -332,17 +348,18 @@ export async function perform3WayMerge(
             }
 
             if (!validationFailed) {
-                await ctx.log(`[Merge] SUCCESS: Auto-merged ${path} with Patch_Margin=${margin}`);
+                await ctx.log(`[Merge] SUCCESS: Auto-merged ${path} with Patch_Margin=${margin}`, "info");
                 return new TextEncoder().encode(mergedText).buffer;
             }
         }
 
         await ctx.log(
             `[Merge] FAIL: All Patch_Margin attempts failed for ${path}. (Safety Fallback)`,
+            "warn",
         );
         return null;
     } catch (e) {
-        await ctx.log(`[Merge] Error: ${e}`);
+        await ctx.log(`[Merge] Error: ${e}`, "error");
         return null;
     }
 }
@@ -367,6 +384,15 @@ export async function pullFileSafely(
 ): Promise<boolean> {
     if (!item) return false;
 
+    // S11: Safety check — reject unreasonably large files to prevent OOM
+    if (item.size && item.size > MERGE_MAX_INLINE_DOWNLOAD_BYTES) {
+        await ctx.log(
+            `[${logPrefix}] Skipping ${item.path}: file size ${(item.size / 1024 / 1024).toFixed(1)}MB exceeds inline download limit (100MB)`,
+            "warn",
+        );
+        return false;
+    }
+
     const isRemoteDeleted = !item.hash && !item.fileId;
     const fileId = item.fileId || item.id;
     if (!fileId && !isRemoteDeleted) return false;
@@ -377,6 +403,7 @@ export async function pullFileSafely(
     if (lockStatus.locked) {
         await ctx.log(
             `[${logPrefix}] Skipping pull: ${item.path} is being merged by ${lockStatus.holder} (expires in ${lockStatus.expiresIn}s)`,
+            "info",
         );
         await ctx.notify("noticeWaitOtherDeviceMerge", basename(item.path));
         if (ctx.localIndex[item.path]) {
@@ -404,6 +431,7 @@ export async function pullFileSafely(
                         `localBaseHash=${localBase?.hash?.substring(0, 8) || "none"}, ` +
                         `localBasePlainHash=${localBase?.plainHash?.substring(0, 8) || "none"}, ` +
                         `remoteHash=${item.hash?.substring(0, 8) || "none"}`,
+                    "debug",
                 );
 
                 // For E2EE: Use plainHash for local modification detection.
@@ -474,7 +502,7 @@ export async function pullFileSafely(
                         if (!ctx.settings.hasCompletedFirstSync) {
                             await ctx.notify("noticeSyncConfirmed", basename(item.path));
                         }
-                        await ctx.log(`[${logPrefix}] Skipped (content match): ${item.path}`);
+                        await ctx.log(`[${logPrefix}] Skipped (content match): ${item.path}`, "debug");
                         return true;
                     }
 
@@ -495,11 +523,13 @@ export async function pullFileSafely(
                                 if (remoteIncludesOurChanges) {
                                     await ctx.log(
                                         `[${logPrefix}] Quick check: Confirmed that remote is a descendant via ancestorHash. Safe to pull.`,
+                                        "debug",
                                     );
                                     safeToAcceptRemote = true;
                                 } else {
                                     await ctx.log(
                                         `[${logPrefix}] Safety Warning: Remote version ignores our ${localBase.lastAction} (Remote.ancestor=${item.ancestorHash.substring(0, 8)}, Local.hash=${localBase.hash.substring(0, 8)}). Forcing merge check.`,
+                                        "warn",
                                     );
                                     safeToAcceptRemote = false;
                                 }
@@ -507,6 +537,7 @@ export async function pullFileSafely(
                                 // Fallback for adapters/indices that don't provide ancestorHash
                                 await ctx.log(
                                     `[${logPrefix}] Missing ancestorHash. Searching history for ${localBase.hash.substring(0, 8)}...`,
+                                    "debug",
                                 );
                                 const common = await findCommonAncestorHash(
                                     ctx,
@@ -517,11 +548,13 @@ export async function pullFileSafely(
                                 if (common?.toLowerCase() === localBase.hash.toLowerCase()) {
                                     await ctx.log(
                                         `[${logPrefix}] Confirmed via history: Remote is a descendant. Safe to pull.`,
+                                        "debug",
                                     );
                                     safeToAcceptRemote = true;
                                 } else {
                                     await ctx.log(
                                         `[${logPrefix}] Warning: Remote version seems to have overwritten our ${localBase.lastAction}. Forcing merge.`,
+                                        "warn",
                                     );
                                     safeToAcceptRemote = false;
                                 }
@@ -533,6 +566,7 @@ export async function pullFileSafely(
 
                             await ctx.log(
                                 `[${logPrefix}] Remote updated, local unmodified. Accepting remote version. (wasPendingConflict=${wasPendingConflict})`,
+                                "info",
                             );
 
                             if (wasPendingConflict) {
@@ -545,7 +579,13 @@ export async function pullFileSafely(
                             }
                             ctx.syncingPaths.add(item.path);
                             const remoteContent = await ctx.adapter.downloadFile(fileId || "");
-                            await ctx.app.vault.adapter.writeBinary(item.path, remoteContent);
+                            try {
+                                await ctx.app.vault.adapter.writeBinary(item.path, remoteContent);
+                            } catch (writeErr) {
+                                await ctx.log(`[${logPrefix}] Write failed for ${item.path}, restoring original content`, "error");
+                                try { await ctx.app.vault.adapter.writeBinary(item.path, localContent); } catch { /* best effort */ }
+                                throw writeErr;
+                            }
 
                             markSettingsUpdatedIfNeeded(ctx, item.path);
 
@@ -574,23 +614,25 @@ export async function pullFileSafely(
                     if (isText && localBase?.hash) {
                         await ctx.log(
                             `[${logPrefix}] Attempting to acquire merge lock for ${item.path}...`,
+                            "debug",
                         );
 
                         const lockResult = await acquireMergeLock(ctx, item.path);
                         if (!lockResult.acquired) {
                             await ctx.log(
                                 `[${logPrefix}] Lock not acquired: ${item.path} is being handled by ${lockResult.holder} (expires in ${lockResult.expiresIn}s)`,
+                                "info",
                             );
                             await ctx.notify(
                                 "noticeWaitOtherDeviceMerge",
-                                basename(item.path),
+                                `${basename(item.path)} (${lockResult.expiresIn}s)`,
                             );
                             if (ctx.localIndex[item.path]) {
                                 ctx.localIndex[item.path].pendingConflict = true;
                             }
                             return false;
                         }
-                        await ctx.log(`[${logPrefix}] Lock acquired successfully.`);
+                        await ctx.log(`[${logPrefix}] Lock acquired successfully.`, "debug");
 
                         await ctx.notify("noticeMergingFile", basename(item.path));
 
@@ -599,6 +641,7 @@ export async function pullFileSafely(
 
                         await ctx.log(
                             `[${logPrefix}] Base selection: ancestorHash=${baseHash?.substring(0, 8) || "null"}, localBase.hash=${localBase.hash?.substring(0, 8) || "null"}, remote.hash=${item.hash?.substring(0, 8) || "null"}`,
+                            "debug",
                         );
 
                         const isBaseSameAsLocal =
@@ -618,6 +661,7 @@ export async function pullFileSafely(
                         if (needHistoryLookup) {
                             await ctx.log(
                                 `[${logPrefix}] ancestorHash invalid (missing=${!baseHash}, sameAsLocal=${isBaseSameAsLocal}, sameAsRemote=${isBaseSameAsRemote}). Searching history...`,
+                                "debug",
                             );
                             const computedAncestor = await findCommonAncestorHash(
                                 ctx,
@@ -634,6 +678,7 @@ export async function pullFileSafely(
                         if (!baseHash) {
                             await ctx.log(
                                 `[${logPrefix}] Genuinely unsolvable conflict. Falling back to conflict file.`,
+                                "warn",
                             );
                         } else {
                             const baseHashFound = baseHash;
@@ -657,10 +702,16 @@ export async function pullFileSafely(
                                 const normalizedBuffer = new TextEncoder().encode(
                                     normalizedMerged,
                                 ).buffer;
-                                await ctx.app.vault.adapter.writeBinary(
-                                    item.path,
-                                    normalizedBuffer,
-                                );
+                                try {
+                                    await ctx.app.vault.adapter.writeBinary(
+                                        item.path,
+                                        normalizedBuffer,
+                                    );
+                                } catch (writeErr) {
+                                    await ctx.log(`[${logPrefix}] Merge write failed for ${item.path}, restoring original content`, "error");
+                                    try { await ctx.app.vault.adapter.writeBinary(item.path, localContent); } catch { /* best effort */ }
+                                    throw writeErr;
+                                }
 
                                 markSettingsUpdatedIfNeeded(ctx, item.path);
 
@@ -674,6 +725,7 @@ export async function pullFileSafely(
                                 if (isIdenticalToRemote) {
                                     await ctx.log(
                                         `[${logPrefix}] Result matches remote. Marking as Synced.`,
+                                        "debug",
                                     );
                                     const stat = await ctx.app.vault.adapter.stat(item.path);
                                     // Calculate plainHash for merged content
@@ -722,6 +774,7 @@ export async function pullFileSafely(
 
                                         await ctx.log(
                                             `[${logPrefix}] Merged successfully. Queued for push.`,
+                                            "info",
                                         );
 
                                         if (localBase?.pendingConflict) {
@@ -741,7 +794,9 @@ export async function pullFileSafely(
                                     } else {
                                         await ctx.log(
                                             `[${logPrefix}] Lock lost during merge. Content saved locally, queued for push on next cycle.`,
+                                            "warn",
                                         );
+                                        await ctx.notify("noticeMergeLockLost", basename(item.path));
                                         const statLockLost = await ctx.app.vault.adapter.stat(
                                             item.path,
                                         );
@@ -781,6 +836,7 @@ export async function pullFileSafely(
                             (isLocalProbablyBetter
                                 ? "(Safety Guard/Recent action hit)"
                                 : "(Standard dual modification)"),
+                        "warn",
                     );
 
                     const localFile = ctx.app.vault.getAbstractFileByPath(item.path);
@@ -789,7 +845,7 @@ export async function pullFileSafely(
                     } else {
                         await ctx.app.vault.adapter.rename(item.path, conflictPath);
                     }
-                    await ctx.log(`[${logPrefix}] Renamed local version to ${conflictPath}`);
+                    await ctx.log(`[${logPrefix}] Renamed local version to ${conflictPath}`, "info");
 
                     let remoteSize = 0;
                     let remotePlainHash: string | undefined;
@@ -847,6 +903,7 @@ export async function pullFileSafely(
                     if (isRemoteDeleted) {
                         await ctx.log(
                             `[${logPrefix}] Deleting local file after moving to conflict (remote deleted): ${item.path}`,
+                            "info",
                         );
                         delete ctx.index[item.path];
                         delete ctx.localIndex[item.path];

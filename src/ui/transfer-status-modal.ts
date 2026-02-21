@@ -68,7 +68,7 @@ export class TransferStatusModal extends Modal {
                 text: t("transferCancelAll"),
             });
             cancelBtn.addEventListener("click", () => {
-                (this.syncManager as any).backgroundTransferQueue?.cancelAll();
+                this.syncManager.cancelAllTransfers();
                 this.render();
             });
 

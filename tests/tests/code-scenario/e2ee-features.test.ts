@@ -42,6 +42,9 @@ function createMockBaseAdapter(
         getChanges: async () => ({ newStartPageToken: "0", changes: [] }),
         listFiles: async () => [],
         setLogger: () => {},
+        reset: () => {},
+        getAppRootId: async () => "mock-root",
+        cloneWithNewVaultName: () => ({} as CloudAdapter),
     };
 }
 

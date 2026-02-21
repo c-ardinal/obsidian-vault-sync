@@ -127,19 +127,38 @@ export interface CloudAdapter {
      * Reset internal caches (root IDs, folder maps).
      * Used after administrative operations like renames.
      */
-    reset?(): void;
+    reset(): void;
 
     /**
      * Get the ID of the shared application root folder (e.g. 'ObsidianVaultSync')
      */
-    getAppRootId?(): Promise<string>;
+    getAppRootId(): Promise<string>;
 
     /**
      * Clone this adapter with a new vault name.
      * Used for migration to create temporary adapters.
      * Returns a new adapter instance with the same credentials but different vault name.
      */
-    cloneWithNewVaultName?(newVaultName: string): CloudAdapter;
+    cloneWithNewVaultName(newVaultName: string): CloudAdapter;
+
+    /**
+     * Clear internal download cache to free memory between sync cycles.
+     */
+    clearDownloadCache?(): void;
+
+    /**
+     * Get the underlying base adapter (for decorator adapters like EncryptedAdapter).
+     * Non-decorator adapters return themselves.
+     */
+    getBaseAdapter?(): CloudAdapter;
+
+    /**
+     * Search for a folder by name and optional parent ID.
+     * @param name Folder name to search for
+     * @param parentId Optional parent folder ID to restrict search
+     * @returns Folder ID if found, null otherwise
+     */
+    getFolderIdByName?(name: string, parentId?: string): Promise<string | null>;
 
     // === History Support (optional) ===
     readonly supportsHistory: boolean;

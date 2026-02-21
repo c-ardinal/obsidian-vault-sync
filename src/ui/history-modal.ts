@@ -74,11 +74,18 @@ export class HistoryModal extends Modal {
         }
 
         try {
-            // Load history and local content in parallel for speed
-            const [revisions, localContent] = await Promise.all([
-                this.syncManager.listRevisions(this.file.path),
-                this.app.vault.read(this.file),
-            ]);
+            // Load history and local content in parallel for speed, with timeout
+            const HISTORY_TIMEOUT_MS = 15_000;
+            const timeout = new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error("Timeout (15s)")), HISTORY_TIMEOUT_MS),
+            );
+            const [revisions, localContent] = (await Promise.race([
+                Promise.all([
+                    this.syncManager.listRevisions(this.file.path),
+                    this.app.vault.read(this.file),
+                ]),
+                timeout,
+            ])) as [any[], string];
 
             // Update cache
             HistoryModal.revisionCache.set(this.file.path, revisions);

@@ -4,6 +4,7 @@ import { ICryptoEngine } from "../encryption/interfaces";
 import { VaultLockService } from "./vault-lock-service";
 import { EncryptedAdapter } from "../adapters/encrypted-adapter";
 import { getLocalFiles, shouldIgnore, runParallel, hashContent } from "../sync-manager/file-utils";
+import { saveIndex, saveLocalIndex } from "../sync-manager/state";
 import { SyncContext } from "../sync-manager/context";
 
 interface MigrationProgress {
@@ -75,27 +76,9 @@ export class MigrationService {
         this.pendingLockBlob = await this.engine.initializeNewVault(password);
 
         // 4. Prepare Temp Adapter
-        let tempAdapter: CloudAdapter;
-        if (this.baseAdapter.cloneWithNewVaultName) {
-            // Use the clean clone method if available
-            tempAdapter = this.baseAdapter.cloneWithNewVaultName(
-                `${this.baseAdapter.vaultName}-Temp-Encrypted`
-            );
-        } else {
-            // Fallback to the old way for backward compatibility
-            // This should be removed once all adapters implement cloneWithNewVaultName
-            const GDriveAdapterClass = this.baseAdapter.constructor as any;
-            tempAdapter = new GDriveAdapterClass(
-                (this.baseAdapter as any)._clientId,
-                (this.baseAdapter as any)._clientSecret,
-                `${this.baseAdapter.vaultName}-Temp-Encrypted`,
-                (this.baseAdapter as any).cloudRootFolder,
-            );
-            (tempAdapter as any).setTokens(
-                (this.baseAdapter as any).accessToken,
-                (this.baseAdapter as any).refreshToken,
-            );
-        }
+        const tempAdapter = this.baseAdapter.cloneWithNewVaultName(
+            `${this.baseAdapter.vaultName}-Temp-Encrypted`
+        );
 
         tempAdapter.setLogger((msg: string) => console.log(`[Migration] ${msg}`));
         if (tempAdapter.initialize) {
@@ -151,8 +134,7 @@ export class MigrationService {
                 size: result.size,
                 mtime: file.mtime,
                 fileId: result.id,
-                id: undefined,
-            } as any;
+            };
             this.ctx.index[file.path] = { ...this.ctx.localIndex[file.path] };
 
             // Collect samples for integrity verification (up to 5, distributed)
@@ -217,9 +199,7 @@ export class MigrationService {
         const vaultName = this.baseAdapter.vaultName;
         const tempName = `${vaultName}-Temp-Encrypted`;
 
-        const appRootId = (this.baseAdapter as any).getAppRootId
-            ? await (this.baseAdapter as any).getAppRootId()
-            : null;
+        const appRootId = await this.baseAdapter.getAppRootId();
 
         const originalId = await this.lockService.getFolderId(vaultName, appRootId);
         const tempId = await this.lockService.getFolderId(tempName, appRootId);
@@ -233,7 +213,7 @@ export class MigrationService {
 
         // 3. Upload vault-lock.vault AND remote-index.json to the TEMP folder BEFORE swapping
         // This ensures the new vault is valid as soon as it takes the primary name.
-        const tempBaseAdapter = (tempEncryptedAdapter as any).baseAdapter;
+        const tempBaseAdapter = tempEncryptedAdapter.getBaseAdapter?.() ?? tempEncryptedAdapter;
         await this.lockService.uploadLockFileToAdapter(tempBaseAdapter, lockBlob);
 
         // Also save the current index state (as encrypted) to the temp folder
@@ -288,19 +268,15 @@ export class MigrationService {
 
         // 6. Reset adapter caches to force re-discovery of the new vaultRootId
         // This is CRITICAL to prevent syncing into the Backup folder (which has the old ID)
-        if ((this.baseAdapter as any).reset) {
-            (this.baseAdapter as any).reset();
-        }
+        this.baseAdapter.reset();
 
         // 7. Persistence: Save the updated indexes to local disk
-        // Since ctx is a SyncContext, we cast to avoid TS issues if it's missing helper methods
-        const manager = this.ctx as any;
-        if (manager.saveLocalIndex) await manager.saveLocalIndex();
-        if (manager.saveIndex) await manager.saveIndex();
+        await saveLocalIndex(this.ctx);
+        await saveIndex(this.ctx);
 
         // 8. Cleanup
         await this.lockService.removeMigrationLock();
-        this.ctx.startPageToken = undefined as any; // Force fresh token acquisition (use any to satisfy strict null checks if type is limited)
+        this.ctx.startPageToken = null; // Force fresh token acquisition
         this.pendingLockBlob = null;
         this.ctx.syncState = "IDLE";
         this.isMigrating = false;
@@ -324,9 +300,7 @@ export class MigrationService {
         try {
             const vaultName = this.baseAdapter.vaultName;
             const tempName = `${vaultName}-Temp-Encrypted`;
-            const appRootId = (this.baseAdapter as any).getAppRootId
-                ? await (this.baseAdapter as any).getAppRootId()
-                : null;
+            const appRootId = await this.baseAdapter.getAppRootId();
 
             // Check for half-state: backup exists, temp exists, but primary missing
             const primaryId = await this.lockService.getFolderId(vaultName, appRootId);

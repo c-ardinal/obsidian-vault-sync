@@ -263,6 +263,19 @@ export class MockCloudAdapter implements CloudAdapter {
         _keepForever: boolean,
     ): Promise<void> {}
 
+    // --- Administrative ---
+    reset(): void {
+        // no-op for tests
+    }
+
+    async getAppRootId(): Promise<string> {
+        return "mock-app-root-id";
+    }
+
+    cloneWithNewVaultName(_newVaultName: string): CloudAdapter {
+        return this;
+    }
+
     // --- Test Helpers ---
 
     /** Get the current cloud content as text */

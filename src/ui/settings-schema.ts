@@ -222,6 +222,13 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                             }
                             return;
                         }
+                        // Warn user if changing from existing folder
+                        const oldFolder = p.settings.cloudRootFolder;
+                        if (sanitized !== oldFolder && oldFolder) {
+                            if (!confirm(p.t("settingCloudRootFolderWarning"))) {
+                                return;
+                            }
+                        }
                         p.settings.cloudRootFolder = sanitized;
                         await p.saveSettings();
                         p.adapter.updateConfig(
@@ -230,6 +237,7 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                             p.app.vault.getName(),
                             p.settings.cloudRootFolder,
                         );
+                        p.syncManager.triggerFullCleanup();
                     },
                 },
                 {

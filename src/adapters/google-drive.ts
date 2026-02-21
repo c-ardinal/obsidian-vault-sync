@@ -1,9 +1,14 @@
 import { CloudAdapter, CloudChanges, CloudFile } from "../types/adapter";
 import { generateCodeChallenge, generateCodeVerifier } from "../auth/pkce";
-import { DEFAULT_SETTINGS, SETTINGS_LIMITS, OAUTH_REDIRECT_URI, AUTH_PROXY_BASE_URL } from "../constants";
+import {
+    DEFAULT_SETTINGS,
+    SETTINGS_LIMITS,
+    OAUTH_REDIRECT_URI,
+    AUTH_PROXY_BASE_URL,
+} from "../constants";
 import { toHex } from "../utils/format";
 import { basename } from "../utils/path";
-import { Platform } from "obsidian";
+import { Platform, requestUrl } from "obsidian";
 
 export type AuthMethod = "default" | "custom-proxy" | "client-credentials";
 
@@ -73,6 +78,8 @@ export class GoogleDriveAdapter implements CloudAdapter {
 
     // Callback for fatal auth errors (e.g. invalid grant)
     public onAuthFailure: (() => void) | null = null;
+    // Callback after successful token refresh (to persist new tokens)
+    public onTokenRefresh: (() => void) | null = null;
 
     private async log(msg: string, level: string = "debug") {
         console.log(`VaultSync: [${level.toUpperCase()}] ${msg}`);
@@ -105,6 +112,8 @@ export class GoogleDriveAdapter implements CloudAdapter {
 
     private accessToken: string | null = null;
     private refreshToken: string | null = null;
+    private tokenExpiresAt: number = 0; // epoch ms
+    private refreshPromise: Promise<void> | null = null;
     private codeVerifier: string | null = null;
     private currentAuthState: string | null = null;
 
@@ -143,16 +152,28 @@ export class GoogleDriveAdapter implements CloudAdapter {
         return !!this.accessToken;
     }
 
-    getTokens(): { accessToken: string | null; refreshToken: string | null } {
+    getTokens(): {
+        accessToken: string | null;
+        refreshToken: string | null;
+        tokenExpiresAt: number;
+    } {
         return {
             accessToken: this.accessToken,
             refreshToken: this.refreshToken,
+            tokenExpiresAt: this.tokenExpiresAt,
         };
     }
 
-    setTokens(accessToken: string | null, refreshToken: string | null) {
+    setTokens(accessToken: string | null, refreshToken: string | null, tokenExpiresAt?: number) {
+        const hadToken = !!this.accessToken;
         this.accessToken = accessToken;
         this.refreshToken = refreshToken;
+        if (tokenExpiresAt !== undefined) this.tokenExpiresAt = tokenExpiresAt;
+        // Clear cached initPromise when auth state changes so ensureRootFolders
+        // re-runs with the new credentials instead of returning a stale rejection.
+        if (!hadToken && accessToken) {
+            this.initPromise = null;
+        }
     }
 
     getAuthStatus(): string {
@@ -195,13 +216,31 @@ export class GoogleDriveAdapter implements CloudAdapter {
             this._clientId,
             this._clientSecret,
             newVaultName,
-            this.cloudRootFolder
+            this.cloudRootFolder,
         );
-        cloned.setTokens(this.accessToken, this.refreshToken);
+        cloned.setTokens(this.accessToken, this.refreshToken, this.tokenExpiresAt);
         if (this.log) {
             cloned.setLogger(this.log);
         }
         return cloned;
+    }
+
+    getBaseAdapter(): CloudAdapter {
+        return this;
+    }
+
+    async getFolderIdByName(name: string, parentId?: string): Promise<string | null> {
+        const safeName = name.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        let query = `name = '${safeName}' and trashed = false and mimeType = 'application/vnd.google-apps.folder'`;
+        if (parentId) {
+            const safeParentId = parentId.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+            query += ` and '${safeParentId}' in parents`;
+        }
+        const resp = await this.fetchWithAuth(
+            `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name)`,
+        );
+        const data = await resp.json();
+        return data.files?.[0]?.id || null;
     }
 
     private getRedirectUri(): string {
@@ -278,18 +317,25 @@ export class GoogleDriveAdapter implements CloudAdapter {
             redirect_uri: this.getRedirectUri(),
         });
 
-        const response = await fetch("https://oauth2.googleapis.com/token", {
-            method: "POST",
-            headers: { "Content-Type": "application/x-www-form-urlencoded" },
-            body: body.toString(),
-        });
+        let response: Response;
+        try {
+            response = await fetch("https://oauth2.googleapis.com/token", {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: body.toString(),
+            });
+        } catch (e) {
+            throw new Error(
+                `Authentication failed: could not reach Google servers. Check your network connection.`,
+            );
+        }
 
-        const data = await response.json();
+        const data = await this.safeJsonParse(response, "token exchange");
         if (data.error) throw new Error(data.error_description || data.error);
 
         this.accessToken = data.access_token;
         this.refreshToken = data.refresh_token;
-        // In a real app, save these to secure storage
+        if (data.expires_in) this.tokenExpiresAt = Date.now() + data.expires_in * 1000;
     }
 
     async handleCallback(url: string | URL): Promise<void> {
@@ -311,6 +357,22 @@ export class GoogleDriveAdapter implements CloudAdapter {
     ): Promise<Response> {
         if (!this.accessToken) throw new Error("Not authenticated");
 
+        // Proactive token refresh: refresh 5 minutes before expiry
+        const REFRESH_BUFFER_MS = 5 * 60 * 1000;
+        if (
+            this.tokenExpiresAt > 0 &&
+            Date.now() > this.tokenExpiresAt - REFRESH_BUFFER_MS &&
+            this.refreshToken &&
+            retryCount === 0
+        ) {
+            try {
+                await this.log("Proactive token refresh (expiring soon)...", "system");
+                await this.refreshTokens();
+            } catch {
+                // If proactive refresh fails, proceed with current token — it may still be valid
+            }
+        }
+
         const headers = new Headers(options.headers || {});
         headers.set("Authorization", `Bearer ${this.accessToken}`);
 
@@ -322,7 +384,12 @@ export class GoogleDriveAdapter implements CloudAdapter {
 
             // Handle 401 Unauthorized (Refresh Token)
             if (response.status === 401 && this.refreshToken && retryCount < 2) {
-                await this.refreshTokens();
+                try {
+                    await this.refreshTokens();
+                } catch {
+                    // Token refresh failed (e.g. proxy unreachable) — don't retry with stale token
+                    throw new Error("Authentication failed: unable to refresh access token");
+                }
                 return this.fetchWithAuth(url, options, retryCount + 1);
             }
 
@@ -390,25 +457,30 @@ export class GoogleDriveAdapter implements CloudAdapter {
         }
     }
 
+    static readonly ONLINE_TIMEOUT_MS = 60_000;
+
     private async waitForOnline(): Promise<void> {
         if (window.navigator.onLine) return;
         return new Promise((resolve) => {
-            const onOnline = () => {
-                window.removeEventListener("online", onOnline);
-                window.removeEventListener("focus", onOnline);
+            const cleanup = () => {
+                window.removeEventListener("online", done);
+                window.removeEventListener("focus", done);
+                clearInterval(interval);
+                clearTimeout(timeout);
+            };
+            const done = () => {
+                cleanup();
                 resolve();
             };
-            window.addEventListener("online", onOnline);
-            window.addEventListener("focus", onOnline);
-            // Fallback: Check every 5 seconds just in case (for mobile webview quirks)
+            window.addEventListener("online", done);
+            window.addEventListener("focus", done);
             const interval = setInterval(() => {
-                if (window.navigator.onLine) {
-                    window.removeEventListener("online", onOnline);
-                    window.removeEventListener("focus", onOnline);
-                    clearInterval(interval);
-                    resolve();
-                }
+                if (window.navigator.onLine) done();
             }, 5000);
+            const timeout = setTimeout(() => {
+                this.log("waitForOnline timed out after 60s — resuming retry loop", "warn");
+                done();
+            }, GoogleDriveAdapter.ONLINE_TIMEOUT_MS);
         });
     }
 
@@ -417,14 +489,31 @@ export class GoogleDriveAdapter implements CloudAdapter {
         return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
     }
 
-    private async refreshTokens() {
-        const proxyBase = this.getProxyBaseUrl();
-
-        if (proxyBase) {
-            await this.refreshTokensViaProxy(proxyBase);
-        } else {
-            await this.refreshTokensDirect();
+    /** Parse JSON safely. Throws a clear error on malformed responses (CDN/WAF HTML pages, truncated body). */
+    private async safeJsonParse(response: Response, context: string): Promise<any> {
+        const text = await response.text();
+        try {
+            return JSON.parse(text);
+        } catch {
+            throw new Error(`Invalid JSON from ${context}: ${text.slice(0, 200)}`);
         }
+    }
+
+    private refreshTokens(): Promise<void> {
+        if (this.refreshPromise) return this.refreshPromise;
+        this.refreshPromise = (async () => {
+            try {
+                const proxyBase = this.getProxyBaseUrl();
+                if (proxyBase) {
+                    await this.refreshTokensViaProxy(proxyBase);
+                } else {
+                    await this.refreshTokensDirect();
+                }
+            } finally {
+                this.refreshPromise = null;
+            }
+        })();
+        return this.refreshPromise;
     }
 
     private async refreshTokensViaProxy(proxyBase: string) {
@@ -433,28 +522,63 @@ export class GoogleDriveAdapter implements CloudAdapter {
             "system",
         );
 
-        const response = await fetch(`${proxyBase}/api/auth/refresh`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ refresh_token: this.refreshToken }),
-        });
+        // Use Obsidian's requestUrl instead of fetch to bypass CORS restrictions.
+        // fetch to the proxy origin is blocked by browser CORS policy, while
+        // requestUrl operates at the native level and is not subject to CORS.
+        let status: number;
+        let text: string;
+        try {
+            const result = await requestUrl({
+                url: `${proxyBase}/api/auth/refresh`,
+                method: "POST",
+                contentType: "application/json",
+                body: JSON.stringify({ refresh_token: this.refreshToken }),
+                throw: false,
+            });
+            status = result.status;
+            text = result.text;
+        } catch (e) {
+            await this.log(
+                `Proxy refresh network error: ${e instanceof Error ? e.message : String(e)}`,
+                "error",
+            );
+            // Don't clear tokens on network errors — the current access token
+            // may still be valid. Only confirmed auth errors (invalid_grant)
+            // should trigger credential clearing.
+            throw new Error("Token refresh failed: proxy unreachable");
+        }
 
-        const data = await response.json();
+        let data: any;
+        try {
+            data = JSON.parse(text);
+        } catch {
+            throw new Error(`Invalid JSON from proxy refresh: ${text.slice(0, 200)}`);
+        }
 
-        if (!response.ok) {
+        if (status < 200 || status >= 300) {
             const err = data.error_description || data.error || JSON.stringify(data);
-            console.error(`VaultSync: Proxy refresh failed (${response.status}): ${err}`);
+            console.error(`VaultSync: Proxy refresh failure (${status}): ${err}`);
             if (data.error === "invalid_grant" || data.error === "unauthorized_client") {
                 this.accessToken = null;
                 this.refreshToken = null;
                 if (this.onAuthFailure) this.onAuthFailure();
+                throw new Error(`Token revoked: ${err}`);
             }
+            // Non-fatal proxy error (e.g. 500) — don't clear tokens, don't throw.
+            // Caller will proceed with the current (possibly still valid) token.
             return;
+        }
+
+        if (!data.access_token) {
+            await this.log("Proxy returned 200 but no access_token in response", "error");
+            throw new Error("Token refresh failed: invalid proxy response");
         }
 
         this.accessToken = data.access_token;
         if (data.refresh_token) this.refreshToken = data.refresh_token;
+        if (data.expires_in) this.tokenExpiresAt = Date.now() + data.expires_in * 1000;
         await this.log("Token refresh via proxy successful.", "system");
+        if (this.onTokenRefresh) this.onTokenRefresh();
     }
 
     private async refreshTokensDirect() {
@@ -470,13 +594,25 @@ export class GoogleDriveAdapter implements CloudAdapter {
             grant_type: "refresh_token",
         });
 
-        const response = await fetch("https://oauth2.googleapis.com/token", {
-            method: "POST",
-            headers: { "Content-Type": "application/x-www-form-urlencoded" },
-            body: body.toString(),
-        });
+        let response: Response;
+        try {
+            response = await fetch("https://oauth2.googleapis.com/token", {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: body.toString(),
+            });
+        } catch (e) {
+            await this.log(
+                `Direct refresh network error: ${e instanceof Error ? e.message : String(e)}`,
+                "error",
+            );
+            // Don't clear tokens on network errors — the current access token
+            // may still be valid. Only confirmed auth errors (invalid_grant)
+            // should trigger credential clearing.
+            throw new Error("Token refresh failed: Google OAuth unreachable");
+        }
 
-        const data = await response.json();
+        const data = await this.safeJsonParse(response, "direct refresh");
 
         if (!response.ok) {
             const err = data.error_description || data.error || JSON.stringify(data);
@@ -485,13 +621,17 @@ export class GoogleDriveAdapter implements CloudAdapter {
                 this.accessToken = null;
                 this.refreshToken = null;
                 if (this.onAuthFailure) this.onAuthFailure();
+                throw new Error(`Token revoked: ${err}`);
             }
+            // Non-fatal error (e.g. 500) — don't clear tokens, don't throw.
             return;
         }
 
         this.accessToken = data.access_token;
         if (data.refresh_token) this.refreshToken = data.refresh_token;
+        if (data.expires_in) this.tokenExpiresAt = Date.now() + data.expires_in * 1000;
         await this.log("Token refresh successful.", "system");
+        if (this.onTokenRefresh) this.onTokenRefresh();
     }
 
     private async ensureRootFolders(): Promise<string> {
@@ -500,119 +640,134 @@ export class GoogleDriveAdapter implements CloudAdapter {
         }
 
         this.initPromise = (async (): Promise<string> => {
-            if (this.vaultRootId) {
-                return this.vaultRootId;
-            }
+            try {
+                if (this.vaultRootId) {
+                    return this.vaultRootId;
+                }
 
-            await this.log("=== ROOT DISCOVERY STARTED ===", "info");
+                await this.log("=== ROOT DISCOVERY STARTED ===", "info");
 
-            // 1. Ensure app root folder exists
-            if (!this.appRootId) {
-                const query = `name = '${this.escapeQueryValue(
-                    this.cloudRootFolder,
-                )}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+                // 1. Ensure app root folder exists
+                if (!this.appRootId) {
+                    const query = `name = '${this.escapeQueryValue(
+                        this.cloudRootFolder,
+                    )}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+                    const response = await this.fetchWithAuth(
+                        `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,parents)`,
+                    );
+                    const data: any = await response.json();
+
+                    if (data.files && data.files.length > 0) {
+                        this.appRootId = data.files[0].id;
+                        await this.log(
+                            `Found app root(s): ${data.files.length}. Using: ${this.appRootId}`,
+                            "system",
+                        );
+                    } else {
+                        this.appRootId = await this.createFolder(this.cloudRootFolder);
+                        await this.log(`Created fresh app root: ${this.appRootId}`, "system");
+                    }
+                }
+
+                // Ensure appRootId is not null
+                if (!this.appRootId) throw new Error("Failed to resolve App Root ID");
+
+                // 2. Ensure vault root "ObsidianVaultSync/<VaultName>" exists
+                const escapedVaultName = this.escapeQueryValue(this.vaultName);
+                const query = `name = '${escapedVaultName}' and '${this.appRootId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
                 const response = await this.fetchWithAuth(
-                    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,parents)`,
+                    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,modifiedTime)`,
                 );
                 const data: any = await response.json();
 
-                if (data.files && data.files.length > 0) {
-                    this.appRootId = data.files[0].id;
-                    await this.log(
-                        `Found app root(s): ${data.files.length}. Using: ${this.appRootId}`,
-                        "system",
-                    );
-                } else {
-                    this.appRootId = await this.createFolder(this.cloudRootFolder);
-                    await this.log(`Created fresh app root: ${this.appRootId}`, "system");
-                }
-            }
-
-            // Ensure appRootId is not null
-            if (!this.appRootId) throw new Error("Failed to resolve App Root ID");
-
-            // 2. Ensure vault root "ObsidianVaultSync/<VaultName>" exists
-            const escapedVaultName = this.escapeQueryValue(this.vaultName);
-            const query = `name = '${escapedVaultName}' and '${this.appRootId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
-            const response = await this.fetchWithAuth(
-                `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,modifiedTime)`,
-            );
-            const data: any = await response.json();
-
-            await this.log(
-                `Vault folder search for "${this.vaultName}" returned ${data.files?.length || 0} items`,
-                "system",
-            );
-
-            if (data.files && data.files.length > 0) {
-                if (data.files.length > 1) {
-                    await this.log(
-                        `WARNING! Multiple Vault folders detected in app root: ${data.files.map((f: any) => f.id).join(", ")}`,
-                        "warn",
-                    );
-                    data.files.sort(
-                        (a: any, b: any) =>
-                            new Date(b.modifiedTime).getTime() - new Date(a.modifiedTime).getTime(),
-                    );
-                }
-                this.vaultRootId = data.files[0].id;
-                await this.log(`Picking vault root from app root: ${this.vaultRootId}`, "system");
-            } else {
                 await this.log(
-                    "Vault folder not found in app root. Performing GLOBAL search...",
-                    "info",
+                    `Vault folder search for "${this.vaultName}" returned ${data.files?.length || 0} items`,
+                    "system",
                 );
-                const globalQuery = `name = '${escapedVaultName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
-                const globalResp = await this.fetchWithAuth(
-                    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(globalQuery)}&fields=files(id,name,parents,modifiedTime)`,
-                );
-                const globalData: any = await globalResp.json();
 
-                if (globalData.files && globalData.files.length > 0) {
-                    await this.log(
-                        `Global search found ${globalData.files.length} possible vaults.`,
-                        "system",
-                    );
-                    globalData.files.sort(
-                        (a: any, b: any) =>
-                            new Date(b.modifiedTime).getTime() - new Date(a.modifiedTime).getTime(),
-                    );
-                    const bestMatch = globalData.files[0];
-                    this.vaultRootId = bestMatch.id;
-                    await this.log(
-                        `Adopting global vault: ${this.vaultRootId} (Parent ID: ${bestMatch.parents?.join(", ")})`,
-                        "system",
-                    );
-
-                    try {
-                        const currentParent = bestMatch.parents?.[0];
-                        if (currentParent && currentParent !== this.appRootId) {
-                            await this.log(
-                                `Consolidating: Moving manually uploaded vault to ObsidianVaultSync...`,
-                                "system",
-                            );
-                            await this.fetchWithAuth(
-                                `https://www.googleapis.com/drive/v3/files/${this.vaultRootId}?addParents=${this.appRootId}&removeParents=${currentParent}`,
-                                {
-                                    method: "PATCH",
-                                },
-                            );
-                        }
-                    } catch (e) {
-                        await this.log(`Failed to move vault to app root (ignoring): ${e}`, "warn");
+                if (data.files && data.files.length > 0) {
+                    if (data.files.length > 1) {
+                        await this.log(
+                            `WARNING! Multiple Vault folders detected in app root: ${data.files.map((f: any) => f.id).join(", ")}`,
+                            "warn",
+                        );
+                        data.files.sort(
+                            (a: any, b: any) =>
+                                new Date(b.modifiedTime).getTime() -
+                                new Date(a.modifiedTime).getTime(),
+                        );
                     }
+                    this.vaultRootId = data.files[0].id;
+                    await this.log(
+                        `Picking vault root from app root: ${this.vaultRootId}`,
+                        "system",
+                    );
                 } else {
                     await this.log(
-                        "No existing vault found anywhere. Creating new vault folder in app root...",
+                        "Vault folder not found in app root. Performing GLOBAL search...",
                         "info",
                     );
-                    this.vaultRootId = await this.createFolder(this.vaultName, this.appRootId!);
-                    await this.log(`Created new vault root: ${this.vaultRootId}`, "system");
-                }
-            }
+                    const globalQuery = `name = '${escapedVaultName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+                    const globalResp = await this.fetchWithAuth(
+                        `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(globalQuery)}&fields=files(id,name,parents,modifiedTime)`,
+                    );
+                    const globalData: any = await globalResp.json();
 
-            if (!this.vaultRootId) throw new Error("Failed to resolve Vault Root ID");
-            return this.vaultRootId;
+                    if (globalData.files && globalData.files.length > 0) {
+                        await this.log(
+                            `Global search found ${globalData.files.length} possible vaults.`,
+                            "system",
+                        );
+                        globalData.files.sort(
+                            (a: any, b: any) =>
+                                new Date(b.modifiedTime).getTime() -
+                                new Date(a.modifiedTime).getTime(),
+                        );
+                        const bestMatch = globalData.files[0];
+                        this.vaultRootId = bestMatch.id;
+                        await this.log(
+                            `Adopting global vault: ${this.vaultRootId} (Parent ID: ${bestMatch.parents?.join(", ")})`,
+                            "system",
+                        );
+
+                        try {
+                            const currentParent = bestMatch.parents?.[0];
+                            if (currentParent && currentParent !== this.appRootId) {
+                                await this.log(
+                                    `Consolidating: Moving manually uploaded vault to ObsidianVaultSync...`,
+                                    "system",
+                                );
+                                await this.fetchWithAuth(
+                                    `https://www.googleapis.com/drive/v3/files/${this.vaultRootId}?addParents=${this.appRootId}&removeParents=${currentParent}`,
+                                    {
+                                        method: "PATCH",
+                                    },
+                                );
+                            }
+                        } catch (e) {
+                            await this.log(
+                                `Failed to move vault to app root (ignoring): ${e}`,
+                                "warn",
+                            );
+                        }
+                    } else {
+                        await this.log(
+                            "No existing vault found anywhere. Creating new vault folder in app root...",
+                            "info",
+                        );
+                        this.vaultRootId = await this.createFolder(this.vaultName, this.appRootId!);
+                        await this.log(`Created new vault root: ${this.vaultRootId}`, "system");
+                    }
+                }
+
+                if (!this.vaultRootId) throw new Error("Failed to resolve Vault Root ID");
+                return this.vaultRootId;
+            } catch (e) {
+                // Clear cached promise so the next call retries instead of
+                // returning the same stale rejection forever.
+                this.initPromise = null;
+                throw e;
+            }
         })();
 
         return this.initPromise!;
@@ -839,11 +994,12 @@ export class GoogleDriveAdapter implements CloudAdapter {
         existingFileId?: string,
     ): Promise<CloudFile> {
         const sessionUri = await this.initiateResumableSession(
-            path, content.byteLength, mtime, existingFileId,
+            path,
+            content.byteLength,
+            mtime,
+            existingFileId,
         );
-        return (await this.uploadChunk(
-            sessionUri, content, 0, content.byteLength, path, mtime,
-        ))!;
+        return (await this.uploadChunk(sessionUri, content, 0, content.byteLength, path, mtime))!;
     }
 
     /**

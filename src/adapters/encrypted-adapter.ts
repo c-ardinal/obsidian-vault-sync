@@ -195,6 +195,27 @@ export class EncryptedAdapter implements CloudAdapter {
         this.baseAdapter.setLogger(logger);
     }
 
+    reset(): void {
+        this.baseAdapter.reset();
+    }
+
+    async getAppRootId(): Promise<string> {
+        return this.baseAdapter.getAppRootId();
+    }
+
+    cloneWithNewVaultName(newVaultName: string): CloudAdapter {
+        return this.baseAdapter.cloneWithNewVaultName(newVaultName);
+    }
+
+    getBaseAdapter(): CloudAdapter {
+        return this.baseAdapter;
+    }
+
+    async getFolderIdByName(name: string, parentId?: string): Promise<string | null> {
+        if (!this.baseAdapter.getFolderIdByName) return null;
+        return this.baseAdapter.getFolderIdByName(name, parentId);
+    }
+
     // === Private: Encryption / Decryption (pure engine delegation) ===
 
     /** Encrypt content using VSC2 (chunked) or VSC1 (single blob) based on threshold. */
