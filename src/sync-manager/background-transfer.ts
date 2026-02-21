@@ -13,13 +13,14 @@ import type {
     TransferCallbacks,
 } from "./transfer-types";
 import { TransferPriority } from "./transfer-types";
-
-const MAX_HISTORY = 500;
-const MAX_RETRIES = 3;
-const RETRY_BASE_DELAY_MS = 5000;
-const RETRY_MAX_DELAY_MS = 60000;
-const HISTORY_FLUSH_BATCH = 10;
-const LOG_RETENTION_DAYS = 7;
+import {
+    TRANSFER_MAX_HISTORY,
+    TRANSFER_MAX_RETRIES,
+    TRANSFER_RETRY_BASE_DELAY_MS,
+    TRANSFER_RETRY_MAX_DELAY_MS,
+    TRANSFER_HISTORY_FLUSH_BATCH,
+    TRANSFER_LOG_RETENTION_DAYS,
+} from "./constants";
 
 export class BackgroundTransferQueue {
     private queue: TransferItem[] = [];
@@ -236,7 +237,7 @@ export class BackgroundTransferQueue {
                     next.error = errorMsg;
                     next.retryCount++;
 
-                    if (next.retryCount >= MAX_RETRIES) {
+                    if (next.retryCount >= TRANSFER_MAX_RETRIES) {
                         next.status = "failed";
                         next.completedAt = Date.now();
                         const record: TransferRecord = {
@@ -256,18 +257,18 @@ export class BackgroundTransferQueue {
                         this.queue = this.queue.filter((q) => q !== next);
 
                         await ctx.log(
-                            `[Background Transfer] Failed after ${MAX_RETRIES} retries: ${next.path} - ${errorMsg}`,
+                            `[Background Transfer] Failed after ${TRANSFER_MAX_RETRIES} retries: ${next.path} - ${errorMsg}`,
                             "error",
                         );
                     } else {
                         // Reset to pending for retry
                         next.status = "pending";
                         const delay = Math.min(
-                            RETRY_BASE_DELAY_MS * Math.pow(2, next.retryCount - 1),
-                            RETRY_MAX_DELAY_MS,
+                            TRANSFER_RETRY_BASE_DELAY_MS * Math.pow(2, next.retryCount - 1),
+                            TRANSFER_RETRY_MAX_DELAY_MS,
                         );
                         await ctx.log(
-                            `[Background Transfer] Retry ${next.retryCount}/${MAX_RETRIES} for ${next.path} in ${delay}ms`,
+                            `[Background Transfer] Retry ${next.retryCount}/${TRANSFER_MAX_RETRIES} for ${next.path} in ${delay}ms`,
                             "warn",
                         );
                         await new Promise((r) => setTimeout(r, delay));
@@ -516,13 +517,13 @@ export class BackgroundTransferQueue {
 
     private addToHistory(record: TransferRecord): void {
         this.history.push(record);
-        // Ring buffer: keep only the last MAX_HISTORY records
-        if (this.history.length > MAX_HISTORY) {
-            this.history = this.history.slice(-MAX_HISTORY);
+        // Ring buffer: keep only the last TRANSFER_MAX_HISTORY records
+        if (this.history.length > TRANSFER_MAX_HISTORY) {
+            this.history = this.history.slice(-TRANSFER_MAX_HISTORY);
         }
         // Buffer for JSONL flush
         this.unflushedRecords.push(record);
-        if (this.unflushedRecords.length >= HISTORY_FLUSH_BATCH) {
+        if (this.unflushedRecords.length >= TRANSFER_HISTORY_FLUSH_BATCH) {
             this.flushHistory().catch(() => {});
         }
     }
@@ -557,9 +558,9 @@ export class BackgroundTransferQueue {
                     // Skip malformed lines
                 }
             }
-            // Trim to MAX_HISTORY
-            if (this.history.length > MAX_HISTORY) {
-                this.history = this.history.slice(-MAX_HISTORY);
+            // Trim to TRANSFER_MAX_HISTORY
+            if (this.history.length > TRANSFER_MAX_HISTORY) {
+                this.history = this.history.slice(-TRANSFER_MAX_HISTORY);
             }
 
         } catch {
@@ -598,14 +599,14 @@ export class BackgroundTransferQueue {
         }
     }
 
-    /** Delete transfer log files older than LOG_RETENTION_DAYS */
+    /** Delete transfer log files older than TRANSFER_LOG_RETENTION_DAYS */
     private async rotateOldLogs(ctx: SyncContext): Promise<void> {
         try {
             const folderExists = await ctx.app.vault.adapter.exists(ctx.logFolder);
             if (!folderExists) return;
 
             const listing = await ctx.app.vault.adapter.list(ctx.logFolder);
-            const cutoff = Date.now() - LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+            const cutoff = Date.now() - TRANSFER_LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000;
 
             for (const fileName of listing.files) {
                 // Match transfers-YYYY-MM-DD.jsonl pattern

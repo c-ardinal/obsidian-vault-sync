@@ -39,6 +39,7 @@ import {
     shouldIgnore as _shouldIgnore,
 } from "./file-utils";
 import type { SyncContext } from "./context";
+import { SCAN_FULL_SCAN_MAX_AGE_MS } from "./constants";
 import {
     loadCommunication as _loadCommunication,
     saveCommunication as _saveCommunication,
@@ -136,7 +137,7 @@ export class SyncManager {
     /** Promise for current running sync operation (for awaiting) */
     private currentSyncPromise: Promise<void> | null = null;
     /** Maximum age for full scan progress before reset (5 minutes) */
-    private readonly FULL_SCAN_MAX_AGE_MS = 5 * 60 * 1000;
+    private readonly FULL_SCAN_MAX_AGE_MS = SCAN_FULL_SCAN_MAX_AGE_MS;
 
     private forceCleanupNextSync: boolean = false;
     private indexLoadFailed: boolean = false;

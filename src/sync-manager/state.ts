@@ -4,6 +4,7 @@ import { normalizePath, dirname } from "../utils/path";
 import type { SyncContext } from "./context";
 import type { CommunicationData } from "./types";
 import { isManagedSeparately, shouldNotBeOnRemote, shouldIgnore } from "./file-utils";
+import { LOCK_MAX_ATTEMPTS, LOCK_TTL_MS, LOCK_JITTER_MIN_MS, LOCK_JITTER_RANGE_MS } from "./constants";
 
 function generateDeviceId(): string {
     const randomArray = new Uint8Array(4);
@@ -55,9 +56,7 @@ export async function acquireMergeLock(
     ctx: SyncContext,
     path: string,
 ): Promise<{ acquired: boolean; holder?: string; expiresIn?: number }> {
-    const MAX_ATTEMPTS = 3;
-
-    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    for (let attempt = 0; attempt < LOCK_MAX_ATTEMPTS; attempt++) {
         const comm = await loadCommunication(ctx);
         const existing = comm.mergeLocks[path];
         const now = Date.now();
@@ -72,7 +71,7 @@ export async function acquireMergeLock(
 
         comm.mergeLocks[path] = {
             holder: ctx.deviceId,
-            expiresAt: now + 60000,
+            expiresAt: now + LOCK_TTL_MS,
         };
         await saveCommunication(ctx, comm);
 
@@ -83,8 +82,8 @@ export async function acquireMergeLock(
         }
 
         // Verification failed — another device wrote concurrently. Retry with jitter.
-        if (attempt < MAX_ATTEMPTS - 1) {
-            const jitter = 200 + Math.random() * 600;
+        if (attempt < LOCK_MAX_ATTEMPTS - 1) {
+            const jitter = LOCK_JITTER_MIN_MS + Math.random() * LOCK_JITTER_RANGE_MS;
             await ctx.log(
                 `[Communication] Lock contention for ${path} (attempt ${attempt + 1}/${MAX_ATTEMPTS}). Retrying in ${Math.round(jitter)}ms...`,
                 "warn",

@@ -6,6 +6,13 @@ import { ensureLocalFolder, hashContent, normalizeLineEndings } from "./file-uti
 import { checkMergeLock, acquireMergeLock, releaseMergeLock, saveLocalIndex } from "./state";
 import { listRevisions, getRevisionContent } from "./history";
 import { basename } from "../utils/path";
+import {
+    MERGE_MAX_INLINE_DOWNLOAD_BYTES,
+    MERGE_DMP_MATCH_THRESHOLD,
+    MERGE_DMP_MATCH_DISTANCE,
+    MERGE_DMP_PATCH_DELETE_THRESHOLD,
+    MERGE_PATCH_MARGINS,
+} from "./constants";
 
 function markSettingsUpdatedIfNeeded(ctx: SyncContext, path: string): void {
     if (path.endsWith("/open-data.json")) {
@@ -246,9 +253,9 @@ export async function perform3WayMerge(
         await ctx.log(`[Merge DEBUG] Remote Content:\n---\n${remoteNorm}\n---`, "debug");
 
         const dmp = new diff_match_patch();
-        dmp.Match_Threshold = 0.5;
-        dmp.Match_Distance = 250;
-        dmp.Patch_DeleteThreshold = 0.5;
+        dmp.Match_Threshold = MERGE_DMP_MATCH_THRESHOLD;
+        dmp.Match_Distance = MERGE_DMP_MATCH_DISTANCE;
+        dmp.Patch_DeleteThreshold = MERGE_DMP_PATCH_DELETE_THRESHOLD;
 
         const {
             chars1: charsBase,
@@ -274,8 +281,7 @@ export async function perform3WayMerge(
         };
         const localAddedLines = getUniqueLines(localNorm, baseNorm);
 
-        const margins = [4, 2, 1];
-        for (const margin of margins) {
+        for (const margin of MERGE_PATCH_MARGINS) {
             await ctx.log(`[Merge] Attempting merge with Patch_Margin=${margin}...`, "debug");
             dmp.Patch_Margin = margin;
 
@@ -379,8 +385,7 @@ export async function pullFileSafely(
     if (!item) return false;
 
     // S11: Safety check — reject unreasonably large files to prevent OOM
-    const MAX_INLINE_DOWNLOAD_BYTES = 100 * 1024 * 1024; // 100 MB
-    if (item.size && item.size > MAX_INLINE_DOWNLOAD_BYTES) {
+    if (item.size && item.size > MERGE_MAX_INLINE_DOWNLOAD_BYTES) {
         await ctx.log(
             `[${logPrefix}] Skipping ${item.path}: file size ${(item.size / 1024 / 1024).toFixed(1)}MB exceeds inline download limit (100MB)`,
             "warn",
