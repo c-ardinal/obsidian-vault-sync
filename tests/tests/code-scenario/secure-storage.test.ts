@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { SecureStorage } from "../../../src/secure-storage";
-import { MockApp } from "../../helpers/mock-vault-adapter";
+import { MockApp, MockVaultOperations } from "../../helpers/mock-vault-adapter";
 import * as crypto from "node:crypto";
 
 // Polyfill window.crypto for tests
@@ -28,7 +28,8 @@ describe("SecureStorage", () => {
         (app.vaultAdapter as any).folders = new Set();
 
         // Use empty plugin dir effectively making path data/local/.sync-state relative to vault root
-        storage = new SecureStorage(app as any, "", SECRET);
+        const vaultOps = new MockVaultOperations(app.vaultAdapter, app.vault);
+        storage = new SecureStorage(vaultOps, "", SECRET, app.secretStorage);
     });
 
     it("should initialize with normalized path", () => {
@@ -72,10 +73,10 @@ describe("SecureStorage", () => {
         const data = { secret: "file-only" };
 
         // Bypass secretStorage for saving to test fallback
-        const originalSecretStorage = app.secretStorage;
-        (app as any).secretStorage = null;
+        const originalSecretStorage = (storage as any).secretStorage;
+        (storage as any).secretStorage = null;
         await storage.saveCredentials(data);
-        (app as any).secretStorage = originalSecretStorage;
+        (storage as any).secretStorage = originalSecretStorage;
 
         // secretStorage is empty, should load from file
         const loaded = await storage.loadCredentials();
@@ -86,8 +87,8 @@ describe("SecureStorage", () => {
         const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
         // Save to file only
-        const originalSecretStorage = app.secretStorage;
-        (app as any).secretStorage = null;
+        const originalSecretStorage = (storage as any).secretStorage;
+        (storage as any).secretStorage = null;
         await storage.saveCredentials({ a: 1 });
 
         // Corrupt file
@@ -96,7 +97,7 @@ describe("SecureStorage", () => {
             new Uint8Array([1, 2, 3]).buffer,
         );
 
-        (app as any).secretStorage = originalSecretStorage;
+        (storage as any).secretStorage = originalSecretStorage;
         // secretStorage is still empty (from before)
         app.secretStorage.setSecret((storage as any).secretId, "");
 
@@ -112,10 +113,10 @@ describe("SecureStorage", () => {
         const createSpy = vi.spyOn(app.vault, "createFolder");
 
         // Bypass secretStorage to trigger ensureDir via file-save fallback
-        const originalSecretStorage = app.secretStorage;
-        (app as any).secretStorage = null;
+        const originalSecretStorage = (storage as any).secretStorage;
+        (storage as any).secretStorage = null;
         await storage.saveCredentials({ test: 1 });
-        (app as any).secretStorage = originalSecretStorage;
+        (storage as any).secretStorage = originalSecretStorage;
 
         // ensureDir logic:
         // 1. Check full dir "data/local". In mock, initially false.

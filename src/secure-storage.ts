@@ -1,5 +1,11 @@
-import { App, Platform, normalizePath } from "obsidian";
+import { Platform, normalizePath } from "obsidian";
 import { toHex } from "./utils/format";
+import type { IVaultOperations } from "./types/vault-operations";
+
+interface SecretStorage {
+    getSecret(id: string): string | null;
+    setSecret(id: string, secret: string): void;
+}
 
 const IV_LENGTH = 12;
 const SALT_LENGTH = 16;
@@ -14,14 +20,15 @@ export class SecureStorage {
     private secretId: string;
 
     constructor(
-        private app: App,
+        private vault: IVaultOperations,
         pluginDir: string,
         private secret: string,
+        private secretStorage?: SecretStorage | null,
     ) {
         this.filePath = normalizePath(`${pluginDir}/data/local/.sync-state`);
 
         // Generate a stable, alphanumeric ID based on vault name hash
-        const name = this.app.vault.getName();
+        const name = this.vault.getVaultName();
         let hash = 0;
         for (let i = 0; i < name.length; i++) {
             const char = name.charCodeAt(i);
@@ -49,9 +56,9 @@ export class SecureStorage {
      * Store an arbitrary secret in Keychain (if available)
      */
     async setExtraSecret(type: string, value: string): Promise<void> {
-        if (this.app.secretStorage) {
+        if (this.secretStorage) {
             const id = this.getSecretIdFor(type);
-            this.app.secretStorage.setSecret(id, value);
+            this.secretStorage.setSecret(id, value);
         }
     }
 
@@ -59,9 +66,9 @@ export class SecureStorage {
      * Remove an arbitrary secret from Keychain (if available)
      */
     async removeExtraSecret(type: string): Promise<void> {
-        if (this.app.secretStorage) {
+        if (this.secretStorage) {
             const id = this.getSecretIdFor(type);
-            this.app.secretStorage.setSecret(id, "");
+            this.secretStorage.setSecret(id, "");
         }
     }
 
@@ -69,9 +76,9 @@ export class SecureStorage {
      * Retrieve an arbitrary secret from Keychain (if available)
      */
     async getExtraSecret(type: string): Promise<string | null> {
-        if (this.app.secretStorage) {
+        if (this.secretStorage) {
             const id = this.getSecretIdFor(type);
-            const secret = this.app.secretStorage.getSecret(id);
+            const secret = this.secretStorage.getSecret(id);
             if (secret && secret.trim().length > 0) {
                 return secret;
             }
@@ -83,8 +90,8 @@ export class SecureStorage {
         const paths = [this.filePath];
         for (const path of paths) {
             try {
-                if (await this.app.vault.adapter.exists(path)) {
-                    await this.app.vault.adapter.remove(path);
+                if (await this.vault.exists(path)) {
+                    await this.vault.remove(path);
                     console.log(`[SecureStorage] Deleted redundant credential file: ${path}`);
                 }
             } catch (e) {
@@ -99,17 +106,17 @@ export class SecureStorage {
         const dir = parts.slice(0, -1).join("/");
 
         // Check full parent directory first
-        if (await this.app.vault.adapter.exists(dir)) return;
+        if (await this.vault.exists(dir)) return;
 
         console.log(`[SecureStorage] Creating directory structure for: ${dir}`);
 
         let currentPath = "";
         for (const part of parts.slice(0, -1)) {
             currentPath = currentPath === "" ? part : `${currentPath}/${part}`;
-            const exists = await this.app.vault.adapter.exists(currentPath);
+            const exists = await this.vault.exists(currentPath);
             if (!exists) {
                 try {
-                    await this.app.vault.createFolder(currentPath);
+                    await this.vault.createFolder(currentPath);
                     console.log(`[SecureStorage] Created folder: ${currentPath}`);
                 } catch (e) {
                     // Ignore error if folder already exists (race condition)
@@ -125,9 +132,8 @@ export class SecureStorage {
         // However, we apply system attributes where possible for extra safety.
         if (!Platform.isDesktop) return;
 
-        const adapter = this.app.vault.adapter as any;
-        if (adapter.getBasePath) {
-            const basePath = adapter.getBasePath();
+        const basePath = this.vault.getBasePath?.();
+        if (basePath) {
 
             // Dynamic import to avoid bundling issues on mobile
             // Use try-catch to prevent crashes if module resolution fails
@@ -190,10 +196,10 @@ export class SecureStorage {
     async saveCredentials(data: Record<string, any>): Promise<void> {
         // 1. Save to Obsidian Secret Storage (Keychain) if available
         let secretStorageSuccess = false;
-        if (this.app.secretStorage) {
+        if (this.secretStorage) {
             try {
                 const id = this.secretId;
-                this.app.secretStorage.setSecret(id, JSON.stringify(data));
+                this.secretStorage.setSecret(id, JSON.stringify(data));
                 console.log(`[SecureStorage] Saved credentials to SecretStorage: ${id}`);
                 secretStorageSuccess = true;
 
@@ -236,8 +242,8 @@ export class SecureStorage {
                 // Write as binary
                 await this.ensureDir(this.filePath);
 
-                const exists = await this.app.vault.adapter.exists(this.filePath);
-                await this.app.vault.adapter.writeBinary(this.filePath, buffer.buffer);
+                const exists = await this.vault.exists(this.filePath);
+                await this.vault.writeBinary(this.filePath, buffer.buffer);
                 console.log(`[SecureStorage] Successfully wrote to ${this.filePath}`);
 
                 if (!exists) {
@@ -252,10 +258,10 @@ export class SecureStorage {
 
     async loadCredentials(): Promise<Record<string, any> | null> {
         // 1. Try Obsidian Secret Storage (Keychain) first
-        if (this.app.secretStorage) {
+        if (this.secretStorage) {
             try {
                 const id = this.secretId;
-                const secret = this.app.secretStorage.getSecret(id);
+                const secret = this.secretStorage.getSecret(id);
                 if (secret && secret.trim().length > 0) {
                     console.log(`[SecureStorage] Loaded credentials from SecretStorage: ${id}`);
 
@@ -271,13 +277,13 @@ export class SecureStorage {
         }
 
         // 2. Fallback to file storage
-        if (!(await this.app.vault.adapter.exists(this.filePath))) {
+        if (!(await this.vault.exists(this.filePath))) {
             console.log(`[SecureStorage] No credentials file found at ${this.filePath}`);
             return null;
         }
 
         try {
-            const buffer = await this.app.vault.adapter.readBinary(this.filePath);
+            const buffer = await this.vault.readBinary(this.filePath);
             const data = new Uint8Array(buffer);
 
             // Minimum length check (Salt + IV)
@@ -316,7 +322,7 @@ export class SecureStorage {
 
     async clearCredentials(): Promise<void> {
         // Clear from Secret Storage
-        if (this.app.secretStorage) {
+        if (this.secretStorage) {
             try {
                 const id = this.secretId;
                 // setSecret(id, "") or similar? Some APIs have deleteSecret.
@@ -326,7 +332,7 @@ export class SecureStorage {
                 // The .d.ts didn't show a removal method in my view.
                 // I'll check if I can use listSecrets or if there's more.
                 // Since I can't see a delete method, I'll set to empty.
-                this.app.secretStorage.setSecret(id, "");
+                this.secretStorage.setSecret(id, "");
                 console.log(`[SecureStorage] Cleared credentials from SecretStorage.`);
             } catch (e) {
                 console.warn("[SecureStorage] Failed to clear SecretStorage", e);

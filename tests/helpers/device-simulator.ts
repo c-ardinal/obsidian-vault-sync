@@ -1,7 +1,10 @@
 import { SyncManager, type LocalFileIndex, type SyncManagerSettings } from "../../src/sync-manager";
-import { MockApp } from "./mock-vault-adapter";
+import { MockApp, MockVaultOperations } from "./mock-vault-adapter";
 import { MockCloudAdapter } from "./mock-cloud-adapter";
 import { md5 } from "../../src/utils/md5";
+import { RevisionCache } from "../../src/revision-cache";
+import { BackgroundTransferQueue } from "../../src/sync-manager/background-transfer";
+import type { INotificationService } from "../../src/services/notification-service";
 
 const PLUGIN_DIR = ".obsidian/plugins/obsidian-vault-sync";
 const SYNC_INDEX_PATH = `${PLUGIN_DIR}/sync-index.json`;
@@ -50,13 +53,18 @@ export class DeviceSimulator {
         this.app = new MockApp();
         this.deviceId = deviceId || `dev_${name}`;
 
+        const vaultOps = new MockVaultOperations(this.app.vaultAdapter, this.app.vault);
+        const noopNotifier: INotificationService = { show: () => {} };
         this.syncManager = new SyncManager(
-            this.app as any,
+            vaultOps,
             cloud,
             SYNC_INDEX_PATH,
             { ...DEFAULT_SETTINGS },
             PLUGIN_DIR,
             (key: string) => key, // identity translation
+            noopNotifier,
+            new RevisionCache(vaultOps, PLUGIN_DIR),
+            new BackgroundTransferQueue(),
         );
 
         this.sm = this.syncManager as any;

@@ -234,7 +234,7 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                         p.adapter.updateConfig(
                             p.adapter.clientId,
                             p.adapter.clientSecret,
-                            p.app.vault.getName(),
+                            p.vaultOps.getVaultName(),
                             p.settings.cloudRootFolder,
                         );
                         p.syncManager.triggerFullCleanup();

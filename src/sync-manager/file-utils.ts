@@ -39,14 +39,14 @@ export async function ensureLocalFolder(ctx: SyncContext, filePath: string) {
     if (parts.length <= 1) return;
 
     const folderPath = parts.slice(0, -1).join("/");
-    if (await ctx.app.vault.adapter.exists(folderPath)) return;
+    if (await ctx.vault.exists(folderPath)) return;
 
     let currentPath = "";
     for (const part of parts.slice(0, -1)) {
         currentPath += (currentPath ? "/" : "") + part;
-        if (!(await ctx.app.vault.adapter.exists(currentPath))) {
+        if (!(await ctx.vault.exists(currentPath))) {
             try {
-                await ctx.app.vault.createFolder(currentPath);
+                await ctx.vault.createFolder(currentPath);
             } catch (e) {
                 console.debug("VaultSync: Race condition in mkdir ignored", e);
             }
@@ -56,7 +56,7 @@ export async function ensureLocalFolder(ctx: SyncContext, filePath: string) {
 
 export async function listFilesRecursive(ctx: SyncContext, path: string): Promise<string[]> {
     const result: string[] = [];
-    const listed = await ctx.app.vault.adapter.list(path);
+    const listed = await ctx.vault.list(path);
 
     for (const file of listed.files) {
         result.push(file);
@@ -71,7 +71,7 @@ export async function listFilesRecursive(ctx: SyncContext, path: string): Promis
 }
 
 export async function getLocalFiles(ctx: SyncContext) {
-    const standardFiles = ctx.app.vault.getFiles().map((f) => ({
+    const standardFiles = ctx.vault.getFiles().map((f) => ({
         path: f.path,
         mtime: f.stat.mtime,
         size: f.stat.size,
@@ -82,7 +82,7 @@ export async function getLocalFiles(ctx: SyncContext) {
     try {
         const files = await listFilesRecursive(ctx, ".obsidian");
         for (const path of files) {
-            const stat = await ctx.app.vault.adapter.stat(path);
+            const stat = await ctx.vault.stat(path);
             if (stat) {
                 obsidianFiles.push({
                     path,

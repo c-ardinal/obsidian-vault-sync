@@ -296,7 +296,7 @@ export class BackgroundTransferQueue {
         const dirtyAt = ctx.dirtyPaths.get(item.path);
 
         // Staleness check: verify file hasn't changed since enqueue
-        const currentStat = await ctx.app.vault.adapter.stat(item.path);
+        const currentStat = await ctx.vault.stat(item.path);
         if (!currentStat) {
             // File was deleted — remove from queue, leave in dirtyPaths for next cycle
             await ctx.log(
@@ -309,7 +309,7 @@ export class BackgroundTransferQueue {
 
         if (currentStat.mtime !== item.mtime) {
             // File was modified — re-read and check hash
-            const freshContent = await ctx.app.vault.adapter.readBinary(item.path);
+            const freshContent = await ctx.vault.readBinary(item.path);
             const freshHash = md5(freshContent);
             if (freshHash !== item.snapshotHash) {
                 // Content changed — discard queued content, let next sync cycle handle it
@@ -543,12 +543,12 @@ export class BackgroundTransferQueue {
     private async loadHistory(ctx: SyncContext): Promise<void> {
         try {
             const logPath = this.getTransfersLogPath(ctx);
-            const exists = await ctx.app.vault.adapter.exists(logPath);
+            const exists = await ctx.vault.exists(logPath);
             if (!exists) {
     
                 return;
             }
-            const content = await ctx.app.vault.adapter.read(logPath);
+            const content = await ctx.vault.read(logPath);
             const lines = content.split("\n").filter((l) => l.trim());
             for (const line of lines) {
                 try {
@@ -578,21 +578,21 @@ export class BackgroundTransferQueue {
             const logPath = this.getTransfersLogPath(ctx);
 
             // Ensure log folder exists
-            if (!(await ctx.app.vault.adapter.exists(ctx.logFolder))) {
+            if (!(await ctx.vault.exists(ctx.logFolder))) {
                 // Use recursive folder creation by writing to a dummy path
                 const parts = ctx.logFolder.split("/");
                 let current = "";
                 for (const part of parts) {
                     current = current ? `${current}/${part}` : part;
-                    if (!(await ctx.app.vault.adapter.exists(current))) {
-                        await ctx.app.vault.adapter.mkdir(current);
+                    if (!(await ctx.vault.exists(current))) {
+                        await ctx.vault.mkdir(current);
                     }
                 }
             }
 
             const lines = records.map((r) => JSON.stringify(r)).join("\n") + "\n";
-            const existing = await ctx.app.vault.adapter.read(logPath).catch(() => "");
-            await ctx.app.vault.adapter.write(logPath, existing + lines);
+            const existing = await ctx.vault.read(logPath).catch(() => "");
+            await ctx.vault.write(logPath, existing + lines);
         } catch (e) {
             // Re-add failed records for next attempt
             this.unflushedRecords.unshift(...records);
@@ -602,10 +602,10 @@ export class BackgroundTransferQueue {
     /** Delete transfer log files older than TRANSFER_LOG_RETENTION_DAYS */
     private async rotateOldLogs(ctx: SyncContext): Promise<void> {
         try {
-            const folderExists = await ctx.app.vault.adapter.exists(ctx.logFolder);
+            const folderExists = await ctx.vault.exists(ctx.logFolder);
             if (!folderExists) return;
 
-            const listing = await ctx.app.vault.adapter.list(ctx.logFolder);
+            const listing = await ctx.vault.list(ctx.logFolder);
             const cutoff = Date.now() - TRANSFER_LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000;
 
             for (const fileName of listing.files) {
@@ -620,7 +620,7 @@ export class BackgroundTransferQueue {
                 );
                 if (fileDate.getTime() < cutoff) {
                     const fullPath = `${ctx.logFolder}/${fileName}`;
-                    await ctx.app.vault.adapter.remove(fullPath);
+                    await ctx.vault.remove(fullPath);
                     await ctx.log(
                         `[Background Transfer] Rotated old log: ${fileName}`,
                         "debug",
@@ -637,7 +637,7 @@ export class BackgroundTransferQueue {
     private async uploadIndex(ctx: SyncContext): Promise<void> {
         try {
             await saveIndex(ctx);
-            const indexContent = await ctx.app.vault.adapter.readBinary(ctx.pluginDataPath);
+            const indexContent = await ctx.vault.readBinary(ctx.pluginDataPath);
             const compressedIndex = await compress(indexContent);
             const uploadedIndex = await ctx.adapter.uploadFile(
                 ctx.pluginDataPath,

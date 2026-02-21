@@ -1,4 +1,4 @@
-import { App, TFile } from "obsidian";
+import { TFile } from "obsidian";
 import { CloudAdapter } from "../types/adapter";
 import { ICryptoEngine } from "../encryption/interfaces";
 import { VaultLockService } from "./vault-lock-service";
@@ -19,7 +19,6 @@ export class MigrationService {
     public currentProgress: MigrationProgress | null = null;
 
     constructor(
-        private app: App,
         private baseAdapter: CloudAdapter,
         private lockService: VaultLockService,
         private ctx: SyncContext,
@@ -111,7 +110,7 @@ export class MigrationService {
             onProgress(p);
 
             // Read unencrypted local file
-            const content = await this.app.vault.adapter.readBinary(file.path);
+            const content = await this.ctx.vault.readBinary(file.path);
 
             // Upload via EncryptedAdapter (handles encryption + IV via engine)
             const result = await tempEncryptedAdapter.uploadFile(file.path, content, file.mtime);

@@ -1,4 +1,4 @@
-import { App, TAbstractFile, TFile } from "obsidian";
+import type { IVaultOperations } from "./types/vault-operations";
 
 /**
  * Manages a local file-based cache for revision content to reduce bandwidth.
@@ -9,7 +9,7 @@ export class RevisionCache {
     private readonly TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
     constructor(
-        private app: App,
+        private vault: IVaultOperations,
         pluginDir: string,
     ) {
         this.cacheDir = `${pluginDir}/cache`;
@@ -19,8 +19,8 @@ export class RevisionCache {
      * Initialize cache directory
      */
     async init() {
-        if (!(await this.app.vault.adapter.exists(this.cacheDir))) {
-            await this.app.vault.adapter.mkdir(this.cacheDir);
+        if (!(await this.vault.exists(this.cacheDir))) {
+            await this.vault.mkdir(this.cacheDir);
         }
         await this.cleanup();
     }
@@ -44,20 +44,20 @@ export class RevisionCache {
         const key = this.getCacheKey(filePath, revisionId);
         const path = `${this.cacheDir}/${key}`;
 
-        if (await this.app.vault.adapter.exists(path)) {
+        if (await this.vault.exists(path)) {
             // Update mtime to refresh TTL?
             // - Usually caches just expire based on creation, or LRU.
             // - Let's stick to simple TTL based on creation (or mtime).
 
             // Check if expired before returning?
-            const stat = await this.app.vault.adapter.stat(path);
+            const stat = await this.vault.stat(path);
             if (stat && Date.now() - stat.mtime > this.TTL_MS) {
                 // Expired
-                await this.app.vault.adapter.remove(path);
+                await this.vault.remove(path);
                 return null;
             }
 
-            return await this.app.vault.adapter.readBinary(path);
+            return await this.vault.readBinary(path);
         }
         return null;
     }
@@ -67,11 +67,11 @@ export class RevisionCache {
         const path = `${this.cacheDir}/${key}`;
 
         // Ensure cache dir exists (redundant check but safe)
-        if (!(await this.app.vault.adapter.exists(this.cacheDir))) {
-            await this.app.vault.adapter.mkdir(this.cacheDir);
+        if (!(await this.vault.exists(this.cacheDir))) {
+            await this.vault.mkdir(this.cacheDir);
         }
 
-        await this.app.vault.adapter.writeBinary(path, content);
+        await this.vault.writeBinary(path, content);
     }
 
     /**
@@ -79,17 +79,17 @@ export class RevisionCache {
      */
     async cleanup() {
         try {
-            if (!(await this.app.vault.adapter.exists(this.cacheDir))) return;
+            if (!(await this.vault.exists(this.cacheDir))) return;
 
-            const listed = await this.app.vault.adapter.list(this.cacheDir);
+            const listed = await this.vault.list(this.cacheDir);
             const now = Date.now();
 
             for (const filePath of listed.files) {
                 if (!filePath.endsWith(".cache")) continue;
 
-                const stat = await this.app.vault.adapter.stat(filePath);
+                const stat = await this.vault.stat(filePath);
                 if (stat && now - stat.mtime > this.TTL_MS) {
-                    await this.app.vault.adapter.remove(filePath);
+                    await this.vault.remove(filePath);
                     console.log(`[Cache] Removed expired: ${filePath}`);
                 }
             }
@@ -102,9 +102,9 @@ export class RevisionCache {
      * Clear all cache
      */
     async clear() {
-        if (await this.app.vault.adapter.exists(this.cacheDir)) {
-            await this.app.vault.adapter.rmdir(this.cacheDir, true);
-            await this.app.vault.adapter.mkdir(this.cacheDir);
+        if (await this.vault.exists(this.cacheDir)) {
+            await this.vault.rmdir(this.cacheDir, true);
+            await this.vault.mkdir(this.cacheDir);
         }
     }
 }

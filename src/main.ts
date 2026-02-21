@@ -1,4 +1,4 @@
-import { App, Plugin, PluginSettingTab, Setting, TFile, setIcon, Platform } from "obsidian";
+import { Plugin, TFile, setIcon, Platform } from "obsidian";
 import { GoogleDriveAdapter } from "./adapters/google-drive";
 import { SyncManager, type SyncTrigger } from "./sync-manager";
 import { SecureStorage } from "./secure-storage";
@@ -12,7 +12,7 @@ import {
     VaultSyncSettings,
 } from "./types/settings";
 import { t } from "./i18n";
-import { getSettingsSections } from "./ui/settings-schema";
+import { VaultSyncSettingTab } from "./ui/vault-sync-setting-tab";
 import { loadExternalCryptoEngine } from "./encryption/engine-loader";
 import { checkPasswordStrength } from "./encryption/password-strength";
 import { toHex } from "./utils/format";
@@ -23,12 +23,18 @@ import {
     startDemoSyncAnimation,
     openDemoPromptModal,
 } from "./ui/dev-screenshot-helpers";
+import { ObsidianVaultOperations } from "./services/obsidian-vault-operations";
+import { ObsidianNotificationService } from "./services/notification-service";
+import { RevisionCache } from "./revision-cache";
+import { BackgroundTransferQueue } from "./sync-manager/background-transfer";
+import type { IVaultOperations } from "./types/vault-operations";
 
 export default class VaultSync extends Plugin {
     settings!: VaultSyncSettings;
     adapter!: GoogleDriveAdapter;
     syncManager!: SyncManager;
     secureStorage!: SecureStorage;
+    public vaultOps!: IVaultOperations;
 
     // Exposed for external engine UI (password strength feedback, i18n)
     public checkPasswordStrength = checkPasswordStrength;
@@ -62,25 +68,33 @@ export default class VaultSync extends Plugin {
     }
 
     async onload() {
+        // 0. Create vault operations facade (composition root)
+        this.vaultOps = new ObsidianVaultOperations(this.app);
+
         // 1. Initialize adapter first with defaults
         this.adapter = new GoogleDriveAdapter(
             "",
             "",
-            this.app.vault.getName(),
+            this.vaultOps.getVaultName(),
             DEFAULT_SETTINGS.cloudRootFolder,
         );
 
         // 2. Load settings (populates adapter if credentials exist)
         await this.loadSettings();
 
-        // 3. Initialize SyncManager with REAL loaded settings
+        // 3. Initialize SyncManager with REAL loaded settings (DI)
+        const revisionCache = new RevisionCache(this.vaultOps, this.manifest.dir || "");
+        const backgroundQueue = new BackgroundTransferQueue();
         this.syncManager = new SyncManager(
-            this.app,
+            this.vaultOps,
             this.adapter,
             `${this.manifest.dir}/${DATA_REMOTE_DIR}/sync-index.json`,
             this.settings,
             this.manifest.dir || "",
             t,
+            new ObsidianNotificationService(),
+            revisionCache,
+            backgroundQueue,
         );
         this.syncManager.secureStorage = this.secureStorage;
 
@@ -103,7 +117,7 @@ export default class VaultSync extends Plugin {
 
         // 5.5 Load external crypto engine (Moved here to ensure logs are captured in sync log)
         const engine = await loadExternalCryptoEngine(
-            this.app,
+            this.vaultOps,
             this.manifest.dir!,
             (key) => this.syncManager.notify(key),
         );
@@ -805,9 +819,9 @@ export default class VaultSync extends Plugin {
         const openDataPath = `${this.manifest.dir}/${DATA_FLEXIBLE_DIR}/open-data.json`;
         const localDataPath = `${this.manifest.dir}/${DATA_LOCAL_DIR}/local-data.json`;
         // Load Open Data
-        if (await this.app.vault.adapter.exists(openDataPath)) {
+        if (await this.vaultOps.exists(openDataPath)) {
             try {
-                const openData = JSON.parse(await this.app.vault.adapter.read(openDataPath));
+                const openData = JSON.parse(await this.vaultOps.read(openDataPath));
                 loadedSettings = { ...loadedSettings, ...openData };
             } catch (e) {
                 console.error("VaultSync: Failed to load open-data.json", e);
@@ -815,9 +829,9 @@ export default class VaultSync extends Plugin {
         }
 
         // Load Local Data
-        if (await this.app.vault.adapter.exists(localDataPath)) {
+        if (await this.vaultOps.exists(localDataPath)) {
             try {
-                const localData = JSON.parse(await this.app.vault.adapter.read(localDataPath));
+                const localData = JSON.parse(await this.vaultOps.read(localDataPath));
                 loadedSettings = { ...loadedSettings, ...localData };
             } catch (e) {
                 console.error("VaultSync: Failed to load local-data.json", e);
@@ -828,9 +842,10 @@ export default class VaultSync extends Plugin {
 
         // SEC-010: Initialize SecureStorage early to use its Keychain methods
         this.secureStorage = new SecureStorage(
-            this.app,
+            this.vaultOps,
             this.manifest.dir || "",
             this.settings.encryptionSecret || "temp-key",
+            this.app.secretStorage,
         );
 
         // SEC-011: Prioritize encryptionSecret from Keychain
@@ -869,7 +884,7 @@ export default class VaultSync extends Plugin {
             this.adapter.updateConfig(
                 credentials.clientId || "",
                 credentials.clientSecret || "",
-                this.app.vault.getName(),
+                this.vaultOps.getVaultName(),
                 this.settings.cloudRootFolder,
             );
 
@@ -898,20 +913,21 @@ export default class VaultSync extends Plugin {
         const localDir = `${this.manifest.dir}/${DATA_LOCAL_DIR}`;
         const remoteDir = `${this.manifest.dir}/${DATA_REMOTE_DIR}`;
 
-        if (!(await this.app.vault.adapter.exists(flexibleDir))) {
-            await this.app.vault.createFolder(flexibleDir).catch(() => {});
+        if (!(await this.vaultOps.exists(flexibleDir))) {
+            await this.vaultOps.createFolder(flexibleDir).catch(() => {});
         }
-        if (!(await this.app.vault.adapter.exists(localDir))) {
-            await this.app.vault.createFolder(localDir).catch(() => {});
+        if (!(await this.vaultOps.exists(localDir))) {
+            await this.vaultOps.createFolder(localDir).catch(() => {});
         }
-        if (!(await this.app.vault.adapter.exists(remoteDir))) {
-            await this.app.vault.createFolder(remoteDir).catch(() => {});
+        if (!(await this.vaultOps.exists(remoteDir))) {
+            await this.vaultOps.createFolder(remoteDir).catch(() => {});
         }
 
         // Split Settings
         const localKeys = ["encryptionSecret", "hasCompletedFirstSync"];
-        const localData: any = {};
-        const openData: any = {};
+        const localData: Record<string, unknown> = {};
+        const openData: Record<string, unknown> = {};
+        const settingsRecord = this.settings as unknown as Record<string, unknown>;
 
         for (const key in this.settings) {
             if (Object.prototype.hasOwnProperty.call(this.settings, key)) {
@@ -920,9 +936,9 @@ export default class VaultSync extends Plugin {
                     if (key === "encryptionSecret" && this.app.secretStorage) {
                         continue;
                     }
-                    localData[key] = (this.settings as any)[key];
+                    localData[key] = settingsRecord[key];
                 } else {
-                    openData[key] = (this.settings as any)[key];
+                    openData[key] = settingsRecord[key];
                 }
             }
         }
@@ -931,8 +947,8 @@ export default class VaultSync extends Plugin {
         const openDataPath = `${flexibleDir}/open-data.json`;
         const localDataPath = `${localDir}/local-data.json`;
 
-        await this.app.vault.adapter.write(openDataPath, JSON.stringify(openData, null, 2));
-        await this.app.vault.adapter.write(localDataPath, JSON.stringify(localData, null, 2));
+        await this.vaultOps.write(openDataPath, JSON.stringify(openData, null, 2));
+        await this.vaultOps.write(localDataPath, JSON.stringify(localData, null, 2));
     }
 
     async saveCredentials(
@@ -956,328 +972,9 @@ export default class VaultSync extends Plugin {
         this.adapter.updateConfig(
             clientId,
             clientSecret,
-            this.app.vault.getName(),
+            this.vaultOps.getVaultName(),
             this.settings.cloudRootFolder,
         );
     }
 
-}
-
-class VaultSyncSettingTab extends PluginSettingTab {
-    plugin: VaultSync;
-
-    constructor(app: App, plugin: VaultSync) {
-        super(app, plugin);
-        this.plugin = plugin;
-    }
-
-    display(): void {
-        const { containerEl } = this;
-        const scrollPos = containerEl.scrollTop;
-        containerEl.empty();
-        containerEl.addClass("vault-sync-settings-container");
-
-        containerEl.createEl("h2", { text: t("settingSettingsTitle") });
-
-        // 1. Authentication (Manually handled due to complex UI)
-        containerEl.createEl("h3", { text: t("settingAuthSection") });
-
-        // Auth Method dropdown
-        new Setting(containerEl)
-            .setName(t("settingAuthMethod"))
-            .setDesc(t("settingAuthMethodDesc"))
-            .addDropdown((dropdown) => {
-                dropdown
-                    .addOption("default", t("settingAuthMethodDefault"))
-                    .addOption("custom-proxy", t("settingAuthMethodCustomProxy"))
-                    .addOption("client-credentials", t("settingAuthMethodClientCredentials"))
-                    .setValue(this.plugin.settings.authMethod)
-                    .onChange(async (value) => {
-                        this.plugin.settings.authMethod = value as "default" | "custom-proxy" | "client-credentials";
-                        this.plugin.adapter.setAuthConfig(
-                            this.plugin.settings.authMethod,
-                            this.plugin.settings.customProxyUrl,
-                        );
-                        await this.plugin.saveSettings();
-                        this.display(); // Re-render to show/hide fields
-                    });
-            });
-
-        const authMethod = this.plugin.settings.authMethod;
-
-        // Custom Proxy URL (only for custom-proxy mode)
-        if (authMethod === "custom-proxy") {
-            new Setting(containerEl)
-                .setName(t("settingCustomProxyUrl"))
-                .setDesc(t("settingCustomProxyUrlDesc"))
-                .addText((text) =>
-                    text
-                        .setPlaceholder("https://your-proxy.example.com")
-                        .setValue(this.plugin.settings.customProxyUrl)
-                        .onChange(async (value) => {
-                            this.plugin.settings.customProxyUrl = value;
-                            this.plugin.adapter.setAuthConfig(
-                                this.plugin.settings.authMethod,
-                                value,
-                            );
-                            await this.plugin.saveSettings();
-                        }),
-                );
-        }
-
-        // Client ID / Secret (only for client-credentials mode)
-        if (authMethod === "client-credentials") {
-            new Setting(containerEl)
-                .setName(t("settingClientId"))
-                .setDesc(t("settingClientIdDesc"))
-                .addText((text) =>
-                    text.setValue(this.plugin.adapter.clientId).onChange(async (value) => {
-                        this.plugin.adapter.updateConfig(
-                            value,
-                            this.plugin.adapter.clientSecret,
-                            this.plugin.app.vault.getName(),
-                            this.plugin.settings.cloudRootFolder,
-                        );
-                        await this.plugin.saveCredentials(
-                            value,
-                            this.plugin.adapter.clientSecret,
-                            this.plugin.adapter.getTokens().accessToken,
-                            this.plugin.adapter.getTokens().refreshToken,
-                        );
-                    }),
-                );
-
-            new Setting(containerEl)
-                .setName(t("settingClientSecret"))
-                .setDesc(t("settingClientSecretDesc"))
-                .addText((text) =>
-                    text.setValue(this.plugin.adapter.clientSecret).onChange(async (value) => {
-                        this.plugin.adapter.updateConfig(
-                            this.plugin.adapter.clientId,
-                            value,
-                            this.plugin.app.vault.getName(),
-                            this.plugin.settings.cloudRootFolder,
-                        );
-                        await this.plugin.saveCredentials(
-                            this.plugin.adapter.clientId,
-                            value,
-                            this.plugin.adapter.getTokens().accessToken,
-                            this.plugin.adapter.getTokens().refreshToken,
-                        );
-                    }),
-                );
-        }
-
-        // Login button (always shown)
-        new Setting(containerEl)
-            .setName(t("settingLogin"))
-            .setDesc(t("settingLoginDesc"))
-            .addButton((button) =>
-                button
-                    .setButtonText(
-                        this.plugin.adapter.isAuthenticated()
-                            ? t("settingRelogin")
-                            : t("settingLogin"),
-                    )
-                    .setCta()
-                    .onClick(async () => {
-                        await this.plugin.adapter.login();
-                    }),
-            );
-
-        // Render Schema-based Settings
-        const sections = getSettingsSections(this.plugin);
-        for (const section of sections) {
-            // Check visibility
-            // Since section doesn't have isHidden in schema (items do), we render title if at least one item is visible?
-            // Or just render title. Schema definition has items hidden dynamically.
-            // Let's check section definition update in previous step...
-            // Ah, I added isHidden to items, but section "developer" also has isHidden in schema.ts.
-            // But SettingSection interface definition in schema.ts DOES NOT have isHidden.
-            // So my schema.ts code has a property that doesn't exist in the interface. Typescript might complain?
-            // Or I might have omitted it.
-            // Actually, I should cast or just ignore for a sec, or better, update the interface if needed.
-            // But let's assume I need to handle it.
-
-            // Wait, I need to import getSettingsSections first.
-
-            const isHidden = (section as any).isHidden
-                ? (section as any).isHidden(this.plugin.settings, this.plugin)
-                : false;
-            if (isHidden) {
-                continue;
-            }
-
-            containerEl.createEl("h3", { text: section.title });
-            if (section.description) {
-                containerEl.createEl("p", {
-                    text: section.description,
-                    cls: "setting-item-description",
-                });
-            }
-
-            for (const item of section.items) {
-                if (item.isHidden && item.isHidden(this.plugin.settings, this.plugin)) continue;
-
-                const description = item.getDesc
-                    ? item.getDesc(this.plugin.settings, this.plugin)
-                    : item.desc || "";
-
-                const setting = new Setting(containerEl).setName(item.label).setDesc(description);
-
-                switch (item.type) {
-                    case "toggle":
-                        setting.addToggle((toggle) =>
-                            toggle
-                                .setValue(this.getSettingValue(item.key) as boolean)
-                                .onChange(async (val) => {
-                                    this.setSettingValue(item.key, val);
-                                    await this.plugin.saveSettings();
-                                    if (item.onChange) await item.onChange(val, this.plugin);
-                                }),
-                        );
-                        break;
-                    case "text":
-                        setting.addText((text) => {
-                            text.setValue(String(this.getSettingValue(item.key) || ""))
-                                .setPlaceholder(item.placeholder || "")
-                                .onChange(async (val) => {
-                                    if (item.onChange) {
-                                        await item.onChange(val, this.plugin);
-                                    } else {
-                                        this.setSettingValue(item.key, val);
-                                        await this.plugin.saveSettings();
-                                    }
-                                });
-                        });
-                        break;
-                    case "textarea":
-                        setting.addTextArea((text) => {
-                            text.setValue(String(this.getSettingValue(item.key) || ""))
-                                .setPlaceholder(item.placeholder || "")
-                                .onChange(async (val) => {
-                                    this.setSettingValue(item.key, val);
-                                    await this.plugin.saveSettings();
-                                    if (item.onChange) await item.onChange(val, this.plugin);
-                                });
-                            if (item.key === "exclusionPatterns") {
-                                text.inputEl.addClass("vault-sync-exclusion-textarea");
-                                text.inputEl.rows = 10;
-                                // Glob pattern validation warning
-                                const warningEl = setting.settingEl.createDiv({ cls: "setting-item-description" });
-                                warningEl.style.cssText = "color:var(--text-error);font-size:0.85em;display:none;";
-                                const validatePatterns = () => {
-                                    const lines = text.inputEl.value.split("\n").filter((l: string) => l.trim());
-                                    const hasInvalid = lines.some((l: string) => {
-                                        const openBracket = (l.match(/\[/g) || []).length;
-                                        const closeBracket = (l.match(/\]/g) || []).length;
-                                        if (openBracket !== closeBracket) return true;
-                                        const openBrace = (l.match(/\{/g) || []).length;
-                                        const closeBrace = (l.match(/\}/g) || []).length;
-                                        return openBrace !== closeBrace;
-                                    });
-                                    warningEl.setText(this.plugin.t("settingExclusionPatternsInvalid"));
-                                    warningEl.style.display = hasInvalid ? "" : "none";
-                                };
-                                text.inputEl.addEventListener("input", validatePatterns);
-                            }
-                        });
-                        break;
-                    case "dropdown":
-                        setting.addDropdown((dropdown) => {
-                            if (item.options) {
-                                for (const [k, v] of Object.entries(item.options)) {
-                                    dropdown.addOption(k, v);
-                                }
-                            }
-                            dropdown
-                                .setValue(String(this.getSettingValue(item.key)))
-                                .onChange(async (val) => {
-                                    this.setSettingValue(item.key, val);
-                                    await this.plugin.saveSettings();
-                                    if (item.onChange) await item.onChange(val, this.plugin);
-                                });
-                        });
-                        break;
-                    case "number":
-                        setting.addText((text) => {
-                            text.setValue(String(this.getSettingValue(item.key)))
-                                .setPlaceholder(item.limits ? String(item.limits.default) : "")
-                                .onChange(async (val) => {
-                                    const numVal = this.validateNumber(
-                                        val,
-                                        item.limits?.min ?? -Infinity,
-                                        item.limits?.max ?? Infinity,
-                                        item.limits?.default ?? 0,
-                                        item.limits?.disabled,
-                                    );
-                                    this.setSettingValue(item.key, numVal);
-                                    await this.plugin.saveSettings();
-                                    if (item.onChange) await item.onChange(numVal, this.plugin);
-                                });
-
-                            if (item.unit) {
-                                const inputEl = text.inputEl;
-                                inputEl.addClass("vault-sync-number-input-with-unit");
-
-                                const wrapper = document.createElement("div");
-                                wrapper.addClass("vault-sync-number-wrapper");
-                                inputEl.parentNode?.insertBefore(wrapper, inputEl);
-                                wrapper.appendChild(inputEl);
-
-                                wrapper.createDiv({
-                                    cls: "vault-sync-unit-addon",
-                                    text: item.unit,
-                                });
-                            }
-                        });
-                        break;
-                    case "info":
-                        setting.controlEl.createSpan({
-                            cls: "vault-sync-info-status",
-                            text: description,
-                        });
-                        setting.setDesc(""); // Clear description since we moved it to the control area
-                        break;
-                }
-            }
-        }
-
-        // Restore scroll position
-        containerEl.scrollTop = scrollPos;
-    }
-
-    private validateNumber(
-        value: string,
-        min: number,
-        max: number,
-        defaultValue: number,
-        disabledValue?: number,
-    ): number {
-        const num = Number(value);
-        if (isNaN(num)) return defaultValue;
-        if (disabledValue !== undefined && num === disabledValue) return num;
-        if (num < min || num > max) return defaultValue;
-        return num;
-    }
-
-    private getSettingValue(key: string): any {
-        if (key.includes(".")) {
-            // Path-based access: "nested.key"
-            return key.split(".").reduce((o, i) => (o as any)?.[i], this.plugin.settings);
-        }
-        return (this.plugin.settings as any)[key];
-    }
-
-    private setSettingValue(key: string, value: any): void {
-        if (key.includes(".")) {
-            // Path-based update: "nested.key"
-            const parts = key.split(".");
-            const last = parts.pop()!;
-            const target = parts.reduce((o, i) => (o as any)[i], this.plugin.settings);
-            (target as any)[last] = value;
-        } else {
-            (this.plugin.settings as any)[key] = value;
-        }
-    }
 }

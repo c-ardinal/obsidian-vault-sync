@@ -89,7 +89,7 @@ export async function scanObsidianChanges(ctx: SyncContext): Promise<void> {
             if (shouldIgnore(ctx, filePath)) continue;
             if (ctx.syncingPaths.has(filePath)) continue;
 
-            const stat = await ctx.app.vault.adapter.stat(filePath);
+            const stat = await ctx.vault.stat(filePath);
             if (!stat) continue;
 
             const indexEntry = ctx.localIndex[filePath];
@@ -114,7 +114,7 @@ export async function scanObsidianChanges(ctx: SyncContext): Promise<void> {
             if (stat.mtime > indexEntry.mtime) {
                 // Mtime changed: verify content hash to confirm actual modification
                 try {
-                    const content = await ctx.app.vault.adapter.readBinary(filePath);
+                    const content = await ctx.vault.readBinary(filePath);
                     const { localHash, compareHash } = await computeLocalHash(ctx, content, indexEntry);
                     if (compareHash && localHash !== compareHash.toLowerCase()) {
                         ctx.dirtyPaths.set(filePath, Date.now());
@@ -182,7 +182,7 @@ export async function scanVaultChanges(ctx: SyncContext): Promise<void> {
         await ctx.log("[Vault Scan] Starting full vault scan...", "debug");
         const start = Date.now();
 
-        const files = ctx.app.vault.getFiles();
+        const files = ctx.vault.getFiles();
         const currentPaths = new Set<string>();
 
         // 1. Check for New and Modified files
@@ -214,7 +214,7 @@ export async function scanVaultChanges(ctx: SyncContext): Promise<void> {
             } else if (file.stat.mtime > indexEntry.mtime) {
                 // Mtime changed: verify content hash
                 try {
-                    const content = await ctx.app.vault.adapter.readBinary(file.path);
+                    const content = await ctx.vault.readBinary(file.path);
                     const { localHash, compareHash } = await computeLocalHash(ctx, content, indexEntry);
                     if (compareHash && localHash !== compareHash.toLowerCase()) {
                         ctx.dirtyPaths.set(file.path, Date.now());
@@ -374,7 +374,7 @@ export async function executeSmartSync(ctx: SyncContext, scanVault: boolean): Pr
         // Clean up recentlyDeletedFromRemote: remove entries for files that no longer exist locally
         // (they were successfully deleted, so we don't need to track them anymore)
         for (const path of [...ctx.recentlyDeletedFromRemote]) {
-            const exists = await ctx.app.vault.adapter.exists(path);
+            const exists = await ctx.vault.exists(path);
             if (!exists) {
                 ctx.recentlyDeletedFromRemote.delete(path);
             }
@@ -638,15 +638,15 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
                 // Case A: Local is clean, just rename it
                 if (!ctx.dirtyPaths.has(oldPath)) {
                     try {
-                        const sourceExists = await ctx.app.vault.adapter.exists(oldPath);
-                        const targetExists = await ctx.app.vault.adapter.exists(newPath);
+                        const sourceExists = await ctx.vault.exists(oldPath);
+                        const targetExists = await ctx.vault.exists(newPath);
 
                         if (sourceExists && !targetExists) {
                             await ctx.log(
                                 `[Smart Pull] Remote Rename detected (Full Scan): ${oldPath} -> ${newPath}`,
                                 "info",
                             );
-                            await ctx.app.vault.adapter.rename(oldPath, newPath);
+                            await ctx.vault.rename(oldPath, newPath);
 
                             // Migrate Index
                             if (ctx.index[oldPath]) {
@@ -856,9 +856,9 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
         ctx.recentlyDeletedFromRemote.add(path);
         tasks.push(async () => {
             try {
-                const file = ctx.app.vault.getAbstractFileByPath(path);
+                const file = ctx.vault.getAbstractFileByPath(path);
                 if (file) {
-                    await ctx.app.vault.trash(file, true);
+                    await ctx.vault.trashFile(file, true);
                 }
                 delete ctx.index[path];
                 delete ctx.localIndex[path];
@@ -1049,9 +1049,9 @@ export async function pullViaChangesAPI(
                     ctx.recentlyDeletedFromRemote.add(pathToDelete);
                     tasks.push(async () => {
                         try {
-                            const file = ctx.app.vault.getAbstractFileByPath(pathToDelete);
+                            const file = ctx.vault.getAbstractFileByPath(pathToDelete);
                             if (file) {
-                                await ctx.app.vault.trash(file, true);
+                                await ctx.vault.trashFile(file, true);
                             }
                             delete ctx.index[pathToDelete];
                             delete ctx.localIndex[pathToDelete]; // Added for consistency
@@ -1148,12 +1148,12 @@ export async function pullViaChangesAPI(
                         // We should rename locally to preserve history/content.
 
                         // Check if target already exists locally
-                        const targetExists = await ctx.app.vault.adapter.exists(newPath);
+                        const targetExists = await ctx.vault.exists(newPath);
 
                         if (!targetExists) {
                             try {
                                 // Check if source exists (it might have been deleted locally?)
-                                const sourceExists = await ctx.app.vault.adapter.exists(oldPath);
+                                const sourceExists = await ctx.vault.exists(oldPath);
                                 if (sourceExists) {
                                     await ctx.log(
                                         `[Changes API] Remote Rename detected: ${oldPath} -> ${newPath}. Renaming locally.`,
@@ -1161,7 +1161,7 @@ export async function pullViaChangesAPI(
                                     );
 
                                     // Execute Rename
-                                    await ctx.app.vault.adapter.rename(oldPath, newPath);
+                                    await ctx.vault.rename(oldPath, newPath);
                                     ctx.logger.markActionTaken();
 
                                     // Migrate Index Entries
@@ -1396,7 +1396,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
             if (ctx.index[path]) {
                 // Quick check using adapter (async)
                 // We can batch this or just do it sequentially (robustness > speed here)
-                const exists = await ctx.app.vault.adapter.exists(path);
+                const exists = await ctx.vault.exists(path);
                 if (!exists) {
                     missingFiles.push(path);
                 }
@@ -1413,7 +1413,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                     break;
                 }
 
-                const exists = await ctx.app.vault.adapter.exists(folder);
+                const exists = await ctx.vault.exists(folder);
                 // Do not mark as checked immediately, wait for existence check result logic
 
                 if (!exists) {
@@ -1541,9 +1541,9 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                 return;
             }
 
-            const exists = await ctx.app.vault.adapter.exists(path);
+            const exists = await ctx.vault.exists(path);
             if (exists) {
-                const stat = await ctx.app.vault.adapter.stat(path);
+                const stat = await ctx.vault.stat(path);
                 if (stat) {
                     // NEW: Handle folders
                     if (stat.type === "folder") {
@@ -1710,9 +1710,9 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                         // if markDirty() was called again during our async operations
                         const dirtyAt = ctx.dirtyPaths.get(path);
 
-                        const content = await ctx.app.vault.adapter.readBinary(path);
+                        const content = await ctx.vault.readBinary(path);
                         // Get mtime AFTER reading content to ensure consistency
-                        const statAfterRead = await ctx.app.vault.adapter.stat(path);
+                        const statAfterRead = await ctx.vault.stat(path);
                         const mtimeAfterRead = statAfterRead?.mtime ?? stat.mtime;
 
                         const currentHash = md5(content);
@@ -1892,7 +1892,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                 ctx.backgroundTransferQueue.markInlineStart(file.path, "push", file.size);
                 try {
                     // Check if file was modified after queue creation (user still typing)
-                    const currentStat = await ctx.app.vault.adapter.stat(file.path);
+                    const currentStat = await ctx.vault.stat(file.path);
                     if (currentStat && currentStat.mtime !== file.mtime) {
                         // File was modified after queue creation - re-mark as dirty and skip
                         ctx.dirtyPaths.set(file.path, Date.now());
@@ -1976,8 +1976,8 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                     if (ctx.localIndex[file.path]?.lastAction === "merge") {
                                         try {
                                             const mergedContent =
-                                                await ctx.app.vault.adapter.readBinary(file.path);
-                                            const mergedStat = await ctx.app.vault.adapter.stat(
+                                                await ctx.vault.readBinary(file.path);
+                                            const mergedStat = await ctx.vault.stat(
                                                 file.path,
                                             );
                                             const mergedFileId =
@@ -2220,7 +2220,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
         // Upload updated index
         await saveIndex(ctx);
         try {
-            const indexContent = await ctx.app.vault.adapter.readBinary(ctx.pluginDataPath);
+            const indexContent = await ctx.vault.readBinary(ctx.pluginDataPath);
             const compressedIndex = await compress(indexContent);
             const uploadedIndex = await ctx.adapter.uploadFile(
                 ctx.pluginDataPath,
@@ -2237,8 +2237,8 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
             // Upload raw index backup (best effort, uncompressed)
             const rawPath = ctx.pluginDataPath.replace(".json", "_raw.json");
             try {
-                if (await ctx.app.vault.adapter.exists(rawPath)) {
-                    const rawContent = await ctx.app.vault.adapter.readBinary(rawPath);
+                if (await ctx.vault.exists(rawPath)) {
+                    const rawContent = await ctx.vault.readBinary(rawPath);
                     await ctx.adapter.uploadFile(rawPath, rawContent, Date.now());
                     await ctx.log(`[Smart Push] Raw index backup uploaded.`, "debug");
                 }
@@ -2396,7 +2396,7 @@ export async function executeFullScan(ctx: SyncContext): Promise<void> {
                 } else if (localFile && !indexEntry && remoteFile.hash) {
                     // File exists locally but not in index - check if it matches remote
                     try {
-                        const content = await ctx.app.vault.adapter.readBinary(remoteFile.path);
+                        const content = await ctx.vault.readBinary(remoteFile.path);
                         const localHash = md5(content);
                         if (localHash === remoteFile.hash.toLowerCase()) {
                             // Adopt into index - treat as "pull" since we're accepting remote state

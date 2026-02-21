@@ -1,4 +1,5 @@
 import { TFile, TAbstractFile } from "obsidian";
+import type { IVaultOperations } from "../../src/types/vault-operations";
 
 /**
  * In-memory file system that mimics Obsidian's vault adapter.
@@ -229,4 +230,39 @@ export class MockApp {
     get vaultAdapter(): MockVaultAdapter {
         return this._adapter;
     }
+}
+
+/**
+ * Test implementation of {@link IVaultOperations}.
+ * Wraps MockVaultAdapter (low-level) and MockVault (high-level).
+ */
+export class MockVaultOperations implements IVaultOperations {
+    constructor(
+        private adapter: MockVaultAdapter,
+        private vault: MockVault,
+    ) {}
+
+    // ── Low-level ────────────────────────────────────────────────────
+    exists(path: string) { return this.adapter.exists(path); }
+    stat(path: string) { return this.adapter.stat(path); }
+    read(path: string) { return this.adapter.read(path); }
+    readBinary(path: string) { return this.adapter.readBinary(path); }
+    write(path: string, data: string) { return this.adapter.write(path, data); }
+    writeBinary(path: string, data: ArrayBuffer) { return this.adapter.writeBinary(path, data); }
+    list(path: string) { return this.adapter.list(path); }
+    mkdir(path: string) { return this.adapter.mkdir(path); }
+    async rmdir(path: string, _recursive: boolean) { await this.adapter.remove(path); }
+    rename(oldPath: string, newPath: string) { return this.adapter.rename(oldPath, newPath); }
+    remove(path: string) { return this.adapter.remove(path); }
+
+    // ── High-level ───────────────────────────────────────────────────
+    getFiles() { return this.vault.getFiles(); }
+    getAbstractFileByPath(path: string) { return this.vault.getAbstractFileByPath(path); }
+    async createFolder(path: string) { await this.vault.createFolder(path); }
+    async createBinary(path: string, data: ArrayBuffer) { await this.vault.createBinary(path, data); }
+    modifyBinary(file: TFile, data: ArrayBuffer) { return this.vault.modifyBinary(file, data); }
+    async readFile(file: TFile) { return this.adapter.read(file.path); }
+    renameFile(file: TAbstractFile, newPath: string) { return this.vault.rename(file, newPath); }
+    trashFile(file: TAbstractFile, _system: boolean) { return this.vault.trash(file as TFile, true); }
+    getVaultName() { return this.vault.getName(); }
 }

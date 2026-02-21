@@ -1,16 +1,10 @@
 import { CloudAdapter, CloudChanges, CloudFile } from "../types/adapter";
-import { generateCodeChallenge, generateCodeVerifier } from "../auth/pkce";
-import {
-    DEFAULT_SETTINGS,
-    SETTINGS_LIMITS,
-    OAUTH_REDIRECT_URI,
-    AUTH_PROXY_BASE_URL,
-} from "../constants";
-import { toHex } from "../utils/format";
+import { DEFAULT_SETTINGS } from "../constants";
 import { basename } from "../utils/path";
-import { Platform, requestUrl } from "obsidian";
+import { GoogleAuthService, type AuthMethod } from "./google-drive/auth-service";
+import { GoogleDriveHttpClient } from "./google-drive/http-client";
 
-export type AuthMethod = "default" | "custom-proxy" | "client-credentials";
+export type { AuthMethod };
 
 export class GoogleDriveAdapter implements CloudAdapter {
     name = "Google Drive";
@@ -29,21 +23,26 @@ export class GoogleDriveAdapter implements CloudAdapter {
     private outsideFolderIds: Set<string> = new Set(); // IDs confirmed to be outside vaultRootId
     private cloudRootFolder: string = DEFAULT_SETTINGS.cloudRootFolder;
 
+    public auth: GoogleAuthService;
+    private http: GoogleDriveHttpClient;
+
     constructor(
-        private _clientId: string,
-        private _clientSecret: string,
+        clientId: string,
+        clientSecret: string,
         public vaultName: string,
         cloudRootFolder?: string,
     ) {
         this.cloudRootFolder = this.validateRootFolder(cloudRootFolder);
+        this.auth = new GoogleAuthService(clientId, clientSecret);
+        this.http = new GoogleDriveHttpClient(this.auth);
     }
 
     get clientId(): string {
-        return this._clientId;
+        return this.auth.clientId;
     }
 
     get clientSecret(): string {
-        return this._clientSecret;
+        return this.auth.clientSecret;
     }
 
     get rootFolder(): string {
@@ -51,10 +50,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
     }
 
     setCredentials(clientId: string, clientSecret: string) {
-        this._clientId = clientId;
-        this._clientSecret = clientSecret;
-        // reset caches or re-auth might be needed if credentials change significantly,
-        // but for now just updating state is enough as Auth flow will use new values.
+        this.auth.setCredentials(clientId, clientSecret);
     }
 
     private validateRootFolder(folder: string | undefined): string {
@@ -74,12 +70,15 @@ export class GoogleDriveAdapter implements CloudAdapter {
     private logger: ((msg: string, level?: string) => void) | null = null;
     setLogger(logger: (msg: string, level?: string) => void) {
         this.logger = logger;
+        this.auth.setLogger(logger);
     }
 
-    // Callback for fatal auth errors (e.g. invalid grant)
-    public onAuthFailure: (() => void) | null = null;
-    // Callback after successful token refresh (to persist new tokens)
-    public onTokenRefresh: (() => void) | null = null;
+    // Callback for fatal auth errors (e.g. invalid grant) — delegated to auth
+    set onAuthFailure(cb: (() => void) | null) { this.auth.onAuthFailure = cb; }
+    get onAuthFailure(): (() => void) | null { return this.auth.onAuthFailure; }
+    // Callback after successful token refresh (to persist new tokens) — delegated to auth
+    set onTokenRefresh(cb: (() => void) | null) { this.auth.onTokenRefresh = cb; }
+    get onTokenRefresh(): (() => void) | null { return this.auth.onTokenRefresh; }
 
     private async log(msg: string, level: string = "debug") {
         console.log(`VaultSync: [${level.toUpperCase()}] ${msg}`);
@@ -92,8 +91,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
         vaultName?: string,
         cloudRootFolder?: string,
     ) {
-        this._clientId = clientId;
-        this._clientSecret = clientSecret;
+        this.auth.setCredentials(clientId, clientSecret);
         const newRoot = this.validateRootFolder(cloudRootFolder);
         if (vaultName && vaultName !== this.vaultName) {
             this.vaultName = vaultName;
@@ -110,77 +108,26 @@ export class GoogleDriveAdapter implements CloudAdapter {
         }
     }
 
-    private accessToken: string | null = null;
-    private refreshToken: string | null = null;
-    private tokenExpiresAt: number = 0; // epoch ms
-    private refreshPromise: Promise<void> | null = null;
-    private codeVerifier: string | null = null;
-    private currentAuthState: string | null = null;
-
-    private authMethod: AuthMethod = "default";
-    private proxyUrl: string = "";
-
-    setAuthConfig(method: AuthMethod, proxyUrl?: string) {
-        this.authMethod = method;
-        if (proxyUrl && method === "custom-proxy") {
-            try {
-                const parsed = new URL(proxyUrl);
-                if (parsed.protocol !== "https:") {
-                    throw new Error("Custom proxy URL must use HTTPS");
-                }
-                this.proxyUrl = proxyUrl;
-            } catch {
-                this.proxyUrl = "";
-            }
-        } else {
-            this.proxyUrl = "";
-        }
-    }
-
-    private getProxyBaseUrl(): string | null {
-        switch (this.authMethod) {
-            case "default":
-                return AUTH_PROXY_BASE_URL;
-            case "custom-proxy":
-                return this.proxyUrl.replace(/\/+$/, ""); // trim trailing slashes
-            case "client-credentials":
-                return null;
-        }
-    }
-
-    isAuthenticated(): boolean {
-        return !!this.accessToken;
-    }
-
-    getTokens(): {
-        accessToken: string | null;
-        refreshToken: string | null;
-        tokenExpiresAt: number;
-    } {
-        return {
-            accessToken: this.accessToken,
-            refreshToken: this.refreshToken,
-            tokenExpiresAt: this.tokenExpiresAt,
-        };
-    }
-
+    // === Auth delegation ===
+    setAuthConfig(method: AuthMethod, proxyUrl?: string) { this.auth.setAuthConfig(method, proxyUrl); }
+    isAuthenticated(): boolean { return this.auth.isAuthenticated(); }
+    getTokens() { return this.auth.getTokens(); }
     setTokens(accessToken: string | null, refreshToken: string | null, tokenExpiresAt?: number) {
-        const hadToken = !!this.accessToken;
-        this.accessToken = accessToken;
-        this.refreshToken = refreshToken;
-        if (tokenExpiresAt !== undefined) this.tokenExpiresAt = tokenExpiresAt;
+        const hadToken = this.auth.isAuthenticated();
+        this.auth.setTokens(accessToken, refreshToken, tokenExpiresAt);
         // Clear cached initPromise when auth state changes so ensureRootFolders
         // re-runs with the new credentials instead of returning a stale rejection.
         if (!hadToken && accessToken) {
             this.initPromise = null;
         }
     }
-
-    getAuthStatus(): string {
-        if (this.accessToken) return "Authenticated";
-        if (this.refreshToken) return "Token available (Requires refresh)";
-        return "Not authenticated";
-    }
+    getAuthStatus(): string { return this.auth.getAuthStatus(); }
+    async getAuthUrl(): Promise<string> { return this.auth.getAuthUrl(); }
+    verifyState(state: string): boolean { return this.auth.verifyState(state); }
+    async login(): Promise<void> { return this.auth.login(); }
+    async exchangeCodeForToken(code: string): Promise<void> { return this.auth.exchangeCodeForToken(code); }
+    async handleCallback(url: string | URL): Promise<void> { return this.auth.handleCallback(url); }
+    async logout(): Promise<void> { return this.auth.logout(); }
 
     /**
      * Initialize the adapter (ensure root folders exist)
@@ -213,14 +160,15 @@ export class GoogleDriveAdapter implements CloudAdapter {
      */
     cloneWithNewVaultName(newVaultName: string): CloudAdapter {
         const cloned = new GoogleDriveAdapter(
-            this._clientId,
-            this._clientSecret,
+            this.auth.clientId,
+            this.auth.clientSecret,
             newVaultName,
             this.cloudRootFolder,
         );
-        cloned.setTokens(this.accessToken, this.refreshToken, this.tokenExpiresAt);
-        if (this.log) {
-            cloned.setLogger(this.log);
+        const tokens = this.auth.getTokens();
+        cloned.auth.setTokens(tokens.accessToken, tokens.refreshToken, tokens.tokenExpiresAt);
+        if (this.logger) {
+            cloned.setLogger(this.logger);
         }
         return cloned;
     }
@@ -236,403 +184,15 @@ export class GoogleDriveAdapter implements CloudAdapter {
             const safeParentId = parentId.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
             query += ` and '${safeParentId}' in parents`;
         }
-        const resp = await this.fetchWithAuth(
+        const resp = await this.http.fetchWithAuth(
             `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name)`,
         );
         const data = await resp.json();
         return data.files?.[0]?.id || null;
     }
 
-    private getRedirectUri(): string {
-        // Unified callback endpoint on Cloudflare Pages
-        // Handles both proxy mode (server-side token exchange) and
-        // client-credentials mode (code passthrough to obsidian://)
-        return OAUTH_REDIRECT_URI;
-    }
-
-    async getAuthUrl(): Promise<string> {
-        // SEC-003: Secure Random State
-        const array = new Uint8Array(32);
-        window.crypto.getRandomValues(array);
-        const randomState = toHex(array);
-
-        const proxyBase = this.getProxyBaseUrl();
-        if (proxyBase) {
-            // Proxy mode: state prefix "p:" signals server-side token exchange
-            this.currentAuthState = `p:${randomState}`;
-            window.localStorage.setItem("vault-sync-state", this.currentAuthState);
-            const params = new URLSearchParams({ state: this.currentAuthState });
-            return `${proxyBase}/api/auth/login?${params.toString()}`;
-        }
-
-        // Client-credentials mode: state prefix "d:" signals code passthrough
-        this.currentAuthState = `d:${randomState}`;
-        window.localStorage.setItem("vault-sync-state", this.currentAuthState);
-        this.codeVerifier = await generateCodeVerifier();
-        const challenge = await generateCodeChallenge(this.codeVerifier);
-        window.localStorage.setItem("vault-sync-verifier", this.codeVerifier);
-
-        const params = new URLSearchParams({
-            client_id: this.clientId,
-            redirect_uri: this.getRedirectUri(),
-            response_type: "code",
-            scope: "https://www.googleapis.com/auth/drive.file",
-            code_challenge: challenge,
-            code_challenge_method: "S256",
-            state: this.currentAuthState,
-            access_type: "offline",
-            prompt: "consent",
-        });
-
-        return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
-    }
-
-    verifyState(state: string): boolean {
-        const savedState = this.currentAuthState || window.localStorage.getItem("vault-sync-state");
-        if (!savedState) return false;
-        return state === savedState;
-    }
-
-    async login(): Promise<void> {
-        const authUrl = await this.getAuthUrl();
-        // Just open the URL. The callback will be handled via obsidian:// protocol handler
-        // which triggers the exchangeCodeForToken flow in the main plugin class.
-        window.open(authUrl);
-    }
-
-    async exchangeCodeForToken(code: string): Promise<void> {
-        if (!this.codeVerifier) {
-            this.codeVerifier = window.localStorage.getItem("vault-sync-verifier");
-        }
-        if (!this.codeVerifier) {
-            throw new Error("Code verifier missing. Did you start the login flow?");
-        }
-
-        const body = new URLSearchParams({
-            client_id: this.clientId,
-            client_secret: this.clientSecret,
-            code: code,
-            code_verifier: this.codeVerifier!,
-            grant_type: "authorization_code",
-            redirect_uri: this.getRedirectUri(),
-        });
-
-        let response: Response;
-        try {
-            response = await fetch("https://oauth2.googleapis.com/token", {
-                method: "POST",
-                headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                body: body.toString(),
-            });
-        } catch (e) {
-            throw new Error(
-                `Authentication failed: could not reach Google servers. Check your network connection.`,
-            );
-        }
-
-        const data = await this.safeJsonParse(response, "token exchange");
-        if (data.error) throw new Error(data.error_description || data.error);
-
-        this.accessToken = data.access_token;
-        this.refreshToken = data.refresh_token;
-        if (data.expires_in) this.tokenExpiresAt = Date.now() + data.expires_in * 1000;
-    }
-
-    async handleCallback(url: string | URL): Promise<void> {
-        const urlObj = typeof url === "string" ? new URL(url) : url;
-        const code = urlObj.searchParams.get("code");
-        const state = urlObj.searchParams.get("state");
-
-        if (state !== this.currentAuthState) throw new Error("Invalid state");
-        if (code) await this.exchangeCodeForToken(code);
-    }
-
-    async logout(): Promise<void> {
-        // TODO: Implement logout
-    }
-    private async fetchWithAuth(
-        url: string,
-        options: RequestInit = {},
-        retryCount: number = 0,
-    ): Promise<Response> {
-        if (!this.accessToken) throw new Error("Not authenticated");
-
-        // Proactive token refresh: refresh 5 minutes before expiry
-        const REFRESH_BUFFER_MS = 5 * 60 * 1000;
-        if (
-            this.tokenExpiresAt > 0 &&
-            Date.now() > this.tokenExpiresAt - REFRESH_BUFFER_MS &&
-            this.refreshToken &&
-            retryCount === 0
-        ) {
-            try {
-                await this.log("Proactive token refresh (expiring soon)...", "system");
-                await this.refreshTokens();
-            } catch {
-                // If proactive refresh fails, proceed with current token — it may still be valid
-            }
-        }
-
-        const headers = new Headers(options.headers || {});
-        headers.set("Authorization", `Bearer ${this.accessToken}`);
-
-        try {
-            const response = await fetch(url, { ...options, headers });
-
-            // SEC-004: Limit retries
-            const MAX_RETRIES = 3;
-
-            // Handle 401 Unauthorized (Refresh Token)
-            if (response.status === 401 && this.refreshToken && retryCount < 2) {
-                try {
-                    await this.refreshTokens();
-                } catch {
-                    // Token refresh failed (e.g. proxy unreachable) — don't retry with stale token
-                    throw new Error("Authentication failed: unable to refresh access token");
-                }
-                return this.fetchWithAuth(url, options, retryCount + 1);
-            }
-
-            // Handle 429 (Too Many Requests) and 5xx (Server Errors) with Exponential Backoff
-            if ((response.status === 429 || response.status >= 500) && retryCount < MAX_RETRIES) {
-                // Check connectivity
-                if (!window.navigator.onLine) {
-                    await this.log("Network offline. Waiting for connection...", "warn");
-                    await this.waitForOnline();
-                }
-
-                const backoffDelay = Math.pow(2, retryCount) * 1000 + Math.random() * 500;
-                await this.log(
-                    `API Error ${response.status}. Retrying in ${Math.round(backoffDelay)}ms (Attempt ${retryCount + 1}/${MAX_RETRIES})...`,
-                    "warn",
-                );
-                await new Promise((resolve) => setTimeout(resolve, backoffDelay));
-                return this.fetchWithAuth(url, options, retryCount + 1);
-            }
-
-            if (!response.ok) {
-                let errorMsg = `API Error ${response.status}`;
-                try {
-                    const text = await response.text();
-                    try {
-                        const json = JSON.parse(text);
-                        if (json.error && json.error.message) {
-                            errorMsg = json.error.message;
-                        } else {
-                            errorMsg = text;
-                        }
-                    } catch {
-                        errorMsg = text;
-                    }
-                } catch (e) {
-                    errorMsg = "Could not read error body";
-                }
-
-                // SEC-007: Sanitize error messages (logging)
-                console.error(`VaultSync: API Error ${response.status}: ${errorMsg}`);
-
-                // Throw the actual error message so callers can handle specific cases
-                throw new Error(errorMsg);
-            }
-
-            return response;
-        } catch (e) {
-            // Handle network timeouts / offline status
-            const isNetworkError = e instanceof TypeError && e.message === "Failed to fetch";
-            if (isNetworkError && retryCount < 3) {
-                if (!window.navigator.onLine) {
-                    await this.log(
-                        "Network offline during fetch. Waiting for connection...",
-                        "warn",
-                    );
-                    await this.waitForOnline();
-                }
-
-                const backoffDelay = Math.pow(2, retryCount) * 2000;
-                await this.log(`Network error. Retrying in ${backoffDelay}ms...`, "warn");
-                await new Promise((resolve) => setTimeout(resolve, backoffDelay));
-                return this.fetchWithAuth(url, options, retryCount + 1);
-            }
-            throw e;
-        }
-    }
-
-    static readonly ONLINE_TIMEOUT_MS = 60_000;
-
-    private async waitForOnline(): Promise<void> {
-        if (window.navigator.onLine) return;
-        return new Promise((resolve) => {
-            const cleanup = () => {
-                window.removeEventListener("online", done);
-                window.removeEventListener("focus", done);
-                clearInterval(interval);
-                clearTimeout(timeout);
-            };
-            const done = () => {
-                cleanup();
-                resolve();
-            };
-            window.addEventListener("online", done);
-            window.addEventListener("focus", done);
-            const interval = setInterval(() => {
-                if (window.navigator.onLine) done();
-            }, 5000);
-            const timeout = setTimeout(() => {
-                this.log("waitForOnline timed out after 60s — resuming retry loop", "warn");
-                done();
-            }, GoogleDriveAdapter.ONLINE_TIMEOUT_MS);
-        });
-    }
-
-    // SEC-005: Common escaping helper
-    private escapeQueryValue(value: string): string {
-        return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-    }
-
-    /** Parse JSON safely. Throws a clear error on malformed responses (CDN/WAF HTML pages, truncated body). */
-    private async safeJsonParse(response: Response, context: string): Promise<any> {
-        const text = await response.text();
-        try {
-            return JSON.parse(text);
-        } catch {
-            throw new Error(`Invalid JSON from ${context}: ${text.slice(0, 200)}`);
-        }
-    }
-
-    private refreshTokens(): Promise<void> {
-        if (this.refreshPromise) return this.refreshPromise;
-        this.refreshPromise = (async () => {
-            try {
-                const proxyBase = this.getProxyBaseUrl();
-                if (proxyBase) {
-                    await this.refreshTokensViaProxy(proxyBase);
-                } else {
-                    await this.refreshTokensDirect();
-                }
-            } finally {
-                this.refreshPromise = null;
-            }
-        })();
-        return this.refreshPromise;
-    }
-
-    private async refreshTokensViaProxy(proxyBase: string) {
-        await this.log(
-            `Refreshing tokens via proxy... RT present: ${!!this.refreshToken}`,
-            "system",
-        );
-
-        // Use Obsidian's requestUrl instead of fetch to bypass CORS restrictions.
-        // fetch to the proxy origin is blocked by browser CORS policy, while
-        // requestUrl operates at the native level and is not subject to CORS.
-        let status: number;
-        let text: string;
-        try {
-            const result = await requestUrl({
-                url: `${proxyBase}/api/auth/refresh`,
-                method: "POST",
-                contentType: "application/json",
-                body: JSON.stringify({ refresh_token: this.refreshToken }),
-                throw: false,
-            });
-            status = result.status;
-            text = result.text;
-        } catch (e) {
-            await this.log(
-                `Proxy refresh network error: ${e instanceof Error ? e.message : String(e)}`,
-                "error",
-            );
-            // Don't clear tokens on network errors — the current access token
-            // may still be valid. Only confirmed auth errors (invalid_grant)
-            // should trigger credential clearing.
-            throw new Error("Token refresh failed: proxy unreachable");
-        }
-
-        let data: any;
-        try {
-            data = JSON.parse(text);
-        } catch {
-            throw new Error(`Invalid JSON from proxy refresh: ${text.slice(0, 200)}`);
-        }
-
-        if (status < 200 || status >= 300) {
-            const err = data.error_description || data.error || JSON.stringify(data);
-            console.error(`VaultSync: Proxy refresh failure (${status}): ${err}`);
-            if (data.error === "invalid_grant" || data.error === "unauthorized_client") {
-                this.accessToken = null;
-                this.refreshToken = null;
-                if (this.onAuthFailure) this.onAuthFailure();
-                throw new Error(`Token revoked: ${err}`);
-            }
-            // Non-fatal proxy error (e.g. 500) — don't clear tokens, don't throw.
-            // Caller will proceed with the current (possibly still valid) token.
-            return;
-        }
-
-        if (!data.access_token) {
-            await this.log("Proxy returned 200 but no access_token in response", "error");
-            throw new Error("Token refresh failed: invalid proxy response");
-        }
-
-        this.accessToken = data.access_token;
-        if (data.refresh_token) this.refreshToken = data.refresh_token;
-        if (data.expires_in) this.tokenExpiresAt = Date.now() + data.expires_in * 1000;
-        await this.log("Token refresh via proxy successful.", "system");
-        if (this.onTokenRefresh) this.onTokenRefresh();
-    }
-
-    private async refreshTokensDirect() {
-        await this.log(
-            `Refreshing tokens... ClientID present: ${!!this.clientId}, Secret present: ${!!this.clientSecret}, RT present: ${!!this.refreshToken}`,
-            "system",
-        );
-
-        const body = new URLSearchParams({
-            client_id: this.clientId,
-            client_secret: this.clientSecret,
-            refresh_token: this.refreshToken!,
-            grant_type: "refresh_token",
-        });
-
-        let response: Response;
-        try {
-            response = await fetch("https://oauth2.googleapis.com/token", {
-                method: "POST",
-                headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                body: body.toString(),
-            });
-        } catch (e) {
-            await this.log(
-                `Direct refresh network error: ${e instanceof Error ? e.message : String(e)}`,
-                "error",
-            );
-            // Don't clear tokens on network errors — the current access token
-            // may still be valid. Only confirmed auth errors (invalid_grant)
-            // should trigger credential clearing.
-            throw new Error("Token refresh failed: Google OAuth unreachable");
-        }
-
-        const data = await this.safeJsonParse(response, "direct refresh");
-
-        if (!response.ok) {
-            const err = data.error_description || data.error || JSON.stringify(data);
-            console.error(`VaultSync: Refresh failed (${response.status}): ${err}`);
-            if (data.error === "invalid_grant" || data.error === "unauthorized_client") {
-                this.accessToken = null;
-                this.refreshToken = null;
-                if (this.onAuthFailure) this.onAuthFailure();
-                throw new Error(`Token revoked: ${err}`);
-            }
-            // Non-fatal error (e.g. 500) — don't clear tokens, don't throw.
-            return;
-        }
-
-        this.accessToken = data.access_token;
-        if (data.refresh_token) this.refreshToken = data.refresh_token;
-        if (data.expires_in) this.tokenExpiresAt = Date.now() + data.expires_in * 1000;
-        await this.log("Token refresh successful.", "system");
-        if (this.onTokenRefresh) this.onTokenRefresh();
-    }
+    // Keep static constant for backward compatibility with tests
+    static readonly ONLINE_TIMEOUT_MS = GoogleDriveHttpClient.ONLINE_TIMEOUT_MS;
 
     private async ensureRootFolders(): Promise<string> {
         if (this.initPromise) {
@@ -649,10 +209,10 @@ export class GoogleDriveAdapter implements CloudAdapter {
 
                 // 1. Ensure app root folder exists
                 if (!this.appRootId) {
-                    const query = `name = '${this.escapeQueryValue(
+                    const query = `name = '${this.http.escapeQueryValue(
                         this.cloudRootFolder,
                     )}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
-                    const response = await this.fetchWithAuth(
+                    const response = await this.http.fetchWithAuth(
                         `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,parents)`,
                     );
                     const data: any = await response.json();
@@ -673,9 +233,9 @@ export class GoogleDriveAdapter implements CloudAdapter {
                 if (!this.appRootId) throw new Error("Failed to resolve App Root ID");
 
                 // 2. Ensure vault root "ObsidianVaultSync/<VaultName>" exists
-                const escapedVaultName = this.escapeQueryValue(this.vaultName);
+                const escapedVaultName = this.http.escapeQueryValue(this.vaultName);
                 const query = `name = '${escapedVaultName}' and '${this.appRootId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
-                const response = await this.fetchWithAuth(
+                const response = await this.http.fetchWithAuth(
                     `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,modifiedTime)`,
                 );
                 const data: any = await response.json();
@@ -708,7 +268,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
                         "info",
                     );
                     const globalQuery = `name = '${escapedVaultName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
-                    const globalResp = await this.fetchWithAuth(
+                    const globalResp = await this.http.fetchWithAuth(
                         `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(globalQuery)}&fields=files(id,name,parents,modifiedTime)`,
                     );
                     const globalData: any = await globalResp.json();
@@ -737,7 +297,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
                                     `Consolidating: Moving manually uploaded vault to ObsidianVaultSync...`,
                                     "system",
                                 );
-                                await this.fetchWithAuth(
+                                await this.http.fetchWithAuth(
                                     `https://www.googleapis.com/drive/v3/files/${this.vaultRootId}?addParents=${this.appRootId}&removeParents=${currentParent}`,
                                     {
                                         method: "PATCH",
@@ -807,10 +367,10 @@ export class GoogleDriveAdapter implements CloudAdapter {
                     continue;
                 }
 
-                const query = `name = '${this.escapeQueryValue(
+                const query = `name = '${this.http.escapeQueryValue(
                     part,
                 )}' and '${currentParentId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
-                const response = await this.fetchWithAuth(
+                const response = await this.http.fetchWithAuth(
                     `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}`,
                 );
                 const data = await response.json();
@@ -852,10 +412,10 @@ export class GoogleDriveAdapter implements CloudAdapter {
         try {
             const parentId = await this.resolveParentId(path, false);
             const name = basename(path);
-            const query = `name = '${this.escapeQueryValue(
+            const query = `name = '${this.http.escapeQueryValue(
                 name || "",
             )}' and '${parentId}' in parents and trashed = false`;
-            const response = await this.fetchWithAuth(
+            const response = await this.http.fetchWithAuth(
                 `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,mimeType,modifiedTime,size,md5Checksum)`,
             );
             const data = await response.json();
@@ -882,7 +442,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
     async getFileMetadataById(fileId: string, knownPath?: string): Promise<CloudFile | null> {
         try {
             // Direct ID lookup provides stronger consistency than query search
-            const response = await this.fetchWithAuth(
+            const response = await this.http.fetchWithAuth(
                 `https://www.googleapis.com/drive/v3/files/${fileId}?fields=id,name,mimeType,modifiedTime,size,md5Checksum,trashed`,
             );
             const file = await response.json();
@@ -905,7 +465,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
     }
 
     async downloadFile(fileId: string): Promise<ArrayBuffer> {
-        const response = await this.fetchWithAuth(
+        const response = await this.http.fetchWithAuth(
             `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
         );
         return await response.arrayBuffer();
@@ -959,7 +519,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
         bodyArray.set(new Uint8Array(content), headerArray.byteLength);
         bodyArray.set(footerArray, headerArray.byteLength + content.byteLength);
 
-        const response = await this.fetchWithAuth(url, {
+        const response = await this.http.fetchWithAuth(url, {
             method: method,
             headers: { "Content-Type": `multipart/related; boundary=${boundary}` },
             body: bodyArray,
@@ -1037,7 +597,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
             method = "POST";
         }
 
-        const initResponse = await this.fetchWithAuth(initUrl, {
+        const initResponse = await this.http.fetchWithAuth(initUrl, {
             method,
             headers: {
                 "Content-Type": "application/json; charset=UTF-8",
@@ -1067,7 +627,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
         mtime: number,
     ): Promise<CloudFile | null> {
         const end = offset + chunk.byteLength - 1;
-        const uploadResponse = await this.fetchWithAuth(sessionUri, {
+        const uploadResponse = await this.http.fetchWithAuth(sessionUri, {
             method: "PUT",
             headers: {
                 "Content-Type": "application/octet-stream",
@@ -1096,7 +656,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
     }
 
     async deleteFile(fileId: string): Promise<void> {
-        await this.fetchWithAuth(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
+        await this.http.fetchWithAuth(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
             method: "DELETE",
         });
     }
@@ -1107,7 +667,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
         newParentPath: string | null,
     ): Promise<CloudFile> {
         // 1. 現在のファイルの親フォルダを取得
-        const currentMeta = await this.fetchWithAuth(
+        const currentMeta = await this.http.fetchWithAuth(
             `https://www.googleapis.com/drive/v3/files/${fileId}?fields=id,name,parents,modifiedTime,size,md5Checksum`,
         );
         const currentFile = await currentMeta.json();
@@ -1133,7 +693,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
 
         const metadata: any = { name: newName };
         const url = `https://www.googleapis.com/drive/v3/files/${fileId}?${queryParams.join("&")}`;
-        const response = await this.fetchWithAuth(url, {
+        const response = await this.http.fetchWithAuth(url, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(metadata),
@@ -1168,7 +728,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
         };
         if (parentId) metadata.parents = [parentId];
 
-        const response = await this.fetchWithAuth("https://www.googleapis.com/drive/v3/files", {
+        const response = await this.http.fetchWithAuth("https://www.googleapis.com/drive/v3/files", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(metadata),
@@ -1225,10 +785,10 @@ export class GoogleDriveAdapter implements CloudAdapter {
                                 currentParentId = this.folderCache.get(pathAccumulator)!;
                             } else {
                                 // Double check on remote to avoid duplicates
-                                const query = `name = '${this.escapeQueryValue(
+                                const query = `name = '${this.http.escapeQueryValue(
                                     part,
                                 )}' and '${currentParentId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
-                                const response = await this.fetchWithAuth(
+                                const response = await this.http.fetchWithAuth(
                                     `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name)`,
                                 );
                                 const data = await response.json();
@@ -1265,7 +825,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
 
     async fileExistsById(fileId: string): Promise<boolean> {
         try {
-            const response = await this.fetchWithAuth(
+            const response = await this.http.fetchWithAuth(
                 `https://www.googleapis.com/drive/v3/files/${fileId}?fields=id,trashed`,
             );
             const data = await response.json();
@@ -1276,7 +836,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
     }
 
     async getStartPageToken(): Promise<string> {
-        const response = await this.fetchWithAuth(
+        const response = await this.http.fetchWithAuth(
             "https://www.googleapis.com/drive/v3/changes/startPageToken",
         );
         const data = await response.json();
@@ -1291,7 +851,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
         //   - file(...): file metadata needed for SyncManager (id, name, mimeType, parents, trashed, etc.)
         const fields =
             "nextPageToken,newStartPageToken,changes(fileId,removed,file(id,name,mimeType,modifiedTime,size,md5Checksum,parents,trashed))";
-        const response = await this.fetchWithAuth(
+        const response = await this.http.fetchWithAuth(
             `https://www.googleapis.com/drive/v3/changes?pageToken=${pageToken}&pageSize=1000&fields=${fields}`,
         );
         const data = await response.json();
@@ -1375,7 +935,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
             }
 
             try {
-                const response = await this.fetchWithAuth(
+                const response = await this.http.fetchWithAuth(
                     `https://www.googleapis.com/drive/v3/files/${currentId}?fields=id,name,parents`,
                 );
                 const file = await response.json();
@@ -1438,7 +998,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
                 console.log(
                     `VaultSync: listFiles querying folder ${currentFolderId}, prefix: "${currentPathPrefix}"`,
                 );
-                const response = await this.fetchWithAuth(url);
+                const response = await this.http.fetchWithAuth(url);
                 const data: any = await response.json();
                 console.log(`VaultSync: listFiles query returned ${data.files?.length || 0} items`);
                 pageToken = data.nextPageToken;
@@ -1491,7 +1051,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
         const meta = await this.getFileMetadata(path);
         if (!meta) throw new Error(`File not found: ${path}`);
 
-        const response = await this.fetchWithAuth(
+        const response = await this.http.fetchWithAuth(
             `https://www.googleapis.com/drive/v3/files/${meta.id}/revisions?fields=revisions(id,modifiedTime,size,lastModifyingUser,keepForever,md5Checksum)`,
         );
         const data = await response.json();
@@ -1515,14 +1075,14 @@ export class GoogleDriveAdapter implements CloudAdapter {
         // 1. Get revision metadata for hash verification (if available in list)
         // Or get it from the get call if header allows?
         // Revisions.get supports fields.
-        const metaResponse = await this.fetchWithAuth(
+        const metaResponse = await this.http.fetchWithAuth(
             `https://www.googleapis.com/drive/v3/files/${meta.id}/revisions/${revisionId}?fields=md5Checksum`,
         );
         const metaData = await metaResponse.json();
         const expectedHash = metaData.md5Checksum;
 
         // 2. Download content
-        const response = await this.fetchWithAuth(
+        const response = await this.http.fetchWithAuth(
             `https://www.googleapis.com/drive/v3/files/${meta.id}/revisions/${revisionId}?alt=media`,
         );
         const buffer = await response.arrayBuffer();
@@ -1557,7 +1117,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
         const meta = await this.getFileMetadata(path);
         if (!meta) throw new Error(`File not found: ${path}`);
 
-        await this.fetchWithAuth(
+        await this.http.fetchWithAuth(
             `https://www.googleapis.com/drive/v3/files/${meta.id}/revisions/${revisionId}`,
             {
                 method: "PATCH",
@@ -1572,7 +1132,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
         const meta = await this.getFileMetadata(path);
         if (!meta) throw new Error(`File not found: ${path}`);
 
-        await this.fetchWithAuth(
+        await this.http.fetchWithAuth(
             `https://www.googleapis.com/drive/v3/files/${meta.id}/revisions/${revisionId}`,
             { method: "DELETE" },
         );

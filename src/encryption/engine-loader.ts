@@ -1,7 +1,8 @@
 import * as obsidianModule from "obsidian";
-import { App, normalizePath } from "obsidian";
+import { normalizePath } from "obsidian";
 import { ICryptoEngine } from "./interfaces";
 import { toHex } from "../utils/format";
+import type { IVaultOperations } from "../types/vault-operations";
 
 // SHA-256 hash of the approved e2ee-engine.js file.
 // Update via: npm run hash (in VaultSync-E2EE-Engine repo)
@@ -23,7 +24,7 @@ async function computeSHA256(content: string): Promise<string> {
  * Validates the engine hash and interface before loading.
  */
 export async function loadExternalCryptoEngine(
-    app: App,
+    vault: IVaultOperations,
     pluginPath: string,
     onNotify?: (key: string) => Promise<void>,
 ): Promise<ICryptoEngine | null> {
@@ -46,8 +47,8 @@ export async function loadExternalCryptoEngine(
 
     for (const enginePath of uniquePaths) {
         try {
-            if (await app.vault.adapter.exists(enginePath)) {
-                content = await app.vault.adapter.read(enginePath);
+            if (await vault.exists(enginePath)) {
+                content = await vault.read(enginePath);
                 successfulPath = enginePath;
                 break;
             }

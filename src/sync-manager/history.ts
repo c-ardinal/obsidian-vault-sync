@@ -66,11 +66,11 @@ export async function restoreRevision(
     try {
         const content = await getRevisionContent(ctx, path, revision.id);
 
-        const file = ctx.app.vault.getAbstractFileByPath(path);
+        const file = ctx.vault.getAbstractFileByPath(path);
         if (file instanceof TFile) {
-            await ctx.app.vault.modifyBinary(file, content);
+            await ctx.vault.modifyBinary(file, content);
         } else {
-            await ctx.app.vault.createBinary(path, content);
+            await ctx.vault.createBinary(path, content);
         }
 
         const timestamp = new Date().toISOString();
