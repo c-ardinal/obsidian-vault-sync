@@ -20,9 +20,9 @@
 ---
 
 A high-speed, intelligent cloud storage sync plugin for Obsidian.
-Leveraging Google Drive, it provides robust data consistency and a fast synchronization experience across PC and mobile devices (iOS/Android).
+Leveraging Cloud Storage, it provides robust data consistency and a fast synchronization experience across PC and mobile devices (iOS/Android).
 
-### Architecture
+## 🧱 Architecture
 
 ```mermaid
 graph LR
@@ -31,9 +31,9 @@ graph LR
         B["📱 Mobile<br/>Obsidian"]
     end
 
-    subgraph "<b>Google</b>"
-        C[("☁️ Google Drive")]
-        D["🔐 Google OAuth"]
+    subgraph "<b>ServiceProvider</b>"
+        C[("☁️ Cloud Storage")]
+        D["🔐 OAuth"]
     end
 
     E["🌐 Auth Proxy<br/><i>Cloudflare Pages</i>"]
@@ -48,16 +48,24 @@ graph LR
     style E fill:#F48120,color:#fff
 ```
 
-> **Vault data is always transferred directly** between your device and Google Drive.
+> **Vault data is always transferred directly** between your device and Cloud Storage.
 > The auth proxy is only used during the initial OAuth login (and can be bypassed with your own Client ID).
+
+---
+
+## ☁️ Supported Cloud Storage
+
+- [x] Google Drive
+
+※ Support for other Cloud Storage providers is planned.
 
 ---
 
 ## ⚙️ Requirements
 
 - **Obsidian**: v0.15.0 or higher
-- **Google Account**: Required to access the Google Drive API
 - **Network**: Internet connection (required during sync)
+- **Google Account**: Required to access the Google Drive API
 - **Google Cloud Project** _(optional)_: Only required if you choose to use your own Client ID / Client Secret instead of the default authentication proxy
 
 ---
@@ -67,7 +75,7 @@ graph LR
 - **Intelligent Sync (Index Shortcut)**: Shares a master index on the cloud. Skips the full scan if no changes are detected, saving battery and data usage.
 - **Fast Difference Detection (MD5 Adoption)**: Even without an existing index, it matches file MD5 hashes. If they match, the local file is adopted instantly without a redundant download.
 - **Smart Merge (3-way Merge)**: When multiple devices edit a file simultaneously, it performs an automatic merge based on a common ancestor. During conflicts, it is safely protected by lock control (`communication.json`).
-- **Revision History & Diff Viewer**: Retrieves file revisions from Google Drive, allowing for diff visualization against the local version and restoration of past versions.
+- **Revision History & Diff Viewer**: Retrieves file revisions from Cloud Storage, allowing for diff visualization against the local version and restoration of past versions.
 - **Mobile Optimized**: Built on the `fetch` API to run on both desktop and mobile. Features include auto-sync on edit-stop or save, and layout change triggers (e.g., when switching tabs).
 - **Granular Sync Settings**: Selectively sync settings, plugins, themes, and hotkeys within `.obsidian`. Cache and temporary files are automatically excluded.
 - **Secure Authentication & Storage**: OAuth2 authentication via the built-in authentication proxy (no setup required) or your own Client ID/Secret with PKCE. Credentials are separated from the main settings and saved using system-standard secure storage (Keychain/Credential Manager).
@@ -151,11 +159,11 @@ graph TD
 
 ## 🔒 Privacy and Security
 
-- **Direct Communication**: All vault data is synchronized directly between your device and Google Drive. No vault content passes through the authentication proxy or any third-party server.
+- **Direct Communication**: All vault data is synchronized directly between your device and Cloud Storage. No vault content passes through the authentication proxy or any third-party server.
 - **Authentication Proxy**: By default, the plugin uses an authentication proxy hosted on [Cloudflare Pages](https://www.cloudflare.com/) to facilitate the OAuth login flow. This proxy handles OAuth authorization codes and tokens **transiently** (in-memory only, never persisted). You can bypass this proxy by configuring your own Client ID / Client Secret. For details, see our [Privacy Policy](https://obsidian-vault-sync.pages.dev/privacy/).
 - **Auth Protection**: Sensitive information such as tokens and encryption secrets are stored directly in the OS-standard secure storage (Keychain/Credential Manager) via Obsidian's Secret Storage API. This minimizes the presence of sensitive files within the Vault. In environments where Secret Storage is unavailable, the plugin automatically falls back to local file storage encrypted with a device-specific key (AES-GCM) to maintain high security.
-- **Data Location**: Your synced data is stored exclusively in your own Google Drive storage (in the root folder you specify).
-- **Important**: By default, synced data (Markdown files, etc.) is uploaded to Google Drive in **plain text (without encryption)**. While protected by Google Drive's security model (HTTPS transfer, server-side encryption), the data is readable on the server side. If you require End-to-End Encryption, please install the [VaultSync E2EE Engine](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine) — see the section below for details.
+- **Data Location**: Your synced data is stored exclusively in your own Cloud Storage space (in the root folder you specify).
+- **Important**: By default, synced data (Markdown files, etc.) is uploaded to Cloud Storage in **plain text (without encryption)**. While protected by Cloud Storage's security model (HTTPS transfer, server-side encryption), the data is readable on the server side. If you require End-to-End Encryption, please install the [VaultSync E2EE Engine](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine) — see the section below for details.
 
 ---
 
@@ -172,7 +180,7 @@ flowchart LR
         E["📄 Plaintext"]
     end
 
-    subgraph "Google Drive"
+    subgraph "Cloud Storage"
         C[("☁️ Encrypted<br/>Data Only")]
     end
 
