@@ -231,13 +231,8 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                         }
                         p.settings.cloudRootFolder = sanitized;
                         await p.saveSettings();
-                        p.adapter.updateConfig(
-                            p.adapter.clientId,
-                            p.adapter.clientSecret,
-                            p.vaultOps.getVaultName(),
-                            p.settings.cloudRootFolder,
-                        );
-                        p.syncManager.triggerFullCleanup();
+                        p.updateAdapterCloudRoot();
+                        p.triggerFullCleanup();
                     },
                 },
                 {
@@ -245,49 +240,49 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                     type: "toggle",
                     label: t("settingSyncCoreConfig"),
                     desc: t("settingSyncCoreConfigDesc"),
-                    onChange: async (_val, p) => p.syncManager.triggerFullCleanup(),
+                    onChange: async (_val, p) => p.triggerFullCleanup(),
                 },
                 {
                     key: "syncAppearance",
                     type: "toggle",
                     label: t("settingSyncAppearance"),
                     desc: t("settingSyncAppearanceDesc"),
-                    onChange: async (_val, p) => p.syncManager.triggerFullCleanup(),
+                    onChange: async (_val, p) => p.triggerFullCleanup(),
                 },
                 {
                     key: "syncWorkspace",
                     type: "toggle",
                     label: t("settingSyncWorkspace"),
                     desc: t("settingSyncWorkspaceDesc"),
-                    onChange: async (_val, p) => p.syncManager.triggerFullCleanup(),
+                    onChange: async (_val, p) => p.triggerFullCleanup(),
                 },
                 {
                     key: "syncCommunityPlugins",
                     type: "toggle",
                     label: t("settingSyncCommunityPlugins"),
                     desc: t("settingSyncCommunityPluginsDesc"),
-                    onChange: async (_val, p) => p.syncManager.triggerFullCleanup(),
+                    onChange: async (_val, p) => p.triggerFullCleanup(),
                 },
                 {
                     key: "syncImagesAndMedia",
                     type: "toggle",
                     label: t("settingSyncImagesAndMedia"),
                     desc: t("settingSyncImagesAndMediaDesc"),
-                    onChange: async (_val, p) => p.syncManager.triggerFullCleanup(),
+                    onChange: async (_val, p) => p.triggerFullCleanup(),
                 },
                 {
                     key: "syncDotfiles",
                     type: "toggle",
                     label: t("settingSyncDotfiles"),
                     desc: t("settingSyncDotfilesDesc"),
-                    onChange: async (_val, p) => p.syncManager.triggerFullCleanup(),
+                    onChange: async (_val, p) => p.triggerFullCleanup(),
                 },
                 {
                     key: "syncPluginSettings",
                     type: "toggle",
                     label: t("settingSyncPluginSettings"),
                     desc: t("settingSyncPluginSettingsDesc"),
-                    onChange: async (_val, p) => p.syncManager.triggerFullCleanup(),
+                    onChange: async (_val, p) => p.triggerFullCleanup(),
                 },
                 {
                     key: "exclusionPatterns",
@@ -295,7 +290,7 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                     label: t("settingExclusionPatterns"),
                     desc: t("settingExclusionPatternsDesc"),
                     placeholder: "*.tmp\ntemp/**\n.git/**",
-                    onChange: async (_val, p) => p.syncManager.triggerFullCleanup(),
+                    onChange: async (_val, p) => p.triggerFullCleanup(),
                 },
             ],
         },
@@ -309,7 +304,7 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                     label: t("settingEnableLogging"),
                     desc: t("settingEnableLoggingDesc"),
                     onChange: async (_val, p) => {
-                        p.syncManager.updateLoggerOptions();
+                        p.updateLoggerOptions();
                     },
                 },
             ],
@@ -348,6 +343,6 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                   },
               ]
             : []),
-        ...(plugin.syncManager.cryptoEngine?.getSettingsSections(plugin.buildE2EEContext()) || []),
+        ...plugin.getE2EESettingsSections(),
     ];
 };
