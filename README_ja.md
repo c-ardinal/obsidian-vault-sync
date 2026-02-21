@@ -19,10 +19,10 @@
 
 ---
 
-Obsidian向けの高速・インテリジェントなクラウドストレージ同期プラグインです。
-Google Driveを活用し、PCとモバイルデバイス（iOS/Android）間での強固なデータ一貫性と高速な同期体験を提供します。
+Obsidian向けの高速・インテリジェントなクラウドストレージ同期プラグインです。  
+Cloud Storageを活用し、PCとモバイルデバイス（iOS/Android）間での強固なデータ一貫性と高速な同期体験を提供します。
 
-### アーキテクチャ
+## 📒アーキテクチャ
 
 ```mermaid
 graph LR
@@ -31,9 +31,9 @@ graph LR
         B["📱 モバイル<br/>Obsidian"]
     end
 
-    subgraph "<b>Google</b>"
-        C[("☁️ Google Drive")]
-        D["🔐 Google OAuth"]
+    subgraph "<b>ServiceProvider</b>"
+        C[("☁️ Cloud Storage")]
+        D["🔐 OAuth"]
     end
 
     E["🌐 認証プロキシ<br/><i>Cloudflare Pages</i>"]
@@ -48,16 +48,24 @@ graph LR
     style E fill:#F48120,color:#fff
 ```
 
-> **Vaultデータは常にデバイスとGoogle Drive間で直接転送されます。**
+> **Vaultデータは常にデバイスとCloud Storage間で直接転送されます。**
 > 認証プロキシはOAuthログイン時にのみ使用され、独自のClient IDを使えばバイパスも可能です。
+
+---
+
+## 💭サポートしているCloud Storage
+
+- [x] Google Drive
+
+※その他のCloud Storageは、順次対応予定。
 
 ---
 
 ## ⚙️ 動作環境
 
 - **Obsidian**: v0.15.0 以上
-- **Google アカウント**: Google Drive API を利用するために必要
 - **ネットワーク**: インターネット接続環境（同期実行時）
+- **Google アカウント**: Google Drive API を利用するために必要
 - **Google Cloud Project** _(任意)_: デフォルトの認証プロキシを使用せず、独自の Client ID / Client Secret を使用する場合のみ必要
 
 ---
@@ -67,7 +75,7 @@ graph LR
 - **インテリジェント同期 (Index Shortcut)**: クラウド上のマスターインデックスを共有。変更がない場合は全走査をスキップし、バッテリーと通信量を節約します。
 - **高速差分検知 (MD5 Adoption)**: インデックスが未作成の状態でも、ファイルのMD5ハッシュを計算して照合。一致すれば無駄なダウンロードを行わず即座に採用します。
 - **スマート・マージ (3-way Merge)**: 複数デバイスで同時に編集された場合、共通の祖先（Ancestor）を基に可能な限り自動マージを行います。競合時はロック制御（communication.json）により安全に保護されます。
-- **履歴・差分表示 (Revision History)**: Google Drive上のファイルリビジョンを取得し、ローカルとの差分表示や過去バージョンの復元が可能です。
+- **履歴・差分表示 (Revision History)**: Cloud Storage上のファイルリビジョンを取得し、ローカルとの差分表示や過去バージョンの復元が可能です。
 - **モバイル最適化**: 基盤に `fetch` APIを採用し、デスクトップ/モバイルの両方で動作。編集停止時や保存時の自動同期、レイアウト変更トリガー（タブ切り替え時）を搭載。
 - **詳細な同期設定**: `.obsidian` 内の設定、プラグイン、外観、ホットキーなどを個別に同期するか選択可能。キャッシュや一時ファイルは自動で除外されます。
 - **安全な認証 & 保存**: 内蔵の認証プロキシ（設定不要）または独自の Client ID/Secret（PKCE対応）によるOAuth2認証。認証情報は設定ファイルから分離され、OS標準のセキュアなストレージ（Keychain/Credential Manager）を活用して安全に保存されます。
@@ -93,7 +101,7 @@ graph LR
 
 ### 履歴と復元
 
-- **ファイル履歴**: ファイルを右クリックし、「クラウドの変更履歴を表示 (VaultSync)」を選択すると、Google Drive上の過去リビジョンとの比較が可能です。
+- **ファイル履歴**: ファイルを右クリックし、「クラウドの変更履歴を表示 (VaultSync)」を選択すると、Cloud Storage上の過去リビジョンとの比較が可能です。
 - **高機能diffビューア**: Unified/左右分割表示の切り替え、行内差分のハイライト、差分箇所へのジャンプ機能（ループ対応）、表示コンテキスト行数の動的調整など、開発者ツール級の強力な比較機能を提供します。
 - **フルスキャン**: 整合性に不安がある場合、コマンドパレットから `VaultSync: Audit & Fix Consistency (Full Scan)` を実行して強制的に同期状態をチェックできます。
 
@@ -151,11 +159,11 @@ graph TD
 
 ## 🔒 プライバシーとセキュリティ
 
-- **直接通信**: すべてのVaultデータはデバイスとGoogle Drive間で直接同期されます。認証プロキシやサードパーティサーバーを経由してVaultの内容が送信されることはありません。
+- **直接通信**: すべてのVaultデータはデバイスとCloud Storage間で直接同期されます。認証プロキシやサードパーティサーバーを経由してVaultの内容が送信されることはありません。
 - **認証プロキシ**: デフォルトでは、本プラグインは [Cloudflare Pages](https://www.cloudflare.com/) 上にホストされた認証プロキシを使用してOAuthログインフローを仲介します。このプロキシはOAuth認可コードとトークンを**一時的に**（メモリ上のみで永続化せず）処理します。独自の Client ID / Client Secret を設定することで、このプロキシの使用を回避できます。詳細は[プライバシーポリシー](https://obsidian-vault-sync.pages.dev/privacy/)をご覧ください。
 - **認証保護**: トークンや暗号化シークレットなどの機密情報は、ObsidianのSecret Storage APIを介して、OS標準のセキュアストレージ（Keychain/Credential Manager）に直接保管されます。これにより、Vault内に機密情報を含むファイルが残ることを最小限に抑えます。なお、Secret Storageが利用できない環境では、自動的にデバイス固有の秘密鍵（AES-GCM）で暗号化されたローカルファイル保存へとフォールバックし、安全性を維持します。
-- **データの所在**: 同期されたデータは、ユーザ自身の Google Drive 領域（指定したルートフォルダ）のみに保存されます。
-- **※重要**: デフォルトでは、同期されるデータ（Markdownファイル等）は Google Drive へ**平文（暗号化なし）でアップロードされます**。Google Drive 自体のセキュリティモデル（HTTPS 転送、サーバー側暗号化）で保護されますが、サーバー側でデータを読み取ることが可能です。エンドツーエンド暗号化が必要な場合は、[VaultSync E2EE Engine](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine) を導入してください。詳細は下記セクションをご覧ください。
+- **データの所在**: 同期されたデータは、ユーザ自身の Cloud Storage 領域（指定したルートフォルダ）のみに保存されます。
+- **※重要**: デフォルトでは、同期されるデータ（Markdownファイル等）は Cloud Storage へ**平文（暗号化なし）でアップロードされます**。Cloud Storage 自体のセキュリティモデル（HTTPS 転送、サーバー側暗号化）で保護されますが、サーバー側でデータを読み取ることが可能です。エンドツーエンド暗号化が必要な場合は、[VaultSync E2EE Engine](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine) を導入してください。詳細は下記セクションをご覧ください。
 
 ---
 
@@ -172,7 +180,7 @@ flowchart LR
         E["📄 平文"]
     end
 
-    subgraph "Google Drive"
+    subgraph "Cloud Storage"
         C[("☁️ 暗号化データ<br/>のみ保存")]
     end
 
