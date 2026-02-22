@@ -11,6 +11,8 @@
         "importHelpers": true,
         "lib": ["DOM", "ESNext"],
         "strict": true,
+        "resolveJsonModule": true,
+        "allowSyntheticDefaultImports": true,
         "outDir": "./dist"
     },
     "include": ["**/*.ts"],

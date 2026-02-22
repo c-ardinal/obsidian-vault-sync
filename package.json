@@ -7,7 +7,7 @@
     "scripts": {
         "dev": "rollup -c -w",
         "build": "node update-build-hash.mjs && rollup -c",
-        "build:release": "rollup -c",
+        "build:release": "rollup -c --environment BUILD:production",
         "version": "node version-bump.mjs && git add manifest.json versions.json",
         "test": "vitest run",
         "test:watch": "vitest"

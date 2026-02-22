@@ -3,7 +3,9 @@ import { SyncManager, SyncManagerSettings, type SyncTrigger } from "../../../src
 import { MockApp, MockVaultOperations } from "../../helpers/mock-vault-adapter";
 import { CloudAdapter } from "../../../src/types/adapter";
 import { Notice } from "obsidian";
-import { i18n as i18nDict } from "../../../src/i18n";
+import { en } from "../../../src/i18n";
+import ja from "../../../src/lang/ja.json";
+const i18nDict = { en, ja: ja as Record<string, string> };
 import { RevisionCache } from "../../../src/revision-cache";
 import { BackgroundTransferQueue } from "../../../src/sync-manager/background-transfer";
 import type { INotificationService } from "../../../src/services/notification-service";

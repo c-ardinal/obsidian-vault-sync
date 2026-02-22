@@ -1,4 +1,4 @@
-import { copyFileSync, mkdirSync } from "fs";
+import { copyFileSync, readFileSync, writeFileSync, mkdirSync } from "fs";
 import { dirname, resolve, basename } from "path";
 import typescript from "@rollup/plugin-typescript";
 import { nodeResolve } from "@rollup/plugin-node-resolve";
@@ -13,6 +13,15 @@ if you want to view the source visit the github repository of this plugin
 */
 `;
 
+function minifyCss(css) {
+    return css
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/\s+/g, " ")
+        .replace(/\s*([{}:;,>~+])\s*/g, "$1")
+        .replace(/;}/g, "}")
+        .trim();
+}
+
 function copyFiles(targets) {
     return {
         name: "copy-files",
@@ -20,7 +29,12 @@ function copyFiles(targets) {
             for (const { src, dest } of targets) {
                 const destPath = resolve(dest, basename(src));
                 mkdirSync(dirname(destPath), { recursive: true });
-                copyFileSync(src, destPath);
+                if (isProd && src.endsWith(".css")) {
+                    const raw = readFileSync(src, "utf8");
+                    writeFileSync(destPath, minifyCss(raw));
+                } else {
+                    copyFileSync(src, destPath);
+                }
             }
         },
     };
@@ -30,8 +44,8 @@ export default {
     input: "src/main.ts",
     output: {
         file: "dist/obsidian-vault-sync/main.js",
-        sourcemap: "inline",
-        sourcemapExcludeSources: isProd,
+        sourcemap: isProd ? false : "inline",
+        sourcemapExcludeSources: true,
         format: "cjs",
         exports: "default",
         banner,
@@ -46,6 +60,7 @@ export default {
         copyFiles([
             { src: "manifest.json", dest: "dist/obsidian-vault-sync" },
             { src: "src/styles.css", dest: "dist/obsidian-vault-sync" },
+            { src: "src/lang/ja.json", dest: "dist/obsidian-vault-sync/lang" },
         ]),
     ],
     treeshake: true,

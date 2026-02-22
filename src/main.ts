@@ -9,7 +9,7 @@ import {
     DATA_REMOTE_DIR,
     VaultSyncSettings,
 } from "./types/settings";
-import { t } from "./i18n";
+import { t, initI18n } from "./i18n";
 import { VaultSyncSettingTab } from "./ui/vault-sync-setting-tab";
 import { loadExternalCryptoEngine } from "./encryption/engine-loader";
 import { checkPasswordStrength } from "./encryption/password-strength";
@@ -100,8 +100,14 @@ export default class VaultSync extends Plugin {
             appSecretStorage: this.app.secretStorage,
         });
 
-        // 2. Load settings (populates adapter if credentials exist)
-        await this.loadSettings();
+        // Phase 1: i18n and settings load in parallel (both need vaultOps, independent of each other)
+        await Promise.all([
+            initI18n(
+                (path) => this.vaultOps.read(path),
+                this.manifest.dir || "",
+            ),
+            this.loadSettings(),
+        ]);
 
         // 3. Initialize SyncManager with REAL loaded settings (DI)
         const revisionCache = new RevisionCache(this.vaultOps, this.manifest.dir || "");
@@ -128,19 +134,21 @@ export default class VaultSync extends Plugin {
             }
         };
 
-        // 5. Establish Identity & Log Folder (loads local-index.json)
-        // This is the earliest point where we can log to the correct device-specific folder.
+        // Phase 2: Establish identity (needed for logging), then parallelize remaining I/O
         await this.syncManager.loadLocalIndex();
 
-        // 5.1 Load transfer history (must be after loadLocalIndex sets the correct logFolder)
-        await this.syncManager.loadTransferHistory();
+        // Phase 3: Transfer history, crypto engine, and shared index load in parallel
+        // (all depend on loadLocalIndex for logging, but are independent of each other)
+        const [, engine] = await Promise.all([
+            this.syncManager.loadTransferHistory(),
+            loadExternalCryptoEngine(
+                this.vaultOps,
+                this.manifest.dir!,
+                (key) => this.syncManager.notify(key),
+            ),
+            this.syncManager.loadIndex(),
+        ]);
 
-        // 5.5 Load external crypto engine (Moved here to ensure logs are captured in sync log)
-        const engine = await loadExternalCryptoEngine(
-            this.vaultOps,
-            this.manifest.dir!,
-            (key) => this.syncManager.notify(key),
-        );
         if (engine) {
             this.syncManager.cryptoEngine = engine;
             await this.syncManager.log("External E2EE engine loaded successfully.", "system");
@@ -165,9 +173,6 @@ export default class VaultSync extends Plugin {
             getCloudRootFolder: () => this.settings.cloudRootFolder,
         });
         this.credentialMgr.setupAdapterCallbacks();
-
-        // 6. Load shared index
-        await this.syncManager.loadIndex();
 
         // Register Activity Callbacks for Auto-Sync Animation
         this.syncManager.setActivityCallbacks(
