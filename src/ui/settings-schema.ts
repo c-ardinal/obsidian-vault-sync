@@ -4,7 +4,7 @@ import { SETTINGS_LIMITS } from "../constants";
 import { t } from "../i18n";
 import VaultSync from "../main";
 
-export type SettingType = "toggle" | "text" | "number" | "dropdown" | "textarea" | "info";
+export type SettingType = "toggle" | "text" | "number" | "toggle-number" | "dropdown" | "textarea" | "info" | "subheader";
 
 export interface SettingItem {
     key: string; // Changed from keyof VaultSyncSettings to support nested paths
@@ -36,6 +36,12 @@ export interface SettingSection {
 }
 
 const getTriggerItems = (prefix: string): SettingItem[] => [
+    // ── Startup ──
+    {
+        key: "_subheader_startup",
+        type: "subheader",
+        label: t("settingSubheaderStartup"),
+    },
     {
         key: `${prefix}.enableStartupSync`,
         type: "toggle",
@@ -44,11 +50,9 @@ const getTriggerItems = (prefix: string): SettingItem[] => [
     },
     {
         key: `${prefix}.autoSyncIntervalSec`,
-        type: "number",
+        type: "toggle-number",
         label: t("settingAutoSyncInterval"),
-        desc:
-            t("settingAutoSyncIntervalDesc") +
-            `\n(Min: ${SETTINGS_LIMITS.autoSyncInterval.min}, Max: ${SETTINGS_LIMITS.autoSyncInterval.max}, Default: ${SETTINGS_LIMITS.autoSyncInterval.default}, Disabled: ${SETTINGS_LIMITS.autoSyncInterval.disabled})`,
+        desc: t("settingAutoSyncIntervalDesc"),
         limits: SETTINGS_LIMITS.autoSyncInterval,
         unit: "SEC",
         onChange: async (val, p) => {
@@ -57,33 +61,33 @@ const getTriggerItems = (prefix: string): SettingItem[] => [
             p.setupAutoSyncInterval();
         },
     },
+    // ── Event Triggers ──
+    {
+        key: "_subheader_event_triggers",
+        type: "subheader",
+        label: t("settingSubheaderEventTriggers"),
+    },
     {
         key: `${prefix}.onSaveDelaySec`,
-        type: "number",
+        type: "toggle-number",
         label: t("settingTriggerSave"),
-        desc:
-            t("settingTriggerSaveDesc") +
-            `\n(Min: ${SETTINGS_LIMITS.onSaveDelay.min}, Max: ${SETTINGS_LIMITS.onSaveDelay.max}, Default: ${SETTINGS_LIMITS.onSaveDelay.default}, Disabled: ${SETTINGS_LIMITS.onSaveDelay.disabled})`,
+        desc: t("settingTriggerSaveDesc"),
         limits: SETTINGS_LIMITS.onSaveDelay,
         unit: "SEC",
     },
     {
         key: `${prefix}.onModifyDelaySec`,
-        type: "number",
+        type: "toggle-number",
         label: t("settingModify"),
-        desc:
-            t("settingModifyDesc") +
-            `\n(Min: ${SETTINGS_LIMITS.onModifyDelay.min}, Max: ${SETTINGS_LIMITS.onModifyDelay.max}, Default: ${SETTINGS_LIMITS.onModifyDelay.default}, Disabled: ${SETTINGS_LIMITS.onModifyDelay.disabled})`,
+        desc: t("settingModifyDesc"),
         limits: SETTINGS_LIMITS.onModifyDelay,
         unit: "SEC",
     },
     {
         key: `${prefix}.onLayoutChangeDelaySec`,
-        type: "number",
+        type: "toggle-number",
         label: t("settingTriggerLayout"),
-        desc:
-            t("settingTriggerLayoutDesc") +
-            `\n(Min: ${SETTINGS_LIMITS.onLayoutChangeDelay.min}, Max: ${SETTINGS_LIMITS.onLayoutChangeDelay.max}, Default: ${SETTINGS_LIMITS.onLayoutChangeDelay.default}, Disabled: ${SETTINGS_LIMITS.onLayoutChangeDelay.disabled})`,
+        desc: t("settingTriggerLayoutDesc"),
         limits: SETTINGS_LIMITS.onLayoutChangeDelay,
         unit: "SEC",
     },
@@ -95,6 +99,12 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
             id: "performance",
             title: t("settingPerfSection"),
             items: [
+                // ── Sync Behavior ──
+                {
+                    key: "_subheader_sync_behavior",
+                    type: "subheader",
+                    label: t("settingSubheaderSyncBehavior"),
+                },
                 {
                     key: "conflictResolutionStrategy",
                     type: "dropdown",
@@ -108,36 +118,6 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                     },
                 },
                 {
-                    key: "concurrency",
-                    type: "number",
-                    label: t("settingConcurrency"),
-                    desc:
-                        t("settingConcurrencyDesc") +
-                        `\n(Min: ${SETTINGS_LIMITS.concurrency.min}, Max: ${SETTINGS_LIMITS.concurrency.max}, Default: ${SETTINGS_LIMITS.concurrency.default})`,
-                    limits: SETTINGS_LIMITS.concurrency,
-                },
-
-                {
-                    key: "largeFileThresholdMB",
-                    type: "number",
-                    label: t("settingLargeFileThreshold"),
-                    desc:
-                        t("settingLargeFileThresholdDesc") +
-                        `\n(Min: ${SETTINGS_LIMITS.largeFileThresholdMB.min}, Max: ${SETTINGS_LIMITS.largeFileThresholdMB.max}, Default: ${SETTINGS_LIMITS.largeFileThresholdMB.default})`,
-                    limits: SETTINGS_LIMITS.largeFileThresholdMB,
-                    unit: "MB",
-                },
-                {
-                    key: "bgTransferIntervalSec",
-                    type: "number",
-                    label: t("settingBgTransferInterval"),
-                    desc:
-                        t("settingBgTransferIntervalDesc") +
-                        `\n(Min: ${SETTINGS_LIMITS.bgTransferIntervalSec.min}, Max: ${SETTINGS_LIMITS.bgTransferIntervalSec.max}, Default: ${SETTINGS_LIMITS.bgTransferIntervalSec.default})`,
-                    limits: SETTINGS_LIMITS.bgTransferIntervalSec,
-                    unit: "SEC",
-                },
-                {
                     key: "notificationLevel",
                     type: "dropdown",
                     label: t("settingNotificationLevel"),
@@ -148,12 +128,47 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                         error: t("settingNotificationLevelError"),
                     },
                 },
+                // ── Performance Tuning ──
+                {
+                    key: "_subheader_performance",
+                    type: "subheader",
+                    label: t("settingSubheaderPerformance"),
+                },
+                {
+                    key: "concurrency",
+                    type: "number",
+                    label: t("settingConcurrency"),
+                    desc: t("settingConcurrencyDesc"),
+                    limits: SETTINGS_LIMITS.concurrency,
+                    unit: "FILES",
+                },
+                {
+                    key: "largeFileThresholdMB",
+                    type: "number",
+                    label: t("settingLargeFileThreshold"),
+                    desc: t("settingLargeFileThresholdDesc"),
+                    limits: SETTINGS_LIMITS.largeFileThresholdMB,
+                    unit: "MB",
+                },
+                {
+                    key: "bgTransferIntervalSec",
+                    type: "number",
+                    label: t("settingBgTransferInterval"),
+                    desc: t("settingBgTransferIntervalDesc"),
+                    limits: SETTINGS_LIMITS.bgTransferIntervalSec,
+                    unit: "SEC",
+                },
             ],
         },
         {
             id: "trigger_strategy",
             title: t("settingTriggerSection"),
             items: [
+                {
+                    key: "_subheader_trigger_mode",
+                    type: "subheader",
+                    label: t("settingSubheaderTriggerMode"),
+                },
                 {
                     key: "triggerConfigStrategy",
                     type: "dropdown",
@@ -199,6 +214,12 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
             id: "sync_scope",
             title: t("settingSyncScopeSection"),
             items: [
+                // ── Cloud Storage ──
+                {
+                    key: "_subheader_cloud_storage",
+                    type: "subheader",
+                    label: t("settingSubheaderCloudStorage"),
+                },
                 {
                     key: "cloudRootFolder",
                     type: "text",
@@ -235,12 +256,38 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                         p.triggerFullCleanup();
                     },
                 },
+                // ── Obsidian Settings ──
+                {
+                    key: "_subheader_obsidian",
+                    type: "subheader",
+                    label: t("settingSubheaderObsidian"),
+                },
                 {
                     key: "syncCoreConfig",
                     type: "toggle",
                     label: t("settingSyncCoreConfig"),
                     desc: t("settingSyncCoreConfigDesc"),
                     onChange: async (_val, p) => p.triggerFullCleanup(),
+                },
+                {
+                    key: "syncCommunityPlugins",
+                    type: "toggle",
+                    label: t("settingSyncCommunityPlugins"),
+                    desc: t("settingSyncCommunityPluginsDesc"),
+                    onChange: async (_val, p) => p.triggerFullCleanup(),
+                },
+                {
+                    key: "syncPluginSettings",
+                    type: "toggle",
+                    label: t("settingSyncPluginSettings"),
+                    desc: t("settingSyncPluginSettingsDesc"),
+                    onChange: async (_val, p) => p.triggerFullCleanup(),
+                },
+                // ── Appearance & Layout ──
+                {
+                    key: "_subheader_appearance",
+                    type: "subheader",
+                    label: t("settingSubheaderAppearance"),
                 },
                 {
                     key: "syncAppearance",
@@ -256,12 +303,11 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                     desc: t("settingSyncWorkspaceDesc"),
                     onChange: async (_val, p) => p.triggerFullCleanup(),
                 },
+                // ── Content ──
                 {
-                    key: "syncCommunityPlugins",
-                    type: "toggle",
-                    label: t("settingSyncCommunityPlugins"),
-                    desc: t("settingSyncCommunityPluginsDesc"),
-                    onChange: async (_val, p) => p.triggerFullCleanup(),
+                    key: "_subheader_content",
+                    type: "subheader",
+                    label: t("settingSubheaderContent"),
                 },
                 {
                     key: "syncImagesAndMedia",
@@ -278,11 +324,24 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                     onChange: async (_val, p) => p.triggerFullCleanup(),
                 },
                 {
-                    key: "syncPluginSettings",
+                    key: "syncFlexibleData",
                     type: "toggle",
-                    label: t("settingSyncPluginSettings"),
-                    desc: t("settingSyncPluginSettingsDesc"),
+                    label: t("settingSyncFlexibleData"),
+                    desc: t("settingSyncFlexibleDataDesc"),
                     onChange: async (_val, p) => p.triggerFullCleanup(),
+                },
+                {
+                    key: "syncDeviceLogs",
+                    type: "toggle",
+                    label: t("settingSyncDeviceLogs"),
+                    desc: t("settingSyncDeviceLogsDesc"),
+                    onChange: async (_val, p) => p.triggerFullCleanup(),
+                },
+                // ── Exclusions ──
+                {
+                    key: "_subheader_exclusion",
+                    type: "subheader",
+                    label: t("settingSubheaderExclusion"),
                 },
                 {
                     key: "exclusionPatterns",
@@ -298,6 +357,12 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
             id: "advanced",
             title: t("settingAdvancedSection"),
             items: [
+                // ── Logging ──
+                {
+                    key: "_subheader_logging",
+                    type: "subheader",
+                    label: t("settingSubheaderLogging"),
+                },
                 {
                     key: "enableLogging",
                     type: "toggle",
@@ -314,13 +379,17 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
             title: t("settingDevSection"),
             isHidden: (s: VaultSyncSettings) => !s.isDeveloperMode,
             items: [
+                // ── Debug ──
+                {
+                    key: "_subheader_debug",
+                    type: "subheader",
+                    label: t("settingSubheaderDebug"),
+                },
                 {
                     key: "startupDelaySec",
                     type: "number",
                     label: t("settingStartupDelay"),
-                    desc:
-                        t("settingStartupDelayDesc") +
-                        `\n(Min: ${SETTINGS_LIMITS.startupDelay.min}, Max: ${SETTINGS_LIMITS.startupDelay.max}, Default: ${SETTINGS_LIMITS.startupDelay.default})`,
+                    desc: t("settingStartupDelayDesc"),
                     limits: SETTINGS_LIMITS.startupDelay,
                     unit: "SEC",
                 },
@@ -333,6 +402,11 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                       id: "e2ee-autounlock",
                       title: t("settingSecuritySection"),
                       items: [
+                          {
+                              key: "_subheader_security",
+                              type: "subheader" as const,
+                              label: t("settingSubheaderSecurity"),
+                          },
                           {
                               key: "e2eeAutoUnlock",
                               type: "toggle" as const,

@@ -1,14 +1,37 @@
-import { App, PluginSettingTab, Setting } from "obsidian";
+import { App, PluginSettingTab, Setting, setIcon } from "obsidian";
 import type VaultSync from "../main";
 import { t } from "../i18n";
 import { getSettingsSections } from "./settings-schema";
+import { ExclusionPatternModal } from "./exclusion-modal";
+
+const OPENED_GROUPS_KEY = "vault-sync:opened-groups";
 
 export class VaultSyncSettingTab extends PluginSettingTab {
     plugin: VaultSync;
+    /** Stores keys of groups the user has explicitly opened. All groups default to collapsed. */
+    private openedGroups: Set<string>;
 
     constructor(app: App, plugin: VaultSync) {
         super(app, plugin);
         this.plugin = plugin;
+        this.openedGroups = this.loadOpenedGroups();
+    }
+
+    private loadOpenedGroups(): Set<string> {
+        try {
+            const stored = window.localStorage.getItem(OPENED_GROUPS_KEY);
+            if (stored) return new Set(JSON.parse(stored));
+        } catch { /* ignore */ }
+        return new Set();
+    }
+
+    private saveOpenedGroups(): void {
+        try {
+            window.localStorage.setItem(
+                OPENED_GROUPS_KEY,
+                JSON.stringify([...this.openedGroups]),
+            );
+        } catch { /* ignore */ }
     }
 
     display(): void {
@@ -22,8 +45,32 @@ export class VaultSyncSettingTab extends PluginSettingTab {
         // 1. Authentication (Manually handled due to complex UI)
         containerEl.createEl("h3", { text: t("settingAuthSection") });
 
+        const authGroupKey = "auth:_subheader_account";
+        const authCollapsed = !this.openedGroups.has(authGroupKey);
+
+        const authGroup = containerEl.createDiv({ cls: "vault-sync-subheader-group" });
+        const authHeader = authGroup.createDiv({ cls: "vault-sync-subheader-label" });
+        const authChevron = authHeader.createSpan({ cls: "vault-sync-subheader-chevron" });
+        setIcon(authChevron, authCollapsed ? "chevron-right" : "chevron-down");
+        authHeader.createSpan({ cls: "vault-sync-subheader-text", text: t("settingSubheaderAccount") });
+
+        const authBody = authGroup.createDiv({ cls: "vault-sync-subheader-body" });
+        if (authCollapsed) {
+            authBody.style.display = "none";
+        }
+
+        authHeader.addEventListener("click", () => {
+            if (this.openedGroups.has(authGroupKey)) {
+                this.openedGroups.delete(authGroupKey);
+            } else {
+                this.openedGroups.add(authGroupKey);
+            }
+            this.saveOpenedGroups();
+            this.display();
+        });
+
         // Auth Method dropdown
-        new Setting(containerEl)
+        new Setting(authBody)
             .setName(t("settingAuthMethod"))
             .setDesc(t("settingAuthMethodDesc"))
             .addDropdown((dropdown) => {
@@ -47,7 +94,7 @@ export class VaultSyncSettingTab extends PluginSettingTab {
 
         // Custom Proxy URL (only for custom-proxy mode)
         if (authMethod === "custom-proxy") {
-            new Setting(containerEl)
+            new Setting(authBody)
                 .setName(t("settingCustomProxyUrl"))
                 .setDesc(t("settingCustomProxyUrlDesc"))
                 .addText((text) =>
@@ -67,7 +114,7 @@ export class VaultSyncSettingTab extends PluginSettingTab {
 
         // Client ID / Secret (only for client-credentials mode)
         if (authMethod === "client-credentials") {
-            new Setting(containerEl)
+            new Setting(authBody)
                 .setName(t("settingClientId"))
                 .setDesc(t("settingClientIdDesc"))
                 .addText((text) =>
@@ -76,7 +123,7 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                     }),
                 );
 
-            new Setting(containerEl)
+            new Setting(authBody)
                 .setName(t("settingClientSecret"))
                 .setDesc(t("settingClientSecretDesc"))
                 .addText((text) =>
@@ -87,7 +134,7 @@ export class VaultSyncSettingTab extends PluginSettingTab {
         }
 
         // Login button (always shown)
-        new Setting(containerEl)
+        new Setting(authBody)
             .setName(t("settingLogin"))
             .setDesc(t("settingLoginDesc"))
             .addButton((button) =>
@@ -121,14 +168,47 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                 });
             }
 
+            let groupEl: HTMLElement | null = null;
+            let groupBody: HTMLElement | null = null;
+            let groupCollapsed = false;
             for (const item of section.items) {
                 if (item.isHidden && item.isHidden(this.plugin.settings, this.plugin)) continue;
+
+                // When a subheader is encountered, create a new group wrapper
+                if (item.type === "subheader") {
+                    const groupKey = `${section.id}:${item.key}`;
+                    groupCollapsed = !this.openedGroups.has(groupKey);
+
+                    groupEl = containerEl.createDiv({ cls: "vault-sync-subheader-group" });
+                    const headerEl = groupEl.createDiv({ cls: "vault-sync-subheader-label" });
+                    const chevron = headerEl.createSpan({ cls: "vault-sync-subheader-chevron" });
+                    setIcon(chevron, groupCollapsed ? "chevron-right" : "chevron-down");
+                    headerEl.createSpan({ cls: "vault-sync-subheader-text", text: item.label });
+
+                    groupBody = groupEl.createDiv({ cls: "vault-sync-subheader-body" });
+                    if (groupCollapsed) {
+                        groupBody.style.display = "none";
+                    }
+
+                    headerEl.addEventListener("click", () => {
+                        if (this.openedGroups.has(groupKey)) {
+                            this.openedGroups.delete(groupKey);
+                        } else {
+                            this.openedGroups.add(groupKey);
+                        }
+                        this.saveOpenedGroups();
+                        this.display();
+                    });
+                    continue;
+                }
+
+                const targetEl = groupBody || containerEl;
 
                 const description = item.getDesc
                     ? item.getDesc(this.plugin.settings, this.plugin)
                     : item.desc || "";
 
-                const setting = new Setting(containerEl).setName(item.label).setDesc(description);
+                const setting = new Setting(targetEl).setName(item.label).setDesc(description);
 
                 switch (item.type) {
                     case "toggle":
@@ -157,36 +237,36 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                         });
                         break;
                     case "textarea":
-                        setting.addTextArea((text) => {
-                            text.setValue(String(this.getSettingValue(item.key) || ""))
-                                .setPlaceholder(item.placeholder || "")
-                                .onChange(async (val) => {
-                                    this.setSettingValue(item.key, val);
-                                    await this.plugin.saveSettings();
-                                    if (item.onChange) await item.onChange(val, this.plugin);
-                                });
-                            if (item.key === "exclusionPatterns") {
-                                text.inputEl.addClass("vault-sync-exclusion-textarea");
-                                text.inputEl.rows = 10;
-                                // Glob pattern validation warning
-                                const warningEl = setting.settingEl.createDiv({ cls: "setting-item-description" });
-                                warningEl.style.cssText = "color:var(--text-error);font-size:0.85em;display:none;";
-                                const validatePatterns = () => {
-                                    const lines = text.inputEl.value.split("\n").filter((l: string) => l.trim());
-                                    const hasInvalid = lines.some((l: string) => {
-                                        const openBracket = (l.match(/\[/g) || []).length;
-                                        const closeBracket = (l.match(/\]/g) || []).length;
-                                        if (openBracket !== closeBracket) return true;
-                                        const openBrace = (l.match(/\{/g) || []).length;
-                                        const closeBrace = (l.match(/\}/g) || []).length;
-                                        return openBrace !== closeBrace;
+                        if (item.key === "exclusionPatterns") {
+                            // Render as a button that opens a modal
+                            const patternCount = String(this.getSettingValue(item.key) || "")
+                                .split("\n").filter((l: string) => l.trim()).length;
+                            const summary = patternCount > 0
+                                ? `${patternCount} ${t("settingExclusionPatternCount")}`
+                                : t("settingExclusionPatternNone");
+                            setting.setDesc(summary);
+                            setting.addButton((btn) => {
+                                btn.setButtonText(t("settingExclusionConfigure"))
+                                    .onClick(() => {
+                                        const modal = new ExclusionPatternModal(this.app, this.plugin);
+                                        modal.onClose = () => {
+                                            if (item.onChange) item.onChange(this.getSettingValue(item.key), this.plugin);
+                                            this.display();
+                                        };
+                                        modal.open();
                                     });
-                                    warningEl.setText(this.plugin.t("settingExclusionPatternsInvalid"));
-                                    warningEl.style.display = hasInvalid ? "" : "none";
-                                };
-                                text.inputEl.addEventListener("input", validatePatterns);
-                            }
-                        });
+                            });
+                        } else {
+                            setting.addTextArea((text) => {
+                                text.setValue(String(this.getSettingValue(item.key) || ""))
+                                    .setPlaceholder(item.placeholder || "")
+                                    .onChange(async (val) => {
+                                        this.setSettingValue(item.key, val);
+                                        await this.plugin.saveSettings();
+                                        if (item.onChange) await item.onChange(val, this.plugin);
+                                    });
+                            });
+                        }
                         break;
                     case "dropdown":
                         setting.addDropdown((dropdown) => {
@@ -204,7 +284,9 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                                 });
                         });
                         break;
-                    case "number":
+                    case "number": {
+                        setting.settingEl.addClass("vault-sync-number-setting");
+                        const numCol = setting.controlEl.createDiv({ cls: "vault-sync-number-column" });
                         setting.addText((text) => {
                             text.setValue(String(this.getSettingValue(item.key)))
                                 .setPlaceholder(item.limits ? String(item.limits.default) : "")
@@ -221,23 +303,62 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                                     if (item.onChange) await item.onChange(numVal, this.plugin);
                                 });
 
-                            if (item.unit) {
-                                const inputEl = text.inputEl;
-                                inputEl.addClass("vault-sync-number-input-with-unit");
-
-                                const wrapper = document.createElement("div");
-                                wrapper.addClass("vault-sync-number-wrapper");
-                                inputEl.parentNode?.insertBefore(wrapper, inputEl);
-                                wrapper.appendChild(inputEl);
-
-                                wrapper.createDiv({
-                                    cls: "vault-sync-unit-addon",
-                                    text: item.unit,
-                                });
-                            }
+                            this.addUnitAddon(text.inputEl, item.unit);
+                            const el = text.inputEl.closest(".vault-sync-number-wrapper") || text.inputEl;
+                            numCol.appendChild(el);
                         });
+                        if (item.limits) {
+                            this.addLimitsHint(numCol, item.limits);
+                        }
                         break;
+                    }
+                    case "toggle-number": {
+                        const currentVal = this.getSettingValue(item.key) as number;
+                        const disabledVal = item.limits?.disabled ?? -1;
+                        const isEnabled = currentVal !== disabledVal;
+
+                        setting.settingEl.addClass("vault-sync-toggle-number-setting");
+
+                        setting.addToggle((toggle) => {
+                            toggle.setValue(isEnabled).onChange(async (val) => {
+                                const newVal = val ? (item.limits?.default ?? 0) : disabledVal;
+                                this.setSettingValue(item.key, newVal);
+                                await this.plugin.saveSettings();
+                                if (item.onChange) await item.onChange(newVal, this.plugin);
+                                this.display();
+                            });
+                        });
+
+                        if (isEnabled) {
+                            const numCol = setting.controlEl.createDiv({ cls: "vault-sync-number-column" });
+                            setting.addText((text) => {
+                                text.setValue(String(currentVal))
+                                    .setPlaceholder(item.limits ? String(item.limits.default) : "")
+                                    .onChange(async (val) => {
+                                        const numVal = this.validateNumber(
+                                            val,
+                                            item.limits?.min ?? -Infinity,
+                                            item.limits?.max ?? Infinity,
+                                            item.limits?.default ?? 0,
+                                        );
+                                        this.setSettingValue(item.key, numVal);
+                                        await this.plugin.saveSettings();
+                                        if (item.onChange) await item.onChange(numVal, this.plugin);
+                                    });
+
+                                this.addUnitAddon(text.inputEl, item.unit);
+                                const el = text.inputEl.closest(".vault-sync-number-wrapper") || text.inputEl;
+                                numCol.appendChild(el);
+                            });
+                            if (item.limits) {
+                                this.addLimitsHint(numCol, item.limits);
+                            }
+                        }
+                        break;
+                    }
+                    // subheader is handled above with continue, never reaches switch
                     case "info":
+                        setting.settingEl.addClass("vault-sync-info-setting");
                         setting.controlEl.createSpan({
                             cls: "vault-sync-info-status",
                             text: description,
@@ -250,6 +371,26 @@ export class VaultSyncSettingTab extends PluginSettingTab {
 
         // Restore scroll position
         containerEl.scrollTop = scrollPos;
+    }
+
+    private addUnitAddon(inputEl: HTMLInputElement, unit?: string): void {
+        if (!unit) return;
+        inputEl.addClass("vault-sync-number-input-with-unit");
+        const wrapper = document.createElement("div");
+        wrapper.addClass("vault-sync-number-wrapper");
+        inputEl.parentNode?.insertBefore(wrapper, inputEl);
+        wrapper.appendChild(inputEl);
+        wrapper.createDiv({ cls: "vault-sync-unit-addon", text: unit });
+    }
+
+    private addLimitsHint(
+        controlEl: HTMLElement,
+        limits: { min: number; max: number; default: number },
+    ): void {
+        controlEl.createDiv({
+            cls: "vault-sync-number-hint",
+            text: `${limits.min} ~ ${limits.max} (default: ${limits.default})`,
+        });
     }
 
     private validateNumber(
