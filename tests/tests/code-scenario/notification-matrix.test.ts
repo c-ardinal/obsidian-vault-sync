@@ -1,9 +1,14 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { SyncManager, SyncManagerSettings, type SyncTrigger } from "../../../src/sync-manager";
-import { MockApp } from "../../helpers/mock-vault-adapter";
+import { MockApp, MockVaultOperations } from "../../helpers/mock-vault-adapter";
 import { CloudAdapter } from "../../../src/types/adapter";
 import { Notice } from "obsidian";
-import { i18n as i18nDict } from "../../../src/i18n";
+import { en } from "../../../src/i18n";
+import ja from "../../../src/lang/ja.json";
+const i18nDict = { en, ja: ja as Record<string, string> };
+import { RevisionCache } from "../../../src/revision-cache";
+import { BackgroundTransferQueue } from "../../../src/sync-manager/background-transfer";
+import type { INotificationService } from "../../../src/services/notification-service";
 
 // Mock obsidian
 vi.mock("obsidian", () => ({
@@ -661,13 +666,18 @@ describe("Notification Visibility Matrix", () => {
         vi.clearAllMocks();
         app = new MockApp();
         adapter = new MockCloudAdapter();
+        const vaultOps = new MockVaultOperations(app.vaultAdapter, app.vault);
+        const notifier: INotificationService = { show: (msg) => { new Notice(msg); } };
         syncManager = new SyncManager(
-            app as any,
+            vaultOps,
             adapter,
             "idx.json",
             { ...DEFAULT_SETTINGS },
             "dir",
             (key) => i18nDict.ja[key] || key,
+            notifier,
+            new RevisionCache(vaultOps, "dir"),
+            new BackgroundTransferQueue(),
         );
         vi.spyOn(syncManager as any, "log").mockImplementation(async () => {});
     });
@@ -1074,13 +1084,18 @@ describe("Integration: Sync scenarios trigger correct notifications", () => {
         vi.clearAllMocks();
         app = new MockApp();
         adapter = new MockCloudAdapter();
+        const vaultOps = new MockVaultOperations(app.vaultAdapter, app.vault);
+        const notifier: INotificationService = { show: (msg) => { new Notice(msg); } };
         syncManager = new SyncManager(
-            app as any,
+            vaultOps,
             adapter,
             "idx.json",
             { ...DEFAULT_SETTINGS },
             "dir",
             (key) => i18nDict.ja[key] || key,
+            notifier,
+            new RevisionCache(vaultOps, "dir"),
+            new BackgroundTransferQueue(),
         );
         vi.spyOn(syncManager as any, "log").mockImplementation(async () => {});
         // Mock internal sync methods to make sync complete cleanly (no changes)

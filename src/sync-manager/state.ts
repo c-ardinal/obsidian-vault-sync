@@ -150,7 +150,7 @@ export async function loadIndex(
     tryDecompress: (data: ArrayBuffer) => Promise<ArrayBuffer>,
 ): Promise<void> {
     try {
-        const data = await ctx.app.vault.adapter.readBinary(ctx.pluginDataPath);
+        const data = await ctx.vault.readBinary(ctx.pluginDataPath);
         const decompressed = await tryDecompress(data);
         const text = new TextDecoder().decode(decompressed);
         const parsed = JSON.parse(text);
@@ -171,8 +171,8 @@ export async function loadIndex(
                 `[Index] Main load failed (${e}). Attempting fallback to raw index: ${rawPath}`,
                 "warn",
             );
-            if (await ctx.app.vault.adapter.exists(rawPath)) {
-                const data = await ctx.app.vault.adapter.read(rawPath);
+            if (await ctx.vault.exists(rawPath)) {
+                const data = await ctx.vault.read(rawPath);
                 const parsed = JSON.parse(data);
                 ctx.index = parsed.index || {};
                 ctx.startPageToken = parsed.startPageToken || null;
@@ -194,8 +194,8 @@ export async function loadIndex(
 
 export async function loadLocalIndex(ctx: SyncContext): Promise<void> {
     try {
-        if (await ctx.app.vault.adapter.exists(ctx.localIndexPath)) {
-            const data = await ctx.app.vault.adapter.read(ctx.localIndexPath);
+        if (await ctx.vault.exists(ctx.localIndexPath)) {
+            const data = await ctx.vault.read(ctx.localIndexPath);
             const parsed = JSON.parse(data);
             ctx.localIndex = parsed.index || {};
             ctx.deviceId = parsed.deviceId || "";
@@ -257,15 +257,15 @@ export async function saveIndex(ctx: SyncContext): Promise<void> {
 
     // Ensure parent directory exists (may not on fresh install)
     const dir = ctx.pluginDataPath.replace(/\/[^/]+$/, "");
-    if (!(await ctx.app.vault.adapter.exists(dir))) {
-        await ctx.app.vault.adapter.mkdir(dir);
+    if (!(await ctx.vault.exists(dir))) {
+        await ctx.vault.mkdir(dir);
     }
 
-    await ctx.app.vault.adapter.write(ctx.pluginDataPath, data);
+    await ctx.vault.write(ctx.pluginDataPath, data);
 
     const rawPath = ctx.pluginDataPath.replace(".json", "_raw.json");
     try {
-        await ctx.app.vault.adapter.write(rawPath, data);
+        await ctx.vault.write(rawPath, data);
     } catch (e) {
         console.error("VaultSync: Failed to save raw index backup", e);
     }
@@ -279,7 +279,7 @@ export async function saveLocalIndex(ctx: SyncContext): Promise<void> {
             index: ctx.localIndex,
             deviceId: ctx.deviceId,
         });
-        await ctx.app.vault.adapter.write(ctx.localIndexPath, data);
+        await ctx.vault.write(ctx.localIndexPath, data);
     } catch (e) {
         console.error("VaultSync: Failed to save local index", e);
     }

@@ -1,14 +1,16 @@
+import type { App } from "obsidian";
+
 // Minimal types copied from settings-schema to avoid circular dependency
 export interface SettingItem {
     key: string;
-    type: "toggle" | "text" | "number" | "dropdown" | "textarea";
+    type: "toggle" | "text" | "number" | "dropdown" | "textarea" | "info";
     label: string;
     desc?: string;
     getDesc?: (settings: any, plugin: any) => string;
     placeholder?: string;
     options?: Record<string, string>;
     unit?: string;
-    limits?: any;
+    limits?: { min: number; max: number; default: number; disabled?: number };
     onChange?: (value: any, plugin: any) => Promise<void>;
     isHidden?: (settings: any) => boolean;
 }
@@ -19,6 +21,66 @@ export interface SettingSection {
     description?: string;
     items: SettingItem[];
     isHidden?: (settings: any) => boolean;
+}
+
+export interface MigrationProgress {
+    current: number;
+    total: number;
+    fileName: string;
+}
+
+export interface E2EEPluginContext {
+    /** Obsidian App (for Modal constructor) */
+    app: App;
+
+    /** i18n translation */
+    t(key: string): string;
+
+    /** Password strength checker (optional, provided by plugin) */
+    checkPasswordStrength?(password: string): {
+        strength: string;
+        feedback: string[];
+    };
+
+    /** Plugin settings (mutable reference to actual settings object) */
+    settings: {
+        e2eeEnabled: boolean;
+        e2eeAutoUnlock: boolean;
+    };
+    saveSettings(): Promise<void>;
+    refreshSettingsUI?(): void;
+
+    /** Crypto engine reference */
+    cryptoEngine: ICryptoEngine;
+
+    /** Flattened services (eliminates syncManager.xxx.yyy chains) */
+    vaultLockService: {
+        downloadLockFile(): Promise<string>;
+        uploadLockFile(blob: string): Promise<void>;
+    };
+    secureStorage: {
+        setExtraSecret(key: string, value: string): Promise<void>;
+        removeExtraSecret(key: string): Promise<void>;
+    } | null;
+    migrationService: {
+        isMigrating: boolean;
+        currentProgress: MigrationProgress | null;
+        startMigration(hashedPassword: string): Promise<unknown>;
+        runMigration(
+            adapter: unknown,
+            onProgress: (p: MigrationProgress) => void,
+        ): Promise<void>;
+        finalizeMigration(adapter: unknown): Promise<void>;
+        checkForInterruptedMigration(): Promise<boolean>;
+        cancelMigration(): Promise<void>;
+    };
+
+    /** Notification + logging (flattened from syncManager) */
+    notify(key: string): Promise<void>;
+    log(message: string, level: "system" | "error" | "warn" | "notice" | "info" | "debug"): Promise<void>;
+
+    /** Set sync trigger type */
+    setCurrentTrigger(trigger: string): void;
 }
 
 export interface ICryptoEngine {
@@ -66,10 +128,10 @@ export interface ICryptoEngine {
     getKeyFingerprint?(): Promise<string>;
 
     // UI Injection
-    showSetupModal(plugin: any): void;
-    showUnlockModal(plugin: any): void;
-    showPasswordChangeModal?(plugin: any): void;
-    showRecoveryExportModal?(plugin: any): void;
-    showRecoveryImportModal?(plugin: any): void;
-    getSettingsSections(plugin: any): SettingSection[];
+    showSetupModal(ctx: E2EEPluginContext): void;
+    showUnlockModal(ctx: E2EEPluginContext): void;
+    showPasswordChangeModal?(ctx: E2EEPluginContext): void;
+    showRecoveryExportModal?(ctx: E2EEPluginContext): void;
+    showRecoveryImportModal?(ctx: E2EEPluginContext): void;
+    getSettingsSections(ctx: E2EEPluginContext): SettingSection[];
 }

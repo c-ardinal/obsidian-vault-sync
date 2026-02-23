@@ -328,7 +328,7 @@ describe("Network Resilience", () => {
 
         it("should throw clear error when exchangeCodeForToken gets invalid JSON", async () => {
             const a = createAdapter("client-credentials");
-            (a as any).codeVerifier = "test-verifier";
+            (a as any).auth.codeVerifier = "test-verifier";
 
             vi.stubGlobal("fetch", sequentialFetch([
                 { match: /oauth2\.googleapis\.com\/token/, respond: htmlResponse("<html>Error</html>") },
@@ -376,7 +376,7 @@ describe("Network Resilience", () => {
     describe("F5: exchangeCodeForToken network error → user-friendly message", () => {
         it("should throw a clear message when Google is unreachable during initial auth", async () => {
             const a = createAdapter("client-credentials");
-            (a as any).codeVerifier = "test-verifier";
+            (a as any).auth.codeVerifier = "test-verifier";
 
             vi.stubGlobal("fetch", sequentialFetch([
                 { match: /oauth2\.googleapis\.com\/token/, respond: networkError() },

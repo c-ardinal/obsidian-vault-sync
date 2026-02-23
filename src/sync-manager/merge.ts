@@ -1,18 +1,12 @@
 import { TFile } from "obsidian";
 import { md5 } from "../utils/md5";
-import { diff_match_patch } from "diff-match-patch";
 import type { SyncContext } from "./context";
 import { ensureLocalFolder, hashContent, normalizeLineEndings } from "./file-utils";
 import { checkMergeLock, acquireMergeLock, releaseMergeLock, saveLocalIndex } from "./state";
-import { listRevisions, getRevisionContent } from "./history";
+import { listRevisions } from "./history";
 import { basename } from "../utils/path";
-import {
-    MERGE_MAX_INLINE_DOWNLOAD_BYTES,
-    MERGE_DMP_MATCH_THRESHOLD,
-    MERGE_DMP_MATCH_DISTANCE,
-    MERGE_DMP_PATCH_DELETE_THRESHOLD,
-    MERGE_PATCH_MARGINS,
-} from "./constants";
+import { MERGE_MAX_INLINE_DOWNLOAD_BYTES } from "./constants";
+import { getMergeStrategy } from "./strategies";
 
 function markSettingsUpdatedIfNeeded(ctx: SyncContext, path: string): void {
     if (path.endsWith("/open-data.json")) {
@@ -20,55 +14,8 @@ function markSettingsUpdatedIfNeeded(ctx: SyncContext, path: string): void {
     }
 }
 
-// === Pure Functions ===
-
-/**
- * Custom 3-way line encoding to ensure ALL unique lines from Base, Local, and Remote
- * represent correctly in the character-based diff.
- */
-export function linesToChars3(
-    text1: string,
-    text2: string,
-    text3: string,
-): {
-    chars1: string;
-    chars2: string;
-    chars3: string;
-    lineArray: string[];
-} {
-    const lineArray: string[] = [];
-    const lineHash: { [key: string]: number } = {};
-
-    const encode = (text: string) => {
-        let chars = "";
-        let lineStart = 0;
-        let lineEnd = -1;
-        while (lineEnd < text.length - 1) {
-            lineEnd = text.indexOf("\n", lineStart);
-            if (lineEnd == -1) {
-                lineEnd = text.length - 1;
-            }
-            const line = text.substring(lineStart, lineEnd + 1);
-
-            if (Object.prototype.hasOwnProperty.call(lineHash, line)) {
-                chars += String.fromCharCode(lineHash[line]);
-            } else {
-                const i = lineArray.length;
-                lineHash[line] = i;
-                lineArray.push(line);
-                chars += String.fromCharCode(i);
-            }
-            lineStart = lineEnd + 1;
-        }
-        return chars;
-    };
-
-    const chars1 = encode(text1);
-    const chars2 = encode(text2);
-    const chars3 = encode(text3);
-
-    return { chars1, chars2, chars3, lineArray };
-}
+// Re-export for backward compatibility (function moved to diff-utils.ts)
+export { linesToChars3 } from "./diff-utils";
 
 /**
  * Check if the subset content's lines are a strict subsequence of the superset content.
@@ -197,167 +144,14 @@ export async function perform3WayMerge(
     baseHash: string,
 ): Promise<ArrayBuffer | null> {
     try {
-        const strategy = ctx.settings.conflictResolutionStrategy;
-        if (strategy === "force-local") {
-            await ctx.log(`[Merge] Strategy is 'Force Local'. Overwriting remote changes.`, "info");
-            return new TextEncoder().encode(localContentStr).buffer;
-        }
-        if (strategy === "force-remote") {
-            await ctx.log(`[Merge] Strategy is 'Force Remote'. Overwriting local changes.`, "info");
-            return new TextEncoder().encode(remoteContentStr).buffer;
-        }
-        if (strategy === "always-fork") {
-            await ctx.log(`[Merge] Strategy is 'Always Fork'. Skipping auto-merge.`, "info");
-            return null;
-        }
-
-        await ctx.log(`[Merge] Attempting 3-way merge for ${path}...`, "info");
-        await ctx.log(`[Merge] Looking for base revision with hash: ${baseHash}`, "debug");
-
-        const revisions = await listRevisions(ctx, path);
-        await ctx.log(
-            `[Merge] Found ${revisions.length} revisions: ${revisions.map((r) => r.hash?.substring(0, 8) || "no-hash").join(", ")}`,
-            "debug",
-        );
-
-        const baseRev = revisions
-            .slice()
-            .reverse()
-            .find((r) => r.hash && r.hash.toLowerCase() === baseHash.toLowerCase());
-
-        if (!baseRev) {
-            await ctx.log(`[Merge] No base revision found matching hash ${baseHash}.`, "warn");
-            await ctx.log(
-                `[Merge] Available hashes: ${revisions.map((r) => r.hash || "null").join(", ")}`,
-                "debug",
-            );
-            return null;
-        }
-
-        await ctx.log(`[Merge] Found base revision: ${baseRev.id} (hash: ${baseRev.hash})`, "debug");
-
-        const baseBuffer = await getRevisionContent(ctx, path, baseRev.id);
-        const baseContentStr = new TextDecoder().decode(baseBuffer);
-
-        const baseNorm = normalizeLineEndings(baseContentStr);
-        const localNorm = normalizeLineEndings(localContentStr);
-        const remoteNorm = normalizeLineEndings(remoteContentStr);
-
-        await ctx.log(
-            `[Merge] Content lengths (raw/norm) - Base: ${baseContentStr.length}/${baseNorm.length}, Local: ${localContentStr.length}/${localNorm.length}, Remote: ${remoteContentStr.length}/${remoteNorm.length}`,
-            "debug",
-        );
-
-        await ctx.log(`[Merge DEBUG] Base Content:\n---\n${baseNorm}\n---`, "debug");
-        await ctx.log(`[Merge DEBUG] Local Content:\n---\n${localNorm}\n---`, "debug");
-        await ctx.log(`[Merge DEBUG] Remote Content:\n---\n${remoteNorm}\n---`, "debug");
-
-        const dmp = new diff_match_patch();
-        dmp.Match_Threshold = MERGE_DMP_MATCH_THRESHOLD;
-        dmp.Match_Distance = MERGE_DMP_MATCH_DISTANCE;
-        dmp.Patch_DeleteThreshold = MERGE_DMP_PATCH_DELETE_THRESHOLD;
-
-        const {
-            chars1: charsBase,
-            chars2: charsLocal,
-            chars3: charsRemote,
-            lineArray,
-        } = linesToChars3(baseNorm, localNorm, remoteNorm);
-
-        const diffs = dmp.diff_main(charsBase, charsRemote, false);
-
-        const getUniqueLines = (text: string, base: string) => {
-            const lines = text
-                .split("\n")
-                .map((l) => l.trim())
-                .filter((l) => l.length > 0);
-            const baseLines = new Set(
-                base
-                    .split("\n")
-                    .map((l) => l.trim())
-                    .filter((l) => l.length > 0),
-            );
-            return lines.filter((l) => !baseLines.has(l));
-        };
-        const localAddedLines = getUniqueLines(localNorm, baseNorm);
-
-        for (const margin of MERGE_PATCH_MARGINS) {
-            await ctx.log(`[Merge] Attempting merge with Patch_Margin=${margin}...`, "debug");
-            dmp.Patch_Margin = margin;
-
-            const patches = dmp.patch_make(charsBase, diffs);
-
-            let [mergedChars, successResults] = dmp.patch_apply(patches, charsLocal);
-
-            const allSuccess = successResults.every((s: boolean) => s);
-            if (!allSuccess) {
-                await ctx.log(
-                    `[Merge] Bulk apply failed (margin=${margin}). Attempting atomic recovery...`,
-                    "warn",
-                );
-                let currentMerged = charsLocal;
-                for (let i = 0; i < patches.length; i++) {
-                    const [res, success] = dmp.patch_apply([patches[i]], currentMerged);
-                    if (success[0]) {
-                        currentMerged = res;
-                    }
-                }
-                mergedChars = currentMerged;
-            }
-
-            let mergedText = "";
-            let decodeError = false;
-            for (let i = 0; i < mergedChars.length; i++) {
-                const idx = mergedChars.charCodeAt(i);
-                if (idx < lineArray.length) {
-                    mergedText += lineArray[idx];
-                } else {
-                    await ctx.log(
-                        `[Merge] Encoding error during decode (idx=${idx}, margin=${margin})`,
-                        "warn",
-                    );
-                    decodeError = true;
-                    break;
-                }
-            }
-            if (decodeError) continue;
-
-            await ctx.log(
-                `[Merge DEBUG] Merged Content (margin=${margin}):\n---\n${mergedText}\n---`,
-                "debug",
-            );
-
-            let validationFailed = false;
-            if (localAddedLines.length > 0) {
-                const mergedLines = new Set(
-                    mergedText
-                        .split("\n")
-                        .map((l) => l.trim())
-                        .filter((l) => l.length > 0),
-                );
-                for (const line of localAddedLines) {
-                    if (!mergedLines.has(line)) {
-                        await ctx.log(
-                            `[Merge] VALIDATION FAILED (margin=${margin}): Local line was lost: "${line.substring(0, 40)}..."`,
-                            "warn",
-                        );
-                        validationFailed = true;
-                        break;
-                    }
-                }
-            }
-
-            if (!validationFailed) {
-                await ctx.log(`[Merge] SUCCESS: Auto-merged ${path} with Patch_Margin=${margin}`, "info");
-                return new TextEncoder().encode(mergedText).buffer;
-            }
-        }
-
-        await ctx.log(
-            `[Merge] FAIL: All Patch_Margin attempts failed for ${path}. (Safety Fallback)`,
-            "warn",
-        );
-        return null;
+        const strategy = getMergeStrategy(ctx.settings.conflictResolutionStrategy);
+        return await strategy.merge({
+            ctx,
+            path,
+            localContent: localContentStr,
+            remoteContent: remoteContentStr,
+            baseHash,
+        });
     } catch (e) {
         await ctx.log(`[Merge] Error: ${e}`, "error");
         return null;
@@ -414,11 +208,11 @@ export async function pullFileSafely(
     }
 
     try {
-        const exists = await ctx.app.vault.adapter.exists(item.path);
+        const exists = await ctx.vault.exists(item.path);
         if (exists) {
             ctx.syncingPaths.add(item.path);
             try {
-                const localContent = await ctx.app.vault.adapter.readBinary(item.path);
+                const localContent = await ctx.vault.readBinary(item.path);
                 // Normalize line endings for consistent hash calculation across platforms
                 const localContentStr = new TextDecoder().decode(localContent);
                 const normalizedContent = normalizeLineEndings(localContentStr);
@@ -474,7 +268,7 @@ export async function pullFileSafely(
                     // E2EE without item.plainHash: can't detect content match pre-download
 
                     if (contentMatches) {
-                        const stat = await ctx.app.vault.adapter.stat(item.path);
+                        const stat = await ctx.vault.stat(item.path);
                         // Calculate plainHash for local content (since hash matches, content is the same)
                         const plainHash = await hashContent(localContent);
 
@@ -580,16 +374,16 @@ export async function pullFileSafely(
                             ctx.syncingPaths.add(item.path);
                             const remoteContent = await ctx.adapter.downloadFile(fileId || "");
                             try {
-                                await ctx.app.vault.adapter.writeBinary(item.path, remoteContent);
+                                await ctx.vault.writeBinary(item.path, remoteContent);
                             } catch (writeErr) {
                                 await ctx.log(`[${logPrefix}] Write failed for ${item.path}, restoring original content`, "error");
-                                try { await ctx.app.vault.adapter.writeBinary(item.path, localContent); } catch { /* best effort */ }
+                                try { await ctx.vault.writeBinary(item.path, localContent); } catch { /* best effort */ }
                                 throw writeErr;
                             }
 
                             markSettingsUpdatedIfNeeded(ctx, item.path);
 
-                            const stat = await ctx.app.vault.adapter.stat(item.path);
+                            const stat = await ctx.vault.stat(item.path);
                             // Calculate plainHash for downloaded content
                             const plainHash = await hashContent(remoteContent);
 
@@ -703,13 +497,13 @@ export async function pullFileSafely(
                                     normalizedMerged,
                                 ).buffer;
                                 try {
-                                    await ctx.app.vault.adapter.writeBinary(
+                                    await ctx.vault.writeBinary(
                                         item.path,
                                         normalizedBuffer,
                                     );
                                 } catch (writeErr) {
                                     await ctx.log(`[${logPrefix}] Merge write failed for ${item.path}, restoring original content`, "error");
-                                    try { await ctx.app.vault.adapter.writeBinary(item.path, localContent); } catch { /* best effort */ }
+                                    try { await ctx.vault.writeBinary(item.path, localContent); } catch { /* best effort */ }
                                     throw writeErr;
                                 }
 
@@ -727,7 +521,7 @@ export async function pullFileSafely(
                                         `[${logPrefix}] Result matches remote. Marking as Synced.`,
                                         "debug",
                                     );
-                                    const stat = await ctx.app.vault.adapter.stat(item.path);
+                                    const stat = await ctx.vault.stat(item.path);
                                     // Calculate plainHash for merged content
                                     const mergedPlainHash = await hashContent(merged);
 
@@ -750,7 +544,7 @@ export async function pullFileSafely(
                                 } else {
                                     const lockCheck = await checkMergeLock(ctx, item.path);
                                     if (!lockCheck.locked) {
-                                        const stat = await ctx.app.vault.adapter.stat(item.path);
+                                        const stat = await ctx.vault.stat(item.path);
                                         const entryLocal = {
                                             fileId: fileId || "",
                                             mtime: stat?.mtime || Date.now(),
@@ -797,7 +591,7 @@ export async function pullFileSafely(
                                             "warn",
                                         );
                                         await ctx.notify("noticeMergeLockLost", basename(item.path));
-                                        const statLockLost = await ctx.app.vault.adapter.stat(
+                                        const statLockLost = await ctx.vault.stat(
                                             item.path,
                                         );
                                         ctx.localIndex[item.path] = {
@@ -839,11 +633,11 @@ export async function pullFileSafely(
                         "warn",
                     );
 
-                    const localFile = ctx.app.vault.getAbstractFileByPath(item.path);
+                    const localFile = ctx.vault.getAbstractFileByPath(item.path);
                     if (localFile instanceof TFile) {
-                        await ctx.app.vault.rename(localFile, conflictPath);
+                        await ctx.vault.renameFile(localFile, conflictPath);
                     } else {
-                        await ctx.app.vault.adapter.rename(item.path, conflictPath);
+                        await ctx.vault.rename(item.path, conflictPath);
                     }
                     await ctx.log(`[${logPrefix}] Renamed local version to ${conflictPath}`, "info");
 
@@ -852,20 +646,20 @@ export async function pullFileSafely(
                     if (!isRemoteDeleted) {
                         const remoteContent = await ctx.adapter.downloadFile(fileId || "");
                         await ensureLocalFolder(ctx, item.path);
-                        await ctx.app.vault.adapter.writeBinary(item.path, remoteContent);
+                        await ctx.vault.writeBinary(item.path, remoteContent);
                         remoteSize = remoteContent.byteLength;
                         // Calculate plainHash for downloaded content
                         remotePlainHash = await hashContent(remoteContent);
 
                         markSettingsUpdatedIfNeeded(ctx, item.path);
                     } else {
-                        const exists = await ctx.app.vault.adapter.exists(item.path);
+                        const exists = await ctx.vault.exists(item.path);
                         if (exists) {
-                            await ctx.app.vault.adapter.remove(item.path);
+                            await ctx.vault.remove(item.path);
                         }
                     }
 
-                    const stat = await ctx.app.vault.adapter.stat(item.path);
+                    const stat = await ctx.vault.stat(item.path);
                     const entry = {
                         fileId: fileId || "",
                         mtime: stat?.mtime || Date.now(),
@@ -929,12 +723,12 @@ export async function pullFileSafely(
         await ensureLocalFolder(ctx, item.path);
 
         const content = await ctx.adapter.downloadFile(fileId || "");
-        await ctx.app.vault.adapter.writeBinary(item.path, content);
+        await ctx.vault.writeBinary(item.path, content);
 
         // Calculate plainHash for downloaded content
         const plainHash = await hashContent(content);
 
-        const stat = await ctx.app.vault.adapter.stat(item.path);
+        const stat = await ctx.vault.stat(item.path);
         const entry = {
             fileId: fileId || "",
             mtime: stat?.mtime || item.mtime || Date.now(),
@@ -953,7 +747,7 @@ export async function pullFileSafely(
         return true;
     } catch (e) {
         await ctx.log(`[${logPrefix}] Pull failed: ${item.path} - ${e}`, "error");
-        if ((e as any)?.name === "DecryptionError") {
+        if (e instanceof Error && e.name === "DecryptionError") {
             await ctx.notify("noticeE2EEDecryptFailed", basename(item.path));
         }
         return false;

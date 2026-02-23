@@ -39,14 +39,14 @@ export async function ensureLocalFolder(ctx: SyncContext, filePath: string) {
     if (parts.length <= 1) return;
 
     const folderPath = parts.slice(0, -1).join("/");
-    if (await ctx.app.vault.adapter.exists(folderPath)) return;
+    if (await ctx.vault.exists(folderPath)) return;
 
     let currentPath = "";
     for (const part of parts.slice(0, -1)) {
         currentPath += (currentPath ? "/" : "") + part;
-        if (!(await ctx.app.vault.adapter.exists(currentPath))) {
+        if (!(await ctx.vault.exists(currentPath))) {
             try {
-                await ctx.app.vault.createFolder(currentPath);
+                await ctx.vault.createFolder(currentPath);
             } catch (e) {
                 console.debug("VaultSync: Race condition in mkdir ignored", e);
             }
@@ -56,7 +56,7 @@ export async function ensureLocalFolder(ctx: SyncContext, filePath: string) {
 
 export async function listFilesRecursive(ctx: SyncContext, path: string): Promise<string[]> {
     const result: string[] = [];
-    const listed = await ctx.app.vault.adapter.list(path);
+    const listed = await ctx.vault.list(path);
 
     for (const file of listed.files) {
         result.push(file);
@@ -71,7 +71,7 @@ export async function listFilesRecursive(ctx: SyncContext, path: string): Promis
 }
 
 export async function getLocalFiles(ctx: SyncContext) {
-    const standardFiles = ctx.app.vault.getFiles().map((f) => ({
+    const standardFiles = ctx.vault.getFiles().map((f) => ({
         path: f.path,
         mtime: f.stat.mtime,
         size: f.stat.size,
@@ -82,7 +82,7 @@ export async function getLocalFiles(ctx: SyncContext) {
     try {
         const files = await listFilesRecursive(ctx, ".obsidian");
         for (const path of files) {
-            const stat = await ctx.app.vault.adapter.stat(path);
+            const stat = await ctx.vault.stat(path);
             if (stat) {
                 obsidianFiles.push({
                     path,
@@ -164,6 +164,74 @@ export function isManagedSeparately(path: string): boolean {
     if (!path.startsWith(PLUGIN_DIR)) return false;
     const subPath = path.substring(PLUGIN_DIR.length);
     return INTERNAL_REMOTE_MANAGED.includes(subPath);
+}
+
+/**
+ * System-level check: files that must NEVER exist on remote regardless of user settings.
+ * Used by the pull phase to avoid deleting files that another device legitimately synced
+ * when the current device has stale settings (e.g., syncWorkspace=false while remote has true).
+ *
+ * Does NOT check settings-dependent exclusions (syncWorkspace, syncAppearance, etc.).
+ * Those are enforced only during push, where the current device's settings are always up-to-date.
+ */
+export function isAlwaysForbiddenOnRemote(path: string): boolean {
+    const normalizedPath = normalizePath(path).toLowerCase();
+    const normalizedWithSlash = normalizedPath.endsWith("/")
+        ? normalizedPath
+        : normalizedPath + "/";
+
+    // 1. Plugin internal local-only files (cache/, data/local/)
+    if (normalizedPath.startsWith(PLUGIN_DIR.toLowerCase())) {
+        const subPath = normalizedPath.substring(PLUGIN_DIR.length);
+        const normalizedSubPath = subPath.endsWith("/") ? subPath : subPath + "/";
+
+        if (
+            INTERNAL_LOCAL_ONLY.some((p) => {
+                const np = p.toLowerCase();
+                return normalizedSubPath.startsWith(np.endsWith("/") ? np : np + "/");
+            })
+        ) {
+            return true;
+        }
+    }
+
+    // 2. System-level ignore files (.DS_Store, Thumbs.db, debug logs, orphans)
+    if (
+        SYSTEM_IGNORES.some((p) => {
+            const np = p.toLowerCase();
+            if (np.endsWith("/")) {
+                return normalizedWithSlash.startsWith(np) || normalizedWithSlash.includes("/" + np);
+            }
+            return normalizedPath === np || normalizedPath.endsWith("/" + np);
+        })
+    ) {
+        return true;
+    }
+
+    // 3. Obsidian system transient files (cache/, indexedDB/, backups/, .trash/)
+    if (normalizedPath.startsWith(".obsidian/")) {
+        if (
+            OBSIDIAN_SYSTEM_IGNORES.some((e) => {
+                const ne = e.toLowerCase();
+                if (ne.endsWith("/")) {
+                    return (
+                        normalizedWithSlash.includes("/" + ne) ||
+                        normalizedWithSlash.endsWith("/" + ne)
+                    );
+                }
+                return normalizedPath.endsWith("/" + ne);
+            })
+        ) {
+            return true;
+        }
+    }
+
+    // 4. Conflict resolution files
+    if (/\(conflict \d{4}-\d{2}-\d{2}t\d{2}-\d{2}-\d{2}\)/.test(normalizedPath)) {
+        return true;
+    }
+
+    return false;
 }
 
 /**

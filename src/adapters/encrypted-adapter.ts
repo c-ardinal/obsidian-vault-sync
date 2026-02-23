@@ -140,7 +140,10 @@ export class EncryptedAdapter implements CloudAdapter {
         return this.baseAdapter.createFolder(path);
     }
 
-    async ensureFoldersExist(folderPaths: string[], onProgress?: any): Promise<void> {
+    async ensureFoldersExist(
+        folderPaths: string[],
+        onProgress?: (current: number, total: number, name: string) => void,
+    ): Promise<void> {
         return this.baseAdapter.ensureFoldersExist(folderPaths, onProgress);
     }
 
@@ -238,13 +241,13 @@ export class EncryptedAdapter implements CloudAdapter {
             return await this.engine.decryptFromBlob(data);
         } catch (e) {
             if (e instanceof DecryptionError) throw e;
-            // Re-wrap engine DecryptionError (cross-module boundary) or other errors
+            // Re-wrap engine DecryptionError (cross-module boundary — different class instance)
             if (e instanceof Error && e.name === "DecryptionError") {
-                throw new DecryptionError(
-                    e.message,
-                    (e as any).cause ?? "authentication",
-                    (e as any).chunkIndex,
-                );
+                const err = e as Error & { cause?: unknown; chunkIndex?: unknown };
+                const cause = err.cause === "authentication" || err.cause === "format"
+                    ? err.cause : "authentication";
+                const chunkIndex = typeof err.chunkIndex === "number" ? err.chunkIndex : undefined;
+                throw new DecryptionError(e.message, cause, chunkIndex);
             }
             throw new DecryptionError(
                 "Decryption failed (wrong password or corrupted data)", "authentication",

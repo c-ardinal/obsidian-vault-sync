@@ -15,6 +15,19 @@ import { diff_match_patch } from "diff-match-patch";
 import { PromptModal } from "./prompt-modal";
 import { formatSize } from "../utils/format";
 
+interface DiffSegment {
+    op: number;
+    text: string;
+}
+
+interface DiffRow {
+    segments: DiffSegment[];
+    lNo?: number;
+    rNo?: number;
+    isDiff: boolean;
+    isStartOfBlock?: boolean;
+}
+
 export class HistoryModal extends Modal {
     private revisions: FileRevision[] = [];
     private selectedRevision: FileRevision | null = null;
@@ -85,7 +98,7 @@ export class HistoryModal extends Modal {
                     this.app.vault.read(this.file),
                 ]),
                 timeout,
-            ])) as [any[], string];
+            ])) as [FileRevision[], string];
 
             // Update cache
             HistoryModal.revisionCache.set(this.file.path, revisions);
@@ -433,7 +446,7 @@ export class HistoryModal extends Modal {
                                 );
                                 await this.syncManager.notify("noticeSavedKeepForever", String(newVal));
                                 this.render();
-                            } catch (err: any) {
+                            } catch (err: unknown) {
                                 const msg = err instanceof Error ? err.message : String(err);
                                 if (
                                     msg.includes("illegalKeepForeverModification") ||
@@ -750,17 +763,9 @@ export class HistoryModal extends Modal {
         }
     }
 
-    private processDiffToLines(diffs: [number, string][]) {
-        interface Row {
-            segments: { op: number; text: string }[];
-            lNo?: number;
-            rNo?: number;
-            isDiff: boolean;
-            isStartOfBlock?: boolean;
-        }
-
-        const rows: Row[] = [];
-        let cur: Row = { segments: [], isDiff: false };
+    private processDiffToLines(diffs: [number, string][]): DiffRow[] {
+        const rows: DiffRow[] = [];
+        let cur: DiffRow = { segments: [], isDiff: false };
 
         diffs.forEach(([op, text]) => {
             const parts = text.split("\n");
@@ -808,7 +813,7 @@ export class HistoryModal extends Modal {
         return rows;
     }
 
-    private renderDiffRow(container: HTMLElement, row: any) {
+    private renderDiffRow(container: HTMLElement, row: DiffRow) {
         const rowEl = container.createDiv({
             cls: `diff-row diff-row-${this.diffMode}`,
         });
@@ -817,7 +822,7 @@ export class HistoryModal extends Modal {
             const cell = rowEl.createDiv({ cls: "diff-cell" });
 
             // Determine row color
-            const ops = new Set(row.segments.map((s: any) => s.op));
+            const ops = new Set(row.segments.map((s) => s.op));
             if (ops.has(1) && !ops.has(-1)) rowEl.addClass("diff-op-added");
             else if (ops.has(-1) && !ops.has(1)) rowEl.addClass("diff-op-removed");
             else if (ops.has(1) || ops.has(-1)) rowEl.addClass("diff-op-modified");
@@ -826,7 +831,7 @@ export class HistoryModal extends Modal {
             cell.createDiv({ cls: "diff-ln", text: String(row.rNo || "") });
             const content = cell.createDiv({ cls: "diff-cn" });
 
-            row.segments.forEach((seg: any) => {
+            row.segments.forEach((seg) => {
                 const s = content.createSpan({ text: seg.text });
                 if (seg.op === 1) s.addClass("diff-added-inline");
                 if (seg.op === -1) s.addClass("diff-removed-inline");
@@ -836,20 +841,20 @@ export class HistoryModal extends Modal {
             const leftCell = rowEl.createDiv({ cls: "diff-cell diff-cell-left" });
             const rightCell = rowEl.createDiv({ cls: "diff-cell diff-cell-right" });
 
-            const leftSegments = row.segments.filter((s: any) => s.op <= 0);
-            const rightSegments = row.segments.filter((s: any) => s.op >= 0);
+            const leftSegments = row.segments.filter((s) => s.op <= 0);
+            const rightSegments = row.segments.filter((s) => s.op >= 0);
 
             // Left Side
             if (leftSegments.length > 0) {
-                const hasRemoved = leftSegments.some((s: any) => s.op === -1);
-                if (hasRemoved && !rightSegments.some((s: any) => s.op === 1)) {
+                const hasRemoved = leftSegments.some((s) => s.op === -1);
+                if (hasRemoved && !rightSegments.some((s) => s.op === 1)) {
                     leftCell.addClass("diff-op-removed");
                 } else if (hasRemoved) {
                     leftCell.addClass("diff-op-modified");
                 }
                 leftCell.createDiv({ cls: "diff-ln", text: String(row.lNo || "") });
                 const content = leftCell.createDiv({ cls: "diff-cn" });
-                leftSegments.forEach((seg: any) => {
+                leftSegments.forEach((seg) => {
                     const s = content.createSpan({ text: seg.text });
                     if (seg.op === -1) s.addClass("diff-removed-inline");
                 });
@@ -861,15 +866,15 @@ export class HistoryModal extends Modal {
 
             // Right Side
             if (rightSegments.length > 0) {
-                const hasAdded = rightSegments.some((s: any) => s.op === 1);
-                if (hasAdded && !leftSegments.some((s: any) => s.op === -1)) {
+                const hasAdded = rightSegments.some((s) => s.op === 1);
+                if (hasAdded && !leftSegments.some((s) => s.op === -1)) {
                     rightCell.addClass("diff-op-added");
                 } else if (hasAdded) {
                     rightCell.addClass("diff-op-modified");
                 }
                 rightCell.createDiv({ cls: "diff-ln", text: String(row.rNo || "") });
                 const content = rightCell.createDiv({ cls: "diff-cn" });
-                rightSegments.forEach((seg: any) => {
+                rightSegments.forEach((seg) => {
                     const s = content.createSpan({ text: seg.text });
                     if (seg.op === 1) s.addClass("diff-added-inline");
                 });

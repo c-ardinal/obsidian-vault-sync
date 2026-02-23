@@ -703,12 +703,11 @@
     position: relative;
     display: inline-flex;
     align-items: center;
-    width: auto;
-    min-width: 100px;
+    width: 120px;
 }
 
 .is-mobile .vault-sync-number-wrapper {
-    width: 100%;
+    width: 120px;
 }
 
 .vault-sync-number-input-with-unit {
@@ -755,6 +754,303 @@
 .is-mobile .vault-sync-info-status {
     font-size: 0.75em;
     padding: 4px 10px;
+}
+
+/* Number Limits Hint — sits inside .setting-item-control */
+.vault-sync-number-hint {
+    width: 100%;
+    font-size: 0.75em;
+    color: var(--text-muted);
+    margin-top: 4px;
+    text-align: right;
+    line-height: 1.2;
+}
+
+/* Compact settings: prevent mobile wrap so label and control stay side-by-side */
+.is-mobile .vault-sync-number-setting.setting-item,
+.is-mobile .vault-sync-info-setting.setting-item {
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+}
+
+.is-mobile .vault-sync-number-setting .setting-item-info,
+.is-mobile .vault-sync-info-setting .setting-item-info {
+    flex: 1 1 0 !important;
+    min-width: 0;
+}
+
+.is-mobile .vault-sync-number-setting .setting-item-control,
+.is-mobile .vault-sync-info-setting .setting-item-control {
+    flex: 0 0 auto !important;
+    width: auto !important;
+}
+
+/* Number column: input+unit stacked above limits hint */
+.vault-sync-number-column {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+}
+
+/* Toggle-number: toggle on first line, number input wraps below */
+.vault-sync-toggle-number-setting > .setting-item-control {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+}
+
+.vault-sync-toggle-number-setting .vault-sync-number-column {
+    flex-basis: 100%;
+}
+
+/* Subheader group: label + nested children block */
+.vault-sync-subheader-group {
+    margin-top: 12px;
+    margin-bottom: 16px;
+    margin-left: 8px;
+    padding-left: 12px;
+    border-left: 2px solid var(--background-modifier-border);
+}
+
+.vault-sync-subheader-label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 0;
+    cursor: pointer;
+    user-select: none;
+}
+
+.vault-sync-subheader-label:hover {
+    opacity: 0.8;
+}
+
+.vault-sync-subheader-chevron {
+    display: flex;
+    align-items: center;
+    color: var(--text-muted);
+}
+
+.vault-sync-subheader-chevron svg {
+    width: 14px;
+    height: 14px;
+}
+
+.vault-sync-subheader-text {
+    font-size: 0.82em;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.vault-sync-subheader-body > .setting-item {
+    border-top: none;
+}
+
+/* Exclusion Pattern Modal */
+.vault-sync-exclusion-modal {
+    width: 80%;
+    height: 90%;
+    max-width: 80%;
+    max-height: 90%;
+}
+
+.is-mobile .vault-sync-exclusion-modal {
+    width: 95vw;
+    max-width: none;
+    max-height: 90vh;
+}
+
+.vault-sync-exclusion-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 16px;
+    max-height: 50vh;
+    overflow-y: auto;
+}
+
+.vault-sync-exclusion-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    background-color: var(--background-secondary);
+    border-radius: 6px;
+}
+
+.vault-sync-exclusion-item-pattern {
+    flex: 1;
+    font-family: var(--font-monospace);
+    font-size: 0.9em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    user-select: text;
+    cursor: text;
+}
+
+.vault-sync-exclusion-match-count {
+    font-size: 0.75em;
+    color: var(--text-muted);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.vault-sync-exclusion-match-clickable {
+    cursor: pointer;
+    text-decoration: underline;
+    text-decoration-style: dotted;
+}
+
+.vault-sync-exclusion-match-clickable:hover {
+    color: var(--text-accent);
+}
+
+.vault-sync-exclusion-file-list {
+    padding: 4px 8px 6px 16px;
+    background-color: var(--background-primary);
+    border-radius: 0 0 6px 6px;
+    margin-top: -4px;
+    max-height: 150px;
+    overflow-y: auto;
+}
+
+.vault-sync-exclusion-file-item {
+    font-family: var(--font-monospace);
+    font-size: 0.78em;
+    color: var(--text-muted);
+    padding: 1px 0;
+    user-select: text;
+    cursor: text;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.vault-sync-exclusion-delete {
+    cursor: pointer;
+    color: var(--text-muted);
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    border-radius: 4px;
+    padding: 2px;
+}
+
+.vault-sync-exclusion-delete:hover {
+    color: var(--text-error);
+    background-color: var(--background-modifier-hover);
+}
+
+.vault-sync-exclusion-add-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    position: relative;
+    margin-bottom: 16px;
+}
+
+.vault-sync-exclusion-add-input {
+    flex: 1;
+    font-family: var(--font-monospace);
+}
+
+.vault-sync-exclusion-empty {
+    color: var(--text-muted);
+    font-style: italic;
+    text-align: center;
+    padding: 20px 0;
+}
+
+.vault-sync-exclusion-error {
+    color: var(--text-error);
+    font-size: 0.85em;
+    margin-top: 4px;
+}
+
+.vault-sync-exclusion-suggest {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    max-height: 200px;
+    overflow-y: auto;
+    background-color: var(--background-primary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    margin-top: 4px;
+}
+
+.vault-sync-exclusion-suggest-item {
+    padding: 6px 10px;
+    cursor: pointer;
+    font-family: var(--font-monospace);
+    font-size: 0.85em;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.vault-sync-exclusion-suggest-item:hover {
+    background-color: var(--background-modifier-hover);
+}
+
+.vault-sync-exclusion-suggest-icon {
+    color: var(--text-muted);
+    flex-shrink: 0;
+}
+
+.vault-sync-exclusion-status {
+    font-size: 0.78em;
+    color: var(--text-muted);
+    text-align: right;
+    padding: 6px 4px 0;
+}
+
+.vault-sync-exclusion-match-loading {
+    opacity: 0.5;
+    font-style: italic;
+}
+
+.vault-sync-exclusion-item-container {
+    margin-bottom: 2px;
+}
+
+.vault-sync-exclusion-section-label {
+    font-size: 0.78em;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-top: 12px;
+    margin-bottom: 4px;
+    padding-top: 8px;
+    border-top: 1px solid var(--background-modifier-border);
+}
+
+.vault-sync-exclusion-item-managed {
+    opacity: 0.7;
+}
+
+.vault-sync-exclusion-item-managed .vault-sync-exclusion-item-pattern {
+    font-style: italic;
+}
+
+.vault-sync-exclusion-managed-badge {
+    font-size: 0.72em;
+    color: var(--text-muted);
+    background: var(--background-modifier-border);
+    padding: 1px 6px;
+    border-radius: 4px;
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 
 /* Migration UI */

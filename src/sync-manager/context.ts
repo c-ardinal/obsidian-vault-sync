@@ -1,5 +1,5 @@
-import type { App, Notice } from "obsidian";
 import type { CloudAdapter } from "../types/adapter";
+import type { IVaultOperations } from "../types/vault-operations";
 import type { RevisionCache } from "../revision-cache";
 import type {
     SyncManagerSettings,
@@ -21,7 +21,7 @@ import type { BackgroundTransferQueue } from "./background-transfer";
  */
 export interface SyncContext {
     // === Platform ===
-    app: App;
+    vault: IVaultOperations;
     adapter: CloudAdapter;
     settings: SyncManagerSettings;
     logger: SyncLogger;

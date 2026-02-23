@@ -1,5 +1,6 @@
 import { CloudAdapter } from "../types/adapter";
-import { App, Notice } from "obsidian";
+import type { IVaultOperations } from "../types/vault-operations";
+import type { INotificationService } from "../services/notification-service";
 import { RevisionCache } from "../revision-cache";
 import {
     CommunicationData,
@@ -207,19 +208,21 @@ export class SyncManager {
     private nextSyncParams: { trigger: SyncTrigger; scanVault: boolean } | null = null;
 
     constructor(
-        private app: App,
+        private vault: IVaultOperations,
         adapter: CloudAdapter,
         private pluginDataPath: string,
-
         private settings: SyncManagerSettings,
         private pluginDir: string,
         public t: (key: string) => string,
+        private notifier: INotificationService,
+        revisionCache: RevisionCache,
+        backgroundQueue: BackgroundTransferQueue,
     ) {
         this.baseAdapter = adapter;
-        this.backgroundTransferQueue = new BackgroundTransferQueue();
+        this.revisionCache = revisionCache;
+        this.backgroundTransferQueue = backgroundQueue;
         this.vaultLockService = new VaultLockService(this.baseAdapter);
         this.migrationService = new MigrationService(
-            this.app,
             this.baseAdapter,
             this.vaultLockService,
             this as unknown as SyncContext,
@@ -241,7 +244,6 @@ export class SyncManager {
         });
 
         this.baseAdapter.setLogger((msg, level) => this.log(msg, (level as LogLevel) || "debug"));
-        this.revisionCache = new RevisionCache(this.app, this.pluginDir);
         this.backgroundTransferQueue.setContext(this as unknown as SyncContext);
     }
 
@@ -316,12 +318,12 @@ export class SyncManager {
             const logPath = `${this.logFolder}/${today}.log`;
 
             // Ensure log folder exists (use adapter for recursive mkdir)
-            if (!(await this.app.vault.adapter.exists(this.logFolder))) {
+            if (!(await this.vault.exists(this.logFolder))) {
                 await this.ensureLocalFolder(this.logFolder + "/dummy.txt"); // Simple trick for recursive
             }
 
-            const existingContent = await this.app.vault.adapter.read(logPath).catch(() => "");
-            await this.app.vault.adapter.write(logPath, existingContent + line);
+            const existingContent = await this.vault.read(logPath).catch(() => "");
+            await this.vault.write(logPath, existingContent + line);
         } catch (e) {
             console.error("Failed to write to log file:", e);
         }
@@ -351,7 +353,7 @@ export class SyncManager {
 
         if (show) {
             this.logger.markNoticeShown();
-            new Notice(message);
+            this.notifier.show(message);
             await this.logger.notice(message);
         } else {
             await this.logger.info(`[Silent] ${message}`);
