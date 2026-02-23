@@ -5,7 +5,7 @@ import {
     INTERNAL_LOCAL_ONLY,
     runParallel,
     isManagedSeparately,
-    shouldNotBeOnRemote,
+    isAlwaysForbiddenOnRemote,
     shouldIgnore,
 } from "./file-utils";
 import { loadCommunication, saveIndex, saveLocalIndex, clearPendingPushStates } from "./state";
@@ -104,8 +104,10 @@ async function detectPullChanges(
         if (path === ctx.pluginDataPath) continue;
         if (isManagedSeparately(path)) continue;
 
-        // リモートにあってはいけないファイルを見つけたら、即座に削除キューへ
-        if (shouldNotBeOnRemote(ctx, path)) {
+        // Only clean up system-level forbidden files during pull.
+        // Settings-dependent cleanup is deferred to push phase to avoid
+        // deleting files that another device legitimately synced with different settings.
+        if (isAlwaysForbiddenOnRemote(path)) {
             toDeleteRemote.push({ path, fileId: remoteEntry.fileId });
             continue;
         }
@@ -387,7 +389,7 @@ function buildForbiddenRemoteCleanupTasks(
         let highestIgnoredParent: string | null = null;
         for (let i = 1; i < parts.length; i++) {
             const parentPath = parts.slice(0, i).join("/");
-            if (shouldNotBeOnRemote(ctx, parentPath + "/")) {
+            if (isAlwaysForbiddenOnRemote(parentPath + "/")) {
                 highestIgnoredParent = parentPath;
                 break;
             }
@@ -763,8 +765,8 @@ async function processChangePage(
                 }
             }
 
-            // もしリモート禁止対象ファイルが上がってきたら、即座に削除
-            if (shouldNotBeOnRemote(ctx, cloudFile.path)) {
+            // Only clean up system-level forbidden files during pull (Changes API).
+            if (isAlwaysForbiddenOnRemote(cloudFile.path)) {
                 tasks.push(async () => {
                     try {
                         await ctx.adapter.deleteFile(cloudFile.id);
