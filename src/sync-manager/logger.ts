@@ -128,22 +128,16 @@ export class SyncLogger {
             this.criticalLogged = true;
         }
 
-        // 1. Console Output (Always)
         console.log(`VaultSync: [${level.toUpperCase()}] ${message}`);
 
-        // 2. Developer Mode: Always immediate output
         if (this.options.isDeveloperMode) {
             await this.writeEntry(entry);
             return;
         }
 
-        // 3. During Sync Cycle: Buffer all levels (System/Error/Warn/Info/Debug)
-        // to ensure logs for the cycle are contiguous and follow Pattern A/B filtering.
         if (this.inCycle) {
             this.buffer.push(entry);
         } else {
-            // Outside of cycle (e.g. startup grace period logs, [Trigger] logs),
-            // write immediately for relevant levels. Debug is discarded outside of cycle.
             if (level !== "debug") {
                 await this.writeEntry(entry);
             }
@@ -167,12 +161,10 @@ export class SyncLogger {
         const allowed = this.options.isDeveloperMode || this.options.enableLogging || isCritical;
         if (!allowed) return;
 
-        // Use ja-JP locale for consistent formatting as requested
         const timestampStr = entry.timestamp.toLocaleString("ja-JP", {
             timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         });
 
-        // Format: [timestamp] [LEVEL] message
         const levelTag = ` [${entry.level.toUpperCase()}]`;
         const line = `[${timestampStr}]${levelTag} ${entry.message}\n`;
 

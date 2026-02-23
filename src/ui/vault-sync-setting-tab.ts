@@ -21,17 +21,18 @@ export class VaultSyncSettingTab extends PluginSettingTab {
         try {
             const stored = window.localStorage.getItem(OPENED_GROUPS_KEY);
             if (stored) return new Set(JSON.parse(stored));
-        } catch { /* ignore */ }
+        } catch {
+            /* ignore */
+        }
         return new Set();
     }
 
     private saveOpenedGroups(): void {
         try {
-            window.localStorage.setItem(
-                OPENED_GROUPS_KEY,
-                JSON.stringify([...this.openedGroups]),
-            );
-        } catch { /* ignore */ }
+            window.localStorage.setItem(OPENED_GROUPS_KEY, JSON.stringify([...this.openedGroups]));
+        } catch {
+            /* ignore */
+        }
     }
 
     display(): void {
@@ -52,7 +53,10 @@ export class VaultSyncSettingTab extends PluginSettingTab {
         const authHeader = authGroup.createDiv({ cls: "vault-sync-subheader-label" });
         const authChevron = authHeader.createSpan({ cls: "vault-sync-subheader-chevron" });
         setIcon(authChevron, authCollapsed ? "chevron-right" : "chevron-down");
-        authHeader.createSpan({ cls: "vault-sync-subheader-text", text: t("settingSubheaderAccount") });
+        authHeader.createSpan({
+            cls: "vault-sync-subheader-text",
+            text: t("settingSubheaderAccount"),
+        });
 
         const authBody = authGroup.createDiv({ cls: "vault-sync-subheader-body" });
         if (authCollapsed) {
@@ -80,7 +84,10 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                     .addOption("client-credentials", t("settingAuthMethodClientCredentials"))
                     .setValue(this.plugin.settings.authMethod)
                     .onChange(async (value) => {
-                        this.plugin.settings.authMethod = value as "default" | "custom-proxy" | "client-credentials";
+                        this.plugin.settings.authMethod = value as
+                            | "default"
+                            | "custom-proxy"
+                            | "client-credentials";
                         this.plugin.setAuthConfig(
                             this.plugin.settings.authMethod,
                             this.plugin.settings.customProxyUrl,
@@ -103,10 +110,7 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                         .setValue(this.plugin.settings.customProxyUrl)
                         .onChange(async (value) => {
                             this.plugin.settings.customProxyUrl = value;
-                            this.plugin.setAuthConfig(
-                                this.plugin.settings.authMethod,
-                                value,
-                            );
+                            this.plugin.setAuthConfig(this.plugin.settings.authMethod, value);
                             await this.plugin.saveSettings();
                         }),
                 );
@@ -240,21 +244,26 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                         if (item.key === "exclusionPatterns") {
                             // Render as a button that opens a modal
                             const patternCount = String(this.getSettingValue(item.key) || "")
-                                .split("\n").filter((l: string) => l.trim()).length;
-                            const summary = patternCount > 0
-                                ? `${patternCount} ${t("settingExclusionPatternCount")}`
-                                : t("settingExclusionPatternNone");
+                                .split("\n")
+                                .filter((l: string) => l.trim()).length;
+                            const summary =
+                                patternCount > 0
+                                    ? `${patternCount} ${t("settingExclusionPatternCount")}`
+                                    : t("settingExclusionPatternNone");
                             setting.setDesc(summary);
                             setting.addButton((btn) => {
-                                btn.setButtonText(t("settingExclusionConfigure"))
-                                    .onClick(() => {
-                                        const modal = new ExclusionPatternModal(this.app, this.plugin);
-                                        modal.onClose = () => {
-                                            if (item.onChange) item.onChange(this.getSettingValue(item.key), this.plugin);
-                                            this.display();
-                                        };
-                                        modal.open();
-                                    });
+                                btn.setButtonText(t("settingExclusionConfigure")).onClick(() => {
+                                    const modal = new ExclusionPatternModal(this.app, this.plugin);
+                                    modal.onClose = () => {
+                                        if (item.onChange)
+                                            item.onChange(
+                                                this.getSettingValue(item.key),
+                                                this.plugin,
+                                            );
+                                        this.display();
+                                    };
+                                    modal.open();
+                                });
                             });
                         } else {
                             setting.addTextArea((text) => {
@@ -286,7 +295,9 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                         break;
                     case "number": {
                         setting.settingEl.addClass("vault-sync-number-setting");
-                        const numCol = setting.controlEl.createDiv({ cls: "vault-sync-number-column" });
+                        const numCol = setting.controlEl.createDiv({
+                            cls: "vault-sync-number-column",
+                        });
                         setting.addText((text) => {
                             text.setValue(String(this.getSettingValue(item.key)))
                                 .setPlaceholder(item.limits ? String(item.limits.default) : "")
@@ -304,7 +315,8 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                                 });
 
                             this.addUnitAddon(text.inputEl, item.unit);
-                            const el = text.inputEl.closest(".vault-sync-number-wrapper") || text.inputEl;
+                            const el =
+                                text.inputEl.closest(".vault-sync-number-wrapper") || text.inputEl;
                             numCol.appendChild(el);
                         });
                         if (item.limits) {
@@ -330,7 +342,9 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                         });
 
                         if (isEnabled) {
-                            const numCol = setting.controlEl.createDiv({ cls: "vault-sync-number-column" });
+                            const numCol = setting.controlEl.createDiv({
+                                cls: "vault-sync-number-column",
+                            });
                             setting.addText((text) => {
                                 text.setValue(String(currentVal))
                                     .setPlaceholder(item.limits ? String(item.limits.default) : "")
@@ -347,7 +361,9 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                                     });
 
                                 this.addUnitAddon(text.inputEl, item.unit);
-                                const el = text.inputEl.closest(".vault-sync-number-wrapper") || text.inputEl;
+                                const el =
+                                    text.inputEl.closest(".vault-sync-number-wrapper") ||
+                                    text.inputEl;
                                 numCol.appendChild(el);
                             });
                             if (item.limits) {
@@ -410,7 +426,9 @@ export class VaultSyncSettingTab extends PluginSettingTab {
     private getSettingValue(key: string): unknown {
         const record = this.plugin.settings as unknown as Record<string, unknown>;
         if (key.includes(".")) {
-            return key.split(".").reduce<unknown>((o, i) => (o as Record<string, unknown>)?.[i], record);
+            return key
+                .split(".")
+                .reduce<unknown>((o, i) => (o as Record<string, unknown>)?.[i], record);
         }
         return record[key];
     }
@@ -420,7 +438,10 @@ export class VaultSyncSettingTab extends PluginSettingTab {
         if (key.includes(".")) {
             const parts = key.split(".");
             const last = parts.pop()!;
-            const target = parts.reduce<Record<string, unknown>>((o, i) => o[i] as Record<string, unknown>, record);
+            const target = parts.reduce<Record<string, unknown>>(
+                (o, i) => o[i] as Record<string, unknown>,
+                record,
+            );
             target[last] = value;
         } else {
             record[key] = value;

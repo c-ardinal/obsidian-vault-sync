@@ -56,7 +56,6 @@ export class PromptModal extends Modal {
                 }),
             );
 
-        // Allow Enter key to submit
         textComp!.inputEl.addEventListener("keydown", (e) => {
             if (e.key === "Enter" && this.okBtn && !this.okBtn.buttonEl.disabled) {
                 this.result = textComp!.getValue();
@@ -64,7 +63,6 @@ export class PromptModal extends Modal {
             }
         });
 
-        // Focus and select the text
         setTimeout(() => {
             textComp!.inputEl.focus();
             textComp!.inputEl.select();

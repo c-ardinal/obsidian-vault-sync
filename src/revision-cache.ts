@@ -29,13 +29,6 @@ export class RevisionCache {
      * Generate a cache key (filename) from file path and revision ID
      */
     private getCacheKey(filePath: string, revisionId: string): string {
-        // Simple sanitization.
-        // Hash the path to ensure valid filename, append revision ID.
-        // We can't easily import md5 here without circular dep issues or duplicating util.
-        // Let's use a simple base64-like replacement or just use window.btoa if available?
-        // Or just replace invalid chars.
-
-        // Better: Use a simple hash function or replace all non-alphanumeric chars.
         const safePath = filePath.replace(/[^a-zA-Z0-9]/g, "_");
         return `${safePath}-${revisionId}.cache`;
     }
@@ -45,14 +38,8 @@ export class RevisionCache {
         const path = `${this.cacheDir}/${key}`;
 
         if (await this.vault.exists(path)) {
-            // Update mtime to refresh TTL?
-            // - Usually caches just expire based on creation, or LRU.
-            // - Let's stick to simple TTL based on creation (or mtime).
-
-            // Check if expired before returning?
             const stat = await this.vault.stat(path);
             if (stat && Date.now() - stat.mtime > this.TTL_MS) {
-                // Expired
                 await this.vault.remove(path);
                 return null;
             }

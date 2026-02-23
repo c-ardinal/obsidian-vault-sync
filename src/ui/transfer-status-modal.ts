@@ -19,7 +19,6 @@ export class TransferStatusModal extends Modal {
         modalEl.addClass("mod-transfer-status-modal");
         this.render();
 
-        // Auto-refresh every 2 seconds while open
         this.refreshTimer = window.setInterval(() => this.render(), 2000);
     }
 
@@ -125,7 +124,10 @@ export class TransferStatusModal extends Modal {
         });
 
         // Direction icon (vertically centered)
-        const dirCls = item.direction === "push" ? "vault-sync-transfer-icon-push" : "vault-sync-transfer-icon-pull";
+        const dirCls =
+            item.direction === "push"
+                ? "vault-sync-transfer-icon-push"
+                : "vault-sync-transfer-icon-pull";
         const iconEl = row.createDiv({ cls: `vault-sync-transfer-icon ${dirCls}` });
         setIcon(iconEl, item.direction === "push" ? "upload" : "download");
 
@@ -183,7 +185,10 @@ export class TransferStatusModal extends Modal {
         const card = item.createDiv({ cls: "vault-sync-transfer-timeline-card" });
 
         // Icon (vertically centered across both rows)
-        const dirCls = record.direction === "push" ? "vault-sync-transfer-icon-push" : "vault-sync-transfer-icon-pull";
+        const dirCls =
+            record.direction === "push"
+                ? "vault-sync-transfer-icon-push"
+                : "vault-sync-transfer-icon-pull";
         const iconEl = card.createDiv({ cls: `vault-sync-transfer-icon ${dirCls}` });
         setIcon(iconEl, record.direction === "push" ? "upload" : "download");
 

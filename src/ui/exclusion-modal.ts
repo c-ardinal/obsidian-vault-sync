@@ -89,7 +89,6 @@ export class ExclusionPatternModal extends Modal {
 
         contentEl.createEl("h2", { text: t("settingExclusionModalTitle") });
 
-        // Add row (above the list)
         const addRow = contentEl.createDiv({ cls: "vault-sync-exclusion-add-row" });
 
         this.inputComp = new TextComponent(addRow);
@@ -206,11 +205,16 @@ export class ExclusionPatternModal extends Modal {
 
         for (let i = 0; i < this.patterns.length; i++) {
             const pattern = this.patterns[i];
-            const itemContainer = this.listEl.createDiv({ cls: "vault-sync-exclusion-item-container" });
+            const itemContainer = this.listEl.createDiv({
+                cls: "vault-sync-exclusion-item-container",
+            });
             const item = itemContainer.createDiv({ cls: "vault-sync-exclusion-item" });
 
             // Selectable pattern text
-            const patternEl = item.createSpan({ cls: "vault-sync-exclusion-item-pattern", text: pattern });
+            const patternEl = item.createSpan({
+                cls: "vault-sync-exclusion-item-pattern",
+                text: pattern,
+            });
             patternEl.setAttribute("title", pattern);
 
             // Match count (clickable) — only show counts after paths are loaded
@@ -237,7 +241,9 @@ export class ExclusionPatternModal extends Modal {
 
                 // Expanded file list
                 if (this.expandedPatterns.has(pattern) && matchCount > 0) {
-                    const fileListEl = itemContainer.createDiv({ cls: "vault-sync-exclusion-file-list" });
+                    const fileListEl = itemContainer.createDiv({
+                        cls: "vault-sync-exclusion-file-list",
+                    });
                     for (const file of matchedFiles) {
                         fileListEl.createDiv({ cls: "vault-sync-exclusion-file-item", text: file });
                     }
@@ -263,9 +269,7 @@ export class ExclusionPatternModal extends Modal {
     }
 
     private getActiveToggleExclusions(): ToggleExclusion[] {
-        return TOGGLE_EXCLUSIONS.filter(
-            (te) => !this.plugin.settings[te.settingKey],
-        );
+        return TOGGLE_EXCLUSIONS.filter((te) => !this.plugin.settings[te.settingKey]);
     }
 
     private renderToggleExclusions(): void {
@@ -286,7 +290,10 @@ export class ExclusionPatternModal extends Modal {
 
             // Setting label as pattern text
             const label = t(te.label as Parameters<typeof t>[0]);
-            item.createSpan({ cls: "vault-sync-exclusion-item-pattern", text: te.patterns.join(", ") });
+            item.createSpan({
+                cls: "vault-sync-exclusion-item-pattern",
+                text: te.patterns.join(", "),
+            });
 
             // Managed badge (instead of delete button)
             item.createDiv({

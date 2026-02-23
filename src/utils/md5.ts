@@ -7,7 +7,6 @@ export function md5(data: ArrayBuffer): string {
     const input = new Uint8Array(data);
     let length = input.length;
 
-    // Constants
     const k = new Uint32Array([
         0xd76aa478, 0xe8c7b756, 0x242070db, 0xc1bdceee, 0xf57c0faf, 0x4787c62a, 0xa8304613,
         0xfd469501, 0x698098d8, 0x8b44f7af, 0xffff5bb1, 0x895cd7be, 0x6b901122, 0xfd987193,
@@ -34,7 +33,6 @@ export function md5(data: ArrayBuffer): string {
     buffer.set(input);
     buffer[length] = 0x80;
 
-    // Length in bits
     // Length in bits
     const lengthBits = length * 8;
     // Split into two 32-bit words (little-endian: low word first, then high word)

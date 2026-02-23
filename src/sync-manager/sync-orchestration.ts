@@ -1,5 +1,4 @@
-// Barrel re-export: sync-orchestration was split into focused modules.
-// All existing imports from "./sync-orchestration" continue to work unchanged.
+// Barrel re-export for backward compatibility.
 
 export { computeLocalHash, downloadRemoteIndex, getThresholdBytes,
          generateTransferId, markPendingTransfer } from "./sync-helpers";

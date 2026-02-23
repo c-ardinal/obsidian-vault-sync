@@ -50,7 +50,6 @@ export class BackgroundTransferQueue {
         } catch (e) {
             this.ctx.log(`[Background Transfer] Failed to load history: ${e}`, "error");
         }
-        // Best-effort rotation of old log files
         this.rotateOldLogs(this.ctx).catch(() => {});
     }
 
@@ -73,14 +72,12 @@ export class BackgroundTransferQueue {
             this.onlineHandler = null;
         }
         this.cancelAll();
-        // Best-effort flush of remaining history
         this.flushHistory().catch(() => {});
     }
 
     // === Queue operations ===
 
     enqueue(item: TransferItem): void {
-        // Replace existing item for the same path (avoid duplicates)
         const existingIdx = this.queue.findIndex(
             (q) => q.path === item.path && q.direction === item.direction,
         );
@@ -89,7 +86,6 @@ export class BackgroundTransferQueue {
         } else {
             this.queue.push(item);
         }
-        // Sort by priority (ascending = higher priority first)
         this.queue.sort((a, b) => a.priority - b.priority);
         this.callbacks.onQueueChange?.(this.getPendingTransfers());
     }
@@ -196,7 +192,6 @@ export class BackgroundTransferQueue {
 
     private startProcessing(): void {
         if (this.isProcessing || this.isPaused || !this.ctx) return;
-        // Fire-and-forget — processLoop manages its own lifecycle
         this.processLoop(this.ctx).catch((e) => {
             this.ctx?.log(`[Background Transfer] Process loop error: ${e}`, "error");
         });
@@ -253,7 +248,6 @@ export class BackgroundTransferQueue {
                         };
                         this.addToHistory(record);
                         this.callbacks.onTransferFailed?.(record);
-                        // Remove from queue
                         this.queue = this.queue.filter((q) => q !== next);
 
                         await ctx.log(
@@ -261,7 +255,6 @@ export class BackgroundTransferQueue {
                             "error",
                         );
                     } else {
-                        // Reset to pending for retry
                         next.status = "pending";
                         const delay = Math.min(
                             TRANSFER_RETRY_BASE_DELAY_MS * Math.pow(2, next.retryCount - 1),
@@ -298,7 +291,6 @@ export class BackgroundTransferQueue {
         // Staleness check: verify file hasn't changed since enqueue
         const currentStat = await ctx.vault.stat(item.path);
         if (!currentStat) {
-            // File was deleted — remove from queue, leave in dirtyPaths for next cycle
             await ctx.log(
                 `[Background Transfer] File deleted since enqueue: ${item.path}`,
                 "warn",
@@ -308,24 +300,20 @@ export class BackgroundTransferQueue {
         }
 
         if (currentStat.mtime !== item.mtime) {
-            // File was modified — re-read and check hash
             const freshContent = await ctx.vault.readBinary(item.path);
             const freshHash = md5(freshContent);
             if (freshHash !== item.snapshotHash) {
-                // Content changed — discard queued content, let next sync cycle handle it
                 await ctx.log(
                     `[Background Transfer] File modified since enqueue, re-marking dirty: ${item.path}`,
                     "warn",
                 );
                 ctx.dirtyPaths.set(item.path, Date.now());
-                // Clean up pendingTransfer
                 if (ctx.localIndex[item.path]?.pendingTransfer) {
                     delete ctx.localIndex[item.path].pendingTransfer;
                 }
                 this.completeItem(item, "cancelled");
                 return;
             }
-            // Hash matches despite mtime change — proceed with fresh content
             item.content = freshContent;
             item.mtime = currentStat.mtime;
         }
@@ -340,7 +328,6 @@ export class BackgroundTransferQueue {
                 remoteMeta = await ctx.adapter.getFileMetadata(item.path);
             }
         } catch {
-            // Not found — new file, proceed
         }
 
         if (remoteMeta) {
@@ -350,7 +337,6 @@ export class BackgroundTransferQueue {
                 remoteHash &&
                 (!lastKnownHash || lastKnownHash.toLowerCase() !== remoteHash.toLowerCase())
             ) {
-                // Remote changed — conflict. Abort and re-mark dirty for next sync cycle
                 await ctx.log(
                     `[Background Transfer] Remote conflict detected for ${item.path}, deferring to sync cycle`,
                     "warn",
@@ -364,7 +350,6 @@ export class BackgroundTransferQueue {
             }
         }
 
-        // Execute upload (prefer resumable for large files)
         const targetFileId = remoteMeta?.id || ctx.index[item.path]?.fileId;
         let uploaded: CloudFile;
         if (ctx.adapter.uploadFileResumable) {
@@ -383,10 +368,8 @@ export class BackgroundTransferQueue {
             );
         }
 
-        // Calculate plainHash for E2EE
         const plainHash = await hashContent(item.content!);
 
-        // Update indices
         const previousAncestorHash = ctx.localIndex[item.path]?.ancestorHash;
         const entry = {
             fileId: uploaded.id,
@@ -405,7 +388,6 @@ export class BackgroundTransferQueue {
             ctx.dirtyPaths.delete(item.path);
         }
 
-        // Upload updated index
         await this.uploadIndex(ctx);
 
         ctx.logger.markActionTaken();
@@ -416,7 +398,6 @@ export class BackgroundTransferQueue {
         );
         await ctx.notify("noticeFilePushed", basename(item.path));
 
-        // Record completion
         const record: TransferRecord = {
             id: item.id,
             direction: "push",
@@ -429,20 +410,16 @@ export class BackgroundTransferQueue {
         };
         this.addToHistory(record);
         this.callbacks.onTransferComplete?.(record);
-        // Remove from queue
         this.queue = this.queue.filter((q) => q !== item);
         this.callbacks.onQueueChange?.(this.getPendingTransfers());
 
-        // Free the content buffer
         item.content = undefined;
     }
 
     // === Pull execution ===
 
     private async executePull(ctx: SyncContext, item: TransferItem): Promise<void> {
-        // Check if local file was modified (conflict scenario)
         if (ctx.dirtyPaths.has(item.path)) {
-            // Local modification detected — defer to sync cycle for merge
             await ctx.log(
                 `[Background Transfer] Local modification detected for ${item.path}, deferring to sync cycle`,
                 "warn",
@@ -454,7 +431,6 @@ export class BackgroundTransferQueue {
             return;
         }
 
-        // Execute pull via existing pullFileSafely
         const success = await pullFileSafely(ctx, {
             path: item.path,
             fileId: item.fileId,
@@ -463,7 +439,6 @@ export class BackgroundTransferQueue {
         }, "Background Transfer");
 
         if (success) {
-            // Clear pendingTransfer
             if (ctx.localIndex[item.path]?.pendingTransfer) {
                 delete ctx.localIndex[item.path].pendingTransfer;
             }
@@ -517,11 +492,9 @@ export class BackgroundTransferQueue {
 
     private addToHistory(record: TransferRecord): void {
         this.history.push(record);
-        // Ring buffer: keep only the last TRANSFER_MAX_HISTORY records
         if (this.history.length > TRANSFER_MAX_HISTORY) {
             this.history = this.history.slice(-TRANSFER_MAX_HISTORY);
         }
-        // Buffer for JSONL flush
         this.unflushedRecords.push(record);
         if (this.unflushedRecords.length >= TRANSFER_HISTORY_FLUSH_BATCH) {
             this.flushHistory().catch(() => {});
@@ -558,7 +531,6 @@ export class BackgroundTransferQueue {
                     // Skip malformed lines
                 }
             }
-            // Trim to TRANSFER_MAX_HISTORY
             if (this.history.length > TRANSFER_MAX_HISTORY) {
                 this.history = this.history.slice(-TRANSFER_MAX_HISTORY);
             }
@@ -594,7 +566,6 @@ export class BackgroundTransferQueue {
             const existing = await ctx.vault.read(logPath).catch(() => "");
             await ctx.vault.write(logPath, existing + lines);
         } catch (e) {
-            // Re-add failed records for next attempt
             this.unflushedRecords.unshift(...records);
         }
     }
@@ -628,7 +599,6 @@ export class BackgroundTransferQueue {
                 }
             }
         } catch (e) {
-            // Non-critical — log and continue
             await ctx.log(`[Background Transfer] Log rotation error: ${e}`, "warn");
         }
     }

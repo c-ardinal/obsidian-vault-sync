@@ -22,9 +22,6 @@ import {
     markPendingTransfer,
 } from "./sync-helpers";
 
-// ==========================================================================
-// Internal Phase Helpers
-// ==========================================================================
 
 /** Walk directory tree of missing files to infer deleted folders */
 async function inferDeletedFolders(ctx: SyncContext): Promise<void> {
@@ -33,7 +30,6 @@ async function inferDeletedFolders(ctx: SyncContext): Promise<void> {
     const checkedFolders = new Set<string>();
     const missingFiles: string[] = [];
 
-    // Identify missing files that were previously synced
     for (const path of ctx.dirtyPaths.keys()) {
         if (ctx.index[path]) {
             const exists = await ctx.vault.exists(path);
@@ -100,7 +96,6 @@ async function executeFolderDeletions(ctx: SyncContext): Promise<{ folderDeleted
                 );
             }
 
-            // Clean up Index & DirtyPaths for all descendants
             const prefix = folderPath + "/";
             for (const dirtyPath of Array.from(ctx.dirtyPaths.keys())) {
                 if (dirtyPath.startsWith(prefix)) {
@@ -160,9 +155,6 @@ async function uploadRemoteIndex(ctx: SyncContext): Promise<void> {
     }
 }
 
-// ==========================================================================
-// Exported Push Function
-// ==========================================================================
 
 /**
  * Smart Push - upload only dirty files
@@ -170,7 +162,6 @@ async function uploadRemoteIndex(ctx: SyncContext): Promise<void> {
  * If scanVault is true, performs O(N) full vault scan before pushing
  */
 export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<boolean> {
-    // Optional complete vault scan (for startup)
     if (scanVault) {
         await scanVaultChanges(ctx);
     }
@@ -178,7 +169,6 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
     // Scan .obsidian files for changes (vault events don't fire for these)
     await scanObsidianChanges(ctx);
 
-    // Pre-scan shared index for forbidden files
     if (ctx.forceCleanupNextSync) {
         for (const path of Object.keys(ctx.index)) {
             if (path === ctx.pluginDataPath) continue;
@@ -189,10 +179,8 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
         }
     }
 
-    // === INFER DELETED FOLDERS ===
     await inferDeletedFolders(ctx);
 
-    // === FOLDER DELETION PHASE ===
     let { folderDeletedCount, moveCount } = await executeFolderDeletions(ctx);
 
     if (ctx.dirtyPaths.size === 0 && folderDeletedCount === 0) {
@@ -202,7 +190,6 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
 
     await ctx.log(`[Smart Push] Pushing ${ctx.dirtyPaths.size} dirty files...`, "info");
 
-    // Load communication data to check for active merge locks
     const commData = await loadCommunication(ctx);
     const now = Date.now();
 
@@ -215,13 +202,11 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
     }> = [];
     const deleteQueue: string[] = [];
 
-    // === BUILD PUSH QUEUE (process dirty paths) ===
     const dirtyPathTasks: (() => Promise<void>)[] = [];
     const dirtyPathsSnapshot = Array.from(ctx.dirtyPaths.keys());
 
     for (const path of dirtyPathsSnapshot) {
         dirtyPathTasks.push(async () => {
-            // Priority 0: Check if another device is currently merging this file
             const mergeLock = commData.mergeLocks[path];
             if (mergeLock && mergeLock.holder !== ctx.deviceId && mergeLock.expiresAt > now) {
                 await ctx.log(
@@ -248,7 +233,6 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
             if (exists) {
                 const stat = await ctx.vault.stat(path);
                 if (stat) {
-                    // Handle folders
                     if (stat.type === "folder") {
                         const oldPath = ctx.pendingFolderMoves.get(path);
                         if (oldPath) {
@@ -315,7 +299,6 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                         }
                     }
 
-                    // === MOVE DETECTION ===
                     const indexEntry = ctx.index[path];
                     if (indexEntry?.pendingMove && indexEntry.fileId) {
                         const moveInfo = indexEntry.pendingMove;
@@ -382,7 +365,6 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                         }
                     }
 
-                    // Hash check before upload
                     try {
                         const dirtyAt = ctx.dirtyPaths.get(path);
 
@@ -398,7 +380,6 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                             try {
                                 alreadyOnRemoteFile = await ctx.adapter.getFileMetadata(path);
                             } catch (e) {
-                                // Ignore metadata lookup errors
                             }
                         }
 
@@ -460,7 +441,6 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                     }
                 }
             } else {
-                // File was deleted locally
                 if (ctx.localIndex[path]) {
                     deleteQueue.push(path);
                 }
@@ -471,7 +451,6 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
         await runParallel(dirtyPathTasks, 20);
     }
 
-    // === SIZE-BASED ROUTING: Partition uploadQueue into inline and background ===
     const thresholdBytes = getThresholdBytes(ctx);
     const inlineUploadQueue: typeof uploadQueue = [];
     let deferredCount = 0;
@@ -526,7 +505,6 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
     ctx.startActivity();
 
     try {
-        // Ensure folders exist on remote
         const foldersToCreate = new Set<string>();
         for (const file of uploadQueue) {
             const parts = file.path.split("/");
@@ -540,7 +518,6 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
             await ctx.adapter.ensureFoldersExist(sortedFolders);
         }
 
-        // Execute uploads and deletions
         const tasks: (() => Promise<void>)[] = [];
         let completed = 0;
 
@@ -549,7 +526,6 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                 const taskStartTime = Date.now();
                 ctx.backgroundTransferQueue.markInlineStart(file.path, "push", file.size);
                 try {
-                    // Check if file was modified after queue creation
                     const currentStat = await ctx.vault.stat(file.path);
                     if (currentStat && currentStat.mtime !== file.mtime) {
                         ctx.dirtyPaths.set(file.path, Date.now());
@@ -560,7 +536,6 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                         return;
                     }
 
-                    // === CONFLICT CHECK (Optimistic Locking) ===
                     let remoteMeta: CloudFile | null = null;
                     try {
                         const params = {
@@ -614,7 +589,6 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                     );
                                     await pullFileSafely(ctx, remoteMeta, "Push Conflict");
 
-                                    // After merge, immediately upload the merged file.
                                     if (ctx.localIndex[file.path]?.lastAction === "merge") {
                                         try {
                                             const mergedContent =
@@ -729,7 +703,6 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
             });
         }
 
-        // --- Deletion Logic Optimization: Folder Deletions ---
         const foldersToWipe = new Set<string>();
         const filesToWipeSimpler: string[] = [];
 
@@ -752,7 +725,6 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
             }
         }
 
-        // Execute folder deletions first
         for (const folderPath of foldersToWipe) {
             tasks.push(async () => {
                 try {
@@ -788,7 +760,6 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
             });
         }
 
-        // Execute individual file deletions
         for (const path of filesToWipeSimpler) {
             tasks.push(async () => {
                 try {
@@ -822,13 +793,11 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
 
         await runParallel(tasks, ctx.settings.concurrency);
 
-        // Reset cleanup flag after a successful cleanup run
         if (ctx.forceCleanupNextSync) {
             ctx.forceCleanupNextSync = false;
             await ctx.log("[Smart Push] Full cleanup scan completed and flag reset.", "debug");
         }
 
-        // Upload updated index
         await uploadRemoteIndex(ctx);
 
         if (completed > 0) {
@@ -842,6 +811,5 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
         }
         return true;
     } finally {
-        // ctx.onActivityEnd();
     }
 }

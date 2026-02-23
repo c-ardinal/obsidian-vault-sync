@@ -12,7 +12,7 @@ const SALT_LENGTH = 16;
 const ALGORITHM = "AES-GCM";
 
 export class SecureStorage {
-    private keyCache: Map<string, CryptoKey> = new Map(); // Cache keys by salt
+    private keyCache: Map<string, CryptoKey> = new Map();
     private filePath: string;
 
 
@@ -105,7 +105,6 @@ export class SecureStorage {
         const parts = normalized.split("/");
         const dir = parts.slice(0, -1).join("/");
 
-        // Check full parent directory first
         if (await this.vault.exists(dir)) return;
 
         console.log(`[SecureStorage] Creating directory structure for: ${dir}`);
@@ -239,7 +238,6 @@ export class SecureStorage {
                 buffer.set(iv, SALT_LENGTH);
                 buffer.set(new Uint8Array(encryptedContent), SALT_LENGTH + IV_LENGTH);
 
-                // Write as binary
                 await this.ensureDir(this.filePath);
 
                 const exists = await this.vault.exists(this.filePath);
@@ -286,7 +284,6 @@ export class SecureStorage {
             const buffer = await this.vault.readBinary(this.filePath);
             const data = new Uint8Array(buffer);
 
-            // Minimum length check (Salt + IV)
             if (data.byteLength < SALT_LENGTH + IV_LENGTH) {
                 console.error("SecureStorage: Data too short");
                 return null;
@@ -321,17 +318,9 @@ export class SecureStorage {
     }
 
     async clearCredentials(): Promise<void> {
-        // Clear from Secret Storage
         if (this.secretStorage) {
             try {
                 const id = this.secretId;
-                // setSecret(id, "") or similar? Some APIs have deleteSecret.
-                // Obsidian setSecret(id, "") works. Wait, some use null?
-                // The .d.ts says setSecret(id: string, secret: string): void;
-                // I'll set it to empty string or see if there's a removal method.
-                // The .d.ts didn't show a removal method in my view.
-                // I'll check if I can use listSecrets or if there's more.
-                // Since I can't see a delete method, I'll set to empty.
                 this.secretStorage.setSecret(id, "");
                 console.log(`[SecureStorage] Cleared credentials from SecretStorage.`);
             } catch (e) {
@@ -339,7 +328,6 @@ export class SecureStorage {
             }
         }
 
-        // Clear from file
         await this.cleanupFiles();
         console.log(`[SecureStorage] Cleared credentials from local files.`);
     }

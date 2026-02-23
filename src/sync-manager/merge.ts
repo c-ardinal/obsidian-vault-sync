@@ -75,7 +75,6 @@ export function areSemanticallyEquivalent(contentA: string, contentB: string): b
     return true;
 }
 
-// === Context-dependent Functions ===
 
 /**
  * Find common ancestor hash from revision history
@@ -255,21 +254,18 @@ export async function pullFileSafely(
                 const hasRemoteUpdate = hasRemoteConflict;
 
                 if (isModifiedLocally || hasRemoteConflict) {
-                    // Content match check - compare actual content or plainHash
                     let contentMatches = false;
                     if (ctx.e2eeEnabled && item.plainHash) {
                         // E2EE with remote plainHash: compare plaintext hashes
                         const currentPlainHash = await hashContent(localContent);
                         contentMatches = currentPlainHash === item.plainHash;
                     } else if (!ctx.e2eeEnabled) {
-                        // No E2EE: compare plaintext hash against remote hash directly
                         contentMatches = !!(item.hash && currentHash === item.hash.toLowerCase());
                     }
                     // E2EE without item.plainHash: can't detect content match pre-download
 
                     if (contentMatches) {
                         const stat = await ctx.vault.stat(item.path);
-                        // Calculate plainHash for local content (since hash matches, content is the same)
                         const plainHash = await hashContent(localContent);
 
                         const entry = {
@@ -300,7 +296,6 @@ export async function pullFileSafely(
                         return true;
                     }
 
-                    // REMOTE UPDATED, LOCAL UNMODIFIED
                     if (hasRemoteConflict && !isActuallyModified) {
                         const isRecentlyPushed =
                             localBase?.lastAction === "push" || localBase?.lastAction === "merge";
@@ -404,7 +399,6 @@ export async function pullFileSafely(
                         }
                     }
 
-                    // CONFLICT (Both Modified) -> Merge with lock
                     if (isText && localBase?.hash) {
                         await ctx.log(
                             `[${logPrefix}] Attempting to acquire merge lock for ${item.path}...`,
@@ -522,7 +516,6 @@ export async function pullFileSafely(
                                         "debug",
                                     );
                                     const stat = await ctx.vault.stat(item.path);
-                                    // Calculate plainHash for merged content
                                     const mergedPlainHash = await hashContent(merged);
 
                                     const entry = {
@@ -616,7 +609,6 @@ export async function pullFileSafely(
                         // Merge failed - fall through to conflict file
                     }
 
-                    // CONFLICT FALLBACK
                     const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
                     const ext = item.path.split(".").pop();
                     const baseName = item.path.substring(0, item.path.lastIndexOf("."));
@@ -648,7 +640,6 @@ export async function pullFileSafely(
                         await ensureLocalFolder(ctx, item.path);
                         await ctx.vault.writeBinary(item.path, remoteContent);
                         remoteSize = remoteContent.byteLength;
-                        // Calculate plainHash for downloaded content
                         remotePlainHash = await hashContent(remoteContent);
 
                         markSettingsUpdatedIfNeeded(ctx, item.path);
@@ -718,14 +709,12 @@ export async function pullFileSafely(
             }
         }
 
-        // Normal download flow
         ctx.syncingPaths.add(item.path);
         await ensureLocalFolder(ctx, item.path);
 
         const content = await ctx.adapter.downloadFile(fileId || "");
         await ctx.vault.writeBinary(item.path, content);
 
-        // Calculate plainHash for downloaded content
         const plainHash = await hashContent(content);
 
         const stat = await ctx.vault.stat(item.path);

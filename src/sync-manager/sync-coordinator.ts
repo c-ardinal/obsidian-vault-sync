@@ -11,9 +11,6 @@ import {
 import { smartPull, pullViaChangesAPI } from "./sync-pull";
 import { smartPush } from "./sync-push";
 
-// ==========================================================================
-// Smart Sync Entry Points
-// ==========================================================================
 
 /**
  * Request Smart Sync - high priority, interrupts full scan
@@ -103,14 +100,11 @@ export async function executeSmartSync(ctx: SyncContext, scanVault: boolean): Pr
     if (ALWAYS_SHOW_ACTIVITY.has(ctx.currentTrigger)) {
         ctx.startActivity();
     }
-    // Pause background transfers during sync cycle to avoid race conditions
     ctx.backgroundTransferQueue.pause();
     try {
         await ctx.log("=== SMART SYNC START ===", "info");
         await ctx.notify("noticeSyncing");
 
-        // Clean up recentlyDeletedFromRemote: remove entries for files that no longer exist locally
-        // (they were successfully deleted, so we don't need to track them anymore)
         for (const path of [...ctx.recentlyDeletedFromRemote]) {
             const exists = await ctx.vault.exists(path);
             if (!exists) {
@@ -118,24 +112,18 @@ export async function executeSmartSync(ctx: SyncContext, scanVault: boolean): Pr
             }
         }
 
-        // Pre-warm adapter (ensure root folders exist) to avoid delay in push phase
         if (ctx.adapter.initialize) {
             await ctx.adapter.initialize();
         }
 
-        // === PULL PHASE ===
         // Call via ctx so vi.spyOn on SyncManager instance methods works in tests
         const pulled = await ctx.smartPull();
 
-        // === PUSH PHASE ===
         if (scanVault) {
             await ctx.notify("noticeScanningLocalFiles");
         }
         const pushed = await ctx.smartPush(scanVault);
 
-        // === POST-PUSH PULL PHASE ===
-        // After pushing, immediately pull again to detect conflicts from other devices
-        // and confirm sync state (ancestorHash update).
         if (pushed) {
             await postPushPull(ctx);
         }
@@ -153,7 +141,6 @@ export async function executeSmartSync(ctx: SyncContext, scanVault: boolean): Pr
         await ctx.log("=== SMART SYNC COMPLETED ===", "info");
     } catch (e) {
         await ctx.log(`Smart Sync failed: ${e}`, "error");
-        // Classify error and notify user
         const msg = e instanceof Error ? e.message : String(e);
         const msgLower = msg.toLowerCase();
         if (msgLower.includes("not authenticated") || msgLower.includes("authentication failed") || msgLower.includes("token revoked")) {
@@ -165,20 +152,14 @@ export async function executeSmartSync(ctx: SyncContext, scanVault: boolean): Pr
         }
         throw e;
     } finally {
-        // Clear decryption cache between sync cycles to free memory
         ctx.adapter.clearDownloadCache?.();
         await ctx.logger.endCycle();
         ctx.endActivity();
-        // Resume background transfers after sync cycle completes
         ctx.backgroundTransferQueue.resume();
-        // Flush any buffered transfer history records to disk
         ctx.backgroundTransferQueue.flushHistory().catch(() => {});
     }
 }
 
-// ==========================================================================
-// Post-Push Pull (with retry)
-// ==========================================================================
 
 /**
  * Execute a pull after push to immediately detect conflicts and confirm sync state.
@@ -218,9 +199,6 @@ async function postPushPull(ctx: SyncContext, maxRetries: number = SYNC_POST_PUS
 }
 
 
-// ==========================================================================
-// Background Full Scan
-// ==========================================================================
 
 /**
  * Request Background Full Scan - low priority, can be interrupted
@@ -271,13 +249,11 @@ export async function executeFullScan(ctx: SyncContext): Promise<void> {
     try {
         await ctx.log("=== BACKGROUND FULL SCAN START ===", "info");
 
-        // Initialize or resume progress
         if (!ctx.fullScanProgress) {
             await ctx.log("[Full Scan] Fetching file lists...", "debug");
             const localFiles = await getLocalFiles(ctx);
             const remoteFiles = await ctx.adapter.listFiles();
 
-            // Check for interrupt after heavy listing operation
             if (ctx.isInterrupted) {
                 ctx.syncState = "PAUSED"; // Or IDLE handled by finally/caller logic?
                 // Actually requestSmartSync handles the state transition after this promise resolves.
@@ -311,11 +287,9 @@ export async function executeFullScan(ctx: SyncContext): Promise<void> {
 
         const { localFiles, remoteFiles } = ctx.fullScanProgress;
         const localPathsMap = new Map(localFiles.map((f) => [f.path, f]));
-        // Process in chunks to allow interruption
 
         // Process remote files in chunks
         while (ctx.fullScanProgress.currentIndex < remoteFiles.length) {
-            // Check for interrupt
             if (ctx.isInterrupted) {
                 await ctx.log(
                     `[Full Scan] Interrupted at index ${ctx.fullScanProgress.currentIndex}`,
@@ -337,7 +311,6 @@ export async function executeFullScan(ctx: SyncContext): Promise<void> {
                 const localFile = localPathsMap.get(remoteFile.path);
                 const indexEntry = ctx.index[remoteFile.path];
 
-                // Check for discrepancies
                 if (!localFile && indexEntry) {
                     // File exists in index but not locally - might have been deleted
                     await ctx.log(
@@ -373,7 +346,6 @@ export async function executeFullScan(ctx: SyncContext): Promise<void> {
             await new Promise((resolve) => setTimeout(resolve, 0));
         }
 
-        // Scan completed
         await ctx.log("=== BACKGROUND FULL SCAN COMPLETED ===", "info");
         ctx.fullScanProgress = null;
         await saveIndex(ctx);

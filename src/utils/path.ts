@@ -5,10 +5,8 @@
 export function normalizePath(path: string): string {
     if (!path) return "";
 
-    // 1. Replace all backslashes with forward slashes (Handle Windows paths)
     let res = path.replace(/\\/g, "/");
 
-    // 2. Remove duplicate slashes (e.g., // -> /)
     res = res.replace(/\/+/g, "/");
 
     // 3. Remove leading slash.

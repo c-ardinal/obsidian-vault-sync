@@ -38,7 +38,6 @@ export class SettingsManager {
         const openDataPath = `${manifestDir}/${DATA_FLEXIBLE_DIR}/open-data.json`;
         const localDataPath = `${manifestDir}/${DATA_LOCAL_DIR}/local-data.json`;
 
-        // Load Open Data
         if (await vaultOps.exists(openDataPath)) {
             try {
                 const openData = JSON.parse(await vaultOps.read(openDataPath));
@@ -48,7 +47,6 @@ export class SettingsManager {
             }
         }
 
-        // Load Local Data
         if (await vaultOps.exists(localDataPath)) {
             try {
                 const localData = JSON.parse(await vaultOps.read(localDataPath));
@@ -91,7 +89,6 @@ export class SettingsManager {
             await this.saveSettings();
         }
 
-        // Load credentials from Secure Storage
         const credentials = await this.secureStorage.loadCredentials();
 
         if (credentials) {
@@ -119,7 +116,6 @@ export class SettingsManager {
             }
         }
 
-        // Apply auth config to adapter
         adapter.setAuthConfig(
             this.settings.authMethod,
             this.settings.customProxyUrl,
@@ -129,7 +125,6 @@ export class SettingsManager {
     async saveSettings(): Promise<void> {
         const { vaultOps, manifestDir, appSecretStorage } = this.deps;
 
-        // Ensure directories exist
         const flexibleDir = `${manifestDir}/${DATA_FLEXIBLE_DIR}`;
         const localDir = `${manifestDir}/${DATA_LOCAL_DIR}`;
         const remoteDir = `${manifestDir}/${DATA_REMOTE_DIR}`;
@@ -144,7 +139,6 @@ export class SettingsManager {
             await vaultOps.createFolder(remoteDir).catch(() => {});
         }
 
-        // Split Settings
         const localKeys = ["encryptionSecret", "hasCompletedFirstSync"];
         const localData: Record<string, unknown> = {};
         const openData: Record<string, unknown> = {};
@@ -164,7 +158,6 @@ export class SettingsManager {
             }
         }
 
-        // Save to respective files
         const openDataPath = `${flexibleDir}/open-data.json`;
         const localDataPath = `${localDir}/local-data.json`;
 
