@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { EncryptedAdapter } from "../../../src/adapters/encrypted-adapter";
+import { EncryptedAdapter } from "../../../src/encryption/encrypted-adapter";
 import type { CloudAdapter, FileRevision } from "../../../src/types/adapter";
 import type { ICryptoEngine } from "../../../src/encryption/interfaces";
 import { createMockEngine as sharedMockEngine } from "../../helpers/mock-crypto-engine";

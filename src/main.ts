@@ -1,5 +1,5 @@
 import { Plugin, TFile, setIcon, Platform } from "obsidian";
-import { GoogleDriveAdapter } from "./adapters/google-drive";
+import { GoogleDriveAdapter } from "./cloud-adapters/google-drive";
 import { SyncManager, type SyncTrigger } from "./sync-manager";
 import type { SecureStorage } from "./services/secure-storage";
 import { HistoryModal } from "./ui/history-modal";

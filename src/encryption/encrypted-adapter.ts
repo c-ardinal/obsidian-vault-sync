@@ -1,6 +1,6 @@
 import { CloudAdapter, CloudChanges, CloudFile, FileRevision } from "../types/adapter";
-import { ICryptoEngine } from "../encryption/interfaces";
-import { DecryptionError } from "../encryption/errors";
+import { ICryptoEngine } from "./interfaces";
+import { DecryptionError } from "./errors";
 
 /**
  * A proxy adapter that transparently encrypts/decrypts file content

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { GoogleDriveAdapter } from "../../../src/adapters/google-drive";
+import { GoogleDriveAdapter } from "../../../src/cloud-adapters/google-drive";
 import { requestUrl } from "obsidian";
 
 // ── Test Helpers (DRY) ──────────────────────────────────────────────

@@ -6,7 +6,7 @@ import {
     VSC2_MAGIC,
     VSC2_HEADER_SIZE,
 } from "../../helpers/mock-crypto-engine";
-import { EncryptedAdapter } from "../../../src/adapters/encrypted-adapter";
+import { EncryptedAdapter } from "../../../src/encryption/encrypted-adapter";
 import type { CloudAdapter, CloudFile } from "../../../src/types/adapter";
 import type { ICryptoEngine } from "../../../src/encryption/interfaces";
 

@@ -2,7 +2,7 @@ import { TFile } from "obsidian";
 import { CloudAdapter } from "../types/adapter";
 import { ICryptoEngine } from "../encryption/interfaces";
 import { VaultLockService } from "./vault-lock-service";
-import { EncryptedAdapter } from "../adapters/encrypted-adapter";
+import { EncryptedAdapter } from "../encryption/encrypted-adapter";
 import { getLocalFiles, shouldIgnore, runParallel, hashContent } from "../sync-manager/file-utils";
 import { saveIndex, saveLocalIndex } from "../sync-manager/state";
 import { SyncContext } from "../sync-manager/context";

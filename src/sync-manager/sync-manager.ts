@@ -12,7 +12,7 @@ import {
 } from "./types";
 import { SyncLogger, type LogLevel } from "./logger";
 import { ICryptoEngine } from "../encryption/interfaces";
-import { EncryptedAdapter } from "../adapters/encrypted-adapter";
+import { EncryptedAdapter } from "../encryption/encrypted-adapter";
 import { VaultLockService } from "../services/vault-lock-service";
 import { MigrationService } from "../services/migration-service";
 import { SecureStorage } from "../services/secure-storage";
