@@ -129,6 +129,7 @@ export default class VaultSync extends Plugin {
                 this.settingTab.display();
             }
         };
+        this.syncManager.onSaveSettings = () => this.saveSettings();
 
         // Establish identity (needed for logging), then parallelize remaining I/O
         await this.syncManager.loadLocalIndex();

@@ -219,7 +219,10 @@ export async function loadLocalIndex(ctx: SyncContext): Promise<void> {
                 }
             }
         } else {
-            ctx.localIndex = { ...ctx.index };
+            // Always start with empty localIndex on a new device.
+            // Copying ctx.index would make the plugin think all remote files
+            // exist locally, preventing full pull on a fresh device.
+            ctx.localIndex = {};
             ctx.deviceId = generateDeviceId();
 
             const isAlreadyLogged = ctx.logFolder === `${ctx.pluginDir}/logs/${ctx.deviceId}`;
@@ -228,7 +231,7 @@ export async function loadLocalIndex(ctx: SyncContext): Promise<void> {
             ctx.logFolder = `${ctx.pluginDir}/logs/${ctx.deviceId}`;
             if (!isAlreadyLogged) {
                 await ctx.log(
-                    `[Local Index] Not found. Initialized from shared index (Migration). Device ID: ${ctx.deviceId}`,
+                    `[Local Index] Not found. Initialized fresh. Device ID: ${ctx.deviceId}`,
                     "system",
                 );
             }

@@ -80,6 +80,7 @@ export interface SyncContext {
     onActivityStart: () => void;
     onActivityEnd: () => void;
     onSettingsUpdated: () => Promise<void>;
+    onSaveSettings: () => Promise<void>;
 
     // === Delegate Methods (called via ctx so vi.spyOn on facade class works) ===
     smartPull: () => Promise<boolean>;

@@ -451,7 +451,11 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
     }
 
     if (ctx.adapter.supportsChangesAPI) {
-        if (ctx.startPageToken) {
+        // Don't use Changes API when index is empty — a stale startPageToken
+        // would skip files that haven't changed since the token was issued,
+        // preventing a full pull on a fresh device.
+        const hasIndex = Object.keys(ctx.index).length > 0;
+        if (ctx.startPageToken && hasIndex) {
             return await pullViaChangesAPI(ctx);
         } else {
             try {
