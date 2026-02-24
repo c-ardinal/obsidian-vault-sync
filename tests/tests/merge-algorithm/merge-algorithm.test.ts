@@ -1,14 +1,39 @@
 /**
- * Fixture-based 3-way merge algorithm tests.
+ * @file 3-wayマージアルゴリズム精度検証
  *
- * Test cases are auto-discovered from tests/merge-algorithm/scenarios/ directory.
- * Each case folder contains:
- *   base.*       - Common ancestor content
- *   remote.*     - Remote (cloud) version
- *   local.*      - Local version
- *   expected.*   - Expected merge result (if absent, merge should fail → null)
+ * @description
+ * diff-match-patch (DMP) を利用した行ベースの3-wayマージエンジンの精度を検証する。
+ * scenarios/ ディレクトリから112件のフィクスチャを自動検出し、データ消失・構造破壊・
+ * 衝突見逃しの有無をテストする。バイナリファイルのマージ拒否も検証する。
  *
- * To add a new test case, simply create a new folder with these files.
+ * DMP Parameters:
+ *   Match_Threshold=0.5, Match_Distance=250, Patch_Margin=4→2→1(動的)
+ *   全入力の改行コードをLFに正規化した上でマージ処理を行う。
+ *
+ * Fixture Groups:
+ *   Group 1 (001-015): YAML Frontmatter & Metadata
+ *   Group 2 (016-030): Markdown Tables
+ *   Group 3 (031-050): Task List & Nested List
+ *   Group 4 (051-065): Code Blocks
+ *   Group 5 (066-085): Daily Journal & Logs
+ *   Group 6 (086-100): Structural & Scale
+ *   Group 7 (101-112): Boundary & Edge
+ *
+ * Known Limitations:
+ *   - 同一行内の部分編集は原則としてコンフリクト(null)を返す
+ *   - 行の移動(Swap)はAdded-line protectionにより高確率でコンフリクト
+ *   - 同一箇所への行挿入はRemote→Localの決定論的順序でマージ
+ *
+ * @prerequisites
+ * - scenarios/ 配下にbase/local/remote/expected ファイルを含むフィクスチャディレクトリ
+ * - DeviceSimulator + MockCloudAdapter
+ *
+ * @pass_criteria
+ * - データ消失ゼロ: Local側の追加行が1行でも消失したらマージ拒否
+ * - 構造維持: YAML, テーブル, コードブロックの基本構文がマージ後に破壊されていないこと
+ * - 衝突検出の正確性: 同一行内編集や探索距離超過時にnull(衝突)を返すこと
+ * - 冪等性: 同一入力に対するマージ結果が常に同一であること
+ * - パフォーマンス: 5000行以下のファイルでマージ処理が3秒以内に完了すること
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
@@ -98,6 +123,7 @@ function isBinaryExtension(ext: string): boolean {
 
 const cases = discoverCases();
 
+/** フィクスチャベースの3-wayマージ精度テスト — 各シナリオでマージ成功/失敗を検証 */
 describe("3-way merge algorithm (fixture-based)", () => {
     let cloud: MockCloudAdapter;
     let device: DeviceSimulator;
@@ -180,6 +206,7 @@ describe("3-way merge algorithm (fixture-based)", () => {
 const binaryCases = cases.filter((tc) => isBinaryExtension(tc.ext));
 
 if (binaryCases.length > 0) {
+    /** バイナリファイルのマージ拒否 — 非テキスト拡張子で3-wayマージが実行されないことを確認 */
     describe("Merge extension filtering (binary rejection)", () => {
         let cloud: MockCloudAdapter;
         let device: DeviceSimulator;

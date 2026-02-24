@@ -1,10 +1,14 @@
 /**
- * Unit tests for hashing and line ending normalization.
+ * @file ハッシュ計算と改行正規化のユニットテスト
  *
- * Verifies:
- *   - normalizeLineEndings: CRLF → LF conversion
- *   - hashContent: MD5 hash with line ending normalization
- *   - md5: correct MD5 output for known test vectors
+ * @description
+ * normalizeLineEndings (CRLF→LF)、md5 (RFC 1321テストベクタ)、hashContent (正規化+MD5) を検証する。
+ * CRLF/LFの違いが同期判定に影響しないことを保証する。
+ *
+ * @pass_criteria
+ * - CRLF→LF正規化で孤立CRが影響を受けないこと
+ * - MD5がRFC 1321の全テストベクタと一致すること
+ * - CRLF版とLF版のhashContentが同一ハッシュを返すこと
  */
 
 import { describe, it, expect } from "vitest";

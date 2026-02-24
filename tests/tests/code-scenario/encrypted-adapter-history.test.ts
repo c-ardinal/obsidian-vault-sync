@@ -1,3 +1,22 @@
+/**
+ * @file EncryptedAdapterの履歴機能テスト
+ *
+ * @description
+ * EncryptedAdapterが基盤アダプタの履歴機能 (listRevisions / getRevisionContent /
+ * setRevisionKeepForever / deleteRevision) を正しく委譲し、取得した暗号化コンテンツを
+ * 復号して返すことを検証する。非対応アダプタでの例外発生も確認する。
+ *
+ * @prerequisites
+ * - MockBaseAdapter (履歴機能付き)
+ * - MockCryptoEngine
+ *
+ * @pass_criteria
+ * - supportsHistoryが基盤アダプタの値を反映すること
+ * - listRevisionsが基盤アダプタに委譲されること
+ * - getRevisionContentが暗号化コンテンツからIVを抽出して復号すること
+ * - コンテンツが短すぎる場合(IV欠落)に例外を投げること
+ * - 非対応メソッド呼び出し時に明確なエラーメッセージで例外を投げること
+ */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { EncryptedAdapter } from "../../../src/encryption/encrypted-adapter";
 import type { CloudAdapter, FileRevision } from "../../../src/types/adapter";
@@ -61,6 +80,7 @@ function createMockEngine(): ICryptoEngine {
     });
 }
 
+/** 履歴API委譲と暗号化コンテンツの復号検証 */
 describe("EncryptedAdapter History Support", () => {
     let baseAdapter: CloudAdapter;
     let engine: ICryptoEngine;

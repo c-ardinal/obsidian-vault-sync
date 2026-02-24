@@ -1,10 +1,13 @@
 /**
- * Unit tests for compression utilities.
+ * @file gzip圧縮/展開のユニットテスト
  *
- * Verifies:
- *   - compress: gzip compression produces smaller output
- *   - tryDecompress: decompresses gzip, passes through non-gzip
- *   - Round-trip: compress → decompress recovers original
+ * @description
+ * compress/tryDecompressのgzipマジックバイト判定、Round-trip完全性、非gzipデータのパススルーを検証する。
+ *
+ * @pass_criteria
+ * - gzip出力にマジックバイト(0x1f 0x8b)が含まれること
+ * - テキスト・バイナリデータのRound-tripで内容が一致すること
+ * - 非gzipデータがそのまま返されること
  */
 
 import { describe, it, expect } from "vitest";

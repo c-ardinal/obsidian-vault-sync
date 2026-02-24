@@ -1,10 +1,14 @@
 /**
- * Unit tests for merge utility functions.
+ * @file マージユーティリティ関数のユニットテスト
  *
- * Verifies:
- *   - isContentSubset: order-preserving subsequence check
- *   - areSemanticallyEquivalent: same lines regardless of order
- *   - linesToChars3: 3-way line encoding for diff algorithm
+ * @description
+ * isContentSubset (順序保持部分列判定)、areSemanticallyEquivalent (順序無視の行集合比較)、
+ * linesToChars3 (3-way diff用行エンコーディング) を検証する。
+ *
+ * @pass_criteria
+ * - isContentSubset: 行の出現順序を維持した部分列判定が正確であること
+ * - areSemanticallyEquivalent: 行の順序を無視した集合比較が正確であること
+ * - linesToChars3: 同一行が同一コードにエンコードされ、Round-tripで復元できること
  */
 
 import { describe, it, expect } from "vitest";

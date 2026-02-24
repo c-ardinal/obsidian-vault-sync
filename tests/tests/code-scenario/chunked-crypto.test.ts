@@ -1,3 +1,28 @@
+/**
+ * @file VSC2チャンク分割暗号化の検証テスト
+ *
+ * @description
+ * VSC2 (VaultSync Crypto v2) フォーマットのチャンク分割暗号化/復号を検証する。
+ * ワイヤフォーマット判定、サイズ計算、Round-trip (encrypt→decrypt)、出力形式、
+ * エラーケース、EncryptedAdapterの閾値ルーティング (Phase 1/Phase 2)、
+ * ストリーミングアップロード (initiateResumableSession + uploadChunk) を含む。
+ *
+ * Wire Format: [magic "VSC2"][chunkSize LE32][totalChunks LE32][per-chunk: IV(12)+ciphertext]
+ * Plain chunk size: 1,048,548 bytes → encrypted chunk = 1 MiB (256KiB aligned for Google Drive)
+ *
+ * @prerequisites
+ * - MockCryptoEngine (mock-crypto-engine helper)
+ * - createMockBaseAdapter / createChunkedMockBaseAdapter
+ *
+ * @pass_criteria
+ * - isChunkedFormat: VSC2マジックバイトの正確な判定
+ * - Round-trip: 0バイト〜5.1MBの全サイズでencrypt→decryptが元データと一致
+ * - 出力形式: ヘッダのmagic/chunkSize/totalChunksが正確、calculateChunkedSizeと一致
+ * - エラー: 不正ヘッダ・chunkSize=0・totalChunks=0・切り詰めチャンクで例外
+ * - Phase 1: 閾値未満→VSC1、閾値以上→VSC2、閾値=0→常にVSC1
+ * - Phase 2: 大容量ファイルでresumable upload使用、小容量は非使用
+ * - 後方互換: VSC1/VSC2を自動判定して透過的に復号
+ */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
     createMockEngine,
@@ -207,6 +232,7 @@ function arraysEqual(a: ArrayBuffer, b: ArrayBuffer): boolean {
 // Suite 1: isChunkedFormat
 // =============================================================================
 
+/** VSC2マジックバイト判定のユニットテスト */
 describe("isChunkedFormat", () => {
     const engine = createMockEngine();
 
@@ -239,6 +265,7 @@ describe("isChunkedFormat", () => {
 // Suite 2: calculateChunkedSize
 // =============================================================================
 
+/** 暗号化後サイズ予測の正確性検証 */
 describe("calculateChunkedSize", () => {
     const engine = createMockEngine();
 
@@ -281,6 +308,7 @@ describe("calculateChunkedSize", () => {
 // Suite 3: Round-trip (encryptChunked → decryptChunked)
 // =============================================================================
 
+/** encrypt→decryptの完全性テスト (各種サイズ) */
 describe("encryptChunked / decryptChunked round-trip", () => {
     let engine: ICryptoEngine;
 
@@ -368,6 +396,7 @@ describe("encryptChunked / decryptChunked round-trip", () => {
 // Suite 4: Output format verification
 // =============================================================================
 
+/** ワイヤフォーマットのヘッダ・チャンク構造検証 */
 describe("VSC2 output format verification", () => {
     let engine: ICryptoEngine;
 
@@ -438,6 +467,7 @@ describe("VSC2 output format verification", () => {
 // Suite 5: Error cases
 // =============================================================================
 
+/** 不正入力に対する例外発生の検証 */
 describe("decryptChunked error cases", () => {
     let engine: ICryptoEngine;
 
@@ -492,6 +522,7 @@ describe("decryptChunked error cases", () => {
 // Suite 6: EncryptedAdapter threshold routing (Phase 1)
 // =============================================================================
 
+/** largeFileThresholdMBに基づくVSC1/VSC2振り分け */
 describe("EncryptedAdapter threshold routing", () => {
     let engine: ICryptoEngine;
 
@@ -586,6 +617,7 @@ describe("EncryptedAdapter threshold routing", () => {
 // Suite 7: EncryptedAdapter streaming upload (Phase 2)
 // =============================================================================
 
+/** resumable session + uploadChunkによるストリーミング */
 describe("EncryptedAdapter streaming upload (Phase 2)", () => {
     let engine: ICryptoEngine;
 
@@ -687,6 +719,7 @@ describe("EncryptedAdapter streaming upload (Phase 2)", () => {
 // Suite 8: MockCloudAdapter chunked upload
 // =============================================================================
 
+/** モックアダプタのresumable upload実装テスト */
 describe("MockCloudAdapter chunked upload", () => {
     it("initiateResumableSession returns a valid session URI", async () => {
         const { MockCloudAdapter } = await import("../../helpers/mock-cloud-adapter");

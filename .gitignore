@@ -149,3 +149,4 @@ CLAUDE.md
 .playwright-mcp
 *.txt
 *.diff
+build.ps1

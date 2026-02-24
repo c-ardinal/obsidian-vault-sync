@@ -1,3 +1,22 @@
+/**
+ * @file 新規デバイス参加時のE2EE検出・初回同期テスト
+ *
+ * @description
+ * E2EEが有効なVaultに新規デバイスが参加する際の自動検出フロー、
+ * 空インデックスでの初回Full Pull、localIndex初期化、
+ * checkForLockFileのエラーハンドリング、resetIndex時のキャッシュクリアを検証する。
+ *
+ * @prerequisites
+ * - DeviceSimulator + MockCloudAdapter
+ * - vault-lock.vault ファイルによるE2EE検出
+ *
+ * @pass_criteria
+ * - vault-lock.vault存在時にE2EEを自動検出し、noticeE2EEAutoEnabledを表示すること
+ * - 空インデックスではstartPageTokenがあってもFull Pullを実行すること
+ * - localIndex.jsonが存在しない場合、空オブジェクトで初期化されること
+ * - 認証済みでcheckForLockFileが例外→同期中断、未認証→同期続行
+ * - resetIndex()がclearDownloadCache()を呼ぶこと
+ */
 import { describe, it, expect, vi } from "vitest";
 import { DeviceSimulator, hashOf } from "../../helpers/device-simulator";
 import { MockCloudAdapter } from "../../helpers/mock-cloud-adapter";
@@ -39,6 +58,7 @@ async function pushAllFiles(deviceA: DeviceSimulator) {
 // =============================================================================
 // Bug 1: E2EE auto-detection on first sync
 // =============================================================================
+/** vault-lock.vaultによるE2EE自動検出の検証 */
 describe("Bug 1: E2EE auto-detection in requestSmartSync", () => {
     it("should detect remote E2EE and block sync instead of JSON parse error", async () => {
         const cloud = new MockCloudAdapter();
@@ -135,6 +155,7 @@ describe("Bug 1: E2EE auto-detection in requestSmartSync", () => {
 // =============================================================================
 // Bug 2: Stale startPageToken with empty index
 // =============================================================================
+/** 空インデックス時のFull Pull強制 */
 describe("Bug 2: Stale startPageToken prevents full pull on fresh device", () => {
     it("should do full pull when index is empty despite having startPageToken", async () => {
         const cloud = new MockCloudAdapter();
@@ -201,6 +222,7 @@ describe("Bug 2: Stale startPageToken prevents full pull on fresh device", () =>
 // =============================================================================
 // Bug 2b: localIndex migration — fresh device should start empty
 // =============================================================================
+/** 新規/既存デバイスでのlocalIndex初期化 */
 describe("Bug 2b: localIndex initialization on fresh device", () => {
     it("should initialize localIndex as empty when localIndex.json does not exist", async () => {
         const cloud = new MockCloudAdapter();
@@ -275,6 +297,7 @@ describe("Bug 2b: localIndex initialization on fresh device", () => {
 // =============================================================================
 // Integration: Full new-device-joining scenario
 // =============================================================================
+/** 新規デバイスのフル同期→Changes APIへの遷移 */
 describe("Integration: New device joining existing sync group", () => {
     it("should pull all content files on first sync of a fresh device", async () => {
         const cloud = new MockCloudAdapter();
@@ -329,6 +352,7 @@ describe("Integration: New device joining existing sync group", () => {
 // =============================================================================
 // Fix 1: checkForLockFile failure handling based on auth state
 // =============================================================================
+/** 認証状態別のエラーハンドリング */
 describe("Fix 1: checkForLockFile error handling by auth state", () => {
     it("should abort sync when authenticated and checkForLockFile throws", async () => {
         const cloud = new MockCloudAdapter();
@@ -379,6 +403,7 @@ describe("Fix 1: checkForLockFile error handling by auth state", () => {
 // =============================================================================
 // Fix 2: resetIndex clears download cache
 // =============================================================================
+/** resetIndex時のキャッシュクリア */
 describe("Fix 2: resetIndex clears download cache", () => {
     it("should call clearDownloadCache when resetting index", async () => {
         const cloud = new MockCloudAdapter();

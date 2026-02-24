@@ -1,10 +1,14 @@
 /**
- * Unit tests for path normalization utilities.
+ * @file パスユーティリティ関数のユニットテスト
  *
- * Verifies cross-platform path handling:
- *   - normalizePath: backslashes, duplicate slashes, leading/trailing slashes
- *   - basename: extracting filename from path
- *   - dirname: extracting directory from path
+ * @description
+ * normalizePath (バックスラッシュ変換・重複スラッシュ除去・先頭/末尾スラッシュ除去)、basename、dirnameを検証する。
+ * クロスプラットフォーム(Windows/Unix)対応を保証する。
+ *
+ * @pass_criteria
+ * - Windowsパス(バックスラッシュ)が正しく正規化されること
+ * - 先頭/末尾スラッシュが除去されること
+ * - basename/dirnameがネストパスで正確に抽出されること
  */
 
 import { describe, it, expect } from "vitest";

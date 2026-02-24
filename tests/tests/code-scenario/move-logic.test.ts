@@ -1,5 +1,20 @@
 /**
- * Tests for file and folder move logic, including regressions for identified bugs.
+ * @file ファイル移動ロジックの回帰テスト
+ *
+ * @description
+ * ファイルの移動・リネーム操作が同期エンジンで正しく処理されることを検証する。
+ * サブフォルダ→ルート移動、フォルダ移動時の内容保持、Move API使用、
+ * ローカル移動とリモート移動の競合、Edit→Move / Move→Edit の複合操作を網羅する。
+ *
+ * @prerequisites
+ * - 1台のDeviceSimulator + MockCloudAdapter
+ * - concurrency=1, notificationLevel="standard"
+ *
+ * @pass_criteria
+ * - 移動後のクラウドパスが正しく更新されること
+ * - 移動前の古いパスがクラウドから削除されること
+ * - 移動と編集の複合操作で内容が失われないこと
+ * - ローカル移動がリモート移動より優先されること
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
@@ -7,6 +22,7 @@ import { MockCloudAdapter } from "../../helpers/mock-cloud-adapter";
 import { DeviceSimulator, hashOf } from "../../helpers/device-simulator";
 import { md5 } from "../../../src/utils/md5";
 
+/** 移動・リネーム操作の回帰テスト (Case 1-8) */
 describe("Move Logic Regressions", () => {
     let cloud: MockCloudAdapter;
     let device: DeviceSimulator;

@@ -1,3 +1,26 @@
+/**
+ * @file Google Drive APIのネットワーク耐性テスト
+ *
+ * @description
+ * GoogleDriveAdapterのHTTPリトライロジックを検証する。401→トークンリフレッシュ(proxy/direct)、
+ * 5xx/429→指数バックオフ、ネットワークエラー→リトライ、403→即時エラー、invalid_grant→認証失敗コールバック、
+ * 同時リフレッシュの重複排除を含む。
+ *
+ * @prerequisites
+ * - GoogleDriveAdapter (事前認証済み)
+ * - sequentialFetch (ルールベースのfetchモック)
+ * - vi.useFakeTimers (タイムアウトテスト用)
+ *
+ * @pass_criteria
+ * - 401: proxy/directリフレッシュ後にリトライ成功
+ * - 5xx/429: バックオフ後にリトライ成功
+ * - ネットワークエラー: MAX_RETRIES(3)回後に例外
+ * - 403: リトライせず即時例外
+ * - invalid_grant: onAuthFailure発火、トークンクリア
+ * - 同時リフレッシュ: proxy呼び出しが1回のみ
+ * - プロアクティブリフレッシュ失敗: 既存トークンで続行
+ */
+
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { GoogleDriveAdapter } from "../../../src/cloud-adapters/google-drive";
 import { requestUrl } from "obsidian";

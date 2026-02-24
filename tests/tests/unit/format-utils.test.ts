@@ -1,9 +1,12 @@
 /**
- * Unit tests for formatting utilities.
+ * @file フォーマットユーティリティのユニットテスト
  *
- * Verifies:
- *   - formatSize: byte → human-readable size conversion
- *   - toHex: Uint8Array → hex string conversion
+ * @description
+ * formatSize (B/KB/MB表示) と toHex (Uint8Array→16進文字列) の変換精度を検証する。
+ *
+ * @pass_criteria
+ * - サイズ表示: 0B, KB, MB境界で正しい単位と小数点
+ * - toHex: 0パディング、空配列、マルチバイト変換の正確性
  */
 
 import { describe, it, expect } from "vitest";

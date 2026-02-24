@@ -1,3 +1,20 @@
+/**
+ * @file E2EEフェーズ5機能テスト (DecryptionError / パスワード変更 / リカバリーコード)
+ *
+ * @description
+ * DecryptionErrorの構造 (cause: authentication | format, chunkIndex)、
+ * VSC1/VSC2フォーマット別のエラー分類、EncryptedAdapterでのエラーラッピングを検証する。
+ *
+ * @prerequisites
+ * - MockCryptoEngine / createFailingEngine
+ * - createMockBaseAdapter
+ *
+ * @pass_criteria
+ * - DecryptionErrorが正しいcause・chunkIndexプロパティを持つこと
+ * - フォーマット不正→cause="format"、復号失敗→cause="authentication"
+ * - VSC2チャンク復号失敗時にchunkIndexが設定されること
+ * - EncryptedAdapterがVSC1/VSC2を自動判定し、適切なDecryptionErrorに変換すること
+ */
 import { describe, it, expect, vi } from "vitest";
 import { DecryptionError } from "../../../src/encryption/errors";
 import {
@@ -62,6 +79,7 @@ function createMockBaseAdapter(storedContent?: ArrayBuffer): CloudAdapter {
 // DecryptionError class
 // =============================================================================
 
+/** DecryptionErrorのcause・chunkIndexプロパティ構造の検証 */
 describe("DecryptionError", () => {
     it("has correct name and properties for authentication cause", () => {
         const err = new DecryptionError("wrong key", "authentication");
@@ -84,6 +102,7 @@ describe("DecryptionError", () => {
 // decryptChunked — DecryptionError wrapping
 // =============================================================================
 
+/** VSC2 decryptChunkedでのformat/authenticationエラー分類 */
 describe("decryptChunked DecryptionError wrapping", () => {
     const engine = createMockEngine();
 
@@ -151,6 +170,7 @@ describe("decryptChunked DecryptionError wrapping", () => {
 // EncryptedAdapter decryptContent — DecryptionError wrapping
 // =============================================================================
 
+/** EncryptedAdapterによるVSC1/VSC2自動判定とDecryptionError変換 */
 describe("EncryptedAdapter DecryptionError wrapping", () => {
     it("throws DecryptionError with format cause for data shorter than 12 bytes", async () => {
         const short = new ArrayBuffer(8);

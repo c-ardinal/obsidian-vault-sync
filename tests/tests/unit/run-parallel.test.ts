@@ -1,12 +1,14 @@
 /**
- * Unit tests for runParallel() concurrency control.
+ * @file 並列実行ユーティリティのユニットテスト
  *
- * Verifies:
- *   - Concurrency limit is respected
- *   - All tasks execute and return results
- *   - Empty task list returns empty results
- *   - Error propagation from tasks
- *   - Zero concurrency returns empty
+ * @description
+ * runParallelの並列度制御、結果収集、エラー伝播を検証する。
+ *
+ * @pass_criteria
+ * - 並列度(concurrency)が指定値を超えないこと
+ * - 全タスクの結果が収集されること
+ * - 1つのタスクが失敗→Promise全体がrejectすること
+ * - concurrency=0 / 空タスク→空配列
  */
 
 import { describe, it, expect } from "vitest";
