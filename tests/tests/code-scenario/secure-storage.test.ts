@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { SecureStorage } from "../../../src/secure-storage";
+import { SecureStorage } from "../../../src/services/secure-storage";
 import { MockApp, MockVaultOperations } from "../../helpers/mock-vault-adapter";
 import * as crypto from "node:crypto";
 

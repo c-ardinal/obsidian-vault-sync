@@ -1,6 +1,6 @@
 import type { IVaultOperations } from "../types/vault-operations";
 import type { GoogleDriveAdapter } from "../adapters/google-drive";
-import { SecureStorage } from "../secure-storage";
+import { SecureStorage } from "./secure-storage";
 import { DEFAULT_SETTINGS } from "../constants";
 import {
     DATA_LOCAL_DIR,

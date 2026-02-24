@@ -1,4 +1,4 @@
-import { generateCodeChallenge, generateCodeVerifier } from "../../auth/pkce";
+import { generateCodeChallenge, generateCodeVerifier } from "./pkce";
 import { OAUTH_REDIRECT_URI, AUTH_PROXY_BASE_URL } from "../../constants";
 import { toHex } from "../../utils/format";
 import { Platform, requestUrl } from "obsidian";

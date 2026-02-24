@@ -52,7 +52,7 @@ function buildEncryptedBuffer(iv: Uint8Array, ciphertext: ArrayBuffer): ArrayBuf
 function createMockEngine(): ICryptoEngine {
     return sharedMockEngine({
         encrypt: async (data: ArrayBuffer) => {
-            const iv = new Uint8Array(12).fill(0xAA);
+            const iv = new Uint8Array(12).fill(0xaa);
             return { ciphertext: data, iv };
         },
         decrypt: async (ciphertext: ArrayBuffer, _iv: Uint8Array) => {
@@ -103,7 +103,9 @@ describe("EncryptedAdapter History Support", () => {
             delete (noHistoryBase as any).listRevisions;
             const enc = new EncryptedAdapter(noHistoryBase, engine);
 
-            await expect(enc.listRevisions("test.md")).rejects.toThrow("does not support listRevisions");
+            await expect(enc.listRevisions("test.md")).rejects.toThrow(
+                "does not support listRevisions",
+            );
         });
     });
 
@@ -137,8 +139,9 @@ describe("EncryptedAdapter History Support", () => {
             baseAdapter.getRevisionContent = vi.fn().mockResolvedValue(shortBuffer);
             adapter = new EncryptedAdapter(baseAdapter, engine);
 
-            await expect(adapter.getRevisionContent("test.md", "rev1"))
-                .rejects.toThrow("too short");
+            await expect(adapter.getRevisionContent("test.md", "rev1")).rejects.toThrow(
+                "too short",
+            );
         });
 
         it("should throw if base adapter does not support getRevisionContent", async () => {
@@ -146,8 +149,9 @@ describe("EncryptedAdapter History Support", () => {
             delete (noHistoryBase as any).getRevisionContent;
             const enc = new EncryptedAdapter(noHistoryBase, engine);
 
-            await expect(enc.getRevisionContent("test.md", "rev1"))
-                .rejects.toThrow("does not support getRevisionContent");
+            await expect(enc.getRevisionContent("test.md", "rev1")).rejects.toThrow(
+                "does not support getRevisionContent",
+            );
         });
     });
 
@@ -157,7 +161,11 @@ describe("EncryptedAdapter History Support", () => {
             adapter = new EncryptedAdapter(baseAdapter, engine);
 
             await adapter.setRevisionKeepForever("test.md", "rev1", true);
-            expect(baseAdapter.setRevisionKeepForever).toHaveBeenCalledWith("test.md", "rev1", true);
+            expect(baseAdapter.setRevisionKeepForever).toHaveBeenCalledWith(
+                "test.md",
+                "rev1",
+                true,
+            );
         });
 
         it("should throw if base adapter does not support setRevisionKeepForever", async () => {
@@ -165,8 +173,9 @@ describe("EncryptedAdapter History Support", () => {
             delete (noHistoryBase as any).setRevisionKeepForever;
             const enc = new EncryptedAdapter(noHistoryBase, engine);
 
-            await expect(enc.setRevisionKeepForever("test.md", "rev1", true))
-                .rejects.toThrow("does not support setRevisionKeepForever");
+            await expect(enc.setRevisionKeepForever("test.md", "rev1", true)).rejects.toThrow(
+                "does not support setRevisionKeepForever",
+            );
         });
     });
 
@@ -184,8 +193,9 @@ describe("EncryptedAdapter History Support", () => {
             delete (noHistoryBase as any).deleteRevision;
             const enc = new EncryptedAdapter(noHistoryBase, engine);
 
-            await expect(enc.deleteRevision("test.md", "rev1"))
-                .rejects.toThrow("does not support deleteRevision");
+            await expect(enc.deleteRevision("test.md", "rev1")).rejects.toThrow(
+                "does not support deleteRevision",
+            );
         });
     });
 });

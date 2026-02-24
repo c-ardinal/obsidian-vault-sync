@@ -53,12 +53,12 @@ export class MigrationService {
             if (existingLock.timestamp > dayAgo) {
                 throw new Error(
                     `Another device (${existingLock.deviceId}) is migrating this vault. ` +
-                    `Migration lock will expire in ${Math.ceil((existingLock.timestamp + 24 * 3600 * 1000 - Date.now()) / 3600000)} hours.`,
+                        `Migration lock will expire in ${Math.ceil((existingLock.timestamp + 24 * 3600 * 1000 - Date.now()) / 3600000)} hours.`,
                 );
             }
             await this.ctx.log(
                 `[Migration] Overriding stale migration lock from device ${existingLock.deviceId} (older than 24 hours)`,
-                "warn"
+                "warn",
             );
         }
 
@@ -71,7 +71,7 @@ export class MigrationService {
         this.pendingLockBlob = await this.engine.initializeNewVault(password);
 
         const tempAdapter = this.baseAdapter.cloneWithNewVaultName(
-            `${this.baseAdapter.vaultName}-Temp-Encrypted`
+            `${this.baseAdapter.vaultName}-Temp-Encrypted`,
         );
 
         tempAdapter.setLogger((msg: string) => console.log(`[Migration] ${msg}`));
@@ -90,13 +90,17 @@ export class MigrationService {
         onProgress: (p: MigrationProgress) => void,
     ): Promise<void> {
         const files = await getLocalFiles(this.ctx);
-        const filteredFiles = files.filter(f => !shouldIgnore(this.ctx, f.path));
+        const filteredFiles = files.filter((f) => !shouldIgnore(this.ctx, f.path));
         const total = filteredFiles.length;
-        const verificationSamples: Array<{ path: string; originalContent: ArrayBuffer; fileId: string }> = [];
+        const verificationSamples: Array<{
+            path: string;
+            originalContent: ArrayBuffer;
+            fileId: string;
+        }> = [];
         let current = 0;
         const concurrency = this.ctx.settings.concurrency || 5;
 
-        const tasks = filteredFiles.map(file => async () => {
+        const tasks = filteredFiles.map((file) => async () => {
             const p = { current: ++current, total, fileName: file.path };
             this.currentProgress = p;
             onProgress(p);
@@ -149,14 +153,14 @@ export class MigrationService {
                 if (downloadedArray.length !== originalArray.length) {
                     throw new Error(
                         `Integrity check failed for ${sample.path}: Size mismatch ` +
-                        `(original: ${originalArray.length}, downloaded: ${downloadedArray.length})`
+                            `(original: ${originalArray.length}, downloaded: ${downloadedArray.length})`,
                     );
                 }
 
                 for (let i = 0; i < originalArray.length; i++) {
                     if (originalArray[i] !== downloadedArray[i]) {
                         throw new Error(
-                            `Integrity check failed for ${sample.path}: Content mismatch at byte ${i}`
+                            `Integrity check failed for ${sample.path}: Content mismatch at byte ${i}`,
                         );
                     }
                 }
@@ -164,7 +168,9 @@ export class MigrationService {
                 await this.ctx.log(`[Migration] Verified integrity: ${sample.path}`, "debug");
             } catch (e) {
                 await this.ctx.log(`[Migration] Integrity verification failed: ${e}`, "error");
-                throw new Error(`Migration aborted: Encryption/decryption integrity check failed. ${e}`);
+                throw new Error(
+                    `Migration aborted: Encryption/decryption integrity check failed. ${e}`,
+                );
             }
         }
         await this.ctx.log("[Migration] All integrity checks passed", "info");
@@ -219,7 +225,10 @@ export class MigrationService {
             await this.lockService.renameFolder(tempId, vaultName);
             await this.ctx.log(`[Migration] Renamed temp to ${vaultName}`, "info");
         } catch (error) {
-            await this.ctx.log(`[Migration] Folder swap failed: ${error}. Attempting recovery...`, "error");
+            await this.ctx.log(
+                `[Migration] Folder swap failed: ${error}. Attempting recovery...`,
+                "error",
+            );
 
             const currentPrimaryId = await this.lockService.getFolderId(vaultName, appRootId);
             const backupId = await this.lockService.getFolderId(backupName, appRootId);
@@ -227,7 +236,10 @@ export class MigrationService {
             if (!currentPrimaryId && backupId && originalId) {
                 try {
                     await this.lockService.renameFolder(backupId, vaultName);
-                    await this.ctx.log("[Migration] Recovery successful - restored original vault", "info");
+                    await this.ctx.log(
+                        "[Migration] Recovery successful - restored original vault",
+                        "info",
+                    );
                 } catch (recoveryError) {
                     await this.ctx.log(`[Migration] Recovery failed: ${recoveryError}`, "error");
                 }
@@ -284,18 +296,21 @@ export class MigrationService {
 
             const backupPattern = `${vaultName}-Backup-`;
             const allFolders = await this.baseAdapter.listFiles();
-            const backupFolder = allFolders.find(f =>
-                f.kind === 'folder' && f.path.startsWith(backupPattern)
+            const backupFolder = allFolders.find(
+                (f) => f.kind === "folder" && f.path.startsWith(backupPattern),
             );
 
             if (!primaryId && backupFolder && tempId) {
                 await this.ctx.log(
                     "[Migration] Detected incomplete migration - primary folder missing. Attempting auto-recovery...",
-                    "warn"
+                    "warn",
                 );
                 try {
                     await this.lockService.renameFolder(tempId, vaultName);
-                    await this.ctx.log("[Migration] Auto-recovery successful - completed migration", "info");
+                    await this.ctx.log(
+                        "[Migration] Auto-recovery successful - completed migration",
+                        "info",
+                    );
                     return false; // Migration is now complete
                 } catch (e) {
                     await this.ctx.log(`[Migration] Auto-recovery failed: ${e}`, "error");

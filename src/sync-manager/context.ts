@@ -1,6 +1,6 @@
 import type { CloudAdapter } from "../types/adapter";
 import type { IVaultOperations } from "../types/vault-operations";
-import type { RevisionCache } from "../revision-cache";
+import type { RevisionCache } from "../services/revision-cache";
 import type {
     SyncManagerSettings,
     LocalFileIndex,

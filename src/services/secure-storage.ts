@@ -1,6 +1,6 @@
 import { Platform, normalizePath } from "obsidian";
-import { toHex } from "./utils/format";
-import type { IVaultOperations } from "./types/vault-operations";
+import { toHex } from "../utils/format";
+import type { IVaultOperations } from "../types/vault-operations";
 
 interface SecretStorage {
     getSecret(id: string): string | null;

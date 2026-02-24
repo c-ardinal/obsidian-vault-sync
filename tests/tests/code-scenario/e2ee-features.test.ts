@@ -14,9 +14,7 @@ import type { ICryptoEngine } from "../../../src/encryption/interfaces";
 // Helpers
 // =============================================================================
 
-function createMockBaseAdapter(
-    storedContent?: ArrayBuffer,
-): CloudAdapter {
+function createMockBaseAdapter(storedContent?: ArrayBuffer): CloudAdapter {
     return {
         name: "MockBase",
         supportsChangesAPI: true,
@@ -30,11 +28,23 @@ function createMockBaseAdapter(
         getFileMetadata: async () => null,
         getFileMetadataById: async () => null,
         downloadFile: async () => storedContent || new ArrayBuffer(0),
-        uploadFile: async (_p, _c, _m, _e) =>
-            ({ id: "f1", path: _p, mtime: _m, size: 0, kind: "file" as const, hash: "" }),
+        uploadFile: async (_p, _c, _m, _e) => ({
+            id: "f1",
+            path: _p,
+            mtime: _m,
+            size: 0,
+            kind: "file" as const,
+            hash: "",
+        }),
         deleteFile: async () => {},
-        moveFile: async (_id, _name, _parent) =>
-            ({ id: _id, path: _name, mtime: 0, size: 0, kind: "file" as const, hash: "" }),
+        moveFile: async (_id, _name, _parent) => ({
+            id: _id,
+            path: _name,
+            mtime: 0,
+            size: 0,
+            kind: "file" as const,
+            hash: "",
+        }),
         createFolder: async () => "folder1",
         ensureFoldersExist: async () => {},
         fileExistsById: async () => false,
@@ -44,7 +54,7 @@ function createMockBaseAdapter(
         setLogger: () => {},
         reset: () => {},
         getAppRootId: async () => "mock-root",
-        cloneWithNewVaultName: () => ({} as CloudAdapter),
+        cloneWithNewVaultName: () => ({}) as CloudAdapter,
     };
 }
 
@@ -108,7 +118,9 @@ describe("decryptChunked DecryptionError wrapping", () => {
         dv.setUint32(4, 0, true); // chunkSize = 0
         dv.setUint32(8, 1, true); // totalChunks = 1
         try {
-            await engine.decryptChunked(header.buffer.slice(header.byteOffset, header.byteOffset + VSC2_HEADER_SIZE));
+            await engine.decryptChunked(
+                header.buffer.slice(header.byteOffset, header.byteOffset + VSC2_HEADER_SIZE),
+            );
             expect.unreachable("should have thrown");
         } catch (e) {
             expect(e).toBeInstanceOf(DecryptionError);

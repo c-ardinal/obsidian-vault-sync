@@ -1,7 +1,7 @@
 import { Plugin, TFile, setIcon, Platform } from "obsidian";
 import { GoogleDriveAdapter } from "./adapters/google-drive";
 import { SyncManager, type SyncTrigger } from "./sync-manager";
-import type { SecureStorage } from "./secure-storage";
+import type { SecureStorage } from "./services/secure-storage";
 import { HistoryModal } from "./ui/history-modal";
 import { TransferStatusModal } from "./ui/transfer-status-modal";
 import { DEFAULT_SETTINGS } from "./constants";
@@ -23,7 +23,7 @@ import {
 } from "./ui/dev-screenshot-helpers";
 import { ObsidianVaultOperations } from "./services/obsidian-vault-operations";
 import { ObsidianNotificationService } from "./services/notification-service";
-import { RevisionCache } from "./revision-cache";
+import { RevisionCache } from "./services/revision-cache";
 import { BackgroundTransferQueue } from "./sync-manager/background-transfer";
 import type { IVaultOperations } from "./types/vault-operations";
 import { TriggerManager } from "./services/trigger-manager";

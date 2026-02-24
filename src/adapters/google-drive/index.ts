@@ -1,8 +1,8 @@
-import { CloudAdapter, CloudChanges, CloudFile } from "../types/adapter";
-import { basename } from "../utils/path";
-import { GoogleAuthService, type AuthMethod } from "./google-drive/auth-service";
-import { GoogleDriveHttpClient } from "./google-drive/http-client";
-import { DrivePathResolver } from "./google-drive/path-resolver";
+import { CloudAdapter, CloudChanges, CloudFile } from "../../types/adapter";
+import { basename } from "../../utils/path";
+import { GoogleAuthService, type AuthMethod } from "./auth-service";
+import { GoogleDriveHttpClient } from "./http-client";
+import { DrivePathResolver } from "./path-resolver";
 
 export type { AuthMethod };
 
@@ -556,7 +556,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
         }
     }
 
-    async listRevisions(path: string): Promise<import("../types/adapter").FileRevision[]> {
+    async listRevisions(path: string): Promise<import("../../types/adapter").FileRevision[]> {
         this.validatePath(path);
         const meta = await this.getFileMetadata(path);
         if (!meta) throw new Error(`File not found: ${path}`);
@@ -594,7 +594,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
 
         // Security Integrity Check
         if (expectedHash) {
-            const { md5 } = await import("../utils/md5");
+            const { md5 } = await import("../../utils/md5");
             const actualHash = md5(buffer);
             if (actualHash.toLowerCase() !== expectedHash.toLowerCase()) {
                 throw new Error(

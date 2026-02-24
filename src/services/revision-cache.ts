@@ -1,4 +1,4 @@
-import type { IVaultOperations } from "./types/vault-operations";
+import type { IVaultOperations } from "../types/vault-operations";
 
 /**
  * Manages a local file-based cache for revision content to reduce bandwidth.

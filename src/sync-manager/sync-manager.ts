@@ -1,7 +1,7 @@
 import { CloudAdapter } from "../types/adapter";
 import type { IVaultOperations } from "../types/vault-operations";
 import type { INotificationService } from "../services/notification-service";
-import { RevisionCache } from "../revision-cache";
+import { RevisionCache } from "../services/revision-cache";
 import {
     CommunicationData,
     FullScanProgress,
@@ -15,7 +15,7 @@ import { ICryptoEngine } from "../encryption/interfaces";
 import { EncryptedAdapter } from "../adapters/encrypted-adapter";
 import { VaultLockService } from "../services/vault-lock-service";
 import { MigrationService } from "../services/migration-service";
-import { SecureStorage } from "../secure-storage";
+import { SecureStorage } from "../services/secure-storage";
 import {
     type SyncTrigger,
     shouldShowNotification,
