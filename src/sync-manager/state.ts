@@ -292,6 +292,7 @@ export async function resetIndex(ctx: SyncContext): Promise<void> {
     ctx.index = {};
     ctx.localIndex = {};
     ctx.startPageToken = null;
+    ctx.adapter.clearDownloadCache?.();
     await saveIndex(ctx);
 }
 

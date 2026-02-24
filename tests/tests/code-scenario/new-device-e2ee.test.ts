@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { DeviceSimulator, hashOf } from "../../helpers/device-simulator";
 import { MockCloudAdapter } from "../../helpers/mock-cloud-adapter";
-import { loadLocalIndex } from "../../../src/sync-manager/state";
+import { loadLocalIndex, resetIndex } from "../../../src/sync-manager/state";
 import { VAULT_LOCK_PATH } from "../../../src/services/vault-lock-service";
 
 const SYNC_INDEX_PATH = ".obsidian/plugins/obsidian-vault-sync/data/remote/sync-index.json";
@@ -323,5 +323,77 @@ describe("Integration: New device joining existing sync group", () => {
         const getChangesSpy = vi.spyOn(cloud, "getChanges");
         await sm(deviceB).smartPull();
         expect(getChangesSpy).toHaveBeenCalled();
+    });
+});
+
+// =============================================================================
+// Fix 1: checkForLockFile failure handling based on auth state
+// =============================================================================
+describe("Fix 1: checkForLockFile error handling by auth state", () => {
+    it("should abort sync when authenticated and checkForLockFile throws", async () => {
+        const cloud = new MockCloudAdapter();
+        const device = new DeviceSimulator("DeviceA", cloud);
+
+        // Authenticated by default (MockCloudAdapter returns true)
+        expect(cloud.isAuthenticated()).toBe(true);
+
+        // checkForLockFile throws (e.g. network error)
+        vi.spyOn(sm(device).vaultLockService, "checkForLockFile").mockRejectedValue(
+            new Error("Network timeout"),
+        );
+
+        // smartPull should NOT be called — sync should abort
+        const pullSpy = vi.spyOn(sm(device), "smartPull");
+
+        sm(device).notify = async () => {};
+
+        await device.syncManager.requestSmartSync("manual-sync");
+
+        expect(pullSpy).not.toHaveBeenCalled();
+    });
+
+    it("should continue sync when not authenticated and checkForLockFile throws", async () => {
+        const cloud = new MockCloudAdapter();
+        const device = new DeviceSimulator("DeviceA", cloud);
+
+        // Override isAuthenticated to return false
+        vi.spyOn(cloud, "isAuthenticated").mockReturnValue(false);
+
+        // checkForLockFile throws
+        vi.spyOn(sm(device).vaultLockService, "checkForLockFile").mockRejectedValue(
+            new Error("Not authenticated"),
+        );
+
+        // smartPull SHOULD be called — sync continues past the catch
+        const pullSpy = vi.spyOn(sm(device), "smartPull").mockResolvedValue(false);
+        vi.spyOn(sm(device), "smartPush").mockResolvedValue(false);
+
+        sm(device).notify = async () => {};
+
+        await device.syncManager.requestSmartSync("manual-sync");
+
+        expect(pullSpy).toHaveBeenCalled();
+    });
+});
+
+// =============================================================================
+// Fix 2: resetIndex clears download cache
+// =============================================================================
+describe("Fix 2: resetIndex clears download cache", () => {
+    it("should call clearDownloadCache when resetting index", async () => {
+        const cloud = new MockCloudAdapter();
+        const device = new DeviceSimulator("DeviceA", cloud);
+
+        // Set up a clearDownloadCache spy on the adapter
+        const ctx = sm(device);
+        const clearSpy = vi.fn();
+        ctx.adapter.clearDownloadCache = clearSpy;
+
+        await resetIndex(ctx);
+
+        expect(clearSpy).toHaveBeenCalledOnce();
+        expect(ctx.index).toEqual({});
+        expect(ctx.localIndex).toEqual({});
+        expect(ctx.startPageToken).toBeNull();
     });
 });

@@ -518,8 +518,15 @@ export class SyncManager {
                     await this.onSaveSettings();
                     await this.notify("noticeE2EEAutoEnabled");
                 }
-            } catch {
-                // Ignore — adapter might not be authenticated yet
+            } catch (e) {
+                if (this.baseAdapter.isAuthenticated()) {
+                    await this.log(
+                        `[E2EE Check] Remote E2EE state could not be verified: ${e}. Aborting sync to prevent data corruption.`,
+                        "warn",
+                    );
+                    return;
+                }
+                // Not authenticated — ignore (first API call will fail naturally)
             }
         }
         if (this.e2eeLocked) {
