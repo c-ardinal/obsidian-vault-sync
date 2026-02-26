@@ -20,7 +20,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { DeviceSimulator, hashOf } from "../../helpers/device-simulator";
 import { MockCloudAdapter } from "../../helpers/mock-cloud-adapter";
-import { loadLocalIndex, resetIndex } from "../../../src/sync-manager/state";
+import { loadLocalIndex, resetIndex, saveCommunication } from "../../../src/sync-manager/state";
 import { VAULT_LOCK_PATH } from "../../../src/services/vault-lock-service";
 
 const SYNC_INDEX_PATH = ".obsidian/plugins/obsidian-vault-sync/data/remote/sync-index.json";
@@ -495,6 +495,104 @@ describe("Fix 3: Initial sync accepts remote for untracked local files", () => {
         const allFiles = deviceB.listLocalFiles();
         const conflictFiles = allFiles.filter((f: string) => f.includes("Conflict"));
         expect(conflictFiles).toHaveLength(0);
+    });
+});
+
+// =============================================================================
+// Fix 4: pendingConflict files should be re-pulled after merge lock expires
+// =============================================================================
+/** Changes APIが変更を消費した後、ロック解除でpendingConflictファイルが再pullされることを検証 */
+describe("Fix 4: pendingConflict re-check after merge lock expiry", () => {
+    const FILE_PATH = "notes/demo.md";
+    const FILE_ID = "f_demo_1";
+    const ANCESTOR = "Line 1\nLine 2\n";
+
+    it("should re-pull pendingConflict file after lock expires via smartPull", async () => {
+        const cloud = new MockCloudAdapter();
+
+        // Device A and B start in sync
+        const deviceA = new DeviceSimulator("DeviceA", cloud, "dev_A");
+        const deviceB = new DeviceSimulator("DeviceB", cloud, "dev_B");
+
+        const buf = new TextEncoder().encode(ANCESTOR).buffer as ArrayBuffer;
+        await cloud.uploadFile(FILE_PATH, buf, Date.now());
+        const fileId = cloud.getFileId(FILE_PATH)!;
+
+        deviceA.setupSyncedFile(FILE_PATH, ANCESTOR, fileId);
+        deviceB.setupSyncedFile(FILE_PATH, ANCESTOR, fileId);
+
+        sm(deviceA).notify = async () => {};
+        sm(deviceB).notify = async () => {};
+
+        // Device A edits, pushes, and merges (producing new content on remote)
+        const mergedContent = "Line 1\nLine 2\nLine 3 from merge\n";
+        deviceA.editFile(FILE_PATH, mergedContent);
+        await deviceA.forcePush(FILE_PATH);
+        await deviceA.uploadIndex();
+
+        // Simulate: Device B's startPageToken was set BEFORE A's push,
+        // then Changes API consumed A's change while lock was active.
+        // Advance token past A's change so Changes API returns nothing new.
+        sm(deviceB).startPageToken = await cloud.getStartPageToken();
+
+        // Simulate: Device B has pendingConflict=true (set when lock was active)
+        sm(deviceB).localIndex[FILE_PATH].pendingConflict = true;
+
+        // At this point: no active merge lock (A already released it)
+        // Device B runs smartPull → Changes API has no new changes
+        // → Without fix: pendingConflict file is never re-pulled
+        // → With fix: re-check detects expired lock, forces re-pull
+        await sm(deviceB).smartPull();
+
+        // Verify: pendingConflict should be cleared and content updated
+        expect(deviceB.getLocalContent(FILE_PATH)).toBe(mergedContent);
+        expect(sm(deviceB).localIndex[FILE_PATH].pendingConflict).toBeFalsy();
+    });
+
+    it("should NOT re-pull if merge lock is still active", async () => {
+        const cloud = new MockCloudAdapter();
+
+        const deviceA = new DeviceSimulator("DeviceA", cloud, "dev_A");
+        const deviceB = new DeviceSimulator("DeviceB", cloud, "dev_B");
+
+        const buf = new TextEncoder().encode(ANCESTOR).buffer as ArrayBuffer;
+        await cloud.uploadFile(FILE_PATH, buf, Date.now());
+        const fileId = cloud.getFileId(FILE_PATH)!;
+
+        deviceA.setupSyncedFile(FILE_PATH, ANCESTOR, fileId);
+        deviceB.setupSyncedFile(FILE_PATH, ANCESTOR, fileId);
+
+        sm(deviceA).notify = async () => {};
+        sm(deviceB).notify = async () => {};
+
+        // Device A pushes new content
+        const mergedContent = "Line 1\nLine 2\nLine 3 from merge\n";
+        deviceA.editFile(FILE_PATH, mergedContent);
+        await deviceA.forcePush(FILE_PATH);
+        await deviceA.uploadIndex();
+
+        // Advance token so Changes API returns nothing new
+        sm(deviceB).startPageToken = await cloud.getStartPageToken();
+
+        // Set pendingConflict AND an active merge lock
+        sm(deviceB).localIndex[FILE_PATH].pendingConflict = true;
+
+        // Write active merge lock to communication.json (lock still held by A)
+        await saveCommunication(sm(deviceB), {
+            mergeLocks: {
+                [FILE_PATH]: {
+                    holder: "dev_A",
+                    expiresAt: Date.now() + 60_000, // expires in 60s
+                },
+            },
+            lastUpdated: Date.now(),
+        });
+
+        await sm(deviceB).smartPull();
+
+        // Should NOT have pulled (lock still active) — content unchanged
+        expect(deviceB.getLocalContent(FILE_PATH)).toBe(ANCESTOR);
+        expect(sm(deviceB).localIndex[FILE_PATH].pendingConflict).toBe(true);
     });
 });
 

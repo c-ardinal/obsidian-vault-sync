@@ -8,7 +8,7 @@ import {
     isAlwaysForbiddenOnRemote,
     shouldIgnore,
 } from "./file-utils";
-import { loadCommunication, saveIndex, saveLocalIndex, clearPendingPushStates } from "./state";
+import { loadCommunication, saveIndex, saveLocalIndex, clearPendingPushStates, checkMergeLock } from "./state";
 import { pullFileSafely } from "./merge";
 import { TransferPriority } from "./transfer-types";
 import { formatSize } from "../utils/format";
@@ -456,7 +456,57 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
         // preventing a full pull on a fresh device.
         const hasIndex = Object.keys(ctx.index).length > 0;
         if (ctx.startPageToken && hasIndex) {
-            return await pullViaChangesAPI(ctx);
+            const changesResult = await pullViaChangesAPI(ctx);
+
+            // Re-check files with pendingConflict whose merge lock has expired.
+            // Changes API may have consumed the change while the lock was active,
+            // so the change won't appear again. Force re-pull for these files.
+            const pendingPaths = Object.entries(ctx.localIndex)
+                .filter(([, entry]) => entry.pendingConflict)
+                .map(([path]) => path);
+
+            if (pendingPaths.length > 0) {
+                // Filter to only paths whose locks have expired
+                const unlockedPaths: string[] = [];
+                for (const path of pendingPaths) {
+                    const lock = await checkMergeLock(ctx, path);
+                    if (!lock.locked) {
+                        unlockedPaths.push(path);
+                    }
+                }
+
+                if (unlockedPaths.length > 0) {
+                    // Download remote index once for all pending files
+                    const remoteIndexMeta = await ctx.adapter.getFileMetadata(ctx.pluginDataPath);
+                    if (remoteIndexMeta?.id) {
+                        const remoteIndex = await downloadRemoteIndex(ctx, remoteIndexMeta.id);
+                        let pendingPulled = false;
+                        for (const path of unlockedPaths) {
+                            const remoteEntry = remoteIndex[path];
+                            if (remoteEntry) {
+                                await ctx.log(
+                                    `[Smart Pull] Re-checking pendingConflict file (lock expired): ${path}`,
+                                    "info",
+                                );
+                                const remoteMeta = {
+                                    path,
+                                    fileId: remoteEntry.fileId,
+                                    hash: remoteEntry.hash,
+                                    plainHash: remoteEntry.plainHash,
+                                    mtime: remoteEntry.mtime,
+                                    size: remoteEntry.size,
+                                    ancestorHash: remoteEntry.ancestorHash,
+                                };
+                                await pullFileSafely(ctx, remoteMeta, "Pending Conflict");
+                                pendingPulled = true;
+                            }
+                        }
+                        if (pendingPulled) return true;
+                    }
+                }
+            }
+
+            return changesResult;
         } else {
             try {
                 ctx.startPageToken = await ctx.adapter.getStartPageToken();
