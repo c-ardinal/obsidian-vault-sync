@@ -60,7 +60,7 @@ export default {
         copyFiles([
             { src: "manifest.json", dest: "dist/obsidian-vault-sync" },
             { src: "src/styles.css", dest: "dist/obsidian-vault-sync" },
-            { src: "src/lang/ja.json", dest: "dist/obsidian-vault-sync/lang" },
+            { src: "src/i18n/lang/ja.json", dest: "dist/obsidian-vault-sync/lang" },
         ]),
     ],
     treeshake: true,

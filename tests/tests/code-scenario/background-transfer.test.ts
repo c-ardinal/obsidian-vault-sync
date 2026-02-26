@@ -1,20 +1,23 @@
 /**
- * Background Transfer Queue tests.
+ * @file バックグラウンド転送キューの統合テスト
  *
- * Part 1: Unit tests for BackgroundTransferQueue class (queue operations, history, callbacks)
- * Part 2: Integration tests for size-based routing in smartPush
- * Part 3: Integration tests for inline transfer recording
- * Part 4: Integration — executeSmartSync pause/resume
- * Part 5: Integration — Pull-side size-based routing (smartPull)
- * Part 6: Unit — Online/Offline detection
- * Part 7: Unit — Inline active tracking (markInlineStart/markInlineEnd)
- * Part 8: Unit — Bandwidth throttling (bgTransferIntervalSec)
- * Part 9: Unit — History persistence (JSONL flush/load)
- * Part 10: Integration — Log rotation via loadHistoryFromDisk
- * Part 11: Integration — Background Pull execution (executePull via processLoop)
- * Part 12: Integration — Staleness & conflict check (executePush via processLoop)
- * Part 13: E2E — Full sync cycle with background transfer
- * Part 14: Integration — Retry & error handling
+ * @description
+ * BackgroundTransferQueueのキュー操作・履歴管理・コールバック・Pause/Resume、
+ * サイズベースの転送ルーティング (閾値以上→バックグラウンド、未満→インライン)、
+ * processLoopによるPull/Push実行、陳腐化検出・コンフリクト検査、リトライ、
+ * JSONL履歴永続化・ログローテーション、E2Eフルサイクルを検証する。
+ *
+ * @prerequisites
+ * - BackgroundTransferQueue単体テスト用モック
+ * - DeviceSimulator + MockCloudAdapter (統合テスト部分)
+ * - largeFileThresholdMB設定による分岐
+ *
+ * @pass_criteria
+ * - キュー操作: 重複除去、優先度ソート、キャンセル、ring buffer履歴
+ * - ルーティング: 閾値に基づくインライン/バックグラウンド振り分け
+ * - processLoop: ダウンロード/アップロード完了後のインデックス更新
+ * - 陳腐化検出: 削除済み・内容変更・リモート競合時のキャンセル
+ * - リトライ: MAX_RETRIES(3)回失敗後にonTransferFailed発火
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
@@ -62,7 +65,9 @@ function makeRecord(overrides: Partial<TransferRecord> = {}): TransferRecord {
 // PART 1: Unit tests for BackgroundTransferQueue
 // ═══════════════════════════════════════════════════════════════════
 
+/** Part 1: BackgroundTransferQueue単体テスト */
 describe("BackgroundTransferQueue", () => {
+    /** キューの追加・重複除去・優先度ソート・キャンセル */
     describe("Queue operations", () => {
         let queue: BackgroundTransferQueue;
 
@@ -166,6 +171,7 @@ describe("BackgroundTransferQueue", () => {
         });
     });
 
+    /** 転送履歴の記録・ring buffer(500件上限) */
     describe("History", () => {
         let queue: BackgroundTransferQueue;
 
@@ -216,6 +222,7 @@ describe("BackgroundTransferQueue", () => {
         });
     });
 
+    /** onQueueChangeコールバック発火タイミング */
     describe("Callbacks", () => {
         let queue: BackgroundTransferQueue;
         let callbacks: Required<TransferCallbacks>;
@@ -264,6 +271,7 @@ describe("BackgroundTransferQueue", () => {
         });
     });
 
+    /** 一時停止中はprocessLoop停止 */
     describe("Pause/Resume", () => {
         it("should not start processing when paused", () => {
             const queue = new BackgroundTransferQueue();
@@ -280,6 +288,7 @@ describe("BackgroundTransferQueue", () => {
 // PART 2: Integration — Size-based routing in smartPush
 // ═══════════════════════════════════════════════════════════════════
 
+/** Part 2: smartPush内でのサイズ判定→インライン/バックグラウンド振り分け */
 describe("Size-based transfer routing (smartPush integration)", () => {
     let cloud: MockCloudAdapter;
     let device: DeviceSimulator;
@@ -472,6 +481,7 @@ describe("Size-based transfer routing (smartPush integration)", () => {
 // PART 3: Integration — Inline transfer recording
 // ═══════════════════════════════════════════════════════════════════
 
+/** Part 3: インライン転送の履歴記録 */
 describe("Inline transfer recording (smartPush integration)", () => {
     let cloud: MockCloudAdapter;
     let device: DeviceSimulator;
@@ -526,6 +536,7 @@ describe("Inline transfer recording (smartPush integration)", () => {
 // PART 4: Integration — executeSmartSync pause/resume
 // ═══════════════════════════════════════════════════════════════════
 
+/** Part 4: 同期サイクル中のPause/Resume制御 */
 describe("executeSmartSync pause/resume (integration)", () => {
     let cloud: MockCloudAdapter;
     let device: DeviceSimulator;
@@ -575,6 +586,7 @@ describe("executeSmartSync pause/resume (integration)", () => {
 // PART 5: Integration — Pull-side size-based routing (smartPull)
 // ═══════════════════════════════════════════════════════════════════
 
+/** Part 5: smartPull内でのサイズ判定 */
 describe("Pull-side size-based routing (smartPull integration)", () => {
     let cloud: MockCloudAdapter;
     let deviceA: DeviceSimulator;
@@ -690,6 +702,7 @@ describe("Pull-side size-based routing (smartPull integration)", () => {
 // PART 6: Unit — Online/Offline detection and queue resume
 // ═══════════════════════════════════════════════════════════════════
 
+/** Part 6: オンライン復帰時のresume・E2EEロック検出 */
 describe("Online/Offline detection", () => {
     it("should have destroy method that cleans up", () => {
         const queue = new BackgroundTransferQueue();
@@ -833,6 +846,7 @@ describe("Online/Offline detection", () => {
 // PART 7: Unit — Inline active tracking (markInlineStart/markInlineEnd)
 // ═══════════════════════════════════════════════════════════════════
 
+/** Part 7: インライン転送のアクティブ状態追跡 */
 describe("Inline active tracking", () => {
     let queue: BackgroundTransferQueue;
 
@@ -964,6 +978,7 @@ describe("Inline active tracking", () => {
 // PART 8: Unit — Bandwidth throttling (bgTransferIntervalSec)
 // ═══════════════════════════════════════════════════════════════════
 
+/** Part 8: bgTransferIntervalSec設定 */
 describe("Bandwidth throttling (bgTransferIntervalSec)", () => {
     let cloud: MockCloudAdapter;
     let device: DeviceSimulator;
@@ -997,6 +1012,7 @@ describe("Bandwidth throttling (bgTransferIntervalSec)", () => {
 // PART 9: Unit — History persistence (JSONL flush/load)
 // ═══════════════════════════════════════════════════════════════════
 
+/** Part 9: JSONL形式の履歴永続化 */
 describe("History persistence (JSONL)", () => {
     let queue: BackgroundTransferQueue;
 
@@ -1067,6 +1083,7 @@ describe("History persistence (JSONL)", () => {
 // PART 10: Integration — Log rotation via loadHistoryFromDisk
 // ═══════════════════════════════════════════════════════════════════
 
+/** Part 10: 7日以上経過した転送ログの自動削除 */
 describe("Log rotation (daily JSONL cleanup)", () => {
     let cloud: MockCloudAdapter;
     let device: DeviceSimulator;
@@ -1184,6 +1201,7 @@ async function waitForDrain(queue: BackgroundTransferQueue, timeoutMs = 3000): P
 // PART 11: Integration — Background Pull execution (executePull via processLoop)
 // ═══════════════════════════════════════════════════════════════════
 
+/** Part 11: processLoopによるPullダウンロード実行 */
 describe("Background Pull execution (processLoop)", () => {
     let cloud: MockCloudAdapter;
     let deviceA: DeviceSimulator;
@@ -1376,6 +1394,7 @@ describe("Background Pull execution (processLoop)", () => {
 // PART 12: Integration — Staleness & conflict check (executePush via processLoop)
 // ═══════════════════════════════════════════════════════════════════
 
+/** Part 12: Push前の陳腐化・コンフリクト検査 */
 describe("Staleness & conflict check (executePush processLoop)", () => {
     let cloud: MockCloudAdapter;
     let device: DeviceSimulator;
@@ -1630,6 +1649,7 @@ describe("Staleness & conflict check (executePush processLoop)", () => {
 // PART 13: E2E — Full sync cycle with background transfer
 // ═══════════════════════════════════════════════════════════════════
 
+/** Part 13: バックグラウンド転送を含むフルサイクルE2Eテスト */
 describe("E2E full sync cycle with background transfer", () => {
     let cloud: MockCloudAdapter;
     let deviceA: DeviceSimulator;
@@ -1767,6 +1787,7 @@ describe("E2E full sync cycle with background transfer", () => {
 // PART 14: Integration — Retry & error handling
 // ═══════════════════════════════════════════════════════════════════
 
+/** Part 14: MAX_RETRIES超過時のエラーハンドリング */
 describe("Retry & error handling (processLoop)", () => {
     let cloud: MockCloudAdapter;
     let device: DeviceSimulator;

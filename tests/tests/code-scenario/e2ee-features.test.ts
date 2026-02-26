@@ -1,3 +1,20 @@
+/**
+ * @file E2EEフェーズ5機能テスト (DecryptionError / パスワード変更 / リカバリーコード)
+ *
+ * @description
+ * DecryptionErrorの構造 (cause: authentication | format, chunkIndex)、
+ * VSC1/VSC2フォーマット別のエラー分類、EncryptedAdapterでのエラーラッピングを検証する。
+ *
+ * @prerequisites
+ * - MockCryptoEngine / createFailingEngine
+ * - createMockBaseAdapter
+ *
+ * @pass_criteria
+ * - DecryptionErrorが正しいcause・chunkIndexプロパティを持つこと
+ * - フォーマット不正→cause="format"、復号失敗→cause="authentication"
+ * - VSC2チャンク復号失敗時にchunkIndexが設定されること
+ * - EncryptedAdapterがVSC1/VSC2を自動判定し、適切なDecryptionErrorに変換すること
+ */
 import { describe, it, expect, vi } from "vitest";
 import { DecryptionError } from "../../../src/encryption/errors";
 import {
@@ -6,7 +23,7 @@ import {
     VSC2_MAGIC,
     VSC2_HEADER_SIZE,
 } from "../../helpers/mock-crypto-engine";
-import { EncryptedAdapter } from "../../../src/adapters/encrypted-adapter";
+import { EncryptedAdapter } from "../../../src/encryption/encrypted-adapter";
 import type { CloudAdapter, CloudFile } from "../../../src/types/adapter";
 import type { ICryptoEngine } from "../../../src/encryption/interfaces";
 
@@ -14,9 +31,7 @@ import type { ICryptoEngine } from "../../../src/encryption/interfaces";
 // Helpers
 // =============================================================================
 
-function createMockBaseAdapter(
-    storedContent?: ArrayBuffer,
-): CloudAdapter {
+function createMockBaseAdapter(storedContent?: ArrayBuffer): CloudAdapter {
     return {
         name: "MockBase",
         supportsChangesAPI: true,
@@ -30,11 +45,23 @@ function createMockBaseAdapter(
         getFileMetadata: async () => null,
         getFileMetadataById: async () => null,
         downloadFile: async () => storedContent || new ArrayBuffer(0),
-        uploadFile: async (_p, _c, _m, _e) =>
-            ({ id: "f1", path: _p, mtime: _m, size: 0, kind: "file" as const, hash: "" }),
+        uploadFile: async (_p, _c, _m, _e) => ({
+            id: "f1",
+            path: _p,
+            mtime: _m,
+            size: 0,
+            kind: "file" as const,
+            hash: "",
+        }),
         deleteFile: async () => {},
-        moveFile: async (_id, _name, _parent) =>
-            ({ id: _id, path: _name, mtime: 0, size: 0, kind: "file" as const, hash: "" }),
+        moveFile: async (_id, _name, _parent) => ({
+            id: _id,
+            path: _name,
+            mtime: 0,
+            size: 0,
+            kind: "file" as const,
+            hash: "",
+        }),
         createFolder: async () => "folder1",
         ensureFoldersExist: async () => {},
         fileExistsById: async () => false,
@@ -44,7 +71,7 @@ function createMockBaseAdapter(
         setLogger: () => {},
         reset: () => {},
         getAppRootId: async () => "mock-root",
-        cloneWithNewVaultName: () => ({} as CloudAdapter),
+        cloneWithNewVaultName: () => ({}) as CloudAdapter,
     };
 }
 
@@ -52,6 +79,7 @@ function createMockBaseAdapter(
 // DecryptionError class
 // =============================================================================
 
+/** DecryptionErrorのcause・chunkIndexプロパティ構造の検証 */
 describe("DecryptionError", () => {
     it("has correct name and properties for authentication cause", () => {
         const err = new DecryptionError("wrong key", "authentication");
@@ -74,6 +102,7 @@ describe("DecryptionError", () => {
 // decryptChunked — DecryptionError wrapping
 // =============================================================================
 
+/** VSC2 decryptChunkedでのformat/authenticationエラー分類 */
 describe("decryptChunked DecryptionError wrapping", () => {
     const engine = createMockEngine();
 
@@ -108,7 +137,9 @@ describe("decryptChunked DecryptionError wrapping", () => {
         dv.setUint32(4, 0, true); // chunkSize = 0
         dv.setUint32(8, 1, true); // totalChunks = 1
         try {
-            await engine.decryptChunked(header.buffer.slice(header.byteOffset, header.byteOffset + VSC2_HEADER_SIZE));
+            await engine.decryptChunked(
+                header.buffer.slice(header.byteOffset, header.byteOffset + VSC2_HEADER_SIZE),
+            );
             expect.unreachable("should have thrown");
         } catch (e) {
             expect(e).toBeInstanceOf(DecryptionError);
@@ -139,6 +170,7 @@ describe("decryptChunked DecryptionError wrapping", () => {
 // EncryptedAdapter decryptContent — DecryptionError wrapping
 // =============================================================================
 
+/** EncryptedAdapterによるVSC1/VSC2自動判定とDecryptionError変換 */
 describe("EncryptedAdapter DecryptionError wrapping", () => {
     it("throws DecryptionError with format cause for data shorter than 12 bytes", async () => {
         const short = new ArrayBuffer(8);

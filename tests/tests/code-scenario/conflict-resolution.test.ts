@@ -1,14 +1,20 @@
 /**
- * Multi-device conflict resolution sequential tests.
+ * @file 複数端末間の競合検知・解決フロー統合テスト
  *
- * Tests two patterns:
- * Pattern 1: Push-time conflict - Device detects conflict when pushing (remote changed)
- * Pattern 2: Pull-time conflict - Device detects conflict when pulling (local modified)
+ * @description
+ * 2台のDeviceSimulatorで同一ファイルを編集し、Push時競合・Pull時競合(Safety Guard)・
+ * ハッシュ/フラグ遷移ライフサイクル・Changes API同期確認を検証する。
+ * 過去の障害パターン(ancestorHash汚染・誤選択・ゾンビ競合)の回帰テストを含む。
  *
- * Each test verifies:
- * - Flag transitions (lastAction, pendingConflict)
- * - Hash changes (hash, ancestorHash)
- * - Merged text content correctness
+ * @prerequisites
+ * - 2台のDeviceSimulator (DeviceA, DeviceB) が同一ファイルを同期済み
+ * - MockCloudAdapterを共有
+ *
+ * @pass_criteria
+ * - 非重複編集: 3-wayマージで両方の編集が保持されること
+ * - 重複編集: コンフリクトが検出されること
+ * - ハッシュ遷移: ancestorHashがマージ結果のハッシュに正しく更新されること
+ * - フラグ遷移: lastAction/pendingConflict/dirtyが仕様通りに遷移すること
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
@@ -62,6 +68,7 @@ describe("Multi-device conflict resolution", () => {
     // Scenario: Device A pushes, Device B pushes → B detects conflict at push time
     // ═══════════════════════════════════════════════════════════════════
 
+    /** Push時に競合検知 → 自動マージで両編集を保持 */
     describe("Pattern 1: Push-time conflict (non-overlapping edits)", () => {
         it("should detect conflict at push time and auto-merge", async () => {
             // ──── Step 0: Verify initial state ────
@@ -159,6 +166,7 @@ describe("Multi-device conflict resolution", () => {
         });
     });
 
+    /** 同一行の重複編集 → コンフリクト検出 */
     describe("Pattern 1: Push-time conflict (overlapping edits)", () => {
         it("should detect conflict at push time with overlapping edits", async () => {
             console.log("\n╔══════════════════════════════════════════════════╗");
@@ -219,6 +227,7 @@ describe("Multi-device conflict resolution", () => {
     // Scenario: Device A pushes, Device B has local edits, Device B pulls → conflict
     // ═══════════════════════════════════════════════════════════════════
 
+    /** Pull時にSafety Guardが発動 → 自動マージ */
     describe("Pattern 2: Pull-time conflict (non-overlapping edits)", () => {
         it("should detect conflict at pull time and auto-merge", async () => {
             console.log("\n╔══════════════════════════════════════════════════╗");
@@ -309,6 +318,7 @@ describe("Multi-device conflict resolution", () => {
         });
     });
 
+    /** Push直後にリモートが変更された場合のSafety Guard */
     describe("Pattern 2: Pull-time conflict (Safety Guard path)", () => {
         it("should trigger Safety Guard when remote changes after push", async () => {
             console.log("\n╔══════════════════════════════════════════════════╗");
@@ -379,6 +389,7 @@ describe("Multi-device conflict resolution", () => {
     // Hash and Flag transition verification
     // ═══════════════════════════════════════════════════════════════════
 
+    /** 6ステップのライフサイクルでhash/flagの全遷移を追跡 */
     describe("Hash and flag transitions (detailed)", () => {
         it("should track hash and flag changes through full cycle", async () => {
             console.log("\n╔══════════════════════════════════════════════════╗");
@@ -487,6 +498,7 @@ describe("Multi-device conflict resolution", () => {
     // This is by design, not a bug.
     // ═══════════════════════════════════════════════════════════════════
 
+    /** Changes APIで自分のPush反映を確認した時のlastAction遷移 */
     describe("Changes API sync confirmation", () => {
         it("should confirm push via hash match and correctly set lastAction", async () => {
             console.log("\n╔══════════════════════════════════════════════════╗");
@@ -523,6 +535,7 @@ describe("Multi-device conflict resolution", () => {
     // both Local and Remote agree on the same hash.
     // ═══════════════════════════════════════════════════════════════════
 
+    /** 同期確認時のancestorHash更新回帰テスト */
     describe("Regression #3: ancestorHash updated on sync confirmation", () => {
         it("should update ancestorHash on syncPull hash match and merge correctly", async () => {
             console.log("\n╔══════════════════════════════════════════════════╗");
@@ -616,6 +629,7 @@ describe("Multi-device conflict resolution", () => {
     // Lifecycle test: ancestorHash managed by real code paths
     // ═══════════════════════════════════════════════════════════════════
 
+    /** 3サイクルを通じたancestorHash保持の検証 */
     describe("Lifecycle: ancestorHash through real sync cycles", () => {
         it("should maintain correct ancestorHash through push/pull/merge cycles", async () => {
             console.log("\n╔══════════════════════════════════════════════════╗");
@@ -713,6 +727,7 @@ describe("Multi-device conflict resolution", () => {
     // ancestorHash=null: findCommonAncestorHash fallback
     // ═══════════════════════════════════════════════════════════════════
 
+    /** ancestorHash未設定時の履歴フォールバック */
     describe("Fallback: ancestorHash=null triggers findCommonAncestorHash", () => {
         it("should fall back to revision history when ancestorHash is missing", async () => {
             console.log("\n╔══════════════════════════════════════════════════╗");

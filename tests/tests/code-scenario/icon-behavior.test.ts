@@ -1,9 +1,26 @@
+/**
+ * @file アイコン回転動作のシナリオテスト
+ *
+ * @description
+ * 同期トリガー種別ごとのアクティビティインジケータ(スピナー)表示制御を検証する。
+ * manual-sync/initial-syncは常時表示、timer-sync/save-syncは変更検出時のみ表示。
+ *
+ * @prerequisites
+ * - 1台のDeviceSimulator + MockCloudAdapter
+ * - onActivityStart / onActivityEnd コールバックのモック
+ *
+ * @pass_criteria
+ * - initial-sync / startup-sync / manual-sync: 常にスピナーが回ること
+ * - timer-sync / save-sync: 変更なし→スピナーなし、変更あり→スピナーあり
+ */
+
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { MockCloudAdapter } from "../../helpers/mock-cloud-adapter";
 import { DeviceSimulator } from "../../helpers/device-simulator";
 
 const FILE_PATH = "notes/test.md";
 
+/** トリガー種別ごとのスピナー表示/非表示シナリオ */
 describe("Icon Rotation Behavior Scenarios", () => {
     let cloud: MockCloudAdapter;
     let device: DeviceSimulator;

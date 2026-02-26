@@ -51,7 +51,6 @@ export const DEFAULT_SETTINGS: VaultSyncSettings = {
     cloudRootFolder: "ObsidianVaultSync",
     exclusionPatterns: ".git\n.svn\n.hg\n.bzr",
 
-    // Sync Scope Defaults
     syncAppearance: true,
     syncCommunityPlugins: true,
     syncCoreConfig: true,

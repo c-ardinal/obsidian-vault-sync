@@ -1,6 +1,6 @@
 import { CloudAdapter, CloudChanges, CloudFile, FileRevision } from "../types/adapter";
-import { ICryptoEngine } from "../encryption/interfaces";
-import { DecryptionError } from "../encryption/errors";
+import { ICryptoEngine } from "./interfaces";
+import { DecryptionError } from "./errors";
 
 /**
  * A proxy adapter that transparently encrypts/decrypts file content
@@ -115,7 +115,12 @@ export class EncryptedAdapter implements CloudAdapter {
         // Fallback: full encryption then single upload
         const encrypted = await this.encryptContent(content);
         if (this.baseAdapter.uploadFileResumable) {
-            const r = await this.baseAdapter.uploadFileResumable(path, encrypted, mtime, existingFileId);
+            const r = await this.baseAdapter.uploadFileResumable(
+                path,
+                encrypted,
+                mtime,
+                existingFileId,
+            );
             this.downloadCache.delete(r.id);
             return r;
         }
@@ -180,7 +185,11 @@ export class EncryptedAdapter implements CloudAdapter {
         return this.decryptContent(encryptedContent);
     }
 
-    async setRevisionKeepForever(path: string, revisionId: string, keepForever: boolean): Promise<void> {
+    async setRevisionKeepForever(
+        path: string,
+        revisionId: string,
+        keepForever: boolean,
+    ): Promise<void> {
         if (!this.baseAdapter.setRevisionKeepForever) {
             throw new Error("Base adapter does not support setRevisionKeepForever");
         }
@@ -223,7 +232,10 @@ export class EncryptedAdapter implements CloudAdapter {
 
     /** Encrypt content using VSC2 (chunked) or VSC1 (single blob) based on threshold. */
     private async encryptContent(content: ArrayBuffer): Promise<ArrayBuffer> {
-        if (this.largeFileThresholdBytes > 0 && content.byteLength >= this.largeFileThresholdBytes) {
+        if (
+            this.largeFileThresholdBytes > 0 &&
+            content.byteLength >= this.largeFileThresholdBytes
+        ) {
             return this.engine.encryptChunked(content);
         }
         return this.engine.encryptToBlob(content);
@@ -244,13 +256,16 @@ export class EncryptedAdapter implements CloudAdapter {
             // Re-wrap engine DecryptionError (cross-module boundary — different class instance)
             if (e instanceof Error && e.name === "DecryptionError") {
                 const err = e as Error & { cause?: unknown; chunkIndex?: unknown };
-                const cause = err.cause === "authentication" || err.cause === "format"
-                    ? err.cause : "authentication";
+                const cause =
+                    err.cause === "authentication" || err.cause === "format"
+                        ? err.cause
+                        : "authentication";
                 const chunkIndex = typeof err.chunkIndex === "number" ? err.chunkIndex : undefined;
                 throw new DecryptionError(e.message, cause, chunkIndex);
             }
             throw new DecryptionError(
-                "Decryption failed (wrong password or corrupted data)", "authentication",
+                "Decryption failed (wrong password or corrupted data)",
+                "authentication",
             );
         }
     }
@@ -269,13 +284,17 @@ export class EncryptedAdapter implements CloudAdapter {
         const totalEncSize = this.engine.calculateChunkedSize(plaintext.byteLength);
 
         const sessionUri = await this.baseAdapter.initiateResumableSession!(
-            path, totalEncSize, mtime, existingFileId,
+            path,
+            totalEncSize,
+            mtime,
+            existingFileId,
         );
 
         const BATCH = EncryptedAdapter.UPLOAD_BATCH_SIZE;
         const ALIGN = EncryptedAdapter.ALIGN;
         // Buffer: BATCH + max encrypted chunk size + safety margin
-        const maxEncChunkSize = this.engine.ivSize + this.engine.getOptimalChunkSize() + this.engine.tagSize;
+        const maxEncChunkSize =
+            this.engine.ivSize + this.engine.getOptimalChunkSize() + this.engine.tagSize;
         const buf = new Uint8Array(BATCH + maxEncChunkSize + 64);
         let bufPos = 0;
         let httpOffset = 0;
@@ -285,7 +304,9 @@ export class EncryptedAdapter implements CloudAdapter {
         buf.set(header, 0);
         bufPos = header.byteLength;
 
-        for await (const { iv, ciphertext, index, totalChunks } of this.engine.encryptChunks(plaintext)) {
+        for await (const { iv, ciphertext, index, totalChunks } of this.engine.encryptChunks(
+            plaintext,
+        )) {
             buf.set(iv, bufPos);
             bufPos += iv.byteLength;
             buf.set(new Uint8Array(ciphertext), bufPos);

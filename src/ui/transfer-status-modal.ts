@@ -19,7 +19,6 @@ export class TransferStatusModal extends Modal {
         modalEl.addClass("mod-transfer-status-modal");
         this.render();
 
-        // Auto-refresh every 2 seconds while open
         this.refreshTimer = window.setInterval(() => this.render(), 2000);
     }
 
@@ -33,6 +32,13 @@ export class TransferStatusModal extends Modal {
 
     private render() {
         const { contentEl } = this;
+
+        // Preserve scroll positions before clearing DOM
+        const prevContainerScroll = contentEl.querySelector(".vault-sync-transfer-container");
+        const prevTimelineScroll = contentEl.querySelector(".vault-sync-transfer-timeline");
+        const savedContainerTop = prevContainerScroll?.scrollTop ?? 0;
+        const savedTimelineTop = prevTimelineScroll?.scrollTop ?? 0;
+
         contentEl.empty();
 
         const t = this.syncManager.t;
@@ -113,6 +119,14 @@ export class TransferStatusModal extends Modal {
                 this.renderHistoryItem(itemsContainer!, record, t);
             }
         }
+
+        // Restore scroll positions after DOM rebuild
+        if (savedContainerTop) {
+            contentEl.querySelector(".vault-sync-transfer-container")?.scrollTo(0, savedContainerTop);
+        }
+        if (savedTimelineTop) {
+            contentEl.querySelector(".vault-sync-transfer-timeline")?.scrollTo(0, savedTimelineTop);
+        }
     }
 
     private renderActiveItem(
@@ -125,7 +139,10 @@ export class TransferStatusModal extends Modal {
         });
 
         // Direction icon (vertically centered)
-        const dirCls = item.direction === "push" ? "vault-sync-transfer-icon-push" : "vault-sync-transfer-icon-pull";
+        const dirCls =
+            item.direction === "push"
+                ? "vault-sync-transfer-icon-push"
+                : "vault-sync-transfer-icon-pull";
         const iconEl = row.createDiv({ cls: `vault-sync-transfer-icon ${dirCls}` });
         setIcon(iconEl, item.direction === "push" ? "upload" : "download");
 
@@ -183,7 +200,10 @@ export class TransferStatusModal extends Modal {
         const card = item.createDiv({ cls: "vault-sync-transfer-timeline-card" });
 
         // Icon (vertically centered across both rows)
-        const dirCls = record.direction === "push" ? "vault-sync-transfer-icon-push" : "vault-sync-transfer-icon-pull";
+        const dirCls =
+            record.direction === "push"
+                ? "vault-sync-transfer-icon-push"
+                : "vault-sync-transfer-icon-pull";
         const iconEl = card.createDiv({ cls: `vault-sync-transfer-icon ${dirCls}` });
         setIcon(iconEl, record.direction === "push" ? "upload" : "download");
 

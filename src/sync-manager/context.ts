@@ -1,6 +1,6 @@
 import type { CloudAdapter } from "../types/adapter";
 import type { IVaultOperations } from "../types/vault-operations";
-import type { RevisionCache } from "../revision-cache";
+import type { RevisionCache } from "../services/revision-cache";
 import type {
     SyncManagerSettings,
     LocalFileIndex,
@@ -80,6 +80,7 @@ export interface SyncContext {
     onActivityStart: () => void;
     onActivityEnd: () => void;
     onSettingsUpdated: () => Promise<void>;
+    onSaveSettings: () => Promise<void>;
 
     // === Delegate Methods (called via ctx so vi.spyOn on facade class works) ===
     smartPull: () => Promise<boolean>;

@@ -8,7 +8,7 @@ import {
     isAlwaysForbiddenOnRemote,
     shouldIgnore,
 } from "./file-utils";
-import { loadCommunication, saveIndex, saveLocalIndex, clearPendingPushStates } from "./state";
+import { loadCommunication, saveIndex, saveLocalIndex, clearPendingPushStates, checkMergeLock } from "./state";
 import { pullFileSafely } from "./merge";
 import { TransferPriority } from "./transfer-types";
 import { formatSize } from "../utils/format";
@@ -21,9 +21,6 @@ import {
     markPendingTransfer,
 } from "./sync-helpers";
 
-// ==========================================================================
-// Internal Phase Helpers
-// ==========================================================================
 
 /** Check for active merge locks from other devices */
 async function checkMergeLocks(ctx: SyncContext): Promise<void> {
@@ -63,7 +60,6 @@ async function cleanupForbiddenDirectories(ctx: SyncContext): Promise<void> {
                     );
                 }
             } catch (e) {
-                // Ignore (already clean or not found)
             }
         }
     }
@@ -115,8 +111,7 @@ async function detectPullChanges(
         const localBaseEntry = ctx.localIndex[path];
 
         if (!localBaseEntry) {
-            // REMOTE RENAME DETECTION:
-            // Check if this fileId exists locally under a different name
+            // Remote rename detection: check if this fileId exists locally under a different name
             const prevPathForId = localIdToPath.get(remoteEntry.fileId);
             if (prevPathForId && prevPathForId !== path) {
                 // Detected remote rename (A -> B) during initial full scan
@@ -136,7 +131,6 @@ async function detectPullChanges(
                             );
                             await ctx.vault.rename(oldPath, newPath);
 
-                            // Migrate Index
                             if (ctx.index[oldPath]) {
                                 ctx.index[newPath] = { ...ctx.index[oldPath] };
                                 delete ctx.index[oldPath];
@@ -162,7 +156,6 @@ async function detectPullChanges(
                                 );
                                 continue;
                             }
-                            // Otherwise, fall through to download new content to the new path
                         }
                     } catch (e) {
                         await ctx.log(
@@ -197,7 +190,6 @@ async function detectPullChanges(
                 continue;
             }
 
-            // New file on remote (or moved file that needs download)
             toDownload.push({
                 path,
                 fileId: remoteEntry.fileId,
@@ -210,7 +202,6 @@ async function detectPullChanges(
             localBaseEntry.hash &&
             remoteEntry.hash.toLowerCase() !== localBaseEntry.hash.toLowerCase()
         ) {
-            // Modified on remote (remote differs from our local base)
             toDownload.push({
                 path,
                 fileId: remoteEntry.fileId,
@@ -408,7 +399,6 @@ function buildForbiddenRemoteCleanupTasks(
                 if (meta?.id) {
                     await ctx.adapter.deleteFile(meta.id);
                     await ctx.log(`[Smart Pull] [Cleanup] Wiped forbidden folder: ${folder}`, "info");
-                    // Cleanup index entries
                     const prefix = folder + "/";
                     for (const path of Object.keys(ctx.index)) {
                         if (path.startsWith(prefix)) {
@@ -445,9 +435,6 @@ function buildForbiddenRemoteCleanupTasks(
     return tasks;
 }
 
-// ==========================================================================
-// Exported Pull Functions
-// ==========================================================================
 
 /**
  * Smart Pull - O(1) check for remote changes using sync-index.json hash
@@ -458,15 +445,68 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
     // Check for active merge locks from other devices FIRST
     await checkMergeLocks(ctx);
 
-    // --- FORCED CLEANUP: Wipe forbidden system directories ---
+    // Forced cleanup: wipe forbidden system directories
     if (ctx.forceCleanupNextSync) {
         await cleanupForbiddenDirectories(ctx);
     }
 
-    // Check if adapter supports Changes API for faster detection
     if (ctx.adapter.supportsChangesAPI) {
-        if (ctx.startPageToken) {
-            return await pullViaChangesAPI(ctx);
+        // Don't use Changes API when index is empty — a stale startPageToken
+        // would skip files that haven't changed since the token was issued,
+        // preventing a full pull on a fresh device.
+        const hasIndex = Object.keys(ctx.index).length > 0;
+        if (ctx.startPageToken && hasIndex) {
+            const changesResult = await pullViaChangesAPI(ctx);
+
+            // Re-check files with pendingConflict whose merge lock has expired.
+            // Changes API may have consumed the change while the lock was active,
+            // so the change won't appear again. Force re-pull for these files.
+            const pendingPaths = Object.entries(ctx.localIndex)
+                .filter(([, entry]) => entry.pendingConflict)
+                .map(([path]) => path);
+
+            if (pendingPaths.length > 0) {
+                // Filter to only paths whose locks have expired
+                const unlockedPaths: string[] = [];
+                for (const path of pendingPaths) {
+                    const lock = await checkMergeLock(ctx, path);
+                    if (!lock.locked) {
+                        unlockedPaths.push(path);
+                    }
+                }
+
+                if (unlockedPaths.length > 0) {
+                    // Download remote index once for all pending files
+                    const remoteIndexMeta = await ctx.adapter.getFileMetadata(ctx.pluginDataPath);
+                    if (remoteIndexMeta?.id) {
+                        const remoteIndex = await downloadRemoteIndex(ctx, remoteIndexMeta.id);
+                        let pendingPulled = false;
+                        for (const path of unlockedPaths) {
+                            const remoteEntry = remoteIndex[path];
+                            if (remoteEntry) {
+                                await ctx.log(
+                                    `[Smart Pull] Re-checking pendingConflict file (lock expired): ${path}`,
+                                    "info",
+                                );
+                                const remoteMeta = {
+                                    path,
+                                    fileId: remoteEntry.fileId,
+                                    hash: remoteEntry.hash,
+                                    plainHash: remoteEntry.plainHash,
+                                    mtime: remoteEntry.mtime,
+                                    size: remoteEntry.size,
+                                    ancestorHash: remoteEntry.ancestorHash,
+                                };
+                                await pullFileSafely(ctx, remoteMeta, "Pending Conflict");
+                                pendingPulled = true;
+                            }
+                        }
+                        if (pendingPulled) return true;
+                    }
+                }
+            }
+
+            return changesResult;
         } else {
             try {
                 ctx.startPageToken = await ctx.adapter.getStartPageToken();
@@ -493,7 +533,6 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
 
     if (localIndexHash && remoteIndexHash && localIndexHash === remoteIndexHash) {
         await ctx.log("[Smart Pull] Index hash matches. No remote changes detected.", "debug");
-        // Sync confirmed - clear pending push/merge states
         clearPendingPushStates(ctx);
         await saveIndex(ctx);
         return false;
@@ -524,7 +563,6 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
         }
     }
 
-    // Compare indexes to find changes
     const { toDownload, toDeleteLocal, toDeleteRemote } = await detectPullChanges(ctx, remoteIndex);
 
     await ctx.log(
@@ -534,9 +572,7 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
 
     if (toDownload.length === 0 && toDeleteLocal.length === 0) {
         await ctx.log("[Smart Pull] No file changes detected.", "debug");
-        // Sync confirmed - clear pending push/merge states
         clearPendingPushStates(ctx);
-        // Update index metadata
         ctx.index[ctx.pluginDataPath] = {
             fileId: remoteIndexMeta.id,
             mtime: remoteIndexMeta.mtime,
@@ -550,7 +586,6 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
     // === SIZE-BASED ROUTING: Partition pull items into inline and background ===
     const { inlineDownloads, deferredPullCount } = partitionPullsBySize(ctx, toDownload, remoteIndex);
 
-    // Build tasks
     const counter = { completed: 0 };
     const total = inlineDownloads.length + toDeleteLocal.length;
     const tasks: (() => Promise<void>)[] = [
@@ -568,7 +603,6 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
         }
     }
 
-    // Update index with remote index metadata
     ctx.index[ctx.pluginDataPath] = {
         fileId: remoteIndexMeta.id,
         mtime: remoteIndexMeta.mtime,
@@ -669,7 +703,6 @@ export async function pullViaChangesAPI(
 
         confirmedCountTotal += confirmedCount;
 
-        // Advance to next page if supported, or settle on new start token
         if (changes.nextPageToken) {
             currentPageToken = changes.nextPageToken;
             ctx.startPageToken = currentPageToken;
@@ -677,16 +710,15 @@ export async function pullViaChangesAPI(
         } else if (changes.newStartPageToken) {
             ctx.startPageToken = changes.newStartPageToken;
             await saveIndex(ctx);
-            break; // Reach the end
+            break;
         } else {
-            break; // No tokens, stop
+            break;
         }
 
         if (!drainAll) break; // Only process one page unless drainAll is true
     } while (currentPageToken);
 
     if (hasTotalChanges) {
-        // Notification for pulled files
         if (totalCompleted > 0) {
             await ctx.notify("noticePullCompleted", totalCompleted.toString());
         }
@@ -722,7 +754,6 @@ async function processChangePage(
 
     for (const change of changes) {
         if (change.removed) {
-            // File was deleted on remote
             const pathToDelete = Object.entries(ctx.index).find(
                 ([, entry]) => entry.fileId === change.fileId,
             )?.[0];
@@ -737,7 +768,7 @@ async function processChangePage(
                             await ctx.vault.trashFile(file, true);
                         }
                         delete ctx.index[pathToDelete];
-                        delete ctx.localIndex[pathToDelete]; // Added for consistency
+                        delete ctx.localIndex[pathToDelete];
                         ctx.logger.markActionTaken();
                         completed.count++;
                         await ctx.log(`[Smart Pull] Deleted: ${pathToDelete}`, "info");
@@ -751,7 +782,6 @@ async function processChangePage(
                 });
             }
         } else if (change.file && change.file.kind === "file") {
-            // File was added or modified
             const cloudFile: any = change.file;
             if (cloudFile.path === ctx.pluginDataPath) continue;
             if (isManagedSeparately(cloudFile.path)) continue;
@@ -823,7 +853,6 @@ async function processChangePage(
                         continue;
                     }
 
-                    // Detected Remote Rename (A -> B)
                     const targetExists = await ctx.vault.exists(newPath);
 
                     if (!targetExists) {
@@ -835,11 +864,9 @@ async function processChangePage(
                                     "info",
                                 );
 
-                                // Execute Rename
                                 await ctx.vault.rename(oldPath, newPath);
                                 ctx.logger.markActionTaken();
 
-                                // Migrate Index Entries
                                 if (ctx.index[oldPath]) {
                                     ctx.index[newPath] = { ...ctx.index[oldPath] };
                                     delete ctx.index[oldPath];
@@ -851,13 +878,11 @@ async function processChangePage(
                                     delete ctx.localIndex[oldPath];
                                 }
 
-                                // Migrate Dirty State
                                 if (ctx.dirtyPaths.has(oldPath)) {
                                     ctx.dirtyPaths.delete(oldPath);
                                     ctx.dirtyPaths.set(newPath, Date.now());
                                 }
 
-                                // Update ID Map so we don't process this again or inconsistently
                                 localIdToPath.set(cloudFile.id, newPath);
 
                                 await ctx.notify(
@@ -865,7 +890,6 @@ async function processChangePage(
                                     `${basename(oldPath)} -> ${basename(newPath)}`,
                                 );
                             } else {
-                                // Source doesn't exist locally? Just removed from index/map then.
                                 await ctx.log(
                                     `[Changes API] Remote Rename: Source ${oldPath} missing locally. Skipping rename.`,
                                     "warn",
@@ -933,7 +957,6 @@ async function processChangePage(
                 continue;
             }
 
-            // === SIZE-BASED ROUTING for pull ===
             const changesThreshold = getThresholdBytes(ctx);
             const hasLocalConflict = ctx.dirtyPaths.has(cloudFile.path);
 
@@ -942,7 +965,6 @@ async function processChangePage(
                 !hasLocalConflict &&
                 cloudFile.size > changesThreshold
             ) {
-                // Defer large file to background queue
                 ctx.backgroundTransferQueue.enqueue({
                     id: generateTransferId("pull"),
                     direction: "pull",

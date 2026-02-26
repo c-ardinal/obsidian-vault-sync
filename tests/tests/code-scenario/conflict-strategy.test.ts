@@ -1,17 +1,22 @@
 /**
- * Conflict Resolution Strategy tests.
+ * @file 競合解決ストラテジーの動作検証
  *
- * Verifies that each conflictResolutionStrategy setting produces
- * the correct behavior when two devices have conflicting edits:
+ * @description
+ * 4種のストラテジー (force-local / force-remote / always-fork / smart-merge) が
+ * 競合発生時に仕様通りのコンテンツ選択・ファイル生成・状態遷移を行うことを検証する。
+ * ランタイム切り替え・バイナリファイル競合(ストラテジー非適用)も含む。
  *
- *   smart-merge    — 3-way auto-merge (covered in conflict-resolution.test.ts)
- *   force-local    — Local content wins, queued for push to overwrite remote
- *   force-remote   — Remote content accepted, marked as synced (no push needed)
- *   always-fork    — Conflict file always created, remote becomes main file
+ * @prerequisites
+ * - 2台のDeviceSimulator (DeviceA, DeviceB) が同一ファイルを同期済み
+ * - MockCloudAdapterを共有
  *
- * Also verifies:
- *   - Runtime switching: changing strategy mid-session takes effect immediately
- *   - Binary files: strategy is not consulted (always falls to conflict file)
+ * @pass_criteria
+ * - force-local: ローカル内容を保持し、リモートを上書きすること
+ * - force-remote: リモート内容を受け入れ、ローカル変更を破棄すること
+ * - always-fork: 常にコンフリクトファイルを生成すること (自動マージしない)
+ * - smart-merge: 非重複編集は自動マージ、重複編集はコンフリクト検出
+ * - ランタイム切り替え: 次回の競合から新ストラテジーが適用されること
+ * - バイナリファイル: ストラテジーに関係なくコンフリクトファイルを生成すること
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
@@ -67,6 +72,7 @@ describe("Conflict Resolution Strategies", () => {
     // force-local
     // ═══════════════════════════════════════════════════════════════════
 
+    /** ローカル優先 — 競合時にローカル内容を保持、Pushでリモートを上書き */
     describe("force-local", () => {
         beforeEach(() => setStrategy(deviceB, "force-local"));
 
@@ -131,6 +137,7 @@ describe("Conflict Resolution Strategies", () => {
     // force-remote
     // ═══════════════════════════════════════════════════════════════════
 
+    /** リモート優先 — 競合時にリモート内容を受け入れ、追加Pushは不要 */
     describe("force-remote", () => {
         beforeEach(() => setStrategy(deviceB, "force-remote"));
 
@@ -184,6 +191,7 @@ describe("Conflict Resolution Strategies", () => {
     // always-fork
     // ═══════════════════════════════════════════════════════════════════
 
+    /** 常にフォーク — 自動マージせず必ずコンフリクトファイルを生成 */
     describe("always-fork", () => {
         beforeEach(() => setStrategy(deviceB, "always-fork"));
 
@@ -241,6 +249,7 @@ describe("Conflict Resolution Strategies", () => {
     // Runtime strategy switching
     // ═══════════════════════════════════════════════════════════════════
 
+    /** ランタイム切り替え — 設定変更が次回の競合から即座に反映 */
     describe("runtime strategy switching", () => {
         it("should apply changed strategy on the next conflict (smart-merge → force-local)", async () => {
             // First conflict: smart-merge (default)
@@ -333,8 +342,9 @@ describe("Conflict Resolution Strategies", () => {
     // Edge case: non-text files (strategy not consulted for merge)
     // ═══════════════════════════════════════════════════════════════════
 
+    /** バイナリファイル — ストラテジーを無視して常にコンフリクトファイル生成 */
     describe("non-text file conflict (strategy bypassed)", () => {
-        const BIN_FILE = "data/config.json";
+        const BIN_FILE = "data/config.dat";
         const BIN_ANCESTOR = '{"version": 1}';
         const BIN_A = '{"version": 2, "author": "A"}';
         const BIN_B = '{"version": 2, "author": "B"}';

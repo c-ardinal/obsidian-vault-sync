@@ -47,13 +47,11 @@ export class TriggerManager {
     }
 
     setupAutoSyncInterval(): void {
-        // Clear existing
         if (this.autoSyncInterval) {
             window.clearInterval(this.autoSyncInterval);
             this.autoSyncInterval = null;
         }
 
-        // Interval - use Smart Sync for regular intervals
         if (
             this.currentTriggers.autoSyncIntervalSec !==
                 SETTINGS_LIMITS.autoSyncInterval.disabled &&
@@ -127,7 +125,6 @@ export class TriggerManager {
             });
         });
 
-        // Modify trigger with debounce - marks dirty and triggers Smart Sync
         let modifyTimeout: number | null = null;
         this.deps.registerEvent(
             app.vault.on("modify", async (file) => {
@@ -136,9 +133,7 @@ export class TriggerManager {
 
                 if (syncManager.shouldIgnore(file.path)) return;
 
-                // Track modification time for debounce protection
                 this.lastModifyTime = Date.now();
-                // Mark file as dirty immediately
                 syncManager.markDirty(file.path);
 
                 // Check if this modify is result of explicit save (happened closely after Ctrl+S)
@@ -154,7 +149,6 @@ export class TriggerManager {
                     return;
                 }
 
-                // Debounce the actual sync for auto-saves
                 if (
                     this.currentTriggers.onModifyDelaySec === SETTINGS_LIMITS.onModifyDelay.disabled
                 )
@@ -166,7 +160,6 @@ export class TriggerManager {
             }),
         );
 
-        // Create trigger
         this.deps.registerEvent(
             app.vault.on("create", (file) => {
                 if (!this.isReady) return;
@@ -175,7 +168,6 @@ export class TriggerManager {
             }),
         );
 
-        // Delete trigger
         this.deps.registerEvent(
             app.vault.on("delete", (file) => {
                 if (!this.isReady) return;
@@ -187,7 +179,6 @@ export class TriggerManager {
             }),
         );
 
-        // Rename trigger - mark both old and new paths (files and folders)
         this.deps.registerEvent(
             app.vault.on("rename", (file, oldPath) => {
                 if (!this.isReady) return;

@@ -1,12 +1,34 @@
+/**
+ * @file 通知表示制御マトリックスの検証テスト
+ *
+ * @description
+ * 通知レベル(verbose/standard/error)×同期トリガー種別のマトリックスに基づく
+ * 通知の表示/非表示制御を検証する。MATRIX定数の網羅性、i18n辞書との整合性、
+ * メッセージフォーマット、シナリオ別の禁止通知チェックを含む。
+ *
+ * @prerequisites
+ * - SyncManager + MockCloudAdapter (通知パスを通すための実同期)
+ * - 日本語i18n辞書 (ja.json)
+ * - Notice コンストラクタのモック
+ *
+ * @pass_criteria
+ * - MATRIX定数が全35通知キーを網羅していること
+ * - 全MATRIXキーがi18n辞書(ja/en両方)に存在すること
+ * - 各レベル×トリガーの組み合わせでShow/Hideが仕様通りであること
+ * - errorレベルでは全通知が抑制されること
+ * - i18n値がコロン":"で終わらないこと (ファイル名結合時の二重コロン防止)
+ * - クリーン同期時に競合/認証/履歴系通知が発火しないこと
+ */
+
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { SyncManager, SyncManagerSettings, type SyncTrigger } from "../../../src/sync-manager";
 import { MockApp, MockVaultOperations } from "../../helpers/mock-vault-adapter";
 import { CloudAdapter } from "../../../src/types/adapter";
 import { Notice } from "obsidian";
 import { en } from "../../../src/i18n";
-import ja from "../../../src/lang/ja.json";
+import ja from "../../../src/i18n/lang/ja.json";
 const i18nDict = { en, ja: ja as Record<string, string> };
-import { RevisionCache } from "../../../src/revision-cache";
+import { RevisionCache } from "../../../src/services/revision-cache";
 import { BackgroundTransferQueue } from "../../../src/sync-manager/background-transfer";
 import type { INotificationService } from "../../../src/services/notification-service";
 
@@ -657,6 +679,7 @@ const FORMAT_SPECS: FormatSpec[] = [
 // Tests
 // ════════════════════════════════════════════════════════════════
 
+/** MATRIX定数が全通知キーを網羅していることの検証 + レベル×トリガー×通知キーの全組み合わせテスト */
 describe("Notification Visibility Matrix", () => {
     let app: MockApp;
     let adapter: MockCloudAdapter;
@@ -779,7 +802,7 @@ describe("Notification Visibility Matrix", () => {
         });
     });
 
-    // Error level: all notifications suppressed
+    /** errorレベルでの全通知抑制 */
     describe("Level: error", () => {
         it("suppresses all notifications regardless of trigger", async () => {
             syncManager["settings"].notificationLevel = "error" as any;
@@ -809,6 +832,7 @@ describe("Notification Visibility Matrix", () => {
 //   4. i18n keys exist in both en and ja dictionaries
 // ════════════════════════════════════════════════════════════════
 
+/** i18nフォーマットの正確性 (コロン末尾禁止、結合形式) */
 describe("Notification Message Format Validation", () => {
     // Verify i18n values don't end with ":" (code adds ": filename" separately)
     describe("i18n values must NOT end with colon (code appends `: filename`)", () => {
@@ -1075,6 +1099,7 @@ const MUST_NOT_SHOW_NOTICE: Record<string, string[]> = {
     ],
 };
 
+/** 実際の同期フロー内での通知発火/非発火の検証 */
 describe("Integration: Sync scenarios trigger correct notifications", () => {
     let app: MockApp;
     let adapter: MockCloudAdapter;

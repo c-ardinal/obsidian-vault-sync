@@ -2,7 +2,7 @@ import { SyncManager, type LocalFileIndex, type SyncManagerSettings } from "../.
 import { MockApp, MockVaultOperations } from "./mock-vault-adapter";
 import { MockCloudAdapter } from "./mock-cloud-adapter";
 import { md5 } from "../../src/utils/md5";
-import { RevisionCache } from "../../src/revision-cache";
+import { RevisionCache } from "../../src/services/revision-cache";
 import { BackgroundTransferQueue } from "../../src/sync-manager/background-transfer";
 import type { INotificationService } from "../../src/services/notification-service";
 

@@ -32,9 +32,9 @@ export class HistoryModal extends Modal {
     private revisions: FileRevision[] = [];
     private selectedRevision: FileRevision | null = null;
     private baseRevision: FileRevision | null = null; // null means Local File
-    private fileContent: string | null = null; // Current local content for diff
-    private listScrollLeft: number = 0; // Preserve horizontal scroll position
-    private listScrollTop: number = 0; // Preserve vertical scroll position
+    private fileContent: string | null = null;
+    private listScrollLeft: number = 0;
+    private listScrollTop: number = 0;
     private diffMode: "unified" | "split" = "unified";
     private showAllLines: boolean = true;
     private contextLines: number = 3;
@@ -77,7 +77,6 @@ export class HistoryModal extends Modal {
         const cachedRevisions = HistoryModal.revisionCache.get(this.file.path);
         if (cachedRevisions) {
             this.revisions = cachedRevisions;
-            // Get local content (usually fast)
             this.fileContent = await this.app.vault.read(this.file);
             this.render();
         } else {
@@ -100,7 +99,6 @@ export class HistoryModal extends Modal {
                 timeout,
             ])) as [FileRevision[], string];
 
-            // Update cache
             HistoryModal.revisionCache.set(this.file.path, revisions);
 
             // If data changed or no cache was present, re-render
@@ -144,7 +142,6 @@ export class HistoryModal extends Modal {
         }
         if (this.baseRevision) {
             if (this.baseRevision.id === "empty") {
-                // Keep as is
             } else {
                 const match = this.revisions.find((r) => r.id === this.baseRevision!.id);
                 if (match) this.baseRevision = match;
@@ -264,7 +261,6 @@ export class HistoryModal extends Modal {
 
             li.addEventListener("click", () => {
                 this.selectedRevision = rev;
-
                 // Reset base to previous relative to the NEW selection
                 const idx = this.revisions.indexOf(rev);
                 if (idx < this.revisions.length - 1) {
@@ -279,7 +275,6 @@ export class HistoryModal extends Modal {
         ul.scrollLeft = this.listScrollLeft;
         ul.scrollTop = this.listScrollTop;
 
-        // --- If no selection, show placeholder and return ---
         if (!this.selectedRevision) {
             const placeholder = container.createDiv({ cls: "placeholder-container" });
             placeholder.createDiv({
@@ -422,7 +417,6 @@ export class HistoryModal extends Modal {
             .setTooltip(this.syncManager.t("historyActions"))
             .onClick(() => {
                 const menu = new Menu();
-                // Keep Forever Toggle
                 menu.addItem((item) => {
                     item.setTitle(this.syncManager.t("historyKeepForever"))
                         .setIcon(this.selectedRevision!.keepForever ? "check-square" : "square")
@@ -444,7 +438,10 @@ export class HistoryModal extends Modal {
                                     this.selectedRevision!.id,
                                     newVal,
                                 );
-                                await this.syncManager.notify("noticeSavedKeepForever", String(newVal));
+                                await this.syncManager.notify(
+                                    "noticeSavedKeepForever",
+                                    String(newVal),
+                                );
                                 this.render();
                             } catch (err: unknown) {
                                 const msg = err instanceof Error ? err.message : String(err);
@@ -454,7 +451,10 @@ export class HistoryModal extends Modal {
                                 ) {
                                     await this.syncManager.notify("historyKeepForeverError");
                                 } else {
-                                    await this.syncManager.notify("noticeFailedToSave", String(err));
+                                    await this.syncManager.notify(
+                                        "noticeFailedToSave",
+                                        String(err),
+                                    );
                                 }
                                 this.selectedRevision!.keepForever = !newVal; // Revert
                                 this.render();
@@ -487,9 +487,15 @@ export class HistoryModal extends Modal {
                                                     this.selectedRevision!.id,
                                                 );
                                             await this.app.vault.createBinary(newPath, buffer);
-                                            await this.syncManager.notify("noticeHistoryRestoreAs", newPath);
+                                            await this.syncManager.notify(
+                                                "noticeHistoryRestoreAs",
+                                                newPath,
+                                            );
                                         } catch (err) {
-                                            await this.syncManager.notify("noticeFailedToSave", String(err));
+                                            await this.syncManager.notify(
+                                                "noticeFailedToSave",
+                                                String(err),
+                                            );
                                         }
                                     }
                                 },
@@ -675,10 +681,8 @@ export class HistoryModal extends Modal {
             for (let i = 0; i < lines.length; i++) {
                 const line = lines[i];
 
-                // Check if line should be displayed
                 let shouldShow = this.showAllLines;
                 if (!shouldShow) {
-                    // Check neighbors within contextLines
                     for (let j = i - this.contextLines; j <= i + this.contextLines; j++) {
                         if (lines[j] && lines[j].isDiff) {
                             shouldShow = true;

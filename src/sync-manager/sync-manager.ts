@@ -1,7 +1,7 @@
 import { CloudAdapter } from "../types/adapter";
 import type { IVaultOperations } from "../types/vault-operations";
 import type { INotificationService } from "../services/notification-service";
-import { RevisionCache } from "../revision-cache";
+import { RevisionCache } from "../services/revision-cache";
 import {
     CommunicationData,
     FullScanProgress,
@@ -12,10 +12,10 @@ import {
 } from "./types";
 import { SyncLogger, type LogLevel } from "./logger";
 import { ICryptoEngine } from "../encryption/interfaces";
-import { EncryptedAdapter } from "../adapters/encrypted-adapter";
+import { EncryptedAdapter } from "../encryption/encrypted-adapter";
 import { VaultLockService } from "../services/vault-lock-service";
 import { MigrationService } from "../services/migration-service";
-import { SecureStorage } from "../secure-storage";
+import { SecureStorage } from "../services/secure-storage";
 import {
     type SyncTrigger,
     shouldShowNotification,
@@ -163,6 +163,7 @@ export class SyncManager {
     private onActivityStart: () => void = () => {};
     private onActivityEnd: () => void = () => {};
     public onSettingsUpdated: () => Promise<void> = async () => {};
+    public onSaveSettings: () => Promise<void> = async () => {};
     private isSpinning = false;
     public settingsUpdated = false;
 
@@ -506,6 +507,27 @@ export class SyncManager {
         if (this.syncState === "MIGRATING") {
             await this.log(`Sync request (${trigger}) skipped: Migration in progress.`, "warn");
             return;
+        }
+        // Auto-detect remote E2EE before first sync attempt
+        if (!this.settings.e2eeEnabled) {
+            try {
+                const hasRemoteLock = await this.vaultLockService.checkForLockFile();
+                if (hasRemoteLock) {
+                    await this.log("Remote E2EE detected. Enabling E2EE locally.", "system");
+                    this.settings.e2eeEnabled = true;
+                    await this.onSaveSettings();
+                    await this.notify("noticeE2EEAutoEnabled");
+                }
+            } catch (e) {
+                if (this.baseAdapter.isAuthenticated()) {
+                    await this.log(
+                        `[E2EE Check] Remote E2EE state could not be verified: ${e}. Aborting sync to prevent data corruption.`,
+                        "warn",
+                    );
+                    return;
+                }
+                // Not authenticated — ignore (first API call will fail naturally)
+            }
         }
         if (this.e2eeLocked) {
             const isUserAction = trigger === "manual-sync" || trigger === "full-scan";

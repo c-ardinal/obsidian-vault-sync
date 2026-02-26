@@ -2,7 +2,7 @@ import { TFile } from "obsidian";
 import { CloudAdapter } from "../types/adapter";
 import { ICryptoEngine } from "../encryption/interfaces";
 import { VaultLockService } from "./vault-lock-service";
-import { EncryptedAdapter } from "../adapters/encrypted-adapter";
+import { EncryptedAdapter } from "../encryption/encrypted-adapter";
 import { getLocalFiles, shouldIgnore, runParallel, hashContent } from "../sync-manager/file-utils";
 import { saveIndex, saveLocalIndex } from "../sync-manager/state";
 import { SyncContext } from "../sync-manager/context";
@@ -37,7 +37,6 @@ export class MigrationService {
      * 2. Prepare temporary encrypted adapter.
      */
     async startMigration(password: string): Promise<CloudAdapter> {
-        // 0. Pre-checks
         if (this.ctx.syncState !== "IDLE") {
             throw new Error(
                 `Cannot start migration: Sync engine is in ${this.ctx.syncState} state.`,
@@ -54,29 +53,25 @@ export class MigrationService {
             if (existingLock.timestamp > dayAgo) {
                 throw new Error(
                     `Another device (${existingLock.deviceId}) is migrating this vault. ` +
-                    `Migration lock will expire in ${Math.ceil((existingLock.timestamp + 24 * 3600 * 1000 - Date.now()) / 3600000)} hours.`,
+                        `Migration lock will expire in ${Math.ceil((existingLock.timestamp + 24 * 3600 * 1000 - Date.now()) / 3600000)} hours.`,
                 );
             }
-            // Log warning when overriding stale lock
             await this.ctx.log(
                 `[Migration] Overriding stale migration lock from device ${existingLock.deviceId} (older than 24 hours)`,
-                "warn"
+                "warn",
             );
         }
 
-        // 1. Create Lock
         await this.lockService.createMigrationLock(this.ctx.deviceId);
 
-        // 2. Set State to block other syncs
         this.ctx.syncState = "MIGRATING";
         this.isMigrating = true;
 
-        // 3. Initialize Engine (GENERATE MASTER KEY)
+        // initializeNewVault generates the master key
         this.pendingLockBlob = await this.engine.initializeNewVault(password);
 
-        // 4. Prepare Temp Adapter
         const tempAdapter = this.baseAdapter.cloneWithNewVaultName(
-            `${this.baseAdapter.vaultName}-Temp-Encrypted`
+            `${this.baseAdapter.vaultName}-Temp-Encrypted`,
         );
 
         tempAdapter.setLogger((msg: string) => console.log(`[Migration] ${msg}`));
@@ -84,7 +79,6 @@ export class MigrationService {
             await tempAdapter.initialize();
         }
 
-        // Wrap with Encryption using the current engine
         return new EncryptedAdapter(tempAdapter, this.engine, 0);
     }
 
@@ -95,24 +89,24 @@ export class MigrationService {
         tempEncryptedAdapter: CloudAdapter,
         onProgress: (p: MigrationProgress) => void,
     ): Promise<void> {
-        // 1. Get all local files (excluding ignored)
         const files = await getLocalFiles(this.ctx);
-        const filteredFiles = files.filter(f => !shouldIgnore(this.ctx, f.path));
+        const filteredFiles = files.filter((f) => !shouldIgnore(this.ctx, f.path));
         const total = filteredFiles.length;
-        const verificationSamples: Array<{ path: string; originalContent: ArrayBuffer; fileId: string }> = [];
+        const verificationSamples: Array<{
+            path: string;
+            originalContent: ArrayBuffer;
+            fileId: string;
+        }> = [];
         let current = 0;
         const concurrency = this.ctx.settings.concurrency || 5;
 
-        // Build tasks for parallel execution
-        const tasks = filteredFiles.map(file => async () => {
+        const tasks = filteredFiles.map((file) => async () => {
             const p = { current: ++current, total, fileName: file.path };
             this.currentProgress = p;
             onProgress(p);
 
-            // Read unencrypted local file
             const content = await this.ctx.vault.readBinary(file.path);
 
-            // Upload via EncryptedAdapter (handles encryption + IV via engine)
             const result = await tempEncryptedAdapter.uploadFile(file.path, content, file.mtime);
 
             // Compute plaintext hash BEFORE encryption for E2EE change detection
@@ -128,7 +122,7 @@ export class MigrationService {
             this.ctx.localIndex[file.path] = {
                 ...entry,
                 hash: result.hash,
-                plainHash: plainHash, // Plaintext hash for E2EE change detection
+                plainHash: plainHash,
                 ancestorHash: result.hash, // Current version is now remote version
                 size: result.size,
                 mtime: file.mtime,
@@ -148,28 +142,25 @@ export class MigrationService {
 
         await runParallel(tasks, concurrency);
 
-        // 3. Verify integrity of encrypted uploads
         await this.ctx.log("[Migration] Verifying encryption integrity...", "info");
         for (const sample of verificationSamples) {
             try {
                 const downloadedContent = await tempEncryptedAdapter.downloadFile(sample.fileId);
 
-                // Compare with original
                 const downloadedArray = new Uint8Array(downloadedContent);
                 const originalArray = new Uint8Array(sample.originalContent);
 
                 if (downloadedArray.length !== originalArray.length) {
                     throw new Error(
                         `Integrity check failed for ${sample.path}: Size mismatch ` +
-                        `(original: ${originalArray.length}, downloaded: ${downloadedArray.length})`
+                            `(original: ${originalArray.length}, downloaded: ${downloadedArray.length})`,
                     );
                 }
 
-                // Byte-by-byte comparison
                 for (let i = 0; i < originalArray.length; i++) {
                     if (originalArray[i] !== downloadedArray[i]) {
                         throw new Error(
-                            `Integrity check failed for ${sample.path}: Content mismatch at byte ${i}`
+                            `Integrity check failed for ${sample.path}: Content mismatch at byte ${i}`,
                         );
                     }
                 }
@@ -177,7 +168,9 @@ export class MigrationService {
                 await this.ctx.log(`[Migration] Verified integrity: ${sample.path}`, "debug");
             } catch (e) {
                 await this.ctx.log(`[Migration] Integrity verification failed: ${e}`, "error");
-                throw new Error(`Migration aborted: Encryption/decryption integrity check failed. ${e}`);
+                throw new Error(
+                    `Migration aborted: Encryption/decryption integrity check failed. ${e}`,
+                );
             }
         }
         await this.ctx.log("[Migration] All integrity checks passed", "info");
@@ -191,10 +184,8 @@ export class MigrationService {
         if (!this.pendingLockBlob) {
             throw new Error("Missing lock data. Start migration correctly first.");
         }
-        // 1. Get lock blob
         const lockBlob = this.pendingLockBlob;
 
-        // 2. Resolve IDs
         const vaultName = this.baseAdapter.vaultName;
         const tempName = `${vaultName}-Temp-Encrypted`;
 
@@ -221,33 +212,34 @@ export class MigrationService {
         ).buffer;
         await tempEncryptedAdapter.uploadFile(this.ctx.pluginDataPath, indexContent, Date.now());
 
-        // 4. Final Swap - Atomic operation with recovery
+        // Atomic folder swap with recovery
         const backupName = `${vaultName}-Backup-${new Date().toISOString().replace(/[:.]/g, "-")}`;
 
         try {
-            // Step 1: Rename original to backup (if it exists)
             if (originalId) {
                 await this.lockService.renameFolder(originalId, backupName);
                 await this.ctx.log(`[Migration] Renamed original to ${backupName}`, "info");
             }
 
-            // Step 2: Rename temp to primary
-            // This is the critical step - if it fails, we need recovery
+            // Critical step — failure triggers recovery below
             await this.lockService.renameFolder(tempId, vaultName);
             await this.ctx.log(`[Migration] Renamed temp to ${vaultName}`, "info");
         } catch (error) {
-            // Recovery attempt: If temp rename failed, try to restore original
-            await this.ctx.log(`[Migration] Folder swap failed: ${error}. Attempting recovery...`, "error");
+            await this.ctx.log(
+                `[Migration] Folder swap failed: ${error}. Attempting recovery...`,
+                "error",
+            );
 
-            // Check current state
             const currentPrimaryId = await this.lockService.getFolderId(vaultName, appRootId);
             const backupId = await this.lockService.getFolderId(backupName, appRootId);
 
             if (!currentPrimaryId && backupId && originalId) {
-                // Primary is missing but backup exists - restore it
                 try {
                     await this.lockService.renameFolder(backupId, vaultName);
-                    await this.ctx.log("[Migration] Recovery successful - restored original vault", "info");
+                    await this.ctx.log(
+                        "[Migration] Recovery successful - restored original vault",
+                        "info",
+                    );
                 } catch (recoveryError) {
                     await this.ctx.log(`[Migration] Recovery failed: ${recoveryError}`, "error");
                 }
@@ -255,7 +247,6 @@ export class MigrationService {
             throw error; // Re-throw to signal migration failure
         }
 
-        // 5. Delete backup folder (original unencrypted data)
         if (originalId) {
             try {
                 await this.baseAdapter.deleteFile(originalId);
@@ -269,11 +260,9 @@ export class MigrationService {
         // This is CRITICAL to prevent syncing into the Backup folder (which has the old ID)
         this.baseAdapter.reset();
 
-        // 7. Persistence: Save the updated indexes to local disk
         await saveLocalIndex(this.ctx);
         await saveIndex(this.ctx);
 
-        // 8. Cleanup
         await this.lockService.removeMigrationLock();
         this.ctx.startPageToken = null; // Force fresh token acquisition
         this.pendingLockBlob = null;
@@ -305,23 +294,23 @@ export class MigrationService {
             const primaryId = await this.lockService.getFolderId(vaultName, appRootId);
             const tempId = await this.lockService.getFolderId(tempName, appRootId);
 
-            // Find any backup folders (they have timestamp suffix)
             const backupPattern = `${vaultName}-Backup-`;
             const allFolders = await this.baseAdapter.listFiles();
-            const backupFolder = allFolders.find(f =>
-                f.kind === 'folder' && f.path.startsWith(backupPattern)
+            const backupFolder = allFolders.find(
+                (f) => f.kind === "folder" && f.path.startsWith(backupPattern),
             );
 
-            // Recovery scenario: Primary missing, but backup and temp both exist
             if (!primaryId && backupFolder && tempId) {
                 await this.ctx.log(
                     "[Migration] Detected incomplete migration - primary folder missing. Attempting auto-recovery...",
-                    "warn"
+                    "warn",
                 );
                 try {
-                    // Complete the migration by renaming temp to primary
                     await this.lockService.renameFolder(tempId, vaultName);
-                    await this.ctx.log("[Migration] Auto-recovery successful - completed migration", "info");
+                    await this.ctx.log(
+                        "[Migration] Auto-recovery successful - completed migration",
+                        "info",
+                    );
                     return false; // Migration is now complete
                 } catch (e) {
                     await this.ctx.log(`[Migration] Auto-recovery failed: ${e}`, "error");
@@ -329,7 +318,6 @@ export class MigrationService {
                 }
             }
 
-            // Check if there's a temp folder indicating interrupted migration
             return !!tempId;
         } catch (e) {
             return false;

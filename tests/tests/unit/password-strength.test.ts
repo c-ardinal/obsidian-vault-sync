@@ -1,3 +1,15 @@
+/**
+ * @file パスワード強度チェックのユニットテスト
+ *
+ * @description
+ * checkPasswordStrengthのスコアリング (長さ・一般性・繰り返し・連続文字・多様性) とフィードバックメッセージを検証する。
+ *
+ * @pass_criteria
+ * - 8文字未満→weak、一般的パスワード→weak
+ * - 繰り返し・連続文字→ペナルティとフィードバック
+ * - 長く多様なパスワード→strong (score=4)
+ */
+
 import { describe, it, expect } from "vitest";
 import { checkPasswordStrength } from "../../../src/encryption/password-strength";
 

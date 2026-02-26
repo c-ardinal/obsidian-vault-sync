@@ -1,16 +1,16 @@
 /**
- * Unit tests for file filtering functions in file-utils.ts.
+ * @file ファイル同期フィルタリングのユニットテスト
  *
- * Tests the three filtering functions that control which files are
- * synced, ignored, or cleaned up from remote:
+ * @description
+ * isAlwaysForbiddenOnRemote / shouldNotBeOnRemote / isManagedSeparately / shouldIgnore の各フィルタ関数を検証する。
+ * システムファイル(.DS_Store等)の強制除外、同期トグル設定(syncWorkspace/syncAppearance/syncCommunityPlugins等)に基づく条件付き除外、
+ * 除外パターン(glob)によるユーザー定義除外を網羅する。
  *
- *   isAlwaysForbiddenOnRemote  — System-level only (no settings)
- *   shouldNotBeOnRemote        — System-level + settings-dependent
- *   shouldIgnore               — shouldNotBeOnRemote + isManagedSeparately
- *   isManagedSeparately        — Plugin-managed internal files
- *
- * Each settings toggle is tested with both true and false values
- * to verify the filtering changes immediately.
+ * @pass_criteria
+ * - システムファイル・Obsidian一時ファイル・コンフリクトファイルが設定に関係なく除外されること
+ * - 各同期トグルのON/OFFでファイルの許可/拒否が正しく切り替わること
+ * - 除外パターン(glob)によるマッチングが正確であること
+ * - 管理ファイル(sync-index.json等)がshouldIgnoreで除外されること
  */
 
 import { describe, it, expect } from "vitest";

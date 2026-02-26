@@ -1,3 +1,14 @@
+/**
+ * @file パス正規化のクロスプラットフォームテスト
+ *
+ * @description
+ * normalizePath関数のWindows/Unix混在パス正規化を検証する。path-utils.test.tsの補完テスト。
+ *
+ * @pass_criteria
+ * - バックスラッシュ→フォワードスラッシュ変換
+ * - 重複スラッシュ・先頭/末尾スラッシュの除去
+ */
+
 import { describe, it, expect } from "vitest";
 import { normalizePath } from "../../src/utils/path";
 

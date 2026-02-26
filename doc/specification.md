@@ -42,20 +42,20 @@ Obsidian向けクラウドストレージ同期プラグイン。ローカルの
 | :-------------------------- | :------------------------------------ | :--------------------------------------------------------------------------------------------- |
 | **SyncManager**             | `sync-manager/`                       | 同期のオーケストレーション。Index管理、差分検知、Pull/Push分岐、3-wayマージ、分散ロック        |
 | **CloudAdapter**            | `types/adapter.ts`                    | クラウドストレージ抽象化インターフェース                                                       |
-| **GoogleDriveAdapter**      | `adapters/google-drive.ts`            | Google Drive REST API実装。`fetch` APIベースでモバイル互換                                     |
-| **EncryptedAdapter**        | `adapters/encrypted-adapter.ts`       | CloudAdapterのプロキシ。E2EE有効時に暗号化/復号を透過的に挿入。VSC1/VSC2自動判定              |
-| **SecureStorage**           | `secure-storage.ts`                   | 認証情報の保存。Obsidian Secret Storage (Keychain) を優先し、未対応環境では暗号化バイナリで保存 |
+| **GoogleDriveAdapter**      | `cloud-adapters/google-drive/`        | Google Drive REST API実装。`fetch` APIベースでモバイル互換                                     |
+| **EncryptedAdapter**        | `encryption/encrypted-adapter.ts`     | CloudAdapterのプロキシ。E2EE有効時に暗号化/復号を透過的に挿入。VSC1/VSC2自動判定              |
+| **SecureStorage**           | `services/secure-storage.ts`          | 認証情報の保存。Obsidian Secret Storage (Keychain) を優先し、未対応環境では暗号化バイナリで保存 |
 | **VaultLockService**        | `services/vault-lock-service.ts`      | vault-lock.vault と migration.lock の管理。常に非暗号化アダプタ経由                            |
 | **ChunkedCrypto**           | E2EE Engine (`chunked-crypto.ts`)     | VSC2チャンク分割暗号化/復号。大容量ファイルのピークメモリ削減（E2EE Engineリポジトリに配置）   |
 | **ICryptoEngine**           | `encryption/interfaces.ts`            | E2EEエンジンの抽象インターフェース（暗号化/復号/リカバリー/UI注入）                            |
 | **DecryptionError**         | `encryption/errors.ts`                | 復号エラーの分類（authentication / format）                                                     |
 | **BackgroundTransferQueue** | `sync-manager/background-transfer.ts` | 大容量ファイルの非同期Push/Pull。リトライ・陳腐化検出・JSONL履歴                               |
-| **RevisionCache**           | `revision-cache.ts`                   | 履歴コンテンツのセッション内キャッシュ                                                         |
+| **RevisionCache**           | `services/revision-cache.ts`          | 履歴コンテンツのセッション内キャッシュ                                                         |
 | **HistoryModal**            | `ui/history-modal.ts`                 | 履歴確認・Diff表示・ロールバックUI                                                             |
 | **TransferStatusModal**     | `ui/transfer-status-modal.ts`         | 転送ステータス・履歴のタイムラインUI                                                           |
 | **SyncLogger**              | `sync-manager/logger.ts`              | レベルベースログ管理。バッファリング・条件付きフラッシュ・開発者モード即時出力                  |
 | **NotificationMatrix**      | `sync-manager/notification-matrix.ts` | 通知表示制御。トリガー×通知レベルのマトリックスで表示/非表示を決定                             |
-| **i18n**                    | `i18n.ts`                             | 多言語対応 (ja/en)                                                                             |
+| **i18n**                    | `i18n/`                               | 多言語対応 (ja/en)                                                                             |
 
 ### 1.3 データ構造
 
@@ -95,12 +95,17 @@ ObsidianVaultSync/           ← App Root (設定で変更可)
 | [履歴機能仕様](spec/history.md)             | リビジョン管理 / Diff表示 / ロールバック                             |
 | [ログ出力仕様](spec/logging.md)             | ログレベル / バッファリング / 軽量化ロジック                         |
 
-## 3. テスト仕様（分冊）
+## 3. テスト仕様
 
-| ドキュメント                                                 | 内容                                                        |
-| :----------------------------------------------------------- | :---------------------------------------------------------- |
-| [マージアルゴリズムテスト仕様](test-spec/merge-algorithm.md) | 3-wayマージの112テストケース / DMPパラメータ / 合否判定基準 |
-| [同期シナリオテスト仕様](test-spec/sync-scenarios.md)        | 基本動作 / 競合検知 / 割り込み / 複数端末テスト             |
+テスト仕様は各テストファイルの冒頭JSDocコメントに記述（Executable Specification方式）。
+`tests/` ディレクトリ構成:
+
+| ディレクトリ                   | 内容                                                         |
+| :----------------------------- | :----------------------------------------------------------- |
+| `tests/tests/merge-algorithm/` | 3-wayマージアルゴリズム精度検証（112フィクスチャ自動検出）   |
+| `tests/tests/yaml-scenario/`   | YAMLベース同期シナリオ（N/C/I/M カテゴリ）                  |
+| `tests/tests/code-scenario/`   | 統合テスト（競合解決・移動・転送・E2EE・通知・ストラテジー） |
+| `tests/tests/unit/`            | ユニットテスト（フィルタリング・ハッシュ・パス・ネットワーク等） |
 
 ---
 

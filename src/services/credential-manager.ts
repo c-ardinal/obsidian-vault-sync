@@ -1,5 +1,5 @@
-import type { GoogleDriveAdapter } from "../adapters/google-drive";
-import type { SecureStorage } from "../secure-storage";
+import type { GoogleDriveAdapter } from "../cloud-adapters/google-drive";
+import type { SecureStorage } from "./secure-storage";
 import type { SyncManager } from "../sync-manager";
 
 interface CredentialManagerDeps {

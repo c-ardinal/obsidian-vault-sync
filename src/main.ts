@@ -1,7 +1,7 @@
 import { Plugin, TFile, setIcon, Platform } from "obsidian";
-import { GoogleDriveAdapter } from "./adapters/google-drive";
+import { GoogleDriveAdapter } from "./cloud-adapters/google-drive";
 import { SyncManager, type SyncTrigger } from "./sync-manager";
-import type { SecureStorage } from "./secure-storage";
+import type { SecureStorage } from "./services/secure-storage";
 import { HistoryModal } from "./ui/history-modal";
 import { TransferStatusModal } from "./ui/transfer-status-modal";
 import { DEFAULT_SETTINGS } from "./constants";
@@ -23,7 +23,7 @@ import {
 } from "./ui/dev-screenshot-helpers";
 import { ObsidianVaultOperations } from "./services/obsidian-vault-operations";
 import { ObsidianNotificationService } from "./services/notification-service";
-import { RevisionCache } from "./revision-cache";
+import { RevisionCache } from "./services/revision-cache";
 import { BackgroundTransferQueue } from "./sync-manager/background-transfer";
 import type { IVaultOperations } from "./types/vault-operations";
 import { TriggerManager } from "./services/trigger-manager";
@@ -81,10 +81,9 @@ export default class VaultSync extends Plugin {
     }
 
     async onload() {
-        // 0. Create vault operations facade (composition root)
+        // Composition root
         this.vaultOps = new ObsidianVaultOperations(this.app);
 
-        // 1. Initialize adapter first with defaults
         this.adapter = new GoogleDriveAdapter(
             "",
             "",
@@ -92,7 +91,6 @@ export default class VaultSync extends Plugin {
             DEFAULT_SETTINGS.cloudRootFolder,
         );
 
-        // 1.5 Create settings manager
         this.settingsMgr = new SettingsManager({
             vaultOps: this.vaultOps,
             manifestDir: this.manifest.dir || "",
@@ -100,7 +98,7 @@ export default class VaultSync extends Plugin {
             appSecretStorage: this.app.secretStorage,
         });
 
-        // Phase 1: i18n and settings load in parallel (both need vaultOps, independent of each other)
+        // i18n and settings load in parallel (independent of each other)
         await Promise.all([
             initI18n(
                 (path) => this.vaultOps.read(path),
@@ -109,7 +107,6 @@ export default class VaultSync extends Plugin {
             this.loadSettings(),
         ]);
 
-        // 3. Initialize SyncManager with REAL loaded settings (DI)
         const revisionCache = new RevisionCache(this.vaultOps, this.manifest.dir || "");
         const backgroundQueue = new BackgroundTransferQueue();
         this.syncManager = new SyncManager(
@@ -125,7 +122,6 @@ export default class VaultSync extends Plugin {
         );
         this.syncManager.secureStorage = this.secureStorage;
 
-        // Detect and apply remote settings updates
         this.syncManager.onSettingsUpdated = async () => {
             await this.loadSettings();
             this.triggerManager.setupAutoSyncInterval();
@@ -133,11 +129,12 @@ export default class VaultSync extends Plugin {
                 this.settingTab.display();
             }
         };
+        this.syncManager.onSaveSettings = () => this.saveSettings();
 
-        // Phase 2: Establish identity (needed for logging), then parallelize remaining I/O
+        // Establish identity (needed for logging), then parallelize remaining I/O
         await this.syncManager.loadLocalIndex();
 
-        // Phase 3: Transfer history, crypto engine, and shared index load in parallel
+        // Transfer history, crypto engine, and shared index load in parallel
         // (all depend on loadLocalIndex for logging, but are independent of each other)
         const [, engine] = await Promise.all([
             this.syncManager.loadTransferHistory(),
@@ -164,7 +161,6 @@ export default class VaultSync extends Plugin {
             "system",
         );
 
-        // Create credential manager and wire adapter callbacks
         this.credentialMgr = new CredentialManager({
             adapter: this.adapter,
             getSecureStorage: () => this.secureStorage,
@@ -174,7 +170,6 @@ export default class VaultSync extends Plugin {
         });
         this.credentialMgr.setupAdapterCallbacks();
 
-        // Register Activity Callbacks for Auto-Sync Animation
         this.syncManager.setActivityCallbacks(
             () => {
                 const targets = [];
@@ -206,7 +201,6 @@ export default class VaultSync extends Plugin {
             },
         );
 
-        // 0. Startup Grace Period
         this.app.workspace.onLayoutReady(async () => {
             if (this.currentTriggers.enableStartupSync) {
                 window.setTimeout(async () => {
@@ -292,7 +286,6 @@ export default class VaultSync extends Plugin {
             }
         });
 
-        // 1. Ribbon Icon
         // Ribbon button uses Smart Sync for O(1) performance when no changes
         this.syncRibbonIconEl = this.addRibbonIcon("sync", t("labelSyncTooltip"), async () => {
             if (this.syncRibbonIconEl) {
@@ -396,7 +389,6 @@ export default class VaultSync extends Plugin {
             },
         });
 
-        // 2.5 Transfer Status ribbon + command
         this.addRibbonIcon("arrow-up-down", t("labelTransferStatus"), () => {
             new TransferStatusModal(this.app, this.syncManager).open();
         });
@@ -409,7 +401,6 @@ export default class VaultSync extends Plugin {
             },
         });
 
-        // 2.6 Dev-only screenshot helper commands (visible only in developer mode)
         this.addCommand({
             id: "dev-demo-history",
             name: "[Dev] Screenshot: History / Diff Viewer",
@@ -492,7 +483,6 @@ export default class VaultSync extends Plugin {
         this.triggerManager.setupAutoSyncInterval();
         this.triggerManager.registerTriggers();
 
-        // 5. History Menu
         this.registerEvent(
             this.app.workspace.on("file-menu", (menu, file) => {
                 if (this.syncManager && this.syncManager.supportsHistory) {
@@ -530,11 +520,9 @@ export default class VaultSync extends Plugin {
         targets: { element: HTMLElement; originalIcon: string }[],
         operation: () => Promise<void>,
     ) {
-        // Prevent concurrent clicks if any icon is already spinning
         if (targets.some((t) => t.element.classList.contains("vault-sync-spinning"))) return;
 
         this.manualSyncInProgress = true;
-        // Change to sync icon (circle arrow) and animate all targets
         for (const target of targets) {
             setIcon(target.element, "sync");
             target.element.addClass("vault-sync-spinning");
@@ -551,7 +539,6 @@ export default class VaultSync extends Plugin {
                 if (target.element.classList.contains("vault-sync-mobile-fab")) {
                     target.element.removeClass("is-active");
                 }
-                // Revert to original icon
                 setIcon(target.element, target.originalIcon);
             }
             this.manualSyncInProgress = false;

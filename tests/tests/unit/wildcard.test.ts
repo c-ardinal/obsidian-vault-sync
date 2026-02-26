@@ -1,12 +1,15 @@
 /**
- * Unit tests for matchWildcard() glob pattern matcher.
+ * @file ワイルドカード(glob)パターンマッチングのユニットテスト
  *
- * Verifies:
- *   - `*`  matches any characters except `/` (single segment)
- *   - `**` matches any characters including `/` (recursive)
- *   - `?`  matches a single character
- *   - Folder prefix matching (pattern without trailing wildcard)
- *   - Edge cases: empty strings, special regex characters, invalid patterns
+ * @description
+ * matchWildcardの * (単一セグメント)、** (再帰)、? (単一文字)、フォルダプレフィックス、
+ * 正規表現特殊文字のエスケープ、エッジケースを検証する。
+ *
+ * @pass_criteria
+ * - *: ディレクトリ境界(/)を越えないこと
+ * - **: 複数ディレクトリを跨いでマッチすること
+ * - ?: 正確に1文字にマッチすること
+ * - 正規表現特殊文字(.[]()+ 等)が安全にエスケープされること
  */
 
 import { describe, it, expect } from "vitest";

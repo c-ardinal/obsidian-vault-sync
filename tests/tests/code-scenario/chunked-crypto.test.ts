@@ -1,3 +1,28 @@
+/**
+ * @file VSC2チャンク分割暗号化の検証テスト
+ *
+ * @description
+ * VSC2 (VaultSync Crypto v2) フォーマットのチャンク分割暗号化/復号を検証する。
+ * ワイヤフォーマット判定、サイズ計算、Round-trip (encrypt→decrypt)、出力形式、
+ * エラーケース、EncryptedAdapterの閾値ルーティング (Phase 1/Phase 2)、
+ * ストリーミングアップロード (initiateResumableSession + uploadChunk) を含む。
+ *
+ * Wire Format: [magic "VSC2"][chunkSize LE32][totalChunks LE32][per-chunk: IV(12)+ciphertext]
+ * Plain chunk size: 1,048,548 bytes → encrypted chunk = 1 MiB (256KiB aligned for Google Drive)
+ *
+ * @prerequisites
+ * - MockCryptoEngine (mock-crypto-engine helper)
+ * - createMockBaseAdapter / createChunkedMockBaseAdapter
+ *
+ * @pass_criteria
+ * - isChunkedFormat: VSC2マジックバイトの正確な判定
+ * - Round-trip: 0バイト〜5.1MBの全サイズでencrypt→decryptが元データと一致
+ * - 出力形式: ヘッダのmagic/chunkSize/totalChunksが正確、calculateChunkedSizeと一致
+ * - エラー: 不正ヘッダ・chunkSize=0・totalChunks=0・切り詰めチャンクで例外
+ * - Phase 1: 閾値未満→VSC1、閾値以上→VSC2、閾値=0→常にVSC1
+ * - Phase 2: 大容量ファイルでresumable upload使用、小容量は非使用
+ * - 後方互換: VSC1/VSC2を自動判定して透過的に復号
+ */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
     createMockEngine,
@@ -7,7 +32,7 @@ import {
     MOCK_TAG_SIZE,
     MOCK_CHUNK_SIZE,
 } from "../../helpers/mock-crypto-engine";
-import { EncryptedAdapter } from "../../../src/adapters/encrypted-adapter";
+import { EncryptedAdapter } from "../../../src/encryption/encrypted-adapter";
 import type { CloudAdapter, CloudFile } from "../../../src/types/adapter";
 import type { ICryptoEngine } from "../../../src/encryption/interfaces";
 
@@ -15,7 +40,7 @@ import type { ICryptoEngine } from "../../../src/encryption/interfaces";
 // Test Helpers
 // =============================================================================
 
-const MOCK_IV = new Uint8Array(12).fill(0xBB);
+const MOCK_IV = new Uint8Array(12).fill(0xbb);
 
 function createMockBaseAdapter(overrides: Partial<CloudAdapter> = {}): CloudAdapter {
     const storage = new Map<string, { content: ArrayBuffer; cf: CloudFile }>();
@@ -38,20 +63,51 @@ function createMockBaseAdapter(overrides: Partial<CloudAdapter> = {}): CloudAdap
             if (!entry) throw new Error(`Not found: ${fileId}`);
             return entry.content.slice(0);
         },
-        uploadFile: async (path: string, content: ArrayBuffer, mtime: number, existingFileId?: string) => {
+        uploadFile: async (
+            path: string,
+            content: ArrayBuffer,
+            mtime: number,
+            existingFileId?: string,
+        ) => {
             const id = existingFileId || `file_${nextId++}`;
-            const cf: CloudFile = { id, path, mtime, size: content.byteLength, kind: "file", hash: "mock-hash" };
+            const cf: CloudFile = {
+                id,
+                path,
+                mtime,
+                size: content.byteLength,
+                kind: "file",
+                hash: "mock-hash",
+            };
             storage.set(id, { content: content.slice(0), cf });
             return cf;
         },
-        uploadFileResumable: async (path: string, content: ArrayBuffer, mtime: number, existingFileId?: string) => {
+        uploadFileResumable: async (
+            path: string,
+            content: ArrayBuffer,
+            mtime: number,
+            existingFileId?: string,
+        ) => {
             const id = existingFileId || `file_${nextId++}`;
-            const cf: CloudFile = { id, path, mtime, size: content.byteLength, kind: "file", hash: "mock-hash" };
+            const cf: CloudFile = {
+                id,
+                path,
+                mtime,
+                size: content.byteLength,
+                kind: "file",
+                hash: "mock-hash",
+            };
             storage.set(id, { content: content.slice(0), cf });
             return cf;
         },
         deleteFile: async () => {},
-        moveFile: async () => ({ id: "1", path: "f", mtime: 0, size: 0, kind: "file" as const, hash: "" }),
+        moveFile: async () => ({
+            id: "1",
+            path: "f",
+            mtime: 0,
+            size: 0,
+            kind: "file" as const,
+            hash: "",
+        }),
         createFolder: async () => "fid",
         ensureFoldersExist: async () => {},
         fileExistsById: async () => false,
@@ -81,12 +137,24 @@ function createChunkedMockBaseAdapter(): CloudAdapter & {
     let nextSessionId = 1;
 
     const adapter = createMockBaseAdapter({
-        initiateResumableSession: async (_path: string, _totalSize: number, _mtime: number, existingFileId?: string) => {
+        initiateResumableSession: async (
+            _path: string,
+            _totalSize: number,
+            _mtime: number,
+            existingFileId?: string,
+        ) => {
             const uri = `session-${nextSessionId++}`;
             sessions.set(uri, { chunks: [], existingFileId });
             return uri;
         },
-        uploadChunk: async (sessionUri: string, chunk: ArrayBuffer, offset: number, totalSize: number, path: string, mtime: number) => {
+        uploadChunk: async (
+            sessionUri: string,
+            chunk: ArrayBuffer,
+            offset: number,
+            totalSize: number,
+            path: string,
+            mtime: number,
+        ) => {
             const session = sessions.get(sessionUri);
             if (!session) throw new Error(`Unknown session: ${sessionUri}`);
             session.chunks.push(chunk.slice(0));
@@ -102,7 +170,13 @@ function createChunkedMockBaseAdapter(): CloudAdapter & {
             }
             sessions.delete(sessionUri);
             const id = session.existingFileId || `file_${nextId++}`;
-            storage.set(id, combined.buffer.slice(combined.byteOffset, combined.byteOffset + combined.byteLength));
+            storage.set(
+                id,
+                combined.buffer.slice(
+                    combined.byteOffset,
+                    combined.byteOffset + combined.byteLength,
+                ),
+            );
             return { id, path, mtime, size: totalSize, kind: "file" as const, hash: "mock-hash" };
         },
         downloadFile: async (fileId: string) => {
@@ -110,10 +184,22 @@ function createChunkedMockBaseAdapter(): CloudAdapter & {
             if (!content) throw new Error(`Not found: ${fileId}`);
             return content.slice(0);
         },
-        uploadFile: async (path: string, content: ArrayBuffer, mtime: number, existingFileId?: string) => {
+        uploadFile: async (
+            path: string,
+            content: ArrayBuffer,
+            mtime: number,
+            existingFileId?: string,
+        ) => {
             const id = existingFileId || `file_${nextId++}`;
             storage.set(id, content.slice(0));
-            return { id, path, mtime, size: content.byteLength, kind: "file" as const, hash: "mock-hash" };
+            return {
+                id,
+                path,
+                mtime,
+                size: content.byteLength,
+                kind: "file" as const,
+                hash: "mock-hash",
+            };
         },
     });
 
@@ -146,6 +232,7 @@ function arraysEqual(a: ArrayBuffer, b: ArrayBuffer): boolean {
 // Suite 1: isChunkedFormat
 // =============================================================================
 
+/** VSC2マジックバイト判定のユニットテスト */
 describe("isChunkedFormat", () => {
     const engine = createMockEngine();
 
@@ -158,7 +245,7 @@ describe("isChunkedFormat", () => {
     });
 
     it("returns false for legacy IV buffer", () => {
-        const buf = new Uint8Array(28).fill(0xAA);
+        const buf = new Uint8Array(28).fill(0xaa);
         expect(engine.isChunkedFormat(buf.buffer)).toBe(false);
     });
 
@@ -178,6 +265,7 @@ describe("isChunkedFormat", () => {
 // Suite 2: calculateChunkedSize
 // =============================================================================
 
+/** 暗号化後サイズ予測の正確性検証 */
 describe("calculateChunkedSize", () => {
     const engine = createMockEngine();
 
@@ -194,19 +282,25 @@ describe("calculateChunkedSize", () => {
     it("exactly 1 chunk", () => {
         const size = MOCK_CHUNK_SIZE;
         // 1 chunk: HEADER(12) + IV(12) + size + TAG(16)
-        expect(engine.calculateChunkedSize(size)).toBe(VSC2_HEADER_SIZE + MOCK_IV_SIZE + size + MOCK_TAG_SIZE);
+        expect(engine.calculateChunkedSize(size)).toBe(
+            VSC2_HEADER_SIZE + MOCK_IV_SIZE + size + MOCK_TAG_SIZE,
+        );
     });
 
     it("1 chunk + 1 byte → 2 chunks", () => {
         const size = MOCK_CHUNK_SIZE + 1;
         // 2 chunks: HEADER + 2*IV + size + 2*TAG
-        expect(engine.calculateChunkedSize(size)).toBe(VSC2_HEADER_SIZE + 2 * MOCK_IV_SIZE + size + 2 * MOCK_TAG_SIZE);
+        expect(engine.calculateChunkedSize(size)).toBe(
+            VSC2_HEADER_SIZE + 2 * MOCK_IV_SIZE + size + 2 * MOCK_TAG_SIZE,
+        );
     });
 
     it("large multi-chunk file", () => {
         const size = MOCK_CHUNK_SIZE * 3 + 500;
         // 4 chunks: HEADER + 4*IV + size + 4*TAG
-        expect(engine.calculateChunkedSize(size)).toBe(VSC2_HEADER_SIZE + 4 * MOCK_IV_SIZE + size + 4 * MOCK_TAG_SIZE);
+        expect(engine.calculateChunkedSize(size)).toBe(
+            VSC2_HEADER_SIZE + 4 * MOCK_IV_SIZE + size + 4 * MOCK_TAG_SIZE,
+        );
     });
 });
 
@@ -214,6 +308,7 @@ describe("calculateChunkedSize", () => {
 // Suite 3: Round-trip (encryptChunked → decryptChunked)
 // =============================================================================
 
+/** encrypt→decryptの完全性テスト (各種サイズ) */
 describe("encryptChunked / decryptChunked round-trip", () => {
     let engine: ICryptoEngine;
 
@@ -236,21 +331,21 @@ describe("encryptChunked / decryptChunked round-trip", () => {
     });
 
     it("exactly 1 chunk size", async () => {
-        const plain = makeBuffer(MOCK_CHUNK_SIZE, 0xAB);
+        const plain = makeBuffer(MOCK_CHUNK_SIZE, 0xab);
         const encrypted = await engine.encryptChunked(plain);
         const decrypted = await engine.decryptChunked(encrypted);
         expect(arraysEqual(decrypted, plain)).toBe(true);
     });
 
     it("1 chunk + 1 byte (2 chunks)", async () => {
-        const plain = makeBuffer(MOCK_CHUNK_SIZE + 1, 0xCD);
+        const plain = makeBuffer(MOCK_CHUNK_SIZE + 1, 0xcd);
         const encrypted = await engine.encryptChunked(plain);
         const decrypted = await engine.decryptChunked(encrypted);
         expect(arraysEqual(decrypted, plain)).toBe(true);
     });
 
     it("exactly 2 full chunks", async () => {
-        const plain = makeBuffer(MOCK_CHUNK_SIZE * 2, 0xEF);
+        const plain = makeBuffer(MOCK_CHUNK_SIZE * 2, 0xef);
         const encrypted = await engine.encryptChunked(plain);
         const decrypted = await engine.decryptChunked(encrypted);
         expect(arraysEqual(decrypted, plain)).toBe(true);
@@ -274,7 +369,9 @@ describe("encryptChunked / decryptChunked round-trip", () => {
     it("small multi-chunk via small engine chunk size", async () => {
         // Override chunk size to 256 to test multi-chunk with small data
         const smallEngine = createMockEngine({
-            getOptimalChunkSize() { return 256; },
+            getOptimalChunkSize() {
+                return 256;
+            },
         });
         const plain = makeBuffer(1000, 0x77);
         const encrypted = await smallEngine.encryptChunked(plain);
@@ -284,7 +381,9 @@ describe("encryptChunked / decryptChunked round-trip", () => {
 
     it("non-aligned data with small engine chunk size", async () => {
         const smallEngine = createMockEngine({
-            getOptimalChunkSize() { return 64; },
+            getOptimalChunkSize() {
+                return 64;
+            },
         });
         const plain = makePatternBuffer(150); // ceil(150/64) = 3 chunks
         const encrypted = await smallEngine.encryptChunked(plain);
@@ -297,6 +396,7 @@ describe("encryptChunked / decryptChunked round-trip", () => {
 // Suite 4: Output format verification
 // =============================================================================
 
+/** ワイヤフォーマットのヘッダ・チャンク構造検証 */
 describe("VSC2 output format verification", () => {
     let engine: ICryptoEngine;
 
@@ -332,7 +432,9 @@ describe("VSC2 output format verification", () => {
 
     it("output size matches for multi-chunk files", async () => {
         const smallEngine = createMockEngine({
-            getOptimalChunkSize() { return 200; },
+            getOptimalChunkSize() {
+                return 200;
+            },
         });
         const encrypted = await smallEngine.encryptChunked(makeBuffer(500));
         expect(encrypted.byteLength).toBe(smallEngine.calculateChunkedSize(500));
@@ -340,7 +442,9 @@ describe("VSC2 output format verification", () => {
 
     it("each chunk starts with IV of correct size", async () => {
         const smallEngine = createMockEngine({
-            getOptimalChunkSize() { return 64; },
+            getOptimalChunkSize() {
+                return 64;
+            },
         });
         const chunkSize = 64;
         const plain = makeBuffer(150); // 3 chunks
@@ -352,7 +456,7 @@ describe("VSC2 output format verification", () => {
             expect(iv).toEqual(MOCK_IV);
             offset += MOCK_IV_SIZE;
             // Skip ciphertext
-            const ctSize = (i < 2) ? chunkSize + MOCK_TAG_SIZE : (150 - 2 * chunkSize) + MOCK_TAG_SIZE;
+            const ctSize = i < 2 ? chunkSize + MOCK_TAG_SIZE : 150 - 2 * chunkSize + MOCK_TAG_SIZE;
             offset += ctSize;
         }
         expect(offset).toBe(encrypted.byteLength);
@@ -363,6 +467,7 @@ describe("VSC2 output format verification", () => {
 // Suite 5: Error cases
 // =============================================================================
 
+/** 不正入力に対する例外発生の検証 */
 describe("decryptChunked error cases", () => {
     let engine: ICryptoEngine;
 
@@ -417,6 +522,7 @@ describe("decryptChunked error cases", () => {
 // Suite 6: EncryptedAdapter threshold routing (Phase 1)
 // =============================================================================
 
+/** largeFileThresholdMBに基づくVSC1/VSC2振り分け */
 describe("EncryptedAdapter threshold routing", () => {
     let engine: ICryptoEngine;
 
@@ -433,7 +539,7 @@ describe("EncryptedAdapter threshold routing", () => {
         const uploaded = await baseAdapter.downloadFile(result.id);
         expect(engine.isChunkedFormat(uploaded)).toBe(false);
         // VSC1: starts with IV (12 bytes of 0xBB from mock)
-        expect(new Uint8Array(uploaded, 0, 1)[0]).toBe(0xBB);
+        expect(new Uint8Array(uploaded, 0, 1)[0]).toBe(0xbb);
     });
 
     it("at threshold → VSC2 format", async () => {
@@ -511,6 +617,7 @@ describe("EncryptedAdapter threshold routing", () => {
 // Suite 7: EncryptedAdapter streaming upload (Phase 2)
 // =============================================================================
 
+/** resumable session + uploadChunkによるストリーミング */
 describe("EncryptedAdapter streaming upload (Phase 2)", () => {
     let engine: ICryptoEngine;
 
@@ -612,6 +719,7 @@ describe("EncryptedAdapter streaming upload (Phase 2)", () => {
 // Suite 8: MockCloudAdapter chunked upload
 // =============================================================================
 
+/** モックアダプタのresumable upload実装テスト */
 describe("MockCloudAdapter chunked upload", () => {
     it("initiateResumableSession returns a valid session URI", async () => {
         const { MockCloudAdapter } = await import("../../helpers/mock-cloud-adapter");
@@ -649,9 +757,9 @@ describe("MockCloudAdapter chunked upload", () => {
         const totalSize = 300;
         const uri = await adapter.initiateResumableSession("test.md", totalSize, mtime);
 
-        const chunk1 = new Uint8Array(100).fill(0xAA).buffer;
-        const chunk2 = new Uint8Array(100).fill(0xBB).buffer;
-        const chunk3 = new Uint8Array(100).fill(0xCC).buffer;
+        const chunk1 = new Uint8Array(100).fill(0xaa).buffer;
+        const chunk2 = new Uint8Array(100).fill(0xbb).buffer;
+        const chunk3 = new Uint8Array(100).fill(0xcc).buffer;
 
         expect(await adapter.uploadChunk(uri, chunk1, 0, totalSize, "test.md", mtime)).toBeNull();
         expect(await adapter.uploadChunk(uri, chunk2, 100, totalSize, "test.md", mtime)).toBeNull();
@@ -660,9 +768,9 @@ describe("MockCloudAdapter chunked upload", () => {
 
         const content = await adapter.downloadFile(result!.id);
         const view = new Uint8Array(content);
-        expect(view.slice(0, 100).every(b => b === 0xAA)).toBe(true);
-        expect(view.slice(100, 200).every(b => b === 0xBB)).toBe(true);
-        expect(view.slice(200, 300).every(b => b === 0xCC)).toBe(true);
+        expect(view.slice(0, 100).every((b) => b === 0xaa)).toBe(true);
+        expect(view.slice(100, 200).every((b) => b === 0xbb)).toBe(true);
+        expect(view.slice(200, 300).every((b) => b === 0xcc)).toBe(true);
     });
 
     it("throws for unknown session URI", async () => {

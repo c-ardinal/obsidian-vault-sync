@@ -1,3 +1,18 @@
+/**
+ * @file SyncLoggerのバッファリング・フラッシュ制御テスト
+ *
+ * @description
+ * ログのバッファリング→条件付きフラッシュ、同期サイクル管理(timer-sync vs manual-sync)、
+ * Developer Mode即時出力、enableLogging設定、エラー発生時の全ログフラッシュを検証する。
+ *
+ * @pass_criteria
+ * - timer-sync: actionTaken未マーク→フラッシュしない、マーク済み→フラッシュ
+ * - manual-sync: 常にフラッシュ
+ * - Developer Mode: 即時出力 (enableLogging=falseでも)
+ * - system/error/warn: enableLogging=falseでもcriticalログは出力
+ * - errorOccurred: endCycleで全バッファをフラッシュ
+ */
+
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { SyncLogger } from "../../../src/sync-manager/logger";
 
