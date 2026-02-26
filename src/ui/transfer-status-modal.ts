@@ -32,6 +32,13 @@ export class TransferStatusModal extends Modal {
 
     private render() {
         const { contentEl } = this;
+
+        // Preserve scroll positions before clearing DOM
+        const prevContainerScroll = contentEl.querySelector(".vault-sync-transfer-container");
+        const prevTimelineScroll = contentEl.querySelector(".vault-sync-transfer-timeline");
+        const savedContainerTop = prevContainerScroll?.scrollTop ?? 0;
+        const savedTimelineTop = prevTimelineScroll?.scrollTop ?? 0;
+
         contentEl.empty();
 
         const t = this.syncManager.t;
@@ -111,6 +118,14 @@ export class TransferStatusModal extends Modal {
                 }
                 this.renderHistoryItem(itemsContainer!, record, t);
             }
+        }
+
+        // Restore scroll positions after DOM rebuild
+        if (savedContainerTop) {
+            contentEl.querySelector(".vault-sync-transfer-container")?.scrollTo(0, savedContainerTop);
+        }
+        if (savedTimelineTop) {
+            contentEl.querySelector(".vault-sync-transfer-timeline")?.scrollTo(0, savedTimelineTop);
         }
     }
 

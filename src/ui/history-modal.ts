@@ -261,7 +261,6 @@ export class HistoryModal extends Modal {
 
             li.addEventListener("click", () => {
                 this.selectedRevision = rev;
-
                 // Reset base to previous relative to the NEW selection
                 const idx = this.revisions.indexOf(rev);
                 if (idx < this.revisions.length - 1) {
