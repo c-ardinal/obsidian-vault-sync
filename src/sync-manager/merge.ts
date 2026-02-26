@@ -190,7 +190,7 @@ export async function pullFileSafely(
     const fileId = item.fileId || item.id;
     if (!fileId && !isRemoteDeleted) return false;
 
-    const isText = item.path.endsWith(".md") || item.path.endsWith(".txt");
+    const isText = item.path.endsWith(".md") || item.path.endsWith(".txt") || item.path.endsWith(".json");
 
     const lockStatus = await checkMergeLock(ctx, item.path);
     if (lockStatus.locked) {
@@ -233,10 +233,12 @@ export async function pullFileSafely(
                 let isActuallyModified = false;
 
                 // Remote conflict: always use encrypted hash comparison (both sides encrypted)
+                // When !localBase (file never synced), remote content is "new" to this device.
                 hasRemoteConflict =
                     (localBase?.hash &&
                         item.hash &&
                         localBase.hash.toLowerCase() !== item.hash.toLowerCase()) ||
+                    (!localBase && !!item.hash) ||
                     isRemoteDeleted;
 
                 if (ctx.e2eeEnabled && localBase?.plainHash) {
@@ -245,8 +247,10 @@ export async function pullFileSafely(
                     isActuallyModified = localBase.plainHash !== currentPlainHash;
                 } else {
                     // No E2EE or no plainHash: use regular hash comparison
-                    isActuallyModified =
-                        !localBase || !localBase.hash || localBase.hash.toLowerCase() !== currentHash;
+                    // When !localBase (never tracked), the file is not "modified" — it's untracked.
+                    isActuallyModified = localBase
+                        ? (!localBase.hash || localBase.hash.toLowerCase() !== currentHash)
+                        : false;
                 }
 
                 let isModifiedLocally = isActuallyModified || ctx.dirtyPaths.has(item.path);

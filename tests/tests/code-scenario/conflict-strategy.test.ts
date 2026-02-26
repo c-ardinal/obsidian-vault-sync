@@ -344,7 +344,7 @@ describe("Conflict Resolution Strategies", () => {
 
     /** バイナリファイル — ストラテジーを無視して常にコンフリクトファイル生成 */
     describe("non-text file conflict (strategy bypassed)", () => {
-        const BIN_FILE = "data/config.json";
+        const BIN_FILE = "data/config.dat";
         const BIN_ANCESTOR = '{"version": 1}';
         const BIN_A = '{"version": 2, "author": "A"}';
         const BIN_B = '{"version": 2, "author": "B"}';

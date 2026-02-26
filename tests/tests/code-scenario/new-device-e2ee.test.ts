@@ -401,6 +401,104 @@ describe("Fix 1: checkForLockFile error handling by auth state", () => {
 });
 
 // =============================================================================
+// Fix 3: Initial sync should not create conflicts for untracked local files
+// =============================================================================
+/** 初期同期時にローカルのデフォルトJSONがリモートと競合しないことを検証 */
+describe("Fix 3: Initial sync accepts remote for untracked local files", () => {
+    const JSON_PATH = ".obsidian/plugins/obsidian-vault-sync/data/open-data.json";
+    const JSON_FILE_ID = "f_json_1";
+
+    it("should accept remote JSON when local has empty default {} and no localBase", async () => {
+        const cloud = new MockCloudAdapter();
+
+        // Device A: existing device with real settings JSON
+        const deviceA = new DeviceSimulator("DeviceA", cloud);
+        const remoteContent = JSON.stringify({ key: "value", setting: true }, null, 4);
+        deviceA.setupSyncedFile(JSON_PATH, remoteContent, JSON_FILE_ID);
+        await deviceA.forcePush(JSON_PATH);
+
+        // Device B: new device, has default empty JSON file locally, no index entries
+        const deviceB = new DeviceSimulator("DeviceB", cloud);
+        deviceB.app.vaultAdapter.setFile(JSON_PATH, "{}");
+        // No setupSyncedFile → localIndex[JSON_PATH] is undefined
+
+        sm(deviceB).notify = async () => {};
+
+        // Pull the file
+        await deviceB.pullFile(JSON_PATH);
+
+        // Remote content should be accepted without conflict
+        const localContent = deviceB.getLocalContent(JSON_PATH);
+        expect(localContent).toBe(remoteContent);
+
+        // No conflict file should be created
+        const allFiles = deviceB.listLocalFiles();
+        const conflictFiles = allFiles.filter((f: string) => f.includes("Conflict"));
+        expect(conflictFiles).toHaveLength(0);
+
+        // localIndex should now have the entry
+        expect(sm(deviceB).localIndex[JSON_PATH]).toBeDefined();
+        expect(sm(deviceB).localIndex[JSON_PATH].lastAction).toBe("pull");
+    });
+
+    it("should accept remote markdown when local has trivial content and no localBase", async () => {
+        const cloud = new MockCloudAdapter();
+        const MD_PATH = "notes/welcome.md";
+        const MD_FILE_ID = "f_md_1";
+
+        // Device A: pushes real markdown content
+        const deviceA = new DeviceSimulator("DeviceA", cloud);
+        const remoteContent = "# Welcome\n\nThis is my vault.\n";
+        deviceA.setupSyncedFile(MD_PATH, remoteContent, MD_FILE_ID);
+        await deviceA.forcePush(MD_PATH);
+
+        // Device B: has a local file at same path with empty content
+        const deviceB = new DeviceSimulator("DeviceB", cloud);
+        deviceB.app.vaultAdapter.setFile(MD_PATH, "");
+
+        sm(deviceB).notify = async () => {};
+
+        await deviceB.pullFile(MD_PATH);
+
+        // Remote should win
+        expect(deviceB.getLocalContent(MD_PATH)).toBe(remoteContent);
+
+        // No conflict files
+        const allFiles = deviceB.listLocalFiles();
+        const conflictFiles = allFiles.filter((f: string) => f.includes("Conflict"));
+        expect(conflictFiles).toHaveLength(0);
+    });
+
+    it("should accept remote during full smartPull on fresh device with default local files", async () => {
+        const cloud = new MockCloudAdapter();
+
+        // Device A pushes real content
+        const deviceA = new DeviceSimulator("DeviceA", cloud);
+        const remoteJson = JSON.stringify({ theme: "dark", fontSize: 14 }, null, 4);
+        deviceA.setupSyncedFile(JSON_PATH, remoteJson, JSON_FILE_ID);
+        await deviceA.forcePush(JSON_PATH);
+
+        // Device B: fresh device, has local default JSON
+        const deviceB = new DeviceSimulator("DeviceB", cloud);
+        deviceB.app.vaultAdapter.setFile(JSON_PATH, "{}");
+
+        sm(deviceB).notify = async () => {};
+
+        // Full smartPull (same as first sync)
+        await sm(deviceB).smartPull();
+
+        // Remote content should be pulled without conflict
+        const localContent = deviceB.getLocalContent(JSON_PATH);
+        expect(localContent).toBe(remoteJson);
+
+        // No conflict files
+        const allFiles = deviceB.listLocalFiles();
+        const conflictFiles = allFiles.filter((f: string) => f.includes("Conflict"));
+        expect(conflictFiles).toHaveLength(0);
+    });
+});
+
+// =============================================================================
 // Fix 2: resetIndex clears download cache
 // =============================================================================
 /** resetIndex時のキャッシュクリア */
