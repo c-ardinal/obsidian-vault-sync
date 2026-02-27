@@ -44,7 +44,7 @@ Obsidian向けクラウドストレージ同期プラグイン。ローカルの
 | **CloudAdapter**            | `types/adapter.ts`                    | クラウドストレージ抽象化インターフェース                                                       |
 | **GoogleDriveAdapter**      | `cloud-adapters/google-drive/`        | Google Drive REST API実装。`fetch` APIベースでモバイル互換                                     |
 | **EncryptedAdapter**        | `encryption/encrypted-adapter.ts`     | CloudAdapterのプロキシ。E2EE有効時に暗号化/復号を透過的に挿入。VSC1/VSC2自動判定              |
-| **SecureStorage**           | `services/secure-storage.ts`          | 認証情報の保存。Obsidian Secret Storage (Keychain) を優先し、未対応環境では暗号化バイナリで保存 |
+| **SecureStorage**           | `services/secure-storage.ts`          | 認証情報の保存。Obsidian SecretStorage APIを優先し、未対応環境では暗号化バイナリで保存 |
 | **VaultLockService**        | `services/vault-lock-service.ts`      | vault-lock.vault と migration.lock の管理。常に非暗号化アダプタ経由                            |
 | **ChunkedCrypto**           | E2EE Engine (`chunked-crypto.ts`)     | VSC2チャンク分割暗号化/復号。大容量ファイルのピークメモリ削減（E2EE Engineリポジトリに配置）   |
 | **ICryptoEngine**           | `encryption/interfaces.ts`            | E2EEエンジンの抽象インターフェース（暗号化/復号/リカバリー/UI注入）                            |
@@ -78,7 +78,7 @@ ObsidianVaultSync/           ← App Root (設定で変更可)
 | :------------------------------- | :------------------- | :------------------------------------------------------------------------- |
 | `sync-index.json`                | プラグインフォルダ内 | クラウド共有インデックス（ファイルハッシュ・mtime・ancestorHash等）        |
 | `local-index.json`              | `data/local/`        | デバイス専用インデックス（前回同期時点のリビジョン記録。同期対象外）       |
-| `.sync-state`                    | `data/local/`        | 暗号化認証情報（Keychain未対応時のフォールバック。移行後は自動削除される） |
+| `.sync-state`                    | `data/local/`        | 暗号化認証情報（SecretStorage未対応時のフォールバック。移行後は自動削除される） |
 | `open-data.json/local-data.json` | プラグインフォルダ内 | プラグイン設定                                                             |
 
 ---
@@ -116,7 +116,7 @@ ObsidianVaultSync/           ← App Root (設定で変更可)
 ## 5. セキュリティ
 
 - **認証スコープ**: Google Drive API `auth/drive`（グローバル検索・フォルダ移動のため）
-- **認証情報保存**: Obsidian Secret Storage API (Keychain) を優先使用。未対応環境では `.sync-state`（AES-GCM暗号化バイナリ）に保存し、機密性を確保。
+- **認証情報保存**: Obsidian SecretStorage APIを優先使用。未対応環境では `.sync-state`（AES-GCM暗号化バイナリ）に保存し、機密性を確保。
 - **通信**: HTTPS のみ
 - **楽観的ロック**: Push時にリモートハッシュを検証し、競合を検知
 - **パストラバーサル防止**: 履歴API呼び出し時のパス検証
@@ -184,7 +184,7 @@ ObsidianVaultSync/           ← App Root (設定で変更可)
 |:-----|:-----|
 | **初期化** (`initializeNewVault`) | ランダム salt (16B) 生成 → パスワード+salt から PBKDF2 でラッピングキー導出 → マスターキー (AES-256) 生成 → ラッピングキーで暗号化 → vault-lock.vault アップロード |
 | **ロック解除** (`unlockVault`) | vault-lock.vault ダウンロード → パスワード+salt → PBKDF2 → ラッピングキー → マスターキー復号 → メモリに保持 |
-| **パスワード変更** (`updatePassword`) | 新パスワードでマスターキーを再ラッピング。データ再暗号化不要。auto-unlock有効時はキーチェーン内パスワードも更新 |
+| **パスワード変更** (`updatePassword`) | 新パスワードでマスターキーを再ラッピング。データ再暗号化不要。auto-unlock有効時はSecretStorage内パスワードも更新 |
 | **リカバリーコード** (`exportRecoveryCode`) | マスターキーの生バイト (32B) を Base64 文字列 (44文字) としてエクスポート |
 | **リカバリー復元** (`recoverFromCode`) | リカバリーコード → raw key import → 新パスワードで再ラッピング → vault-lock.vault 更新 |
 | **フィンガープリント** (`getKeyFingerprint`) | マスターキーの SHA-256 先頭4バイト (8 hex文字) で鍵の視覚的確認 |

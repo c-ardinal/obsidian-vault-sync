@@ -22,7 +22,7 @@ export class CredentialManager {
 
     /**
      * Wire up adapter callbacks for auth failure (credential cleanup)
-     * and token refresh (persist new tokens to secure storage).
+     * and token refresh (persist new tokens to SecretStorage).
      */
     setupAdapterCallbacks(): void {
         const { adapter, getSecureStorage } = this.deps;

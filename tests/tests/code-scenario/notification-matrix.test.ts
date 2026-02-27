@@ -570,7 +570,7 @@ const MATRIX: MatrixEntry[] = [
         },
     },
     {
-        // キーチェーン保存失敗
+        // SecretStorage保存失敗
         key: "e2eeSetupKeychainFailed",
         scenarios: {},
     },
@@ -671,7 +671,7 @@ const FORMAT_SPECS: FormatSpec[] = [
     { key: "noticeEngineVerifyFailed", specJa: "❌ [E2EE] エンジンの検証に失敗しました。プラグインを再インストールしてください。" },
     { key: "e2eeUnlockSuccess", specJa: "ロック解除しました！" },
     { key: "e2eeUnlockFailed", specJa: "パスワードが正しくありません。" },
-    { key: "e2eeSetupKeychainFailed", specJa: "警告: キーチェーンへのパスワード保存に失敗しました。\n次回起動時にパスワードの再入力が必要です。" },
+    { key: "e2eeSetupKeychainFailed", specJa: "警告: SecretStorageへのパスワード保存に失敗しました。\n次回起動時にパスワードの再入力が必要です。" },
     { key: "e2eeInterruptedDone", specJa: "クリーンアップ完了。このモーダルを再度開いてください。" },
 ];
 

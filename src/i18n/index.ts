@@ -133,7 +133,7 @@ export const en: Record<string, string> = {
     settingE2EEStatusGuide: "Manage via Command Palette (E2EE: Start/Unlock Vault Encryption)",
     settingE2EEAutoUnlock: "Auto-unlock on Startup",
     settingE2EEAutoUnlockDesc:
-        "WARNING: Stores E2EE password in system keychain for auto-unlock. " +
+        "WARNING: Stores E2EE password in Obsidian's SecretStorage for auto-unlock. " +
         "This reduces security to device-level rather than password-level protection. " +
         "Anyone with access to your device can decrypt your vault.",
     settingDevSection: "Developer Settings",
@@ -288,7 +288,7 @@ export const en: Record<string, string> = {
     e2eeSetupSwapping: "Performing folder swap on remote...",
     e2eeSetupError: "Error occurred. Check logs.",
     e2eeSetupKeychainFailed:
-        "Warning: Failed to save password to keychain.\nYou will need to re-enter it next time.",
+        "Warning: Failed to save password to SecretStorage.\nYou will need to re-enter it next time.",
 
     // E2EE Interrupted Migration
     e2eeInterruptedTitle: "Interrupted Migration Found",

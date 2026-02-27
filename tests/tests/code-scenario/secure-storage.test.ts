@@ -2,18 +2,18 @@
  * @file SecureStorageの認証情報管理テスト
  *
  * @description
- * SecureStorageのデュアルバックエンド (Obsidian Keychain + 暗号化ファイル) による
+ * SecureStorageのデュアルバックエンド (Obsidian SecretStorage + 暗号化ファイル) による
  * 認証情報の保存・読み込み・フォールバック動作を検証する。
- * Keychain優先、ファイル暗号化フォールバック、破損時の安全な失敗を含む。
+ * SecretStorage優先、ファイル暗号化フォールバック、破損時の安全な失敗を含む。
  *
  * @prerequisites
  * - MockApp (vault + secretStorage)
  * - SecureStorage インスタンス
  *
  * @pass_criteria
- * - Keychain有効時: ファイルを作成せずKeychainに保存・読み込みすること
- * - Keychainが空の場合: 暗号化ファイルにフォールバックすること
- * - ファイル破損 + Keychain空: 例外を投げずnullを返すこと
+ * - SecretStorage有効時: ファイルを作成せずSecretStorageに保存・読み込みすること
+ * - SecretStorageが空の場合: 暗号化ファイルにフォールバックすること
+ * - ファイル破損 + SecretStorage空: 例外を投げずnullを返すこと
  * - フォールバック時にdata/local/ディレクトリが作成されること
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
@@ -56,7 +56,7 @@ describe("SecureStorage", () => {
         expect((storage as any).filePath).toBe("data/local/.sync-state");
     });
 
-    it("should NOT create directories or file if Keychain is active", async () => {
+    it("should NOT create directories or file if SecretStorage is active", async () => {
         const data = { token: "abc", refresh: "def" };
 
         // Initial state: data/local does not exist
@@ -64,13 +64,13 @@ describe("SecureStorage", () => {
 
         await storage.saveCredentials(data);
 
-        // Verify directories NOT created (we no longer need them if Keychain works)
+        // Verify directories NOT created (we no longer need them if SecretStorage works)
         expect(await app.vault.adapter.exists("data")).toBe(false);
 
         // Verify file does NOT exist
         expect(await app.vault.adapter.exists("data/local/.sync-state")).toBe(false);
 
-        // Verify it IS in Keychain
+        // Verify it IS in SecretStorage
         const secretId = (storage as any).secretId;
         expect(app.secretStorage.getSecret(secretId)).toBe(JSON.stringify(data));
     });

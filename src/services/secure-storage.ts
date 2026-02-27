@@ -53,7 +53,7 @@ export class SecureStorage {
     }
 
     /**
-     * Store an arbitrary secret in Keychain (if available)
+     * Store an arbitrary secret in SecretStorage (if available)
      */
     async setExtraSecret(type: string, value: string): Promise<void> {
         if (this.secretStorage) {
@@ -63,7 +63,7 @@ export class SecureStorage {
     }
 
     /**
-     * Remove an arbitrary secret from Keychain (if available)
+     * Remove an arbitrary secret from SecretStorage (if available)
      */
     async removeExtraSecret(type: string): Promise<void> {
         if (this.secretStorage) {
@@ -73,7 +73,7 @@ export class SecureStorage {
     }
 
     /**
-     * Retrieve an arbitrary secret from Keychain (if available)
+     * Retrieve an arbitrary secret from SecretStorage (if available)
      */
     async getExtraSecret(type: string): Promise<string | null> {
         if (this.secretStorage) {
@@ -193,7 +193,7 @@ export class SecureStorage {
     }
 
     async saveCredentials(data: Record<string, any>): Promise<void> {
-        // 1. Save to Obsidian Secret Storage (Keychain) if available
+        // 1. Save to Obsidian SecretStorage if available
         let secretStorageSuccess = false;
         if (this.secretStorage) {
             try {
@@ -202,7 +202,7 @@ export class SecureStorage {
                 console.log(`[SecureStorage] Saved credentials to SecretStorage: ${id}`);
                 secretStorageSuccess = true;
 
-                // SEC-008: Once we have Keychain, we should no longer keep any local files
+                // SEC-008: Once we have SecretStorage, we should no longer keep any local files
                 await this.cleanupFiles();
             } catch (e) {
                 console.warn(
@@ -255,7 +255,7 @@ export class SecureStorage {
     }
 
     async loadCredentials(): Promise<Record<string, any> | null> {
-        // 1. Try Obsidian Secret Storage (Keychain) first
+        // 1. Try Obsidian SecretStorage first
         if (this.secretStorage) {
             try {
                 const id = this.secretId;
@@ -263,7 +263,7 @@ export class SecureStorage {
                 if (secret && secret.trim().length > 0) {
                     console.log(`[SecureStorage] Loaded credentials from SecretStorage: ${id}`);
 
-                    // SEC-009: Even if loaded from Keychain, lingering files might exist.
+                    // SEC-009: Even if loaded from SecretStorage, lingering files might exist.
                     // Clean them up now to satisfy the "migration complete -> delete" rule.
                     await this.cleanupFiles();
 
