@@ -512,32 +512,57 @@ export class BackgroundTransferQueue {
         return `${ctx.logFolder}/transfers-${y}-${m}-${d}.jsonl`;
     }
 
-    /** Load history from disk on startup */
+    /** Load history from all log files within retention period */
     private async loadHistory(ctx: SyncContext): Promise<void> {
         try {
-            const logPath = this.getTransfersLogPath(ctx);
-            const exists = await ctx.vault.exists(logPath);
-            if (!exists) {
-    
-                return;
-            }
-            const content = await ctx.vault.read(logPath);
-            const lines = content.split("\n").filter((l) => l.trim());
-            for (const line of lines) {
-                try {
-                    const record = JSON.parse(line) as TransferRecord;
-                    this.history.push(record);
-                } catch {
-                    // Skip malformed lines
+            const folderExists = await ctx.vault.exists(ctx.logFolder);
+            if (!folderExists) return;
+
+            const listing = await ctx.vault.list(ctx.logFolder);
+            const cutoff = Date.now() - TRANSFER_LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+
+            // Collect valid log files within retention period, sorted by date ascending
+            // Note: vault.adapter.list() returns full paths in real Obsidian,
+            // so we match the filename portion at the end of the path.
+            const logFiles: string[] = [];
+            for (const filePath of listing.files) {
+                const match = filePath.match(/(?:^|[/\\])transfers-(\d{4})-(\d{2})-(\d{2})\.jsonl$/);
+                if (!match) continue;
+                const fileDate = new Date(
+                    parseInt(match[1]),
+                    parseInt(match[2]) - 1,
+                    parseInt(match[3]),
+                );
+                if (fileDate.getTime() >= cutoff) {
+                    logFiles.push(filePath);
                 }
             }
+            logFiles.sort();
+
+            for (const filePath of logFiles) {
+                // filePath may be full path or just filename depending on vault implementation
+                const fullPath = filePath.includes("/") ? filePath : `${ctx.logFolder}/${filePath}`;
+                try {
+                    const content = await ctx.vault.read(fullPath);
+                    const lines = content.split("\n").filter((l) => l.trim());
+                    for (const line of lines) {
+                        try {
+                            const record = JSON.parse(line) as TransferRecord;
+                            this.history.push(record);
+                        } catch {
+                            // Skip malformed lines
+                        }
+                    }
+                } catch {
+                    // Skip unreadable files
+                }
+            }
+
             if (this.history.length > TRANSFER_MAX_HISTORY) {
                 this.history = this.history.slice(-TRANSFER_MAX_HISTORY);
             }
-
         } catch {
-            // File doesn't exist or is unreadable — start with empty history
-
+            // Folder doesn't exist or is unreadable — start with empty history
         }
     }
 
@@ -579,9 +604,9 @@ export class BackgroundTransferQueue {
             const listing = await ctx.vault.list(ctx.logFolder);
             const cutoff = Date.now() - TRANSFER_LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000;
 
-            for (const fileName of listing.files) {
-                // Match transfers-YYYY-MM-DD.jsonl pattern
-                const match = fileName.match(/^transfers-(\d{4})-(\d{2})-(\d{2})\.jsonl$/);
+            for (const filePath of listing.files) {
+                // Match transfers-YYYY-MM-DD.jsonl pattern (filePath may be full or relative)
+                const match = filePath.match(/(?:^|[/\\])transfers-(\d{4})-(\d{2})-(\d{2})\.jsonl$/);
                 if (!match) continue;
 
                 const fileDate = new Date(
@@ -590,10 +615,10 @@ export class BackgroundTransferQueue {
                     parseInt(match[3]),
                 );
                 if (fileDate.getTime() < cutoff) {
-                    const fullPath = `${ctx.logFolder}/${fileName}`;
+                    const fullPath = filePath.includes("/") ? filePath : `${ctx.logFolder}/${filePath}`;
                     await ctx.vault.remove(fullPath);
                     await ctx.log(
-                        `[Background Transfer] Rotated old log: ${fileName}`,
+                        `[Background Transfer] Rotated old log: ${filePath}`,
                         "debug",
                     );
                 }

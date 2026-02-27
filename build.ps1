@@ -5,7 +5,15 @@ $DEST_PATHS = @(
 
 Write-Host "=== STARTING TESTS ===" -ForegroundColor Cyan
 # テスト実行 (エラーがあれば停止)
-npx vitest run --reporter=verbose | Select-String "passed", "failed" -CaseSensitive
+# サマリ行と失敗テスト情報のみ表示
+$testOutput = npx vitest run --reporter=verbose --silent 2>&1 |
+    ForEach-Object { $_ -replace "\x1b\[[0-9;]*m", "" }
+$testOutput | Where-Object {
+    $_ -match "^\s*Test Files\s" -or
+    $_ -match "^\s*Tests\s+\d" -or
+    $_ -match "^\s*×\s" -or
+    $_ -match "^\s*FAIL\s"
+}
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Tests Failed! Aborting build." -ForegroundColor Red
     exit 1

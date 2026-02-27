@@ -1185,6 +1185,116 @@ describe("Log rotation (daily JSONL cleanup)", () => {
     });
 });
 
+// ═══════════════════════════════════════════════════════════════════
+// PART 11: Integration — Multi-day history loading from disk
+// ═══════════════════════════════════════════════════════════════════
+
+/** Part 11: 複数日のJSONLファイルからの履歴読み込み */
+describe("Multi-day history loading from disk", () => {
+    let cloud: MockCloudAdapter;
+    let device: DeviceSimulator;
+    const sm = () => device.syncManager as any;
+
+    beforeEach(() => {
+        cloud = new MockCloudAdapter();
+        device = new DeviceSimulator("TestDevice", cloud, "dev_test");
+        sm().notify = async () => {};
+        sm().logFolder = `${sm().pluginDir}/logs/dev_test`;
+    });
+
+    function makeDateStr(daysAgo: number): string {
+        const d = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, "0");
+        const day = String(d.getDate()).padStart(2, "0");
+        return `${y}-${m}-${day}`;
+    }
+
+    it("should load history from multiple daily log files", async () => {
+        const logFolder = sm().logFolder as string;
+        await device.app.vaultAdapter.mkdir(logFolder);
+
+        // Create log files for today, yesterday, and 3 days ago
+        const todayFile = `${logFolder}/transfers-${makeDateStr(0)}.jsonl`;
+        const yesterdayFile = `${logFolder}/transfers-${makeDateStr(1)}.jsonl`;
+        const threeDaysAgoFile = `${logFolder}/transfers-${makeDateStr(3)}.jsonl`;
+
+        device.app.vaultAdapter.setFile(threeDaysAgoFile,
+            '{"id":"rec-3d","direction":"push","path":"old.md","size":100,"status":"completed","startedAt":1000,"completedAt":2000,"transferMode":"inline"}\n');
+        device.app.vaultAdapter.setFile(yesterdayFile,
+            '{"id":"rec-1d","direction":"pull","path":"yesterday.md","size":200,"status":"completed","startedAt":3000,"completedAt":4000,"transferMode":"inline"}\n');
+        device.app.vaultAdapter.setFile(todayFile,
+            '{"id":"rec-0d","direction":"push","path":"today.md","size":300,"status":"completed","startedAt":5000,"completedAt":6000,"transferMode":"inline"}\n');
+
+        await sm().backgroundTransferQueue.loadHistoryFromDisk();
+
+        const history = sm().backgroundTransferQueue.getHistory();
+        expect(history).toHaveLength(3);
+        // Should be in date order (oldest first)
+        expect(history[0].id).toBe("rec-3d");
+        expect(history[1].id).toBe("rec-1d");
+        expect(history[2].id).toBe("rec-0d");
+    });
+
+    it("should exclude log files older than retention period", async () => {
+        const logFolder = sm().logFolder as string;
+        await device.app.vaultAdapter.mkdir(logFolder);
+
+        // Create a file 10 days ago (beyond 7-day retention) and one for today
+        const oldFile = `${logFolder}/transfers-${makeDateStr(10)}.jsonl`;
+        const todayFile = `${logFolder}/transfers-${makeDateStr(0)}.jsonl`;
+
+        device.app.vaultAdapter.setFile(oldFile,
+            '{"id":"rec-old","direction":"push","path":"old.md","size":100,"status":"completed","startedAt":1000,"completedAt":2000,"transferMode":"inline"}\n');
+        device.app.vaultAdapter.setFile(todayFile,
+            '{"id":"rec-today","direction":"push","path":"today.md","size":100,"status":"completed","startedAt":3000,"completedAt":4000,"transferMode":"inline"}\n');
+
+        await sm().backgroundTransferQueue.loadHistoryFromDisk();
+
+        const history = sm().backgroundTransferQueue.getHistory();
+        expect(history).toHaveLength(1);
+        expect(history[0].id).toBe("rec-today");
+    });
+
+    it("should be accessible via SyncManager.getTransferHistory()", async () => {
+        const logFolder = sm().logFolder as string;
+        await device.app.vaultAdapter.mkdir(logFolder);
+
+        const todayFile = `${logFolder}/transfers-${makeDateStr(0)}.jsonl`;
+        const yesterdayFile = `${logFolder}/transfers-${makeDateStr(1)}.jsonl`;
+
+        device.app.vaultAdapter.setFile(yesterdayFile,
+            '{"id":"rec-y","direction":"push","path":"y.md","size":100,"status":"completed","startedAt":1000,"completedAt":2000,"transferMode":"inline"}\n');
+        device.app.vaultAdapter.setFile(todayFile,
+            '{"id":"rec-t1","direction":"push","path":"t1.md","size":100,"status":"completed","startedAt":3000,"completedAt":4000,"transferMode":"inline"}\n'
+            + '{"id":"rec-t2","direction":"pull","path":"t2.md","size":200,"status":"failed","startedAt":5000,"completedAt":6000,"transferMode":"background","error":"network"}\n');
+
+        await device.syncManager.loadTransferHistory();
+
+        const history = device.syncManager.getTransferHistory(100);
+        expect(history).toHaveLength(3);
+        expect(history.map((r: any) => r.id)).toEqual(["rec-y", "rec-t1", "rec-t2"]);
+    });
+
+    it("should skip malformed lines without breaking other records", async () => {
+        const logFolder = sm().logFolder as string;
+        await device.app.vaultAdapter.mkdir(logFolder);
+
+        const todayFile = `${logFolder}/transfers-${makeDateStr(0)}.jsonl`;
+        device.app.vaultAdapter.setFile(todayFile,
+            '{"id":"rec-ok1","direction":"push","path":"a.md","size":100,"status":"completed","startedAt":1000,"completedAt":2000,"transferMode":"inline"}\n'
+            + 'CORRUPTED LINE\n'
+            + '{"id":"rec-ok2","direction":"pull","path":"b.md","size":200,"status":"completed","startedAt":3000,"completedAt":4000,"transferMode":"inline"}\n');
+
+        await sm().backgroundTransferQueue.loadHistoryFromDisk();
+
+        const history = sm().backgroundTransferQueue.getHistory();
+        expect(history).toHaveLength(2);
+        expect(history[0].id).toBe("rec-ok1");
+        expect(history[1].id).toBe("rec-ok2");
+    });
+});
+
 // ─── Shared helper: wait for background queue to drain ───
 
 async function waitForDrain(queue: BackgroundTransferQueue, timeoutMs = 3000): Promise<void> {
