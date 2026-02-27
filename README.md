@@ -78,13 +78,33 @@ graph LR
 - **Revision History & Diff Viewer**: Retrieves file revisions from Cloud Storage, allowing for diff visualization against the local version and restoration of past versions.
 - **Mobile Optimized**: Built on the `fetch` API to run on both desktop and mobile. Features include auto-sync on edit-stop or save, and layout change triggers (e.g., when switching tabs).
 - **Granular Sync Settings**: Selectively sync settings, plugins, themes, and hotkeys within `.obsidian`. Cache and temporary files are automatically excluded.
-- **Secure Authentication & Storage**: OAuth2 authentication via the built-in authentication proxy (no setup required) or your own Client ID/Secret with PKCE. Credentials are separated from the main settings and saved securely in Obsidian's secure storage.
+- **Secure Authentication & Storage**: OAuth2 authentication via the built-in authentication proxy (no setup required) or your own Client ID/Secret with PKCE. Credentials are separated from the main settings and saved securely via Obsidian's SecretStorage API.
 - **Background Transfer**: Large files are uploaded and downloaded in the background without blocking the UI. Configurable thresholds and concurrency limits.
 - **End-to-End Encryption (E2EE)**: Optional client-side encryption for your vault data. When enabled with the [E2EE Engine](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine), all files are encrypted locally before upload and decrypted after download — your cloud provider never sees plaintext content.
 
 |               Transfer Status               |                   Selective Sync                   |
 | :-----------------------------------------: | :------------------------------------------------: |
 | ![Transfer Status](img/transfer_status.png) | ![Sync Scope Settings](img/setting_sync_scope.png) |
+
+---
+
+## 📦 Installation
+
+### Via BRAT (Recommended)
+
+1. Install the [BRAT](https://github.com/TfTHacker/obsidian42-brat) plugin from the Obsidian Community Plugins.
+2. Open BRAT settings and click **"Add Beta plugin"**.
+3. Enter `c-ardinal/obsidian-vault-sync`, select `Latest version`, and click **"Add Plugin"**.
+4. Enable "VaultSync" in Settings > Community Plugins.
+
+BRAT will automatically check for updates and keep the plugin up to date.
+
+### Manual Installation
+
+1. Download `main.js`, `manifest.json`, and `styles.css` from the [latest release](https://github.com/c-ardinal/obsidian-vault-sync/releases/latest).
+2. Create a folder named `obsidian-vault-sync` in your vault's `.obsidian/plugins/` directory.
+3. Place the downloaded files into the folder.
+4. Enable "VaultSync" in Settings > Community Plugins.
 
 ---
 
@@ -162,7 +182,7 @@ graph TD
 
 - **Direct Communication**: All vault data is synchronized directly between your device and Cloud Storage. No vault content passes through the authentication proxy or any third-party server.
 - **Authentication Proxy**: By default, the plugin uses an authentication proxy hosted on [Cloudflare Pages](https://www.cloudflare.com/) to facilitate the OAuth login flow. This proxy handles OAuth authorization codes and tokens **transiently** (in-memory only, never persisted). You can bypass this proxy by configuring your own Client ID / Client Secret. For details, see our [Privacy Policy](https://obsidian-vault-sync.pages.dev/privacy/).
-- **Auth Protection**: Sensitive information such as tokens and encryption secrets are stored directly in Obsidian's secure storage via the Secret Storage API. This minimizes the presence of sensitive files within the Vault. In environments where Secret Storage is unavailable, the plugin automatically falls back to local file storage encrypted with a device-specific key (AES-GCM) to maintain high security.
+- **Auth Protection**: Sensitive information such as tokens and encryption secrets are stored via Obsidian's SecretStorage API. This minimizes the presence of sensitive files within the Vault. In environments where SecretStorage is unavailable, the plugin automatically falls back to local file storage encrypted with a device-specific key (AES-GCM) to maintain high security.
 - **Data Location**: Your synced data is stored exclusively in your own Cloud Storage space (in the root folder you specify).
 - **Important**: By default, synced data (Markdown files, etc.) is uploaded to Cloud Storage in **plain text (without encryption)**. While protected by Cloud Storage's security model (HTTPS transfer, server-side encryption), the data is readable on the server side. If you require End-to-End Encryption, please install the [VaultSync E2EE Engine](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine) — see the section below for details.
 
@@ -199,7 +219,7 @@ When E2EE is enabled:
 - Files are **decrypted locally after download** — your cloud provider never sees plaintext
 - A `vault-lock.vault` file protects the master key (derived via PBKDF2 from your password)
 - Smart sync features (3-way merge, conflict detection) work seamlessly with encrypted data
-- Password can be optionally stored in Obsidian's secure storage for auto-unlock
+- Password can be optionally stored via Obsidian's SecretStorage for auto-unlock
 - Enables password changes without re-encrypting data
 - Exports the master key as a Base64 string, enabling **recovery code generation** for password loss recovery
 - Reduces peak memory for files above the configurable threshold with **streaming encryption for large files**

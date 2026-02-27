@@ -61,9 +61,9 @@
 
 | 設定キー           | 型      | デフォルト | 説明                                                                 |
 | :----------------- | :------ | :--------- | :------------------------------------------------------------------- |
-| `encryptionSecret` | string  | `""`       | 暗号化シークレット（Keychain優先。ファイルからは自動的に除外される） |
+| `encryptionSecret` | string  | `""`       | 暗号化シークレット（SecretStorage優先。ファイルからは自動的に除外される） |
 | `e2eeEnabled`      | boolean | `false`    | E2EE有効フラグ。vault-lock.vault検出時に自動的にtrueに設定される     |
-| `e2eeAutoUnlock`   | boolean | `false`    | パスワードをKeychainに保存し、起動時に自動ロック解除する（オプトイン）|
+| `e2eeAutoUnlock`   | boolean | `false`    | パスワードをSecretStorageに保存し、起動時に自動ロック解除する（オプトイン）|
 
 ### 1.7 クラウド設定
 
@@ -100,7 +100,7 @@
 
 ### 2.1 認証情報の同期
 
-認証情報（`.sync-state`）および暗号化シークレット（`encryptionSecret`）の同期はセキュリティリスクのため**対応しない**。これらの機密情報は Obsidian Secret Storage (Keychain) を優先して保存され、Vault内には平文で残らない設計とする。Keychain未対応時は `data/local/.sync-state` に暗号化保存されるが、これも常に同期対象外とする。
+認証情報（`.sync-state`）および暗号化シークレット（`encryptionSecret`）の同期はセキュリティリスクのため**対応しない**。これらの機密情報は Obsidian SecretStorage APIを優先して保存され、Vault内には平文で残らない設計とする。SecretStorage未対応時は `data/local/.sync-state` に暗号化保存されるが、これも常に同期対象外とする。
 
 ### 2.2 本プラグインの同期除外
 
@@ -115,7 +115,7 @@
   ├── data.json              ← プラグイン設定
   ├── data/
   │   ├── local/             ← 同期対象外（デバイス固有）
-  │   │   └── .sync-state    ← 暗号化認証情報（Keychain未対応時のフォールバック）
+  │   │   └── .sync-state    ← 暗号化認証情報（SecretStorage未対応時のフォールバック）
   │   ├── remote/            ← 同期対象
   │   └── flexible/          ← 同期対象（設定による）
   │       └── open-data.json

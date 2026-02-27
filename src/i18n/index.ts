@@ -1,5 +1,9 @@
 // i18n Localization
-// EN is bundled inline. Other languages are loaded from external JSON files at startup.
+// All languages are bundled inline.
+
+import ja from "./lang/ja.json";
+
+const languages: Record<string, Record<string, string>> = { ja };
 
 export const en: Record<string, string> = {
     // Settings UI
@@ -129,7 +133,7 @@ export const en: Record<string, string> = {
     settingE2EEStatusGuide: "Manage via Command Palette (E2EE: Start/Unlock Vault Encryption)",
     settingE2EEAutoUnlock: "Auto-unlock on Startup",
     settingE2EEAutoUnlockDesc:
-        "WARNING: Stores E2EE password in system keychain for auto-unlock. " +
+        "WARNING: Stores E2EE password in Obsidian's SecretStorage for auto-unlock. " +
         "This reduces security to device-level rather than password-level protection. " +
         "Anyone with access to your device can decrypt your vault.",
     settingDevSection: "Developer Settings",
@@ -284,7 +288,7 @@ export const en: Record<string, string> = {
     e2eeSetupSwapping: "Performing folder swap on remote...",
     e2eeSetupError: "Error occurred. Check logs.",
     e2eeSetupKeychainFailed:
-        "Warning: Failed to save password to keychain.\nYou will need to re-enter it next time.",
+        "Warning: Failed to save password to SecretStorage.\nYou will need to re-enter it next time.",
 
     // E2EE Interrupted Migration
     e2eeInterruptedTitle: "Interrupted Migration Found",
@@ -327,23 +331,15 @@ export const en: Record<string, string> = {
 let activeDict: Record<string, string> = en;
 
 /**
- * Initialize i18n by loading the appropriate language file.
+ * Initialize i18n by selecting the appropriate bundled language.
  * Must be called during plugin startup before any UI rendering.
- * @param readFile - async function to read a file from the plugin directory
- * @param pluginDir - the plugin's base directory path
  */
-export async function initI18n(
-    readFile: (path: string) => Promise<string>,
-    pluginDir: string,
-): Promise<void> {
+export function initI18n(): void {
     const lang = window.localStorage.getItem("language") || "en";
     if (lang === "en") return;
 
-    try {
-        const content = await readFile(`${pluginDir}/lang/${lang}.json`);
-        activeDict = JSON.parse(content);
-    } catch {
-        // Language file not found or invalid — fall back to English
+    if (languages[lang]) {
+        activeDict = languages[lang];
     }
 }
 

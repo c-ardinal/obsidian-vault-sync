@@ -20,7 +20,7 @@ interface SettingsManagerDeps {
 /**
  * Manages loading and saving VaultSync settings from split JSON files
  * (open-data.json / local-data.json), encryption secret initialization,
- * and credential loading from secure storage.
+ * and credential loading from SecretStorage.
  *
  * Extracted from the main VaultSync plugin class to separate
  * settings persistence from plugin lifecycle orchestration.
@@ -58,7 +58,7 @@ export class SettingsManager {
 
         this.settings = Object.assign({}, DEFAULT_SETTINGS, loadedSettings);
 
-        // SEC-010: Initialize SecureStorage early to use its Keychain methods
+        // SEC-010: Initialize SecureStorage early to use its SecretStorage methods
         this.secureStorage = new SecureStorage(
             vaultOps,
             manifestDir,
@@ -66,7 +66,7 @@ export class SettingsManager {
             appSecretStorage,
         );
 
-        // SEC-011: Prioritize encryptionSecret from Keychain
+        // SEC-011: Prioritize encryptionSecret from SecretStorage
         if (appSecretStorage) {
             const keychainSecret = await this.secureStorage.getExtraSecret("encryption-secret");
             if (keychainSecret) {
@@ -75,7 +75,7 @@ export class SettingsManager {
             }
         }
 
-        // SEC-001: Ensure encryption secret exists (if not found in file or Keychain)
+        // SEC-001: Ensure encryption secret exists (if not found in file or SecretStorage)
         if (!this.settings.encryptionSecret) {
             const array = new Uint8Array(32);
             window.crypto.getRandomValues(array);
@@ -147,7 +147,7 @@ export class SettingsManager {
         for (const key in this.settings) {
             if (Object.prototype.hasOwnProperty.call(this.settings, key)) {
                 if (localKeys.includes(key)) {
-                    // SEC-012: Do not save encryptionSecret to file if Keychain is active
+                    // SEC-012: Do not save encryptionSecret to file if SecretStorage is active
                     if (key === "encryptionSecret" && appSecretStorage) {
                         continue;
                     }
