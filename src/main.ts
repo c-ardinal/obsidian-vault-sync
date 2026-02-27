@@ -98,14 +98,9 @@ export default class VaultSync extends Plugin {
             appSecretStorage: this.app.secretStorage,
         });
 
-        // i18n and settings load in parallel (independent of each other)
-        await Promise.all([
-            initI18n(
-                (path) => this.vaultOps.read(path),
-                this.manifest.dir || "",
-            ),
-            this.loadSettings(),
-        ]);
+        // i18n (synchronous) and settings load
+        initI18n();
+        await this.loadSettings();
 
         const revisionCache = new RevisionCache(this.vaultOps, this.manifest.dir || "");
         const backgroundQueue = new BackgroundTransferQueue();

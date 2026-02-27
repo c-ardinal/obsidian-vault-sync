@@ -41,7 +41,7 @@ jobs:
               run: |
                   cd dist
                   zip -r "../obsidian-vault-sync_${{ env.VERSION }}.zip" obsidian-vault-sync
-                  
+
             - name: Create Release
               uses: softprops/action-gh-release@v1
               with:
@@ -49,5 +49,8 @@ jobs:
                   name: Release ${{ env.VERSION }}
                   files: |
                       obsidian-vault-sync_${{ env.VERSION }}.zip
+                      dist/obsidian-vault-sync/main.js
+                      dist/obsidian-vault-sync/manifest.json
+                      dist/obsidian-vault-sync/styles.css
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

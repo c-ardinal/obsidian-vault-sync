@@ -88,6 +88,26 @@ graph LR
 
 ---
 
+## 📦 インストール
+
+### BRAT 経由 (推奨)
+
+1. Obsidian のコミュニティプラグインから [BRAT](https://github.com/TfTHacker/obsidian42-brat) をインストールします。
+2. BRAT の設定を開き、**「Add Beta plugin」** をクリックします。
+3. `c-ardinal/obsidian-vault-sync` と入力し、`Latest version`を選択して、**「Add Plugin」** をクリックします。
+4. 設定 > コミュニティプラグインから「VaultSync」を有効化します。
+
+BRAT が自動的にアップデートを確認し、プラグインを最新の状態に保ちます。
+
+### 手動インストール
+
+1. [最新リリース](https://github.com/c-ardinal/obsidian-vault-sync/releases/latest)から `main.js`、`manifest.json`、`styles.css` をダウンロードします。
+2. Vault の `.obsidian/plugins/` ディレクトリに `obsidian-vault-sync` フォルダを作成します。
+3. ダウンロードしたファイルをフォルダに配置します。
+4. 設定 > コミュニティプラグインから「VaultSync」を有効化します。
+
+---
+
 ## 📖 使い方
 
 ### 同期の実行

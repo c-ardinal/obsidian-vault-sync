@@ -88,6 +88,26 @@ graph LR
 
 ---
 
+## 📦 Installation
+
+### Via BRAT (Recommended)
+
+1. Install the [BRAT](https://github.com/TfTHacker/obsidian42-brat) plugin from the Obsidian Community Plugins.
+2. Open BRAT settings and click **"Add Beta plugin"**.
+3. Enter `c-ardinal/obsidian-vault-sync`, select `Latest version`, and click **"Add Plugin"**.
+4. Enable "VaultSync" in Settings > Community Plugins.
+
+BRAT will automatically check for updates and keep the plugin up to date.
+
+### Manual Installation
+
+1. Download `main.js`, `manifest.json`, and `styles.css` from the [latest release](https://github.com/c-ardinal/obsidian-vault-sync/releases/latest).
+2. Create a folder named `obsidian-vault-sync` in your vault's `.obsidian/plugins/` directory.
+3. Place the downloaded files into the folder.
+4. Enable "VaultSync" in Settings > Community Plugins.
+
+---
+
 ## 📖 Usage
 
 ### Running Synchronization
