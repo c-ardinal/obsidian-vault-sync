@@ -3,7 +3,7 @@
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>VaultSync - Obsidian Cloud Sync Plugin</title>
+        <title>Vault-Sync - Obsidian Cloud Sync Plugin</title>
         <link rel="stylesheet" href="style.css" />
         <script src="https://unpkg.com/lucide@latest"></script>
         <style>
@@ -36,12 +36,12 @@
             <!-- English -->
             <div id="en" class="lang active">
                 <header>
-                    <img src="img/vaultsync_logotype_v2.webp" alt="VaultSync" class="logo" />
+                    <img src="img/vaultsync_logotype_v2.webp" alt="Vault-Sync" class="logo" />
                     <p class="tagline">Cloud sync plugin for Obsidian</p>
                 </header>
 
                 <p>
-                    VaultSync seamlessly synchronizes your Obsidian vault across multiple devices
+                    Vault-Sync seamlessly synchronizes your Obsidian vault across multiple devices
                     through cloud storage. All sync operations run directly between your device and
                     your cloud storage account &mdash; no intermediary servers involved.
                 </p>
@@ -52,13 +52,75 @@
                         class="primary"
                         target="_blank"
                         rel="noopener"
-                        >View on GitHub</a
+                        style="display: flex; align-items: center; gap: 0.25em"
+                        ><i data-lucide="github" style="width: 18px"></i>View on GitHub</a
                     >
-                    <a href="privacy/" class="secondary">Privacy Policy</a>
-                    <a href="tos/" class="secondary">Terms of Service</a>
+                    <a
+                        href="tos/"
+                        class="secondary"
+                        style="display: flex; align-items: center; gap: 0.25em"
+                        ><i data-lucide="file-text" style="width: 18px"></i>Terms of Service</a
+                    >
+                    <a
+                        href="privacy/"
+                        class="secondary"
+                        style="display: flex; align-items: center; gap: 0.25em"
+                        ><i data-lucide="lock" style="width: 18px"></i>Privacy Policy</a
+                    >
                 </div>
 
-                <h2>Key Features</h2>
+                <div class="getting-started">
+                    <h2 style="display: flex; align-items: center; gap: 0.5em">
+                        <i data-lucide="rocket"></i>
+                        Getting Started
+                    </h2>
+                    <div class="steps">
+                        <div class="step">
+                            <span class="step-number">1</span>
+                            <div class="step-content">
+                                <h3>Install the Plugin</h3>
+                                <p>
+                                    Search for
+                                    <code>Vault-Sync</code> in Community plugins &rarr; Install
+                                    &amp; Enable
+                                </p>
+                            </div>
+                        </div>
+                        <div class="step">
+                            <span class="step-number">2</span>
+                            <div class="step-content">
+                                <h3>Login to Cloud Service</h3>
+                                <p>
+                                    Open the Vault-Sync settings tab and click
+                                    <strong>Login</strong>.
+                                </p>
+                                <p>
+                                    A browser window opens for authentication &mdash; authorize
+                                    access and you'll be redirected back to Obsidian automatically.
+                                </p>
+                            </div>
+                        </div>
+                        <div class="step">
+                            <span class="step-number">3</span>
+                            <div class="step-content">
+                                <h3>Sync</h3>
+                                <p>
+                                    Your vault syncs automatically on startup and at regular
+                                    intervals.
+                                </p>
+                                <p>
+                                    You can also trigger a manual sync from the ribbon icon or the
+                                    command palette.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <h2 style="display: flex; align-items: center; gap: 0.5em">
+                    <i data-lucide="star"></i>
+                    Key Features
+                </h2>
 
                 <div class="feature-grid">
                     <div class="feature-card">
@@ -122,7 +184,10 @@
                     </div>
                 </div>
 
-                <h2>Supported Cloud Storage</h2>
+                <h2 style="display: flex; align-items: center; gap: 0.5em">
+                    <i data-lucide="cloud"></i>
+                    Supported Cloud Storage
+                </h2>
                 <ul>
                     <li>
                         <strong>Google Drive</strong> &mdash; Uses the <code>drive.file</code> scope
@@ -149,12 +214,12 @@
             <!-- Japanese -->
             <div id="ja" class="lang">
                 <header>
-                    <img src="img/vaultsync_logotype_v2.webp" alt="VaultSync" class="logo" />
+                    <img src="img/vaultsync_logotype_v2.webp" alt="Vault-Sync" class="logo" />
                     <p class="tagline">Obsidian用クラウド同期プラグイン</p>
                 </header>
 
                 <p>
-                    VaultSyncは、クラウドストレージを介してObsidianのVaultを複数デバイス間でシームレスに同期するプラグインです。すべての同期処理はデバイスとクラウドストレージ間で直接行われ、中間サーバーを経由しません。
+                    Vault-Syncは、クラウドストレージを介してObsidianのVaultを複数デバイス間でシームレスに同期するプラグインです。すべての同期処理はデバイスとクラウドストレージ間で直接行われ、中間サーバーを経由しません。
                 </p>
 
                 <div class="links">
@@ -163,13 +228,65 @@
                         class="primary"
                         target="_blank"
                         rel="noopener"
-                        >GitHubで見る</a
+                        style="display: flex; align-items: center; gap: 0.25em"
+                        ><i data-lucide="github" style="width: 18px"></i>GitHubで見る</a
                     >
-                    <a href="privacy/#ja" class="secondary">プライバシーポリシー</a>
-                    <a href="tos/#ja" class="secondary">利用規約</a>
+                    <a
+                        href="tos/#ja"
+                        class="secondary"
+                        style="display: flex; align-items: center; gap: 0.25em"
+                        ><i data-lucide="file-text" style="width: 18px"></i>利用規約</a
+                    >
+                    <a
+                        href="privacy/#ja"
+                        class="secondary"
+                        style="display: flex; align-items: center; gap: 0.25em"
+                        ><i data-lucide="lock" style="width: 18px"></i>プライバシーポリシー</a
+                    >
                 </div>
 
-                <h2>主な機能</h2>
+                <div class="getting-started">
+                    <h2 style="display: flex; align-items: center; gap: 0.5em">
+                        <i data-lucide="rocket"></i>
+                        はじめかた
+                    </h2>
+                    <div class="steps">
+                        <div class="step">
+                            <span class="step-number">1</span>
+                            <div class="step-content">
+                                <h3>プラグインをインストール</h3>
+                                <p>
+                                    コミュニティプラグインで
+                                    <code>Vault-Sync</code> を検索 &rarr; インストール&有効化
+                                </p>
+                            </div>
+                        </div>
+                        <div class="step">
+                            <span class="step-number">2</span>
+                            <div class="step-content">
+                                <h3>クラウドサービスへログイン</h3>
+                                <p>
+                                    Vault-Syncの設定タブを開き、<strong>ログイン</strong>をクリック。
+                                </p>
+                                <p>
+                                    ブラウザで認証画面が開くのでアクセスを許可すると自動的にObsidianに戻る。
+                                </p>
+                            </div>
+                        </div>
+                        <div class="step">
+                            <span class="step-number">3</span>
+                            <div class="step-content">
+                                <h3>同期開始</h3>
+                                <p>起動時と一定間隔で自動的にVaultが同期される。</p>
+                                <p>リボンアイコンまたはコマンドパレットから手動同期も可能。</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <h2 style="display: flex; align-items: center; gap: 0.5em">
+                    <i data-lucide="star"></i>
+                    主な機能
+                </h2>
 
                 <div class="feature-grid">
                     <div class="feature-card">
@@ -181,13 +298,18 @@
                     <div class="feature-card">
                         <h3><i data-lucide="git-merge"></i>スマートマージ</h3>
                         <p>
-                            複数デバイスで同じファイルを編集した場合、三方向マージで自動的に競合を解決。スマートマージ、ローカル優先、リモート優先、常にフォークの4つの戦略から選択可能。
+                            複数デバイスで同じファイルを編集した場合、自動的に競合を解決。他にもローカル優先、リモート優先、常にフォークといったマージ戦略から選択可能。
                         </p>
                     </div>
                     <div class="feature-card">
                         <h3><i data-lucide="shield-check"></i>エンドツーエンド暗号化</h3>
                         <p>
-                            オプションでVault全体をAES-256-GCMで暗号化してからアップロード。パスワード変更、リカバリーコード、大容量ファイルのストリーミング暗号化に対応。パスワードがデバイス外に出ることはありません。
+                            <a
+                                href="https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine"
+                                target="_blank"
+                                rel="noopener"
+                                >オプション</a
+                            >でVault全体をAES-256-GCMで暗号化してからアップロード。パスワード変更、リカバリーコード、大容量ファイルのストリーミング暗号化に対応。パスワードがデバイス外に出ることはありません。
                         </p>
                     </div>
                     <div class="feature-card">
@@ -199,7 +321,7 @@
                     <div class="feature-card">
                         <h3><i data-lucide="sliders-horizontal"></i>きめ細かな同期制御</h3>
                         <p>
-                            テーマ、プラグイン、コア設定、メディアファイル、ドットファイルなど、同期対象を細かく選択可能。globパターンによる除外設定にも対応。
+                            テーマ、プラグイン、コア設定、メディアファイル、ドットファイルなど、同期対象を細かく選択可能。globパターンを用いた除外設定にも対応。
                         </p>
                     </div>
                     <div class="feature-card">
@@ -211,7 +333,7 @@
                     <div class="feature-card">
                         <h3><i data-lucide="hard-drive-upload"></i>バックグラウンド転送</h3>
                         <p>
-                            大容量ファイルはUIをブロックせずバックグラウンドでアップロード・ダウンロード。しきい値と同時接続数を設定可能。
+                            大容量ファイルはバックグラウンドでアップロード・ダウンロードし、UIをブロックしません。しきい値と同時接続数を設定可能。
                         </p>
                     </div>
                     <div class="feature-card">
@@ -222,7 +344,10 @@
                     </div>
                 </div>
 
-                <h2>対応クラウドストレージ</h2>
+                <h2 style="display: flex; align-items: center; gap: 0.5em">
+                    <i data-lucide="cloud"></i>
+                    対応クラウドストレージ
+                </h2>
                 <ul>
                     <li>
                         <strong>Google Drive</strong> &mdash;

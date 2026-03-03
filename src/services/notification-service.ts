@@ -6,6 +6,10 @@ export interface INotificationService {
 
 export class ObsidianNotificationService implements INotificationService {
     show(message: string): void {
-        new Notice(message);
+        try {
+            new Notice(message);
+        } catch {
+            // Silently fail if Notice constructor throws
+        }
     }
 }

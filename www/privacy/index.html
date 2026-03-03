@@ -3,7 +3,7 @@
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Privacy Policy - VaultSync</title>
+        <title>Privacy Policy - Vault-Sync</title>
         <link rel="stylesheet" href="../style.css" />
         <style>
             header {
@@ -33,13 +33,13 @@
                 </header>
 
                 <p>
-                    This privacy policy describes how <strong>VaultSync</strong> ("the Plugin"), an
+                    This privacy policy describes how <strong>Vault-Sync</strong> ("the Plugin"), an
                     Obsidian plugin developed by c-ardinal, handles your data.
                 </p>
 
                 <h2>Data We Access</h2>
                 <p>
-                    VaultSync accesses your cloud storage account solely to synchronize your
+                    Vault-Sync accesses your cloud storage account solely to synchronize your
                     Obsidian vault files. The Plugin requests only the minimum permissions required
                     for synchronization and cannot access files or folders that were not created by
                     the Plugin itself.
@@ -64,24 +64,28 @@
                     <strong>transiently</strong> (in-memory only, never persisted):
                 </p>
                 <ul>
-                    <li>OAuth authorization codes (exchanged for tokens and immediately discarded)</li>
-                    <li>Access tokens and refresh tokens (forwarded to the Plugin and immediately discarded)</li>
+                    <li>
+                        OAuth authorization codes (exchanged for tokens and immediately discarded)
+                    </li>
+                    <li>
+                        Access tokens and refresh tokens (forwarded to the Plugin and immediately
+                        discarded)
+                    </li>
                 </ul>
                 <p>
                     No vault data, file contents, or file metadata passes through this proxy. The
-                    proxy is used solely for the initial login and token refresh operations. You
-                    may opt out of using this proxy by configuring your own OAuth credentials in
-                    the Plugin settings.
+                    proxy is used solely for the initial login and token refresh operations. You may
+                    opt out of using this proxy by configuring your own OAuth credentials in the
+                    Plugin settings.
                 </p>
 
                 <h2>Data Storage</h2>
                 <ul>
                     <li>
-                        <strong>Authentication credentials</strong> (tokens, encryption secrets)
-                        are stored via Obsidian's SecretStorage API. In
-                        environments where SecretStorage is unavailable, the Plugin
-                        automatically falls back to local file storage encrypted with a
-                        device-specific key (AES-GCM). Credentials are used only to
+                        <strong>Authentication credentials</strong> (tokens, encryption secrets) are
+                        stored via Obsidian's SecretStorage API. In environments where SecretStorage
+                        is unavailable, the Plugin automatically falls back to local file storage
+                        encrypted with a device-specific key (AES-GCM). Credentials are used only to
                         authenticate with your cloud storage provider.
                     </li>
                     <li>
@@ -98,14 +102,14 @@
                 <h2>End-to-End Encryption (E2EE)</h2>
                 <p>
                     When E2EE is enabled, all vault content is encrypted on your device before
-                    upload using AES-256-GCM. The encryption password is never transmitted or
-                    stored remotely. Only encrypted data is stored on your cloud storage, and
-                    decryption occurs exclusively on your local device.
+                    upload using AES-256-GCM. The encryption password is never transmitted or stored
+                    remotely. Only encrypted data is stored on your cloud storage, and decryption
+                    occurs exclusively on your local device.
                 </p>
                 <p>
-                    Large files exceeding a configurable threshold are encrypted and uploaded
-                    in chunks (streamed transfer). All chunks are fully encrypted before
-                    leaving your device; no plaintext data is transmitted at any point.
+                    Large files exceeding a configurable threshold are encrypted and uploaded in
+                    chunks (streamed transfer). All chunks are fully encrypted before leaving your
+                    device; no plaintext data is transmitted at any point.
                 </p>
                 <p>
                     Password changes re-wrap the master key locally without re-encrypting data.
@@ -126,7 +130,10 @@
                         >Cloudflare Pages</a
                     >. Cloudflare may process request metadata (IP addresses, request headers) in
                     accordance with their
-                    <a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener"
+                    <a
+                        href="https://www.cloudflare.com/privacypolicy/"
+                        target="_blank"
+                        rel="noopener"
                         >Privacy Policy</a
                     >. No vault data is sent to Cloudflare.
                 </p>
@@ -167,7 +174,7 @@
                     >.
                 </p>
 
-                <p class="updated">Last updated: February 27, 2026</p>
+                <p class="updated">Last updated: March 4, 2026</p>
             </div>
 
             <!-- Japanese -->
@@ -178,12 +185,12 @@
                 </header>
 
                 <p>
-                    本プライバシーポリシーは、c-ardinalが開発したObsidianプラグインである<strong>VaultSync</strong>（以下「本プラグイン」）におけるデータの取り扱いについて説明するものです。
+                    本プライバシーポリシーは、c-ardinalが開発したObsidianプラグインである<strong>Vault-Sync</strong>（以下「本プラグイン」）におけるデータの取り扱いについて説明するものです。
                 </p>
 
                 <h2>アクセスするデータ</h2>
                 <p>
-                    VaultSyncは、ObsidianのVaultファイルを同期する目的でのみ、あなたのクラウドストレージにアクセスします。
+                    Vault-Syncは、ObsidianのVaultファイルを同期する目的でのみ、あなたのクラウドストレージにアクセスします。
                     本プラグインは同期に必要な最小限の権限のみを要求し、本プラグインが作成したファイルおよびフォルダ以外にはアクセスできません。
                 </p>
 
@@ -200,11 +207,14 @@
 
                 <h2>認証プロキシ</h2>
                 <p>
-                    デフォルトでは、本プラグインはCloudflare Pages上にホストされた認証プロキシを使用してOAuthログインフローを仲介します。このプロキシは以下のデータを<strong>一時的に</strong>（メモリ上のみで、永続化しません）処理します：
+                    デフォルトでは、本プラグインはCloudflare
+                    Pages上にホストされた認証プロキシを使用してOAuthログインフローを仲介します。このプロキシは以下のデータを<strong>一時的に</strong>（メモリ上のみで、永続化しません）処理します：
                 </p>
                 <ul>
                     <li>OAuth認可コード（トークンへの交換後、即座に破棄）</li>
-                    <li>アクセストークンおよびリフレッシュトークン（プラグインへの転送後、即座に破棄）</li>
+                    <li>
+                        アクセストークンおよびリフレッシュトークン（プラグインへの転送後、即座に破棄）
+                    </li>
                 </ul>
                 <p>
                     Vaultデータ、ファイルの内容、ファイルのメタデータがこのプロキシを経由することはありません。プロキシは初回ログインおよびトークンリフレッシュ操作にのみ使用されます。プラグイン設定で独自のOAuth認証情報を設定することで、このプロキシの使用を回避できます。
@@ -213,7 +223,8 @@
                 <h2>データの保存</h2>
                 <ul>
                     <li>
-                        <strong>認証情報</strong>（トークン、暗号化シークレット）はObsidianのSecretStorage
+                        <strong>認証情報</strong
+                        >（トークン、暗号化シークレット）はObsidianのSecretStorage
                         APIを介して保管します。SecretStorageが利用できない環境では、デバイス固有の鍵（AES-GCM）で暗号化したローカルファイルに自動的にフォールバックします。認証情報はクラウドストレージプロバイダとの認証にのみ使用します。
                     </li>
                     <li>
@@ -248,7 +259,17 @@
                 </p>
                 <h3>Cloudflare Pages</h3>
                 <p>
-                    デフォルトの認証プロキシは<a href="https://www.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Pages</a>上で動作しています。Cloudflareはリクエストメタデータ（IPアドレス、リクエストヘッダ）を同社の<a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener">プライバシーポリシー</a>に従って処理する場合があります。VaultデータがCloudflareに送信されることはありません。
+                    デフォルトの認証プロキシは<a
+                        href="https://www.cloudflare.com/"
+                        target="_blank"
+                        rel="noopener"
+                        >Cloudflare Pages</a
+                    >上で動作しています。Cloudflareはリクエストメタデータ（IPアドレス、リクエストヘッダ）を同社の<a
+                        href="https://www.cloudflare.com/privacypolicy/"
+                        target="_blank"
+                        rel="noopener"
+                        >プライバシーポリシー</a
+                    >に従って処理する場合があります。VaultデータがCloudflareに送信されることはありません。
                 </p>
                 <h3>Google Drive</h3>
                 <p>
@@ -285,7 +306,7 @@
                     >でIssueを作成してください。
                 </p>
 
-                <p class="updated">最終更新日: 2026年2月27日</p>
+                <p class="updated">最終更新日: 2026年3月4日</p>
             </div>
         </div>
 

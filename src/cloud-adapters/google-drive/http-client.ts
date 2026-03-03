@@ -12,7 +12,7 @@ export class GoogleDriveHttpClient {
     constructor(private auth: GoogleAuthService) {}
 
     private async log(msg: string, level: string = "debug") {
-        console.log(`VaultSync: [${level.toUpperCase()}] ${msg}`);
+        console.log(`Vault-Sync: [${level.toUpperCase()}] ${msg}`);
         if (this.auth.logger) this.auth.logger(msg, level);
     }
 
@@ -95,7 +95,7 @@ export class GoogleDriveHttpClient {
                 }
 
                 // SEC-007: Sanitize error messages (logging)
-                console.error(`VaultSync: API Error ${response.status}: ${errorMsg}`);
+                console.error(`Vault-Sync: API Error ${response.status}: ${errorMsg}`);
 
                 // Throw the actual error message so callers can handle specific cases
                 throw new Error(errorMsg);

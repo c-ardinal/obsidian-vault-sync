@@ -4,7 +4,12 @@ import { normalizePath, dirname } from "../utils/path";
 import type { SyncContext } from "./context";
 import type { CommunicationData } from "./types";
 import { isManagedSeparately, shouldNotBeOnRemote, shouldIgnore } from "./file-utils";
-import { LOCK_MAX_ATTEMPTS, LOCK_TTL_MS, LOCK_JITTER_MIN_MS, LOCK_JITTER_RANGE_MS } from "./constants";
+import {
+    LOCK_MAX_ATTEMPTS,
+    LOCK_TTL_MS,
+    LOCK_JITTER_MIN_MS,
+    LOCK_JITTER_RANGE_MS,
+} from "./constants";
 
 function generateDeviceId(): string {
     const randomArray = new Uint8Array(4);
@@ -158,7 +163,10 @@ export async function loadIndex(
         ctx.startPageToken = parsed.startPageToken || null;
 
         if (data.byteLength !== decompressed.byteLength) {
-            await ctx.log("[Index] Detected compressed local index. Normalizing to plain text...", "info");
+            await ctx.log(
+                "[Index] Detected compressed local index. Normalizing to plain text...",
+                "info",
+            );
             await saveIndex(ctx);
         }
 
@@ -270,7 +278,7 @@ export async function saveIndex(ctx: SyncContext): Promise<void> {
     try {
         await ctx.vault.write(rawPath, data);
     } catch (e) {
-        console.error("VaultSync: Failed to save raw index backup", e);
+        console.error("Vault-Sync: Failed to save raw index backup", e);
     }
 
     await saveLocalIndex(ctx);
@@ -284,7 +292,7 @@ export async function saveLocalIndex(ctx: SyncContext): Promise<void> {
         });
         await ctx.vault.write(ctx.localIndexPath, data);
     } catch (e) {
-        console.error("VaultSync: Failed to save local index", e);
+        console.error("Vault-Sync: Failed to save local index", e);
     }
 }
 

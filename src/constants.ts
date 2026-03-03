@@ -6,7 +6,7 @@ export const AUTH_PROXY_BASE_URL = "https://obsidian-vault-sync.pages.dev";
 export const OAUTH_REDIRECT_URI = `${AUTH_PROXY_BASE_URL}/api/auth/callback`;
 
 export const SETTINGS_LIMITS = {
-    autoSyncInterval: { min: 1, max: 86400, default: 1800, disabled: -1 },
+    autoSyncInterval: { min: 2, max: 86400, default: 10, disabled: -1 },
     onSaveDelay: { min: 0, max: 60, default: 0, disabled: -1 },
     onModifyDelay: { min: 0, max: 60, default: 5, disabled: -1 },
     onLayoutChangeDelay: { min: 0, max: 60, default: 0, disabled: -1 },

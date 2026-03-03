@@ -1,4 +1,4 @@
-# VaultSync - 仕様書
+# Vault-Sync - 仕様書
 
 **Version**: 2.3
 **Last Updated**: 2026-02-19
@@ -38,24 +38,24 @@ Obsidian向けクラウドストレージ同期プラグイン。ローカルの
 
 ### 1.2 主要モジュール
 
-| モジュール                  | ファイル                              | 役割                                                                                           |
-| :-------------------------- | :------------------------------------ | :--------------------------------------------------------------------------------------------- |
-| **SyncManager**             | `sync-manager/`                       | 同期のオーケストレーション。Index管理、差分検知、Pull/Push分岐、3-wayマージ、分散ロック        |
-| **CloudAdapter**            | `types/adapter.ts`                    | クラウドストレージ抽象化インターフェース                                                       |
-| **GoogleDriveAdapter**      | `cloud-adapters/google-drive/`        | Google Drive REST API実装。`fetch` APIベースでモバイル互換                                     |
-| **EncryptedAdapter**        | `encryption/encrypted-adapter.ts`     | CloudAdapterのプロキシ。E2EE有効時に暗号化/復号を透過的に挿入。VSC1/VSC2自動判定              |
-| **SecureStorage**           | `services/secure-storage.ts`          | 認証情報の保存。Obsidian SecretStorage APIを優先し、未対応環境では暗号化バイナリで保存 |
-| **VaultLockService**        | `services/vault-lock-service.ts`      | vault-lock.vault と migration.lock の管理。常に非暗号化アダプタ経由                            |
-| **ChunkedCrypto**           | E2EE Engine (`chunked-crypto.ts`)     | VSC2チャンク分割暗号化/復号。大容量ファイルのピークメモリ削減（E2EE Engineリポジトリに配置）   |
-| **ICryptoEngine**           | `encryption/interfaces.ts`            | E2EEエンジンの抽象インターフェース（暗号化/復号/リカバリー/UI注入）                            |
-| **DecryptionError**         | `encryption/errors.ts`                | 復号エラーの分類（authentication / format）                                                     |
-| **BackgroundTransferQueue** | `sync-manager/background-transfer.ts` | 大容量ファイルの非同期Push/Pull。リトライ・陳腐化検出・JSONL履歴                               |
-| **RevisionCache**           | `services/revision-cache.ts`          | 履歴コンテンツのセッション内キャッシュ                                                         |
-| **HistoryModal**            | `ui/history-modal.ts`                 | 履歴確認・Diff表示・ロールバックUI                                                             |
-| **TransferStatusModal**     | `ui/transfer-status-modal.ts`         | 転送ステータス・履歴のタイムラインUI                                                           |
-| **SyncLogger**              | `sync-manager/logger.ts`              | レベルベースログ管理。バッファリング・条件付きフラッシュ・開発者モード即時出力                  |
-| **NotificationMatrix**      | `sync-manager/notification-matrix.ts` | 通知表示制御。トリガー×通知レベルのマトリックスで表示/非表示を決定                             |
-| **i18n**                    | `i18n/`                               | 多言語対応 (ja/en)                                                                             |
+| モジュール                  | ファイル                              | 役割                                                                                         |
+| :-------------------------- | :------------------------------------ | :------------------------------------------------------------------------------------------- |
+| **SyncManager**             | `sync-manager/`                       | 同期のオーケストレーション。Index管理、差分検知、Pull/Push分岐、3-wayマージ、分散ロック      |
+| **CloudAdapter**            | `types/adapter.ts`                    | クラウドストレージ抽象化インターフェース                                                     |
+| **GoogleDriveAdapter**      | `cloud-adapters/google-drive/`        | Google Drive REST API実装。`fetch` APIベースでモバイル互換                                   |
+| **EncryptedAdapter**        | `encryption/encrypted-adapter.ts`     | CloudAdapterのプロキシ。E2EE有効時に暗号化/復号を透過的に挿入。VSC1/VSC2自動判定             |
+| **SecureStorage**           | `services/secure-storage.ts`          | 認証情報の保存。Obsidian SecretStorage APIを優先し、未対応環境では暗号化バイナリで保存       |
+| **VaultLockService**        | `services/vault-lock-service.ts`      | vault-lock.vault と migration.lock の管理。常に非暗号化アダプタ経由                          |
+| **ChunkedCrypto**           | E2EE Engine (`chunked-crypto.ts`)     | VSC2チャンク分割暗号化/復号。大容量ファイルのピークメモリ削減（E2EE Engineリポジトリに配置） |
+| **ICryptoEngine**           | `encryption/interfaces.ts`            | E2EEエンジンの抽象インターフェース（暗号化/復号/リカバリー/UI注入）                          |
+| **DecryptionError**         | `encryption/errors.ts`                | 復号エラーの分類（authentication / format）                                                  |
+| **BackgroundTransferQueue** | `sync-manager/background-transfer.ts` | 大容量ファイルの非同期Push/Pull。リトライ・陳腐化検出・JSONL履歴                             |
+| **RevisionCache**           | `services/revision-cache.ts`          | 履歴コンテンツのセッション内キャッシュ                                                       |
+| **HistoryModal**            | `ui/history-modal.ts`                 | 履歴確認・Diff表示・ロールバックUI                                                           |
+| **TransferStatusModal**     | `ui/transfer-status-modal.ts`         | 転送ステータス・履歴のタイムラインUI                                                         |
+| **SyncLogger**              | `sync-manager/logger.ts`              | レベルベースログ管理。バッファリング・条件付きフラッシュ・開発者モード即時出力               |
+| **NotificationMatrix**      | `sync-manager/notification-matrix.ts` | 通知表示制御。トリガー×通知レベルのマトリックスで表示/非表示を決定                           |
+| **i18n**                    | `i18n/`                               | 多言語対応 (ja/en)                                                                           |
 
 ### 1.3 データ構造
 
@@ -74,12 +74,12 @@ ObsidianVaultSync/           ← App Root (設定で変更可)
 
 #### ローカルデータ
 
-| ファイル                         | 場所                 | 用途                                                                       |
-| :------------------------------- | :------------------- | :------------------------------------------------------------------------- |
-| `sync-index.json`                | プラグインフォルダ内 | クラウド共有インデックス（ファイルハッシュ・mtime・ancestorHash等）        |
-| `local-index.json`              | `data/local/`        | デバイス専用インデックス（前回同期時点のリビジョン記録。同期対象外）       |
+| ファイル                         | 場所                 | 用途                                                                            |
+| :------------------------------- | :------------------- | :------------------------------------------------------------------------------ |
+| `sync-index.json`                | プラグインフォルダ内 | クラウド共有インデックス（ファイルハッシュ・mtime・ancestorHash等）             |
+| `local-index.json`               | `data/local/`        | デバイス専用インデックス（前回同期時点のリビジョン記録。同期対象外）            |
 | `.sync-state`                    | `data/local/`        | 暗号化認証情報（SecretStorage未対応時のフォールバック。移行後は自動削除される） |
-| `open-data.json/local-data.json` | プラグインフォルダ内 | プラグイン設定                                                             |
+| `open-data.json/local-data.json` | プラグインフォルダ内 | プラグイン設定                                                                  |
 
 ---
 
@@ -100,11 +100,11 @@ ObsidianVaultSync/           ← App Root (設定で変更可)
 テスト仕様は各テストファイルの冒頭JSDocコメントに記述（Executable Specification方式）。
 `tests/` ディレクトリ構成:
 
-| ディレクトリ                   | 内容                                                         |
-| :----------------------------- | :----------------------------------------------------------- |
-| `tests/tests/merge-algorithm/` | 3-wayマージアルゴリズム精度検証（112フィクスチャ自動検出）   |
-| `tests/tests/yaml-scenario/`   | YAMLベース同期シナリオ（N/C/I/M カテゴリ）                  |
-| `tests/tests/code-scenario/`   | 統合テスト（競合解決・移動・転送・E2EE・通知・ストラテジー） |
+| ディレクトリ                   | 内容                                                             |
+| :----------------------------- | :--------------------------------------------------------------- |
+| `tests/tests/merge-algorithm/` | 3-wayマージアルゴリズム精度検証（112フィクスチャ自動検出）       |
+| `tests/tests/yaml-scenario/`   | YAMLベース同期シナリオ（N/C/I/M カテゴリ）                       |
+| `tests/tests/code-scenario/`   | 統合テスト（競合解決・移動・転送・E2EE・通知・ストラテジー）     |
 | `tests/tests/unit/`            | ユニットテスト（フィルタリング・ハッシュ・パス・ネットワーク等） |
 
 ---
@@ -134,9 +134,9 @@ ObsidianVaultSync/           ← App Root (設定で変更可)
 
 1. **リモートチェック**: Google Drive 上に既に Vault データが存在するか確認。
 2. **分岐フロー**:
-   - **パターンA (データなし/新規)**: セットアップウィザードで E2EE 有効化を問う。有効時はパスワード設定 → `vault-lock.vault` 生成 → 暗号化同期開始。
-   - **パターンB (既存の暗号化 Vault を発見)**: パスワード入力必須。解除できるまで同期不可。解除成功後にマスターキーをメモリに保持し、暗号化同期を開始。
-   - **パターンC (既存の非暗号化 Vault を発見)**: 通常同期を開始。同期完了後、設定画面で暗号化への移行を推奨可能。
+    - **パターンA (データなし/新規)**: セットアップウィザードで E2EE 有効化を問う。有効時はパスワード設定 → `vault-lock.vault` 生成 → 暗号化同期開始。
+    - **パターンB (既存の暗号化 Vault を発見)**: パスワード入力必須。解除できるまで同期不可。解除成功後にマスターキーをメモリに保持し、暗号化同期を開始。
+    - **パターンC (既存の非暗号化 Vault を発見)**: 通常同期を開始。同期完了後、設定画面で暗号化への移行を推奨可能。
 
 #### ケース2: 途中からの E2EE 有効化 (Migration)
 
@@ -164,30 +164,31 @@ ObsidianVaultSync/           ← App Root (設定で変更可)
 
 #### ファイル暗号化フォーマット
 
-| フォーマット | 対象 | ワイヤーフォーマット | 備考 |
-|:-----------|:-----|:-------------------|:-----|
-| **VSC1** | 小ファイル (`< largeFileThresholdMB`) | `[IV(12B)][ciphertext]` | 単一AES-GCM暗号化 |
-| **VSC2** | 大ファイル (`≥ largeFileThresholdMB`) | `[magic "VSC2"][chunkSize LE][totalChunks LE][per-chunk: IV(12B) + ciphertext]` | チャンク分割暗号化。ピークメモリを4倍→1.1倍に削減 |
+| フォーマット | 対象                                  | ワイヤーフォーマット                                                            | 備考                                              |
+| :----------- | :------------------------------------ | :------------------------------------------------------------------------------ | :------------------------------------------------ |
+| **VSC1**     | 小ファイル (`< largeFileThresholdMB`) | `[IV(12B)][ciphertext]`                                                         | 単一AES-GCM暗号化                                 |
+| **VSC2**     | 大ファイル (`≥ largeFileThresholdMB`) | `[magic "VSC2"][chunkSize LE][totalChunks LE][per-chunk: IV(12B) + ciphertext]` | チャンク分割暗号化。ピークメモリを4倍→1.1倍に削減 |
 
 復号時は `isChunkedFormat()` により VSC2/VSC1 を自動判定。
 
 #### 復号エラー判別
 
 `DecryptionError` クラスで原因を分類:
+
 - `authentication`: パスワード間違い（GCM認証タグ不一致）
 - `format`: データ破損（マジックバイト不正、チャンク数不整合など）
 - VSC2の場合、`chunkIndex` で問題のチャンク位置を特定可能
 
 #### 鍵管理 (MasterKeyManager)
 
-| 操作 | 説明 |
-|:-----|:-----|
-| **初期化** (`initializeNewVault`) | ランダム salt (16B) 生成 → パスワード+salt から PBKDF2 でラッピングキー導出 → マスターキー (AES-256) 生成 → ラッピングキーで暗号化 → vault-lock.vault アップロード |
-| **ロック解除** (`unlockVault`) | vault-lock.vault ダウンロード → パスワード+salt → PBKDF2 → ラッピングキー → マスターキー復号 → メモリに保持 |
-| **パスワード変更** (`updatePassword`) | 新パスワードでマスターキーを再ラッピング。データ再暗号化不要。auto-unlock有効時はSecretStorage内パスワードも更新 |
-| **リカバリーコード** (`exportRecoveryCode`) | マスターキーの生バイト (32B) を Base64 文字列 (44文字) としてエクスポート |
-| **リカバリー復元** (`recoverFromCode`) | リカバリーコード → raw key import → 新パスワードで再ラッピング → vault-lock.vault 更新 |
-| **フィンガープリント** (`getKeyFingerprint`) | マスターキーの SHA-256 先頭4バイト (8 hex文字) で鍵の視覚的確認 |
+| 操作                                         | 説明                                                                                                                                                               |
+| :------------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **初期化** (`initializeNewVault`)            | ランダム salt (16B) 生成 → パスワード+salt から PBKDF2 でラッピングキー導出 → マスターキー (AES-256) 生成 → ラッピングキーで暗号化 → vault-lock.vault アップロード |
+| **ロック解除** (`unlockVault`)               | vault-lock.vault ダウンロード → パスワード+salt → PBKDF2 → ラッピングキー → マスターキー復号 → メモリに保持                                                        |
+| **パスワード変更** (`updatePassword`)        | 新パスワードでマスターキーを再ラッピング。データ再暗号化不要。auto-unlock有効時はSecretStorage内パスワードも更新                                                   |
+| **リカバリーコード** (`exportRecoveryCode`)  | マスターキーの生バイト (32B) を Base64 文字列 (44文字) としてエクスポート                                                                                          |
+| **リカバリー復元** (`recoverFromCode`)       | リカバリーコード → raw key import → 新パスワードで再ラッピング → vault-lock.vault 更新                                                                             |
+| **フィンガープリント** (`getKeyFingerprint`) | マスターキーの SHA-256 先頭4バイト (8 hex文字) で鍵の視覚的確認                                                                                                    |
 
 ### 6.3 アダプター統合 (EncryptedAdapter)
 
@@ -207,22 +208,22 @@ ObsidianVaultSync/           ← App Root (設定で変更可)
 
 ### 6.5 移行サービス (MigrationService)
 
-| メソッド | 説明 |
-|:--------|:-----|
-| `startMigration` | `migration.lock` 作成 → 新フォルダ作成 |
-| `processMigration` | 全ファイル読込 → 暗号化 → 新フォルダへアップロード（進捗コールバック対応） |
+| メソッド            | 説明                                                                                        |
+| :------------------ | :------------------------------------------------------------------------------------------ |
+| `startMigration`    | `migration.lock` 作成 → 新フォルダ作成                                                      |
+| `processMigration`  | 全ファイル読込 → 暗号化 → 新フォルダへアップロード（進捗コールバック対応）                  |
 | `finalizeMigration` | `vault-lock.vault` 作成 → 旧フォルダリネーム → 新フォルダへ切り替え → `migration.lock` 削除 |
-| `cancelMigration` | `migration.lock` と作業中フォルダを削除して元に戻す |
+| `cancelMigration`   | `migration.lock` と作業中フォルダを削除して元に戻す                                         |
 
 中断時は次回起動時に「再開」か「破棄（移行キャンセル）」を選択可能。移行済みファイルはハッシュ比較でスキップ。
 
 ### 6.6 UI & セットアップフロー
 
 - **コマンドパレット**: `checkCallback` を使用し、E2EE状態に応じた動的コマンド表示
-  - 未有効時: 「E2EE: Vaultの暗号化を開始する」
-  - 有効かつロック時: 「E2EE: Vaultの暗号化を解除する」
-  - ロック解除済み: 「パスワード変更」「リカバリーコード表示」
-  - E2EE有効 (ロック状態不問): 「リカバリーコードで復元」
+    - 未有効時: 「E2EE: Vaultの暗号化を開始する」
+    - 有効かつロック時: 「E2EE: Vaultの暗号化を解除する」
+    - ロック解除済み: 「パスワード変更」「リカバリーコード表示」
+    - E2EE有効 (ロック状態不問): 「リカバリーコードで復元」
 - **設定画面**: 「セキュリティ (E2EE)」セクション。ステータス表示・コマンドパレットへの誘導
 - **セットアップウィザード**: 警告表示 → パスワード入力（ASCII限定、8文字以上）→ 強度チェック → 確認 → 暗号化開始
 - **ロック解除モーダル**: パスワード入力 → vault-lock.vault ダウンロード → ロック解除
@@ -269,9 +270,9 @@ ObsidianVaultSync/           ← App Root (設定で変更可)
 
 詳細は [同期エンジン仕様 §12](spec/sync-engine.md) を参照。
 
-| クラウド     | Changes API                 | Hash比較     | 履歴   | 備考     |
-| :----------- | :-------------------------- | :----------- | :----- | :------- |
-| Dropbox      | 対応 (list_folder/continue) | content_hash | 対応   | -        |
-| OneDrive     | 対応 (delta API)            | quickXorHash | 対応   | -        |
-| S3           | 非対応                      | ETag         | 非対応 | 基本のみ |
-| WebDAV       | 非対応                      | 非対応       | 非対応 | 基本のみ |
+| クラウド | Changes API                 | Hash比較     | 履歴   | 備考     |
+| :------- | :-------------------------- | :----------- | :----- | :------- |
+| Dropbox  | 対応 (list_folder/continue) | content_hash | 対応   | -        |
+| OneDrive | 対応 (delta API)            | quickXorHash | 対応   | -        |
+| S3       | 非対応                      | ETag         | 非対応 | 基本のみ |
+| WebDAV   | 非対応                      | 非対応       | 非対応 | 基本のみ |

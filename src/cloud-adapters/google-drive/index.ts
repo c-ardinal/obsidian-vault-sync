@@ -53,11 +53,19 @@ export class GoogleDriveAdapter implements CloudAdapter {
     }
 
     // Callback for fatal auth errors (e.g. invalid grant) — delegated to auth
-    set onAuthFailure(cb: (() => void) | null) { this.auth.onAuthFailure = cb; }
-    get onAuthFailure(): (() => void) | null { return this.auth.onAuthFailure; }
+    set onAuthFailure(cb: (() => void) | null) {
+        this.auth.onAuthFailure = cb;
+    }
+    get onAuthFailure(): (() => void) | null {
+        return this.auth.onAuthFailure;
+    }
     // Callback after successful token refresh (to persist new tokens) — delegated to auth
-    set onTokenRefresh(cb: (() => void) | null) { this.auth.onTokenRefresh = cb; }
-    get onTokenRefresh(): (() => void) | null { return this.auth.onTokenRefresh; }
+    set onTokenRefresh(cb: (() => void) | null) {
+        this.auth.onTokenRefresh = cb;
+    }
+    get onTokenRefresh(): (() => void) | null {
+        return this.auth.onTokenRefresh;
+    }
 
     updateConfig(
         clientId: string,
@@ -71,9 +79,15 @@ export class GoogleDriveAdapter implements CloudAdapter {
     }
 
     // === Auth delegation ===
-    setAuthConfig(method: AuthMethod, proxyUrl?: string) { this.auth.setAuthConfig(method, proxyUrl); }
-    isAuthenticated(): boolean { return this.auth.isAuthenticated(); }
-    getTokens() { return this.auth.getTokens(); }
+    setAuthConfig(method: AuthMethod, proxyUrl?: string) {
+        this.auth.setAuthConfig(method, proxyUrl);
+    }
+    isAuthenticated(): boolean {
+        return this.auth.isAuthenticated();
+    }
+    getTokens() {
+        return this.auth.getTokens();
+    }
     setTokens(accessToken: string | null, refreshToken: string | null, tokenExpiresAt?: number) {
         const hadToken = this.auth.isAuthenticated();
         this.auth.setTokens(accessToken, refreshToken, tokenExpiresAt);
@@ -83,18 +97,38 @@ export class GoogleDriveAdapter implements CloudAdapter {
             this.pathResolver.clearFolderCaches();
         }
     }
-    getAuthStatus(): string { return this.auth.getAuthStatus(); }
-    async getAuthUrl(): Promise<string> { return this.auth.getAuthUrl(); }
-    verifyState(state: string): boolean { return this.auth.verifyState(state); }
-    async login(): Promise<void> { return this.auth.login(); }
-    async exchangeCodeForToken(code: string): Promise<void> { return this.auth.exchangeCodeForToken(code); }
-    async handleCallback(url: string | URL): Promise<void> { return this.auth.handleCallback(url); }
-    async logout(): Promise<void> { return this.auth.logout(); }
+    getAuthStatus(): string {
+        return this.auth.getAuthStatus();
+    }
+    async getAuthUrl(): Promise<string> {
+        return this.auth.getAuthUrl();
+    }
+    verifyState(state: string): boolean {
+        return this.auth.verifyState(state);
+    }
+    async login(): Promise<void> {
+        return this.auth.login();
+    }
+    async exchangeCodeForToken(code: string): Promise<void> {
+        return this.auth.exchangeCodeForToken(code);
+    }
+    async handleCallback(url: string | URL): Promise<void> {
+        return this.auth.handleCallback(url);
+    }
+    async logout(): Promise<void> {
+        return this.auth.logout();
+    }
 
     // === Path resolver delegation ===
-    async initialize(): Promise<void> { await this.pathResolver.initialize(); }
-    async getAppRootId(): Promise<string> { return this.pathResolver.getAppRootId(); }
-    reset() { this.pathResolver.reset(); }
+    async initialize(): Promise<void> {
+        await this.pathResolver.initialize();
+    }
+    async getAppRootId(): Promise<string> {
+        return this.pathResolver.getAppRootId();
+    }
+    reset() {
+        this.pathResolver.reset();
+    }
     async createFolder(name: string, parentId?: string): Promise<string> {
         return this.pathResolver.createFolder(name, parentId);
     }
@@ -457,7 +491,9 @@ export class GoogleDriveAdapter implements CloudAdapter {
                     let fullPath = c.file ? c.file.name : "";
                     if (c.file && !c.removed && c.file.parents && c.file.parents.length > 0) {
                         try {
-                            const parentPath = await this.pathResolver.resolveFullPath(c.file.parents[0]);
+                            const parentPath = await this.pathResolver.resolveFullPath(
+                                c.file.parents[0],
+                            );
                             fullPath = parentPath ? `${parentPath}/${c.file.name}` : c.file.name;
                         } catch (e) {
                             console.warn(`Failed to resolve parent path for ${c.fileId}:`, e);
@@ -499,7 +535,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
 
         await this.pathResolver.ensureRootFolders();
         const rootId = folderId || this.pathResolver.vaultRootId;
-        console.log(`VaultSync: listFiles starting with rootId: ${rootId}`);
+        console.log(`Vault-Sync: listFiles starting with rootId: ${rootId}`);
         if (!rootId) throw new Error("Vault root not initialized");
 
         const files: CloudFile[] = [];
@@ -513,11 +549,13 @@ export class GoogleDriveAdapter implements CloudAdapter {
                     (pageToken ? `&pageToken=${pageToken}` : "");
 
                 console.log(
-                    `VaultSync: listFiles querying folder ${currentFolderId}, prefix: "${currentPathPrefix}"`,
+                    `Vault-Sync: listFiles querying folder ${currentFolderId}, prefix: "${currentPathPrefix}"`,
                 );
                 const response = await this.http.fetchWithAuth(url);
                 const data: any = await response.json();
-                console.log(`VaultSync: listFiles query returned ${data.files?.length || 0} items`);
+                console.log(
+                    `Vault-Sync: listFiles query returned ${data.files?.length || 0} items`,
+                );
                 pageToken = data.nextPageToken;
 
                 if (data.files) {

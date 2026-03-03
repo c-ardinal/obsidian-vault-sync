@@ -28,10 +28,12 @@ import type { SyncContext } from "../../../src/sync-manager/context";
 
 // ─── Mock SyncContext factory ───
 
-function createMockCtx(opts: {
-    adapterSupportsHistory?: boolean;
-    cachedContent?: ArrayBuffer | null;
-} = {}): SyncContext {
+function createMockCtx(
+    opts: {
+        adapterSupportsHistory?: boolean;
+        cachedContent?: ArrayBuffer | null;
+    } = {},
+): SyncContext {
     const { adapterSupportsHistory = true, cachedContent = null } = opts;
 
     const adapter: any = {
@@ -40,9 +42,7 @@ function createMockCtx(opts: {
             { id: "rev-1", modifiedTime: 1000, size: 100 },
             { id: "rev-2", modifiedTime: 2000, size: 200 },
         ]),
-        getRevisionContent: vi.fn(
-            async () => new TextEncoder().encode("remote content").buffer,
-        ),
+        getRevisionContent: vi.fn(async () => new TextEncoder().encode("remote content").buffer),
         setRevisionKeepForever: vi.fn(),
         deleteRevision: vi.fn(),
     };
@@ -102,6 +102,14 @@ describe("listRevisions", () => {
         const ctx = createMockCtx({ adapterSupportsHistory: false });
         await expect(listRevisions(ctx, "test.md")).rejects.toThrow();
     });
+
+    it("should throw with fallback error message when t returns falsy", async () => {
+        const ctx = createMockCtx({ adapterSupportsHistory: false });
+        ctx.t = () => "";
+        await expect(listRevisions(ctx, "test.md")).rejects.toThrow(
+            "Cloud adapter does not support history.",
+        );
+    });
 });
 
 describe("getRevisionContent", () => {
@@ -121,10 +129,7 @@ describe("getRevisionContent", () => {
         const result = await getRevisionContent(ctx, "test.md", "rev-1");
 
         expect(new TextDecoder().decode(result)).toBe("remote content");
-        expect(ctx.adapter.getRevisionContent).toHaveBeenCalledWith(
-            "test.md",
-            "rev-1",
-        );
+        expect(ctx.adapter.getRevisionContent).toHaveBeenCalledWith("test.md", "rev-1");
         expect(ctx.revisionCache.set).toHaveBeenCalledWith(
             "test.md",
             "rev-1",
@@ -134,9 +139,15 @@ describe("getRevisionContent", () => {
 
     it("should throw when adapter does not support history", async () => {
         const ctx = createMockCtx({ adapterSupportsHistory: false });
-        await expect(
-            getRevisionContent(ctx, "test.md", "rev-1"),
-        ).rejects.toThrow();
+        await expect(getRevisionContent(ctx, "test.md", "rev-1")).rejects.toThrow();
+    });
+
+    it("should throw with fallback error message when t returns falsy", async () => {
+        const ctx = createMockCtx({ adapterSupportsHistory: false });
+        ctx.t = () => "";
+        await expect(getRevisionContent(ctx, "test.md", "rev-1")).rejects.toThrow(
+            "Cloud adapter does not support history.",
+        );
     });
 });
 
@@ -144,18 +155,20 @@ describe("setRevisionKeepForever", () => {
     it("should delegate to adapter", async () => {
         const ctx = createMockCtx();
         await setRevisionKeepForever(ctx, "test.md", "rev-1", true);
-        expect(ctx.adapter.setRevisionKeepForever).toHaveBeenCalledWith(
-            "test.md",
-            "rev-1",
-            true,
-        );
+        expect(ctx.adapter.setRevisionKeepForever).toHaveBeenCalledWith("test.md", "rev-1", true);
     });
 
     it("should throw when adapter does not support history", async () => {
         const ctx = createMockCtx({ adapterSupportsHistory: false });
-        await expect(
-            setRevisionKeepForever(ctx, "test.md", "rev-1", true),
-        ).rejects.toThrow();
+        await expect(setRevisionKeepForever(ctx, "test.md", "rev-1", true)).rejects.toThrow();
+    });
+
+    it("should throw with fallback error message when t returns falsy", async () => {
+        const ctx = createMockCtx({ adapterSupportsHistory: false });
+        ctx.t = () => "";
+        await expect(setRevisionKeepForever(ctx, "test.md", "rev-1", true)).rejects.toThrow(
+            "Cloud adapter does not support history.",
+        );
     });
 });
 
@@ -163,17 +176,20 @@ describe("deleteRevision", () => {
     it("should delegate to adapter", async () => {
         const ctx = createMockCtx();
         await deleteRevision(ctx, "test.md", "rev-1");
-        expect(ctx.adapter.deleteRevision).toHaveBeenCalledWith(
-            "test.md",
-            "rev-1",
-        );
+        expect(ctx.adapter.deleteRevision).toHaveBeenCalledWith("test.md", "rev-1");
     });
 
     it("should throw when adapter does not support history", async () => {
         const ctx = createMockCtx({ adapterSupportsHistory: false });
-        await expect(
-            deleteRevision(ctx, "test.md", "rev-1"),
-        ).rejects.toThrow();
+        await expect(deleteRevision(ctx, "test.md", "rev-1")).rejects.toThrow();
+    });
+
+    it("should throw with fallback error message when t returns falsy", async () => {
+        const ctx = createMockCtx({ adapterSupportsHistory: false });
+        ctx.t = () => "";
+        await expect(deleteRevision(ctx, "test.md", "rev-1")).rejects.toThrow(
+            "Cloud adapter does not support history.",
+        );
     });
 });
 
@@ -189,10 +205,7 @@ describe("restoreRevision", () => {
             size: 100,
         } as any);
 
-        expect(ctx.vault.modifyBinary).toHaveBeenCalledWith(
-            mockFile,
-            expect.any(ArrayBuffer),
-        );
+        expect(ctx.vault.modifyBinary).toHaveBeenCalledWith(mockFile, expect.any(ArrayBuffer));
         expect(ctx.notify).toHaveBeenCalledWith("noticeFileRestored");
     });
 
@@ -206,10 +219,7 @@ describe("restoreRevision", () => {
             size: 100,
         } as any);
 
-        expect(ctx.vault.createBinary).toHaveBeenCalledWith(
-            "test.md",
-            expect.any(ArrayBuffer),
-        );
+        expect(ctx.vault.createBinary).toHaveBeenCalledWith("test.md", expect.any(ArrayBuffer));
         expect(ctx.notify).toHaveBeenCalledWith("noticeFileRestored");
     });
 
@@ -232,9 +242,7 @@ describe("restoreRevision", () => {
 
     it("should throw and log error on failure", async () => {
         const ctx = createMockCtx({ cachedContent: null });
-        (ctx.adapter.getRevisionContent as any).mockRejectedValue(
-            new Error("Download failed"),
-        );
+        (ctx.adapter.getRevisionContent as any).mockRejectedValue(new Error("Download failed"));
 
         await expect(
             restoreRevision(ctx, "test.md", {
@@ -244,9 +252,6 @@ describe("restoreRevision", () => {
             } as any),
         ).rejects.toThrow("Download failed");
 
-        expect(ctx.log).toHaveBeenCalledWith(
-            expect.stringContaining("Rollback failed"),
-            "error",
-        );
+        expect(ctx.log).toHaveBeenCalledWith(expect.stringContaining("Rollback failed"), "error");
     });
 });
