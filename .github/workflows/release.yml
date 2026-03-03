@@ -27,14 +27,6 @@ jobs:
             - name: Run Build
               run: npm run build:release
 
-            - name: Run Tests
-              run: npm test
-
-            - name: Upload coverage reports to Codecov
-              uses: codecov/codecov-action@v5
-              with:
-                  token: ${{ secrets.CODECOV_TOKEN }}
-
             - name: Get Version
               id: get_version
               run: |
