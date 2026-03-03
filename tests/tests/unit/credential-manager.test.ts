@@ -63,8 +63,12 @@ const localStorageMock: Record<string, string> = {};
 (globalThis as any).window = {
     localStorage: {
         getItem: (key: string) => localStorageMock[key] || null,
-        setItem: (key: string, value: string) => { localStorageMock[key] = value; },
-        removeItem: (key: string) => { delete localStorageMock[key]; },
+        setItem: (key: string, value: string) => {
+            localStorageMock[key] = value;
+        },
+        removeItem: (key: string) => {
+            delete localStorageMock[key];
+        },
     },
 };
 
@@ -103,7 +107,7 @@ describe("CredentialManager", () => {
                     clientSecret: "test-secret",
                     accessToken: "access-1",
                     refreshToken: "refresh-1",
-                })
+                }),
             );
         });
 
@@ -135,7 +139,9 @@ describe("CredentialManager", () => {
             });
 
             expect(adapter.setTokens).toHaveBeenCalledWith(
-                "proxy-access", "proxy-refresh", expect.any(Number)
+                "proxy-access",
+                "proxy-refresh",
+                expect.any(Number),
             );
             expect(secureStorage.saveCredentials).toHaveBeenCalled();
             expect(syncManager.notify).toHaveBeenCalledWith("noticeAuthSuccess");
@@ -165,13 +171,22 @@ describe("CredentialManager", () => {
             expect(syncManager.notify).toHaveBeenCalledWith("noticeAuthSuccess");
         });
 
-        it("should handle auth error", async () => {
+        it("should handle auth error when only error param is provided", async () => {
+            // Covers line 102: else if (params.error)
             await manager.handleAuthCallback({ error: "access_denied" });
             expect(syncManager.notify).toHaveBeenCalledWith("noticeAuthFailed", "access_denied");
         });
 
+        it("should handle auth error with state param", async () => {
+            // Covers line 102 with state verification
+            await manager.handleAuthCallback({ state: "valid-state", error: "server_error" });
+            expect(syncManager.notify).toHaveBeenCalledWith("noticeAuthFailed", "server_error");
+        });
+
         it("should notify on proxy token failure", async () => {
-            adapter.setTokens.mockImplementation(() => { throw new Error("token error"); });
+            adapter.setTokens.mockImplementation(() => {
+                throw new Error("token error");
+            });
 
             await manager.handleAuthCallback({
                 access_token: "bad",
@@ -201,14 +216,19 @@ describe("CredentialManager", () => {
                 refreshToken: "rt",
                 tokenExpiresAt: 999999,
             });
-            expect(adapter.updateConfig).toHaveBeenCalledWith("cid", "csecret", "TestVault", "MyRoot");
+            expect(adapter.updateConfig).toHaveBeenCalledWith(
+                "cid",
+                "csecret",
+                "TestVault",
+                "MyRoot",
+            );
         });
 
         it("should default tokenExpiresAt to 0 when not provided", async () => {
             await manager.saveCredentials("cid", "csecret", "at", "rt");
 
             expect(secureStorage.saveCredentials).toHaveBeenCalledWith(
-                expect.objectContaining({ tokenExpiresAt: 0 })
+                expect.objectContaining({ tokenExpiresAt: 0 }),
             );
         });
     });
@@ -216,7 +236,10 @@ describe("CredentialManager", () => {
     describe("facade methods", () => {
         it("setAuthConfig should delegate to adapter", () => {
             manager.setAuthConfig("client-credentials", "https://proxy.test");
-            expect(adapter.setAuthConfig).toHaveBeenCalledWith("client-credentials", "https://proxy.test");
+            expect(adapter.setAuthConfig).toHaveBeenCalledWith(
+                "client-credentials",
+                "https://proxy.test",
+            );
         });
 
         it("getClientId should return adapter clientId", () => {
@@ -243,14 +266,20 @@ describe("CredentialManager", () => {
         it("should update clientId while preserving clientSecret", async () => {
             await manager.updateClientCredential("clientId", "new-client-id");
             expect(adapter.updateConfig).toHaveBeenCalledWith(
-                "new-client-id", "test-secret", "TestVault", "MyRoot"
+                "new-client-id",
+                "test-secret",
+                "TestVault",
+                "MyRoot",
             );
         });
 
         it("should update clientSecret while preserving clientId", async () => {
             await manager.updateClientCredential("clientSecret", "new-secret");
             expect(adapter.updateConfig).toHaveBeenCalledWith(
-                "test-client-id", "new-secret", "TestVault", "MyRoot"
+                "test-client-id",
+                "new-secret",
+                "TestVault",
+                "MyRoot",
             );
         });
 

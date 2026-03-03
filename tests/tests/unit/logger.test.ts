@@ -169,4 +169,38 @@ describe("SyncLogger", () => {
         expect(allLogs).toContain("[INFO] info before error");
         expect(allLogs).toContain("[ERROR] oops");
     });
+
+    it("should handle onWrite errors gracefully", async () => {
+        const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+        onWrite.mockRejectedValue(new Error("Write failed"));
+
+        logger.startCycle("manual-sync");
+        await logger.info("test message");
+        await logger.endCycle();
+
+        expect(consoleSpy).toHaveBeenCalledWith(
+            "Vault-Sync: Failed to write log entry",
+            expect.any(Error),
+        );
+
+        consoleSpy.mockRestore();
+    });
+
+    it("should flush when notice is shown during cycle", async () => {
+        logger.startCycle("timer-sync");
+        await logger.info("info before notice");
+        logger.markNoticeShown();
+        await logger.endCycle();
+
+        expect(onWrite).toHaveBeenCalledTimes(1);
+        expect(onWrite.mock.calls[0][0]).toContain("[INFO] info before notice");
+    });
+
+    it("should do nothing when endCycle is called without startCycle", async () => {
+        // Don't start a cycle, just call endCycle directly
+        await logger.endCycle();
+
+        // Should not throw and should not call onWrite
+        expect(onWrite).not.toHaveBeenCalled();
+    });
 });

@@ -62,7 +62,7 @@ describe("SmartMergeStrategy branch coverage", () => {
 
             // Mock revisions
             vi.mocked(historyModule.listRevisions).mockResolvedValue([
-                { id: "rev1", hash: "abc123", mtime: Date.now(), size: 100 },
+                { id: "rev1", hash: "abc123", modifiedTime: Date.now(), size: 100 },
             ]);
             vi.mocked(historyModule.getRevisionContent).mockResolvedValue(
                 new TextEncoder().encode(baseContent).buffer as ArrayBuffer,
@@ -81,7 +81,7 @@ describe("SmartMergeStrategy branch coverage", () => {
                 .spyOn(diffMatchPatchModule.diff_match_patch.prototype, "patch_apply")
                 .mockReturnValueOnce(["bulk_failed", [true, false, false]]) // bulk fails
                 .mockReturnValueOnce(["atomic1", [true]]) // atomic patch 0
-                .mockReturnValueOnce(["atomic2", [false]]) // atomic patch 1 fails  
+                .mockReturnValueOnce(["atomic2", [false]]) // atomic patch 1 fails
                 .mockReturnValueOnce(["atomic3", [true]]); // atomic patch 2
 
             await strategy.merge({
@@ -119,7 +119,7 @@ describe("SmartMergeStrategy branch coverage", () => {
 
             // Mock revisions
             vi.mocked(historyModule.listRevisions).mockResolvedValue([
-                { id: "rev1", hash: "abc123", mtime: Date.now(), size: 100 },
+                { id: "rev1", hash: "abc123", modifiedTime: Date.now(), size: 100 },
             ]);
             vi.mocked(historyModule.getRevisionContent).mockResolvedValue(
                 new TextEncoder().encode(baseContent).buffer as ArrayBuffer,
@@ -166,7 +166,7 @@ describe("SmartMergeStrategy branch coverage", () => {
             const remoteContent = "A\nB\nC";
 
             vi.mocked(historyModule.listRevisions).mockResolvedValue([
-                { id: "rev1", hash: "abc123", mtime: Date.now(), size: 100 },
+                { id: "rev1", hash: "abc123", modifiedTime: Date.now(), size: 100 },
             ]);
             vi.mocked(historyModule.getRevisionContent).mockResolvedValue(
                 new TextEncoder().encode(baseContent).buffer as ArrayBuffer,
@@ -214,7 +214,7 @@ describe("SmartMergeStrategy branch coverage", () => {
             const remoteContent = "base line\nremote change";
 
             vi.mocked(historyModule.listRevisions).mockResolvedValue([
-                { id: "rev1", hash: "abc123", mtime: Date.now(), size: 100 },
+                { id: "rev1", hash: "abc123", modifiedTime: Date.now(), size: 100 },
             ]);
             vi.mocked(historyModule.getRevisionContent).mockResolvedValue(
                 new TextEncoder().encode(baseContent).buffer as ArrayBuffer,
@@ -247,8 +247,7 @@ describe("SmartMergeStrategy branch coverage", () => {
 
             // Verify validation failed warning was logged
             const validationFailedCalls = mockCtx.log.mock.calls.filter(
-                (call: any[]) =>
-                    call[1] === "warn" && call[0].includes("VALIDATION FAILED"),
+                (call: any[]) => call[1] === "warn" && call[0].includes("VALIDATION FAILED"),
             );
             expect(validationFailedCalls.length).toBeGreaterThan(0);
 
@@ -263,7 +262,7 @@ describe("SmartMergeStrategy branch coverage", () => {
             const remoteContent = "base\nREMOTE_ONLY";
 
             vi.mocked(historyModule.listRevisions).mockResolvedValue([
-                { id: "rev1", hash: "abc123", mtime: Date.now(), size: 100 },
+                { id: "rev1", hash: "abc123", modifiedTime: Date.now(), size: 100 },
             ]);
             vi.mocked(historyModule.getRevisionContent).mockResolvedValue(
                 new TextEncoder().encode(baseContent).buffer as ArrayBuffer,
@@ -295,8 +294,7 @@ describe("SmartMergeStrategy branch coverage", () => {
 
             // Verify validation failed was logged for each margin attempt
             const validationFailedCalls = mockCtx.log.mock.calls.filter(
-                (call: any[]) =>
-                    call[1] === "warn" && call[0].includes("VALIDATION FAILED"),
+                (call: any[]) => call[1] === "warn" && call[0].includes("VALIDATION FAILED"),
             );
             // Should be called for each margin (4, 2, 1) - 3 times
             expect(validationFailedCalls.length).toBe(3);

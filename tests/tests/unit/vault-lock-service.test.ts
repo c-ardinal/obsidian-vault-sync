@@ -15,14 +15,20 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { VaultLockService, VAULT_LOCK_PATH, MIGRATION_LOCK_FILENAME } from "../../../src/services/vault-lock-service";
+import {
+    VaultLockService,
+    VAULT_LOCK_PATH,
+    MIGRATION_LOCK_FILENAME,
+} from "../../../src/services/vault-lock-service";
 import type { CloudAdapter, CloudFile } from "../../../src/types/adapter";
 
 function encode(str: string): ArrayBuffer {
     return new TextEncoder().encode(str).buffer as ArrayBuffer;
 }
 
-function createMockAdapter(): CloudAdapter & { _store: Map<string, { id: string; content: ArrayBuffer }> } {
+function createMockAdapter(): CloudAdapter & {
+    _store: Map<string, { id: string; content: ArrayBuffer }>;
+} {
     const store = new Map<string, { id: string; content: ArrayBuffer }>();
     let idCounter = 0;
 
@@ -31,7 +37,15 @@ function createMockAdapter(): CloudAdapter & { _store: Map<string, { id: string;
         getFileMetadata: vi.fn(async (path: string): Promise<CloudFile | null> => {
             const entry = store.get(path);
             if (!entry) return null;
-            return { id: entry.id, kind: "file", name: path, path, mtime: Date.now(), size: entry.content.byteLength, hash: "mock" } as CloudFile;
+            return {
+                id: entry.id,
+                kind: "file",
+                name: path,
+                path,
+                mtime: Date.now(),
+                size: entry.content.byteLength,
+                hash: "mock",
+            } as CloudFile;
         }),
         downloadFile: vi.fn(async (id: string): Promise<ArrayBuffer> => {
             for (const entry of store.values()) {
@@ -39,22 +53,58 @@ function createMockAdapter(): CloudAdapter & { _store: Map<string, { id: string;
             }
             throw new Error("Not found");
         }),
-        uploadFile: vi.fn(async (path: string, content: ArrayBuffer, _mtime: number, existingId?: string): Promise<CloudFile> => {
-            const id = existingId || `file_${++idCounter}`;
-            store.set(path, { id, content: content instanceof ArrayBuffer ? content : (content as any).buffer || content });
-            return { id, kind: "file", name: path, path, mtime: Date.now(), size: content.byteLength, hash: "mock" } as CloudFile;
-        }),
+        uploadFile: vi.fn(
+            async (
+                path: string,
+                content: ArrayBuffer,
+                _mtime: number,
+                existingId?: string,
+            ): Promise<CloudFile> => {
+                const id = existingId || `file_${++idCounter}`;
+                store.set(path, {
+                    id,
+                    content:
+                        content instanceof ArrayBuffer
+                            ? content
+                            : (content as any).buffer || content,
+                });
+                return {
+                    id,
+                    kind: "file",
+                    name: path,
+                    path,
+                    mtime: Date.now(),
+                    size: content.byteLength,
+                    hash: "mock",
+                } as CloudFile;
+            },
+        ),
         deleteFile: vi.fn(async (id: string): Promise<void> => {
             for (const [path, entry] of store.entries()) {
-                if (entry.id === id) { store.delete(path); return; }
+                if (entry.id === id) {
+                    store.delete(path);
+                    return;
+                }
             }
         }),
-        moveFile: vi.fn(async (id: string, newName: string, _newParent: string | null): Promise<CloudFile> => {
-            return { id, kind: "file", name: newName, path: newName, mtime: Date.now(), size: 0, hash: "mock" } as CloudFile;
-        }),
-        getFolderIdByName: vi.fn(async (name: string, _parentId?: string): Promise<string | null> => {
-            return `folder_${name}`;
-        }),
+        moveFile: vi.fn(
+            async (id: string, newName: string, _newParent: string | null): Promise<CloudFile> => {
+                return {
+                    id,
+                    kind: "file",
+                    name: newName,
+                    path: newName,
+                    mtime: Date.now(),
+                    size: 0,
+                    hash: "mock",
+                } as CloudFile;
+            },
+        ),
+        getFolderIdByName: vi.fn(
+            async (name: string, _parentId?: string): Promise<string | null> => {
+                return `folder_${name}`;
+            },
+        ),
     } as any;
 }
 
@@ -137,6 +187,21 @@ describe("VaultLockService", () => {
         it("should return null for corrupted migration lock", async () => {
             adapter._store.set(MIGRATION_LOCK_FILENAME, { id: "bad", content: encode("not-json") });
             expect(await svc.getMigrationLock()).toBeNull();
+        });
+
+        it("should call deleteFile when removing existing migration lock", async () => {
+            adapter._store.set(MIGRATION_LOCK_FILENAME, {
+                id: "lock123",
+                content: encode('{"deviceId":"x","timestamp":1}'),
+            });
+            await svc.removeMigrationLock();
+            expect(adapter.deleteFile).toHaveBeenCalledWith("lock123");
+            expect(adapter._store.has(MIGRATION_LOCK_FILENAME)).toBe(false);
+        });
+
+        it("should not throw when removing non-existent migration lock", async () => {
+            await expect(svc.removeMigrationLock()).resolves.not.toThrow();
+            expect(adapter.deleteFile).not.toHaveBeenCalled();
         });
     });
 

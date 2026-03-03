@@ -662,17 +662,35 @@ const FORMAT_SPECS: FormatSpec[] = [
     { key: "noticeHistoryRestoreAs", specJa: "💾 [履歴] 別名で復元しました: {0}" },
     { key: "noticeRevisionDeleted", specJa: "🗑️ [履歴] リビジョンを削除しました" },
     // ═══ Migration Notifications ═══
-    { key: "noticeMigrationStarted", specJa: "🚀 [E2EE] 移行を開始しました。Obsidianを閉じないでください。" },
+    {
+        key: "noticeMigrationStarted",
+        specJa: "🚀 [E2EE] 移行を開始しました。Obsidianを閉じないでください。",
+    },
     { key: "noticeMigrationComplete", specJa: "✅ [E2EE] 移行完了！Vaultが暗号化されました。" },
     { key: "noticeMigrationFailed", specJa: "❌ [E2EE] 移行失敗。ログを確認してください。" },
     // ═══ E2EE Notifications ═══
-    { key: "noticeVaultLocked", specJa: "🔒 [E2EE] Vaultがロック中のため同期を一時停止しています。コマンドパレットから「E2EE: ロック解除」を実行してください。" },
-    { key: "noticeE2EEAutoEnabled", specJa: "🔒 [E2EE] このVaultは他デバイスで暗号化されています。パスワードを入力してロックを解除してください。" },
-    { key: "noticeEngineVerifyFailed", specJa: "❌ [E2EE] エンジンの検証に失敗しました。プラグインを再インストールしてください。" },
+    {
+        key: "noticeVaultLocked",
+        specJa: "🔒 [E2EE] Vaultがロック中のため同期を一時停止しています。コマンドパレットから「E2EE: ロック解除」を実行してください。",
+    },
+    {
+        key: "noticeE2EEAutoEnabled",
+        specJa: "🔒 [E2EE] このVaultは他デバイスで暗号化されています。パスワードを入力してロックを解除してください。",
+    },
+    {
+        key: "noticeEngineVerifyFailed",
+        specJa: "❌ [E2EE] エンジンの検証に失敗しました。プラグインを再インストールしてください。",
+    },
     { key: "e2eeUnlockSuccess", specJa: "ロック解除しました！" },
     { key: "e2eeUnlockFailed", specJa: "パスワードが正しくありません。" },
-    { key: "e2eeSetupKeychainFailed", specJa: "警告: SecretStorageへのパスワード保存に失敗しました。\n次回起動時にパスワードの再入力が必要です。" },
-    { key: "e2eeInterruptedDone", specJa: "クリーンアップ完了。このモーダルを再度開いてください。" },
+    {
+        key: "e2eeSetupKeychainFailed",
+        specJa: "警告: SecretStorageへのパスワード保存に失敗しました。\n次回起動時にパスワードの再入力が必要です。",
+    },
+    {
+        key: "e2eeInterruptedDone",
+        specJa: "クリーンアップ完了。このモーダルを再度開いてください。",
+    },
 ];
 
 // ════════════════════════════════════════════════════════════════
@@ -690,7 +708,11 @@ describe("Notification Visibility Matrix", () => {
         app = new MockApp();
         adapter = new MockCloudAdapter();
         const vaultOps = new MockVaultOperations(app.vaultAdapter, app.vault);
-        const notifier: INotificationService = { show: (msg) => { new Notice(msg); } };
+        const notifier: INotificationService = {
+            show: (msg) => {
+                new Notice(msg);
+            },
+        };
         syncManager = new SyncManager(
             vaultOps,
             adapter,
@@ -816,6 +838,37 @@ describe("Notification Visibility Matrix", () => {
                     `${entry.key} should be suppressed at error level`,
                 ).toBe(0);
             }
+        });
+
+        it("shows critical error notifications (ALWAYS_SHOW) even at error level", async () => {
+            syncManager["settings"].notificationLevel = "error" as any;
+            syncManager.currentTrigger = "manual-sync";
+
+            const alwaysShowKeys = [
+                "noticeSyncFailedAuth",
+                "noticeSyncFailedNetwork",
+                "noticeSyncFailed",
+            ];
+
+            for (const key of alwaysShowKeys) {
+                (Notice as any).mockClear();
+                await syncManager.notify(key);
+                expect(
+                    (Notice as any).mock.calls.length,
+                    `${key} should be shown at error level (ALWAYS_SHOW)`,
+                ).toBeGreaterThan(0);
+            }
+        });
+
+        it("shows unknown keys at verbose/standard level (safe default)", async () => {
+            // Unknown keys should show as safe default (line 319 coverage)
+            // This only applies to non-error levels since error level returns false early
+            syncManager["settings"].notificationLevel = "verbose";
+            syncManager.currentTrigger = "manual-sync";
+
+            (Notice as any).mockClear();
+            await syncManager.notify("unknownNotificationKey");
+            expect((Notice as any).mock.calls.length).toBeGreaterThan(0);
         });
     });
 });
@@ -1110,7 +1163,11 @@ describe("Integration: Sync scenarios trigger correct notifications", () => {
         app = new MockApp();
         adapter = new MockCloudAdapter();
         const vaultOps = new MockVaultOperations(app.vaultAdapter, app.vault);
-        const notifier: INotificationService = { show: (msg) => { new Notice(msg); } };
+        const notifier: INotificationService = {
+            show: (msg) => {
+                new Notice(msg);
+            },
+        };
         syncManager = new SyncManager(
             vaultOps,
             adapter,

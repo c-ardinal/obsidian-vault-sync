@@ -4,7 +4,7 @@
  * @description
  * Tests for SyncManager class to achieve 100% coverage including:
  * - Constructor and initialization
- * - Settings management  
+ * - Settings management
  * - Activity callbacks (onActivityStart/onActivityEnd)
  * - Lock/unlock functionality
  * - Various sync operations
@@ -321,7 +321,12 @@ describe("SyncManager - Logger and Settings Management", () => {
     });
 
     it("should write to log file when content exists", async () => {
-        const today = new Date().toISOString().split("T")[0];
+        // Use same date format as writeToLogFile
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, "0");
+        const day = String(now.getDate()).padStart(2, "0");
+        const today = `${year}-${month}-${day}`;
         const logPath = `${PLUGIN_DIR}/logs/identity_pending/${today}.log`;
 
         await app.vaultAdapter.mkdir(`${PLUGIN_DIR}/logs/identity_pending`);
@@ -379,7 +384,9 @@ describe("SyncManager - Notifications", () => {
         (sm as any).settings.notificationLevel = "verbose";
 
         const loggerSpy = vi.spyOn((sm as any).logger, "notice").mockResolvedValue(undefined);
-        const markSpy = vi.spyOn((sm as any).logger, "markNoticeShown").mockImplementation(() => {});
+        const markSpy = vi
+            .spyOn((sm as any).logger, "markNoticeShown")
+            .mockImplementation(() => {});
 
         await sm.notify("noticeSyncing");
 
@@ -513,10 +520,18 @@ describe("SyncManager - History Management", () => {
     it("should list revisions for a file", async () => {
         // Upload a file (which creates a revision)
         const content = "test content";
-        await cloud.uploadFile("notes/test.md", new TextEncoder().encode(content).buffer as ArrayBuffer, Date.now());
+        await cloud.uploadFile(
+            "notes/test.md",
+            new TextEncoder().encode(content).buffer as ArrayBuffer,
+            Date.now(),
+        );
 
         // Upload again to create another revision
-        await cloud.uploadFile("notes/test.md", new TextEncoder().encode("updated").buffer as ArrayBuffer, Date.now());
+        await cloud.uploadFile(
+            "notes/test.md",
+            new TextEncoder().encode("updated").buffer as ArrayBuffer,
+            Date.now(),
+        );
 
         const revisions = await device.syncManager.listRevisions("notes/test.md");
         expect(revisions.length).toBeGreaterThanOrEqual(1);
@@ -533,14 +548,21 @@ describe("SyncManager - History Management", () => {
         // List revisions to get the revision ID
         const revisions = await device.syncManager.listRevisions("notes/test.md");
         if (revisions.length > 0) {
-            const revisionContent = await device.syncManager.getRevisionContent("notes/test.md", revisions[0].id);
+            const revisionContent = await device.syncManager.getRevisionContent(
+                "notes/test.md",
+                revisions[0].id,
+            );
             expect(revisionContent).toBeDefined();
         }
     });
 
     it("should set revision keep forever", async () => {
         const content = "test content";
-        await cloud.uploadFile("notes/test.md", new TextEncoder().encode(content).buffer as ArrayBuffer, Date.now());
+        await cloud.uploadFile(
+            "notes/test.md",
+            new TextEncoder().encode(content).buffer as ArrayBuffer,
+            Date.now(),
+        );
 
         const revisions = await device.syncManager.listRevisions("notes/test.md");
         if (revisions.length > 0) {
@@ -551,7 +573,7 @@ describe("SyncManager - History Management", () => {
 
     it("should delete revision when supported", async () => {
         const sm = device.syncManager as any;
-        
+
         // Mock adapter to support history with deleteRevision
         const mockDeleteRevision = vi.fn().mockResolvedValue(undefined);
         sm.baseAdapter.deleteRevision = mockDeleteRevision;
@@ -559,13 +581,17 @@ describe("SyncManager - History Management", () => {
 
         // Should use adapter's deleteRevision when available
         await sm.deleteRevision("notes/test.md", "rev_123");
-        
+
         expect(mockDeleteRevision).toHaveBeenCalledWith("notes/test.md", "rev_123");
     });
 
     it("should restore revision", async () => {
         const content = "original content";
-        await cloud.uploadFile("notes/test.md", new TextEncoder().encode(content).buffer as ArrayBuffer, Date.now());
+        await cloud.uploadFile(
+            "notes/test.md",
+            new TextEncoder().encode(content).buffer as ArrayBuffer,
+            Date.now(),
+        );
 
         const revisions = await device.syncManager.listRevisions("notes/test.md");
         if (revisions.length > 0) {
@@ -614,7 +640,9 @@ describe("SyncManager - Sync Operations", () => {
         const sm = device.syncManager as any;
 
         // Mock checkForLockFile to throw
-        sm.vaultLockService.checkForLockFile = vi.fn().mockRejectedValue(new Error("Network error"));
+        sm.vaultLockService.checkForLockFile = vi
+            .fn()
+            .mockRejectedValue(new Error("Network error"));
 
         await sm.requestSmartSync("manual-sync", false);
 
@@ -634,8 +662,8 @@ describe("SyncManager - Sync Operations", () => {
         // Should log vault locked message (via notify -> notice)
         expect(logSpy).toHaveBeenCalled();
         const calls = logSpy.mock.calls;
-        const hasVaultLockedLog = calls.some((call: any[]) => 
-            call[1]?.includes?.("Vault is locked") || call[0] === "notice"
+        const hasVaultLockedLog = calls.some(
+            (call: any[]) => call[1]?.includes?.("Vault is locked") || call[0] === "notice",
         );
         expect(hasVaultLockedLog).toBe(true);
     });
@@ -709,11 +737,16 @@ describe("SyncManager - State Management Methods", () => {
 
     it("should mark deleted path", () => {
         const sm = device.syncManager as any;
-        
+
         // Set up the file in index and localIndex
         sm.index["notes/test.md"] = { fileId: "test", mtime: Date.now(), size: 100, hash: "abc" };
-        sm.localIndex["notes/test.md"] = { fileId: "test", mtime: Date.now(), size: 100, hash: "abc" };
-        
+        sm.localIndex["notes/test.md"] = {
+            fileId: "test",
+            mtime: Date.now(),
+            size: 100,
+            hash: "abc",
+        };
+
         sm.markDeleted("notes/test.md");
 
         // Path should be tracked as dirty for deletion
@@ -733,8 +766,13 @@ describe("SyncManager - State Management Methods", () => {
 
         // Set up the old file in index and localIndex
         sm.index["notes/old.md"] = { fileId: "test", mtime: Date.now(), size: 100, hash: "abc" };
-        sm.localIndex["notes/old.md"] = { fileId: "test", mtime: Date.now(), size: 100, hash: "abc" };
-        
+        sm.localIndex["notes/old.md"] = {
+            fileId: "test",
+            mtime: Date.now(),
+            size: 100,
+            hash: "abc",
+        };
+
         sm.markRenamed("notes/old.md", "notes/new.md");
 
         // Dirty paths should track the rename
@@ -743,11 +781,16 @@ describe("SyncManager - State Management Methods", () => {
 
     it("should mark folder renamed", () => {
         const sm = device.syncManager as any;
-        
+
         // Set up the old folder in index and localIndex
         sm.index["notes/old-folder/"] = { fileId: "test", mtime: Date.now(), size: 0, hash: "abc" };
-        sm.localIndex["notes/old-folder/"] = { fileId: "test", mtime: Date.now(), size: 0, hash: "abc" };
-        
+        sm.localIndex["notes/old-folder/"] = {
+            fileId: "test",
+            mtime: Date.now(),
+            size: 0,
+            hash: "abc",
+        };
+
         sm.markFolderRenamed("notes/old-folder", "notes/new-folder");
 
         expect(sm.pendingFolderMoves.has("notes/new-folder")).toBe(true);
@@ -806,9 +849,11 @@ describe("SyncManager - Path Filtering Methods", () => {
         const sm = device.syncManager as any;
 
         // Check actual behavior - internal files managed by plugin
-        const result1 = sm.isManagedSeparately(".obsidian/plugins/obsidian-vault-sync/sync-index.json");
+        const result1 = sm.isManagedSeparately(
+            ".obsidian/plugins/obsidian-vault-sync/sync-index.json",
+        );
         const result2 = sm.isManagedSeparately("notes/test.md");
-        
+
         // The function should return boolean values
         expect(typeof result1).toBe("boolean");
         expect(typeof result2).toBe("boolean");
@@ -839,11 +884,11 @@ describe("SyncManager - Index Management", () => {
             },
             startPageToken: "123",
         };
-        
+
         // Compress and save to local vault
         const jsonStr = JSON.stringify(indexData);
         const compressed = await sm.compress(new TextEncoder().encode(jsonStr).buffer);
-        
+
         // Ensure directory exists
         await device.app.vaultAdapter.mkdir(PLUGIN_DIR);
         await device.app.vaultAdapter.writeBinary(sm.pluginDataPath, compressed);
@@ -874,7 +919,7 @@ describe("SyncManager - Index Management", () => {
         // Index should be saved locally
         const exists = await device.app.vaultAdapter.exists(sm.pluginDataPath);
         expect(exists).toBe(true);
-        
+
         // Verify content
         const content = await device.app.vaultAdapter.read(sm.pluginDataPath);
         const data = JSON.parse(content);
@@ -924,7 +969,9 @@ describe("SyncManager - Index Management", () => {
 
         await sm.saveLocalIndex();
 
-        const content = await device.app.vaultAdapter.read(`${PLUGIN_DIR}/data/local/local-index.json`);
+        const content = await device.app.vaultAdapter.read(
+            `${PLUGIN_DIR}/data/local/local-index.json`,
+        );
         const data = JSON.parse(content);
         expect(data.index["notes/test.md"]).toBeDefined();
     });
@@ -932,7 +979,12 @@ describe("SyncManager - Index Management", () => {
     it("should reset index", async () => {
         const sm = device.syncManager as any;
         sm.index["notes/test.md"] = { fileId: "test", mtime: Date.now(), size: 100, hash: "abc" };
-        sm.localIndex["notes/test.md"] = { fileId: "test", mtime: Date.now(), size: 100, hash: "abc" };
+        sm.localIndex["notes/test.md"] = {
+            fileId: "test",
+            mtime: Date.now(),
+            size: 100,
+            hash: "abc",
+        };
         sm.startPageToken = "123";
 
         await sm.resetIndex();
@@ -1024,12 +1076,12 @@ describe("SyncManager - Communication and Merge Locks", () => {
         // Acquire lock - this creates the communication file
         const acquireResult = await sm.acquireMergeLock("notes/test.md");
         expect(acquireResult.acquired).toBe(true);
-        
+
         // Directly verify the lock was saved to communication
         const commData = await sm.loadCommunication();
         expect(commData.mergeLocks["notes/test.md"]).toBeDefined();
         expect(commData.mergeLocks["notes/test.md"].holder).toBe("test_device");
-        
+
         // Now check the lock status - note: checkMergeLock loads fresh data
         // and verifies if the lock exists and is not expired
         result = await sm.checkMergeLock("notes/test.md");
@@ -1112,11 +1164,11 @@ describe("SyncManager - Error Handling and Edge Cases", () => {
 
     it("should handle requestSmartSync when already syncing", async () => {
         const sm = device.syncManager as any;
-        
+
         // Mock _requestSmartSync to avoid actual sync execution
         let requestCalled = false;
         const originalRequestSmartSync = sm.requestSmartSync;
-        
+
         // Set state to syncing (not IDLE)
         sm.syncState = "PUSHING";
         sm.syncRequestedWhileSyncing = false;
@@ -1127,7 +1179,7 @@ describe("SyncManager - Error Handling and Edge Cases", () => {
             sm.syncRequestedWhileSyncing = true;
             sm.nextSyncParams = { trigger: "manual-sync", scanVault: false };
         }
-        
+
         // Verify the queueing state was set
         expect(sm.syncRequestedWhileSyncing).toBe(true);
         expect(sm.nextSyncParams).toEqual({ trigger: "manual-sync", scanVault: false });
@@ -1165,27 +1217,27 @@ describe("SyncManager - Error Handling and Edge Cases", () => {
 
     it("should call executeFullScan method", async () => {
         const sm = device.syncManager as any;
-        
+
         // Mock the delegated function
-        const { _executeFullScan } = await import("../../../src/sync-manager/sync-orchestration");
-        
+        const { executeFullScan } = await import("../../../src/sync-manager/sync-orchestration");
+
         // Just verify the method exists and can be called (it will throw due to no context)
         expect(typeof sm.executeFullScan).toBe("function");
     });
 
     it("should call isProgressStale method", async () => {
         const sm = device.syncManager as any;
-        
+
         // Test the isProgressStale method
         sm.fullScanProgress = { path: "test", timestamp: Date.now() - 100000 };
-        
+
         const result = sm.isProgressStale();
         expect(typeof result).toBe("boolean");
     });
 
     it("should exercise linesToChars3 through merge methods", async () => {
         const sm = device.syncManager as any;
-        
+
         // These are private methods that delegate to merge.ts
         // We just verify they exist and are functions
         expect(typeof sm.linesToChars3).toBe("function");
@@ -1198,16 +1250,16 @@ describe("SyncManager - Error Handling and Edge Cases", () => {
 
     it("should test listFilesRecursive and getLocalFiles", async () => {
         const sm = device.syncManager as any;
-        
+
         // Create some test files
         await device.app.vaultAdapter.mkdir("notes");
         await device.app.vaultAdapter.write("notes/test1.md", "content1");
         await device.app.vaultAdapter.write("notes/test2.md", "content2");
-        
+
         // Test listFilesRecursive
         const files = await sm.listFilesRecursive("notes");
         expect(Array.isArray(files)).toBe(true);
-        
+
         // Test getLocalFiles
         const localFiles = await sm.getLocalFiles();
         expect(Array.isArray(localFiles)).toBe(true);
@@ -1215,10 +1267,10 @@ describe("SyncManager - Error Handling and Edge Cases", () => {
 
     it("should test ensureLocalFolder", async () => {
         const sm = device.syncManager as any;
-        
+
         // Test ensureLocalFolder
         await sm.ensureLocalFolder("notes/subfolder/test.md");
-        
+
         // Folder should be created
         const exists = await device.app.vaultAdapter.exists("notes/subfolder");
         expect(exists).toBe(true);
@@ -1226,37 +1278,37 @@ describe("SyncManager - Error Handling and Edge Cases", () => {
 
     it("should test shouldNotBeOnRemote", async () => {
         const sm = device.syncManager as any;
-        
+
         // Test various paths
         const result1 = sm.shouldNotBeOnRemote(".obsidian/workspace.json");
         const result2 = sm.shouldNotBeOnRemote("notes/test.md");
-        
+
         expect(typeof result1).toBe("boolean");
         expect(typeof result2).toBe("boolean");
     });
 
     it("should test clearPendingPushStates", async () => {
         const sm = device.syncManager as any;
-        
+
         // Set up some state with push action
-        sm.index["notes/test.md"] = { 
-            fileId: "test", 
-            mtime: Date.now(), 
-            size: 100, 
+        sm.index["notes/test.md"] = {
+            fileId: "test",
+            mtime: Date.now(),
+            size: 100,
             hash: "abc",
-            lastAction: "push"
+            lastAction: "push",
         };
-        sm.localIndex["notes/test.md"] = { 
-            fileId: "test", 
-            mtime: Date.now(), 
-            size: 100, 
+        sm.localIndex["notes/test.md"] = {
+            fileId: "test",
+            mtime: Date.now(),
+            size: 100,
             hash: "abc",
-            lastAction: "push"
+            lastAction: "push",
         };
-        
+
         // Clear pending push states - this clears lastAction from localIndex entries
         sm.clearPendingPushStates();
-        
+
         // The function clears pending push states from localIndex
         // Just verify it runs without error
         expect(true).toBe(true);

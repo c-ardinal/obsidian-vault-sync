@@ -23,7 +23,7 @@ vi.mock("../../../src/utils/md5", () => ({
 // Mock adapter factory with full control over internal dependencies
 function mockAdapter() {
     const adapter = new GoogleDriveAdapter("test-client-id", "test-secret", "TestVault", "MyRoot");
-    
+
     // Set tokens so auth check passes
     adapter.auth.accessToken = "mock-access-token";
     adapter.auth.refreshToken = "mock-refresh-token";
@@ -118,8 +118,8 @@ describe("GoogleDriveAdapter - Full Coverage", () => {
 
         it("should delegate setAuthConfig to auth service", () => {
             const spy = vi.spyOn(adapter.auth, "setAuthConfig").mockImplementation(() => {});
-            adapter.setAuthConfig("pkce", "https://proxy.example.com");
-            expect(spy).toHaveBeenCalledWith("pkce", "https://proxy.example.com");
+            adapter.setAuthConfig("default", "https://proxy.example.com");
+            expect(spy).toHaveBeenCalledWith("default", "https://proxy.example.com");
             spy.mockRestore();
         });
 
@@ -210,18 +210,18 @@ describe("GoogleDriveAdapter - Full Coverage", () => {
         it("should clear folder caches when setting tokens from unauthenticated to authenticated", () => {
             adapter.auth.accessToken = null; // Start unauthenticated
             const spy = vi.spyOn(pathResolver, "clearFolderCaches");
-            
+
             adapter.setTokens("new-access", "new-refresh", Date.now() + 3600000);
-            
+
             expect(spy).toHaveBeenCalled();
         });
 
         it("should not clear folder caches when already authenticated", () => {
             adapter.auth.accessToken = "existing-token"; // Already authenticated
             const spy = vi.spyOn(pathResolver, "clearFolderCaches");
-            
+
             adapter.setTokens("new-access", "new-refresh", Date.now() + 3600000);
-            
+
             expect(spy).not.toHaveBeenCalled();
         });
     });
@@ -235,9 +235,9 @@ describe("GoogleDriveAdapter - Full Coverage", () => {
             const logger = vi.fn();
             const authSpy = vi.spyOn(adapter.auth, "setLogger").mockImplementation(() => {});
             const resolverSpy = vi.spyOn(pathResolver, "setLogger").mockImplementation(() => {});
-            
+
             adapter.setLogger(logger);
-            
+
             expect(authSpy).toHaveBeenCalledWith(logger);
             expect(resolverSpy).toHaveBeenCalledWith(logger);
             authSpy.mockRestore();
@@ -302,16 +302,20 @@ describe("GoogleDriveAdapter - Full Coverage", () => {
 
     describe("getFileMetadata - Extended", () => {
         it("should handle file with empty md5Checksum", async () => {
-            mockFetch.mockResolvedValueOnce(jsonResponse({
-                files: [{
-                    id: "file-123",
-                    name: "test.md",
-                    mimeType: "text/plain",
-                    modifiedTime: "2026-01-01T00:00:00Z",
-                    size: "1024",
-                    md5Checksum: null,
-                }],
-            }));
+            mockFetch.mockResolvedValueOnce(
+                jsonResponse({
+                    files: [
+                        {
+                            id: "file-123",
+                            name: "test.md",
+                            mimeType: "text/plain",
+                            modifiedTime: "2026-01-01T00:00:00Z",
+                            size: "1024",
+                            md5Checksum: null,
+                        },
+                    ],
+                }),
+            );
 
             const result = await adapter.getFileMetadata("notes/test.md");
             expect(result).not.toBeNull();
@@ -319,15 +323,19 @@ describe("GoogleDriveAdapter - Full Coverage", () => {
         });
 
         it("should handle empty name in path", async () => {
-            mockFetch.mockResolvedValueOnce(jsonResponse({
-                files: [{
-                    id: "root-file",
-                    name: "rootfile.txt",
-                    mimeType: "text/plain",
-                    modifiedTime: "2026-01-01T00:00:00Z",
-                    size: "100",
-                }],
-            }));
+            mockFetch.mockResolvedValueOnce(
+                jsonResponse({
+                    files: [
+                        {
+                            id: "root-file",
+                            name: "rootfile.txt",
+                            mimeType: "text/plain",
+                            modifiedTime: "2026-01-01T00:00:00Z",
+                            size: "100",
+                        },
+                    ],
+                }),
+            );
 
             const result = await adapter.getFileMetadata("rootfile.txt");
             expect(result).not.toBeNull();
@@ -337,15 +345,27 @@ describe("GoogleDriveAdapter - Full Coverage", () => {
     describe("uploadFile - Extended", () => {
         it("should look up existing file when no existingFileId provided", async () => {
             // First call: getFileMetadata lookup
-            mockFetch.mockResolvedValueOnce(jsonResponse({
-                files: [{ id: "found-id", name: "existing.md", mimeType: "text/plain", modifiedTime: "2026-01-01T00:00:00Z", size: "100" }],
-            }));
+            mockFetch.mockResolvedValueOnce(
+                jsonResponse({
+                    files: [
+                        {
+                            id: "found-id",
+                            name: "existing.md",
+                            mimeType: "text/plain",
+                            modifiedTime: "2026-01-01T00:00:00Z",
+                            size: "100",
+                        },
+                    ],
+                }),
+            );
             // Second call: PATCH upload
-            mockFetch.mockResolvedValueOnce(jsonResponse({
-                id: "found-id",
-                md5Checksum: "hash123",
-                size: "100",
-            }));
+            mockFetch.mockResolvedValueOnce(
+                jsonResponse({
+                    id: "found-id",
+                    md5Checksum: "hash123",
+                    size: "100",
+                }),
+            );
 
             const content = new TextEncoder().encode("updated").buffer as ArrayBuffer;
             const result = await adapter.uploadFile("notes/existing.md", content, Date.now());
@@ -362,14 +382,20 @@ describe("GoogleDriveAdapter - Full Coverage", () => {
             // initiateResumableSession calls
             mockFetch
                 .mockResolvedValueOnce(jsonResponse({ files: [] })) // getFileMetadata
-                .mockResolvedValueOnce(jsonResponse({}, 200, { Location: "https://upload.googleapis.com/session/abc" }));
-            
+                .mockResolvedValueOnce(
+                    jsonResponse({}, 200, {
+                        Location: "https://upload.googleapis.com/session/abc",
+                    }),
+                );
+
             // uploadChunk call
-            mockFetch.mockResolvedValueOnce(jsonResponse({
-                id: "uploaded-id",
-                md5Checksum: "uploadhash",
-                size: "1000",
-            }));
+            mockFetch.mockResolvedValueOnce(
+                jsonResponse({
+                    id: "uploaded-id",
+                    md5Checksum: "uploadhash",
+                    size: "1000",
+                }),
+            );
 
             const content = new TextEncoder().encode("x".repeat(1000)).buffer as ArrayBuffer;
             const result = await adapter.uploadFileResumable("large.bin", content, Date.now());
@@ -380,16 +406,24 @@ describe("GoogleDriveAdapter - Full Coverage", () => {
 
         it("should use existing file id for resumable upload when found", async () => {
             mockFetch
-                .mockResolvedValueOnce(jsonResponse({ 
-                    files: [{ id: "existing-file-id", name: "large.bin" }] 
-                })) // getFileMetadata finds file
-                .mockResolvedValueOnce(jsonResponse({}, 200, { Location: "https://upload.googleapis.com/session/xyz" }));
-            
-            mockFetch.mockResolvedValueOnce(jsonResponse({
-                id: "existing-file-id",
-                md5Checksum: "newhash",
-                size: "500",
-            }));
+                .mockResolvedValueOnce(
+                    jsonResponse({
+                        files: [{ id: "existing-file-id", name: "large.bin" }],
+                    }),
+                ) // getFileMetadata finds file
+                .mockResolvedValueOnce(
+                    jsonResponse({}, 200, {
+                        Location: "https://upload.googleapis.com/session/xyz",
+                    }),
+                );
+
+            mockFetch.mockResolvedValueOnce(
+                jsonResponse({
+                    id: "existing-file-id",
+                    md5Checksum: "newhash",
+                    size: "500",
+                }),
+            );
 
             const content = new TextEncoder().encode("x".repeat(500)).buffer as ArrayBuffer;
             const result = await adapter.uploadFileResumable("large.bin", content, Date.now());
@@ -400,12 +434,19 @@ describe("GoogleDriveAdapter - Full Coverage", () => {
 
     describe("initiateResumableSession - Extended", () => {
         it("should use existing file id when provided", async () => {
-            mockFetch.mockResolvedValueOnce(jsonResponse({}, 200, { 
-                Location: "https://upload.googleapis.com/session/123" 
-            }));
+            mockFetch.mockResolvedValueOnce(
+                jsonResponse({}, 200, {
+                    Location: "https://upload.googleapis.com/session/123",
+                }),
+            );
 
-            const uri = await adapter.initiateResumableSession("file.bin", 1000, Date.now(), "provided-file-id");
-            
+            const uri = await adapter.initiateResumableSession(
+                "file.bin",
+                1000,
+                Date.now(),
+                "provided-file-id",
+            );
+
             expect(uri).toBe("https://upload.googleapis.com/session/123");
             const call = mockFetch.mock.calls[0];
             expect(call[0]).toContain("provided-file-id");
@@ -416,24 +457,28 @@ describe("GoogleDriveAdapter - Full Coverage", () => {
     describe("moveFile - Extended", () => {
         it("should rename file in same folder when newParentPath is null", async () => {
             // Get current file metadata
-            mockFetch.mockResolvedValueOnce(jsonResponse({
-                id: "move-id",
-                name: "old.md",
-                parents: ["same-parent"],
-                modifiedTime: "2026-01-01T00:00:00Z",
-                size: "100",
-                md5Checksum: "movehash",
-            }));
-            
+            mockFetch.mockResolvedValueOnce(
+                jsonResponse({
+                    id: "move-id",
+                    name: "old.md",
+                    parents: ["same-parent"],
+                    modifiedTime: "2026-01-01T00:00:00Z",
+                    size: "100",
+                    md5Checksum: "movehash",
+                }),
+            );
+
             // PATCH response (no parent change since newParentPath is null)
-            mockFetch.mockResolvedValueOnce(jsonResponse({
-                id: "move-id",
-                name: "new.md",
-                mimeType: "text/plain",
-                modifiedTime: "2026-01-01T00:00:00Z",
-                size: "100",
-                md5Checksum: "movehash",
-            }));
+            mockFetch.mockResolvedValueOnce(
+                jsonResponse({
+                    id: "move-id",
+                    name: "new.md",
+                    mimeType: "text/plain",
+                    modifiedTime: "2026-01-01T00:00:00Z",
+                    size: "100",
+                    md5Checksum: "movehash",
+                }),
+            );
 
             const result = await adapter.moveFile("move-id", "new.md", null);
             expect(result.id).toBe("move-id");
@@ -443,26 +488,30 @@ describe("GoogleDriveAdapter - Full Coverage", () => {
         it("should not change parents when new parent equals old parent", async () => {
             // Setup: old and new parent are the same
             pathResolver.resolveParentId.mockResolvedValue("same-parent-id");
-            
+
             // Get current file metadata
-            mockFetch.mockResolvedValueOnce(jsonResponse({
-                id: "move-id",
-                name: "old.md",
-                parents: ["same-parent-id"],
-                modifiedTime: "2026-01-01T00:00:00Z",
-                size: "100",
-                md5Checksum: "movehash",
-            }));
-            
+            mockFetch.mockResolvedValueOnce(
+                jsonResponse({
+                    id: "move-id",
+                    name: "old.md",
+                    parents: ["same-parent-id"],
+                    modifiedTime: "2026-01-01T00:00:00Z",
+                    size: "100",
+                    md5Checksum: "movehash",
+                }),
+            );
+
             // PATCH response
-            mockFetch.mockResolvedValueOnce(jsonResponse({
-                id: "move-id",
-                name: "new.md",
-                mimeType: "text/plain",
-                modifiedTime: "2026-01-01T00:00:00Z",
-                size: "100",
-                md5Checksum: "movehash",
-            }));
+            mockFetch.mockResolvedValueOnce(
+                jsonResponse({
+                    id: "move-id",
+                    name: "new.md",
+                    mimeType: "text/plain",
+                    modifiedTime: "2026-01-01T00:00:00Z",
+                    size: "100",
+                    md5Checksum: "movehash",
+                }),
+            );
 
             const result = await adapter.moveFile("move-id", "new.md", "same/folder");
             const patchCall = mockFetch.mock.calls[1];
@@ -478,22 +527,26 @@ describe("GoogleDriveAdapter - Full Coverage", () => {
 
     describe("getChanges - Extended", () => {
         it("should handle changes without parents", async () => {
-            mockFetch.mockResolvedValueOnce(jsonResponse({
-                newStartPageToken: "next-token",
-                changes: [{
-                    fileId: "orphan-file",
-                    removed: false,
-                    file: {
-                        id: "orphan-file",
-                        name: "orphan.md",
-                        mimeType: "text/plain",
-                        modifiedTime: "2026-01-01T00:00:00Z",
-                        size: "200",
-                        md5Checksum: "orphanhash",
-                        // No parents
-                    },
-                }],
-            }));
+            mockFetch.mockResolvedValueOnce(
+                jsonResponse({
+                    newStartPageToken: "next-token",
+                    changes: [
+                        {
+                            fileId: "orphan-file",
+                            removed: false,
+                            file: {
+                                id: "orphan-file",
+                                name: "orphan.md",
+                                mimeType: "text/plain",
+                                modifiedTime: "2026-01-01T00:00:00Z",
+                                size: "200",
+                                md5Checksum: "orphanhash",
+                                // No parents
+                            },
+                        },
+                    ],
+                }),
+            );
 
             const result = await adapter.getChanges("page-token");
             expect(result.changes).toHaveLength(1);
@@ -503,22 +556,26 @@ describe("GoogleDriveAdapter - Full Coverage", () => {
 
         it("should handle path resolution failure gracefully", async () => {
             pathResolver.resolveFullPath.mockRejectedValue(new Error("Resolution failed"));
-            
-            mockFetch.mockResolvedValueOnce(jsonResponse({
-                newStartPageToken: "next-token",
-                changes: [{
-                    fileId: "bad-file",
-                    removed: false,
-                    file: {
-                        id: "bad-file",
-                        name: "bad.md",
-                        mimeType: "text/plain",
-                        modifiedTime: "2026-01-01T00:00:00Z",
-                        size: "200",
-                        parents: ["parent-1"],
-                    },
-                }],
-            }));
+
+            mockFetch.mockResolvedValueOnce(
+                jsonResponse({
+                    newStartPageToken: "next-token",
+                    changes: [
+                        {
+                            fileId: "bad-file",
+                            removed: false,
+                            file: {
+                                id: "bad-file",
+                                name: "bad.md",
+                                mimeType: "text/plain",
+                                modifiedTime: "2026-01-01T00:00:00Z",
+                                size: "200",
+                                parents: ["parent-1"],
+                            },
+                        },
+                    ],
+                }),
+            );
 
             const result = await adapter.getChanges("page-token");
             expect(result.changes).toHaveLength(1);
@@ -528,36 +585,44 @@ describe("GoogleDriveAdapter - Full Coverage", () => {
         });
 
         it("should handle trashed files as removed", async () => {
-            mockFetch.mockResolvedValueOnce(jsonResponse({
-                newStartPageToken: "next-token",
-                changes: [{
-                    fileId: "trashed-file",
-                    removed: false,
-                    file: {
-                        id: "trashed-file",
-                        name: "trashed.md",
-                        mimeType: "text/plain",
-                        modifiedTime: "2026-01-01T00:00:00Z",
-                        size: "200",
-                        trashed: true,
-                        parents: ["parent-1"],
-                    },
-                }],
-            }));
+            mockFetch.mockResolvedValueOnce(
+                jsonResponse({
+                    newStartPageToken: "next-token",
+                    changes: [
+                        {
+                            fileId: "trashed-file",
+                            removed: false,
+                            file: {
+                                id: "trashed-file",
+                                name: "trashed.md",
+                                mimeType: "text/plain",
+                                modifiedTime: "2026-01-01T00:00:00Z",
+                                size: "200",
+                                trashed: true,
+                                parents: ["parent-1"],
+                            },
+                        },
+                    ],
+                }),
+            );
 
             const result = await adapter.getChanges("page-token");
             expect(result.changes[0].removed).toBe(true);
         });
 
         it("should handle change without file object", async () => {
-            mockFetch.mockResolvedValueOnce(jsonResponse({
-                newStartPageToken: "next-token",
-                changes: [{
-                    fileId: "file-only-id",
-                    removed: false,
-                    // No file object
-                }],
-            }));
+            mockFetch.mockResolvedValueOnce(
+                jsonResponse({
+                    newStartPageToken: "next-token",
+                    changes: [
+                        {
+                            fileId: "file-only-id",
+                            removed: false,
+                            // No file object
+                        },
+                    ],
+                }),
+            );
 
             const result = await adapter.getChanges("page-token");
             // When file is undefined and removed is false, the code doesn't mark it as removed
@@ -566,10 +631,12 @@ describe("GoogleDriveAdapter - Full Coverage", () => {
         });
 
         it("should handle nextPageToken in response", async () => {
-            mockFetch.mockResolvedValueOnce(jsonResponse({
-                nextPageToken: "more-pages",
-                changes: [],
-            }));
+            mockFetch.mockResolvedValueOnce(
+                jsonResponse({
+                    nextPageToken: "more-pages",
+                    changes: [],
+                }),
+            );
 
             const result = await adapter.getChanges("page-token");
             expect(result.nextPageToken).toBe("more-pages");
@@ -582,11 +649,20 @@ describe("GoogleDriveAdapter - Full Coverage", () => {
 
     describe("listFiles", () => {
         it("should list files in vault root", async () => {
-            mockFetch.mockResolvedValueOnce(jsonResponse({
-                files: [
-                    { id: "file-1", name: "doc.md", mimeType: "text/plain", modifiedTime: "2026-01-01T00:00:00Z", size: "100", md5Checksum: "hash1" },
-                ],
-            }));
+            mockFetch.mockResolvedValueOnce(
+                jsonResponse({
+                    files: [
+                        {
+                            id: "file-1",
+                            name: "doc.md",
+                            mimeType: "text/plain",
+                            modifiedTime: "2026-01-01T00:00:00Z",
+                            size: "100",
+                            md5Checksum: "hash1",
+                        },
+                    ],
+                }),
+            );
 
             const files = await adapter.listFiles();
             expect(pathResolver.clearFolderCaches).toHaveBeenCalled();
@@ -602,13 +678,33 @@ describe("GoogleDriveAdapter - Full Coverage", () => {
 
         it("should handle pagination with nextPageToken", async () => {
             mockFetch
-                .mockResolvedValueOnce(jsonResponse({
-                    files: [{ id: "file-1", name: "page1.md", mimeType: "text/plain", modifiedTime: "2026-01-01T00:00:00Z", size: "100" }],
-                    nextPageToken: "token-2",
-                }))
-                .mockResolvedValueOnce(jsonResponse({
-                    files: [{ id: "file-2", name: "page2.md", mimeType: "text/plain", modifiedTime: "2026-01-02T00:00:00Z", size: "200" }],
-                }));
+                .mockResolvedValueOnce(
+                    jsonResponse({
+                        files: [
+                            {
+                                id: "file-1",
+                                name: "page1.md",
+                                mimeType: "text/plain",
+                                modifiedTime: "2026-01-01T00:00:00Z",
+                                size: "100",
+                            },
+                        ],
+                        nextPageToken: "token-2",
+                    }),
+                )
+                .mockResolvedValueOnce(
+                    jsonResponse({
+                        files: [
+                            {
+                                id: "file-2",
+                                name: "page2.md",
+                                mimeType: "text/plain",
+                                modifiedTime: "2026-01-02T00:00:00Z",
+                                size: "200",
+                            },
+                        ],
+                    }),
+                );
 
             const files = await adapter.listFiles();
             expect(files).toHaveLength(2);
@@ -617,62 +713,118 @@ describe("GoogleDriveAdapter - Full Coverage", () => {
 
         it("should recursively walk subfolders", async () => {
             mockFetch
-                .mockResolvedValueOnce(jsonResponse({
-                    files: [
-                        { id: "folder-1", name: "docs", mimeType: "application/vnd.google-apps.folder", modifiedTime: "2026-01-01T00:00:00Z", size: "0" },
-                        { id: "file-1", name: "root.md", mimeType: "text/plain", modifiedTime: "2026-01-01T00:00:00Z", size: "100" },
-                    ],
-                }))
-                .mockResolvedValueOnce(jsonResponse({
-                    files: [
-                        { id: "file-2", name: "sub.md", mimeType: "text/plain", modifiedTime: "2026-01-02T00:00:00Z", size: "200" },
-                    ],
-                }));
+                .mockResolvedValueOnce(
+                    jsonResponse({
+                        files: [
+                            {
+                                id: "folder-1",
+                                name: "docs",
+                                mimeType: "application/vnd.google-apps.folder",
+                                modifiedTime: "2026-01-01T00:00:00Z",
+                                size: "0",
+                            },
+                            {
+                                id: "file-1",
+                                name: "root.md",
+                                mimeType: "text/plain",
+                                modifiedTime: "2026-01-01T00:00:00Z",
+                                size: "100",
+                            },
+                        ],
+                    }),
+                )
+                .mockResolvedValueOnce(
+                    jsonResponse({
+                        files: [
+                            {
+                                id: "file-2",
+                                name: "sub.md",
+                                mimeType: "text/plain",
+                                modifiedTime: "2026-01-02T00:00:00Z",
+                                size: "200",
+                            },
+                        ],
+                    }),
+                );
 
             const files = await adapter.listFiles();
             // Folders are included in the listing
             expect(files).toHaveLength(3);
-            expect(files.some(f => f.path === "docs")).toBe(true);
-            expect(files.some(f => f.path === "docs/sub.md")).toBe(true);
-            expect(files.some(f => f.path === "root.md")).toBe(true);
+            expect(files.some((f) => f.path === "docs")).toBe(true);
+            expect(files.some((f) => f.path === "docs/sub.md")).toBe(true);
+            expect(files.some((f) => f.path === "root.md")).toBe(true);
         });
 
         it("should handle nested folder structures", async () => {
             mockFetch
-                .mockResolvedValueOnce(jsonResponse({
-                    files: [
-                        { id: "level1", name: "level1", mimeType: "application/vnd.google-apps.folder", modifiedTime: "2026-01-01T00:00:00Z", size: "0" },
-                    ],
-                }))
-                .mockResolvedValueOnce(jsonResponse({
-                    files: [
-                        { id: "level2", name: "level2", mimeType: "application/vnd.google-apps.folder", modifiedTime: "2026-01-01T00:00:00Z", size: "0" },
-                    ],
-                }))
-                .mockResolvedValueOnce(jsonResponse({
-                    files: [
-                        { id: "deep-file", name: "deep.txt", mimeType: "text/plain", modifiedTime: "2026-01-01T00:00:00Z", size: "50" },
-                    ],
-                }));
+                .mockResolvedValueOnce(
+                    jsonResponse({
+                        files: [
+                            {
+                                id: "level1",
+                                name: "level1",
+                                mimeType: "application/vnd.google-apps.folder",
+                                modifiedTime: "2026-01-01T00:00:00Z",
+                                size: "0",
+                            },
+                        ],
+                    }),
+                )
+                .mockResolvedValueOnce(
+                    jsonResponse({
+                        files: [
+                            {
+                                id: "level2",
+                                name: "level2",
+                                mimeType: "application/vnd.google-apps.folder",
+                                modifiedTime: "2026-01-01T00:00:00Z",
+                                size: "0",
+                            },
+                        ],
+                    }),
+                )
+                .mockResolvedValueOnce(
+                    jsonResponse({
+                        files: [
+                            {
+                                id: "deep-file",
+                                name: "deep.txt",
+                                mimeType: "text/plain",
+                                modifiedTime: "2026-01-01T00:00:00Z",
+                                size: "50",
+                            },
+                        ],
+                    }),
+                );
 
             const files = await adapter.listFiles();
             // Folders are included in the listing
             expect(files).toHaveLength(3);
-            expect(files.some(f => f.path === "level1")).toBe(true);
-            expect(files.some(f => f.path === "level1/level2")).toBe(true);
-            expect(files.some(f => f.path === "level1/level2/deep.txt")).toBe(true);
+            expect(files.some((f) => f.path === "level1")).toBe(true);
+            expect(files.some((f) => f.path === "level1/level2")).toBe(true);
+            expect(files.some((f) => f.path === "level1/level2/deep.txt")).toBe(true);
         });
 
         it("should handle empty folders", async () => {
             mockFetch
-                .mockResolvedValueOnce(jsonResponse({
-                    files: [
-                        { id: "empty-folder", name: "empty", mimeType: "application/vnd.google-apps.folder", modifiedTime: "2026-01-01T00:00:00Z", size: "0" },
-                    ],
-                }))
-                .mockResolvedValueOnce(jsonResponse({
-                    files: [],
-                }));
+                .mockResolvedValueOnce(
+                    jsonResponse({
+                        files: [
+                            {
+                                id: "empty-folder",
+                                name: "empty",
+                                mimeType: "application/vnd.google-apps.folder",
+                                modifiedTime: "2026-01-01T00:00:00Z",
+                                size: "0",
+                            },
+                        ],
+                    }),
+                )
+                .mockResolvedValueOnce(
+                    jsonResponse({
+                        files: [],
+                    }),
+                );
 
             const files = await adapter.listFiles();
             // The folder itself is included even if empty
@@ -681,9 +833,19 @@ describe("GoogleDriveAdapter - Full Coverage", () => {
         });
 
         it("should use provided folderId instead of vault root", async () => {
-            mockFetch.mockResolvedValueOnce(jsonResponse({
-                files: [{ id: "file-1", name: "custom.md", mimeType: "text/plain", modifiedTime: "2026-01-01T00:00:00Z", size: "100" }],
-            }));
+            mockFetch.mockResolvedValueOnce(
+                jsonResponse({
+                    files: [
+                        {
+                            id: "file-1",
+                            name: "custom.md",
+                            mimeType: "text/plain",
+                            modifiedTime: "2026-01-01T00:00:00Z",
+                            size: "100",
+                        },
+                    ],
+                }),
+            );
 
             const files = await adapter.listFiles("custom-folder-id");
             expect(files).toHaveLength(1);
@@ -693,11 +855,20 @@ describe("GoogleDriveAdapter - Full Coverage", () => {
         });
 
         it("should include md5Checksum for files with hash", async () => {
-            mockFetch.mockResolvedValueOnce(jsonResponse({
-                files: [
-                    { id: "file-1", name: "hashed.md", mimeType: "text/plain", modifiedTime: "2026-01-01T00:00:00Z", size: "100", md5Checksum: "abc123" },
-                ],
-            }));
+            mockFetch.mockResolvedValueOnce(
+                jsonResponse({
+                    files: [
+                        {
+                            id: "file-1",
+                            name: "hashed.md",
+                            mimeType: "text/plain",
+                            modifiedTime: "2026-01-01T00:00:00Z",
+                            size: "100",
+                            md5Checksum: "abc123",
+                        },
+                    ],
+                }),
+            );
 
             const files = await adapter.listFiles();
             expect(files[0].hash).toBe("abc123");
@@ -711,22 +882,34 @@ describe("GoogleDriveAdapter - Full Coverage", () => {
     describe("listRevisions - Extended", () => {
         it("should include author information when available", async () => {
             // getFileMetadata
-            mockFetch.mockResolvedValueOnce(jsonResponse({
-                files: [{ id: "rev-file", name: "doc.md", mimeType: "text/plain", modifiedTime: "2026-01-01T00:00:00Z", size: "100" }],
-            }));
+            mockFetch.mockResolvedValueOnce(
+                jsonResponse({
+                    files: [
+                        {
+                            id: "rev-file",
+                            name: "doc.md",
+                            mimeType: "text/plain",
+                            modifiedTime: "2026-01-01T00:00:00Z",
+                            size: "100",
+                        },
+                    ],
+                }),
+            );
             // listRevisions
-            mockFetch.mockResolvedValueOnce(jsonResponse({
-                revisions: [
-                    { 
-                        id: "r1", 
-                        modifiedTime: "2026-01-01T00:00:00Z", 
-                        size: "50", 
-                        keepForever: false, 
-                        md5Checksum: "h1",
-                        lastModifyingUser: { displayName: "John Doe" }
-                    },
-                ],
-            }));
+            mockFetch.mockResolvedValueOnce(
+                jsonResponse({
+                    revisions: [
+                        {
+                            id: "r1",
+                            modifiedTime: "2026-01-01T00:00:00Z",
+                            size: "50",
+                            keepForever: false,
+                            md5Checksum: "h1",
+                            lastModifyingUser: { displayName: "John Doe" },
+                        },
+                    ],
+                }),
+            );
 
             const revisions = await adapter.listRevisions("doc.md");
             expect(revisions).toHaveLength(1);
@@ -734,9 +917,19 @@ describe("GoogleDriveAdapter - Full Coverage", () => {
         });
 
         it("should handle empty revisions list", async () => {
-            mockFetch.mockResolvedValueOnce(jsonResponse({
-                files: [{ id: "rev-file", name: "doc.md", mimeType: "text/plain", modifiedTime: "2026-01-01T00:00:00Z", size: "100" }],
-            }));
+            mockFetch.mockResolvedValueOnce(
+                jsonResponse({
+                    files: [
+                        {
+                            id: "rev-file",
+                            name: "doc.md",
+                            mimeType: "text/plain",
+                            modifiedTime: "2026-01-01T00:00:00Z",
+                            size: "100",
+                        },
+                    ],
+                }),
+            );
             mockFetch.mockResolvedValueOnce(jsonResponse({ revisions: [] }));
 
             const revisions = await adapter.listRevisions("doc.md");
@@ -746,16 +939,28 @@ describe("GoogleDriveAdapter - Full Coverage", () => {
         it("should throw when file not found for listRevisions", async () => {
             mockFetch.mockResolvedValueOnce(jsonResponse({ files: [] }));
 
-            await expect(adapter.listRevisions("missing.md")).rejects.toThrow("File not found: missing.md");
+            await expect(adapter.listRevisions("missing.md")).rejects.toThrow(
+                "File not found: missing.md",
+            );
         });
     });
 
     describe("getRevisionContent - Lines 580-607", () => {
         it("should download revision content successfully", async () => {
             // getFileMetadata
-            mockFetch.mockResolvedValueOnce(jsonResponse({
-                files: [{ id: "file-1", name: "doc.md", mimeType: "text/plain", modifiedTime: "2026-01-01T00:00:00Z", size: "100" }],
-            }));
+            mockFetch.mockResolvedValueOnce(
+                jsonResponse({
+                    files: [
+                        {
+                            id: "file-1",
+                            name: "doc.md",
+                            mimeType: "text/plain",
+                            modifiedTime: "2026-01-01T00:00:00Z",
+                            size: "100",
+                        },
+                    ],
+                }),
+            );
             // get revision metadata - use hash that matches mocked md5
             mockFetch.mockResolvedValueOnce(jsonResponse({ md5Checksum: "mocked-md5-hash" }));
             // download content
@@ -770,9 +975,19 @@ describe("GoogleDriveAdapter - Full Coverage", () => {
 
         it("should skip hash verification when md5Checksum not provided", async () => {
             // getFileMetadata
-            mockFetch.mockResolvedValueOnce(jsonResponse({
-                files: [{ id: "file-1", name: "doc.md", mimeType: "text/plain", modifiedTime: "2026-01-01T00:00:00Z", size: "100" }],
-            }));
+            mockFetch.mockResolvedValueOnce(
+                jsonResponse({
+                    files: [
+                        {
+                            id: "file-1",
+                            name: "doc.md",
+                            mimeType: "text/plain",
+                            modifiedTime: "2026-01-01T00:00:00Z",
+                            size: "100",
+                        },
+                    ],
+                }),
+            );
             // get revision metadata - no checksum
             mockFetch.mockResolvedValueOnce(jsonResponse({}));
             // download content
@@ -792,9 +1007,19 @@ describe("GoogleDriveAdapter - Full Coverage", () => {
             mockMd5.mockReturnValueOnce("different-hash");
 
             // getFileMetadata
-            mockFetch.mockResolvedValueOnce(jsonResponse({
-                files: [{ id: "file-1", name: "doc.md", mimeType: "text/plain", modifiedTime: "2026-01-01T00:00:00Z", size: "100" }],
-            }));
+            mockFetch.mockResolvedValueOnce(
+                jsonResponse({
+                    files: [
+                        {
+                            id: "file-1",
+                            name: "doc.md",
+                            mimeType: "text/plain",
+                            modifiedTime: "2026-01-01T00:00:00Z",
+                            size: "100",
+                        },
+                    ],
+                }),
+            );
             // get revision metadata - hash that won't match
             mockFetch.mockResolvedValueOnce(jsonResponse({ md5Checksum: "expected-hash" }));
             // download content
@@ -803,14 +1028,18 @@ describe("GoogleDriveAdapter - Full Coverage", () => {
                 arrayBuffer: () => Promise.resolve(content),
             });
 
-            await expect(adapter.getRevisionContent("doc.md", "rev-1")).rejects.toThrow("Integrity check failed");
+            await expect(adapter.getRevisionContent("doc.md", "rev-1")).rejects.toThrow(
+                "Integrity check failed",
+            );
         });
 
         it("should throw when file not found for getRevisionContent", async () => {
             // getFileMetadata returns null (file not found)
             mockFetch.mockResolvedValueOnce(jsonResponse({ files: [] }));
 
-            await expect(adapter.getRevisionContent("missing.md", "rev-1")).rejects.toThrow("File not found: missing.md");
+            await expect(adapter.getRevisionContent("missing.md", "rev-1")).rejects.toThrow(
+                "File not found: missing.md",
+            );
         });
     });
 
@@ -818,32 +1047,54 @@ describe("GoogleDriveAdapter - Full Coverage", () => {
         it("should throw when file not found for setRevisionKeepForever", async () => {
             mockFetch.mockResolvedValueOnce(jsonResponse({ files: [] }));
 
-            await expect(adapter.setRevisionKeepForever("missing.md", "rev-1", true)).rejects.toThrow("File not found: missing.md");
+            await expect(
+                adapter.setRevisionKeepForever("missing.md", "rev-1", true),
+            ).rejects.toThrow("File not found: missing.md");
         });
 
         it("should set keepForever flag on revision", async () => {
             // getFileMetadata
-            mockFetch.mockResolvedValueOnce(jsonResponse({
-                files: [{ id: "file-1", name: "doc.md", mimeType: "text/plain", modifiedTime: "2026-01-01T00:00:00Z", size: "100" }],
-            }));
+            mockFetch.mockResolvedValueOnce(
+                jsonResponse({
+                    files: [
+                        {
+                            id: "file-1",
+                            name: "doc.md",
+                            mimeType: "text/plain",
+                            modifiedTime: "2026-01-01T00:00:00Z",
+                            size: "100",
+                        },
+                    ],
+                }),
+            );
             // PATCH revision
             mockFetch.mockResolvedValueOnce(jsonResponse({}));
 
             await adapter.setRevisionKeepForever("doc.md", "rev-1", true);
-            
+
             const patchCall = mockFetch.mock.calls[1];
             expect(patchCall[1].method).toBe("PATCH");
             expect(JSON.parse(patchCall[1].body)).toEqual({ keepForever: true });
         });
 
         it("should unset keepForever flag on revision", async () => {
-            mockFetch.mockResolvedValueOnce(jsonResponse({
-                files: [{ id: "file-1", name: "doc.md", mimeType: "text/plain", modifiedTime: "2026-01-01T00:00:00Z", size: "100" }],
-            }));
+            mockFetch.mockResolvedValueOnce(
+                jsonResponse({
+                    files: [
+                        {
+                            id: "file-1",
+                            name: "doc.md",
+                            mimeType: "text/plain",
+                            modifiedTime: "2026-01-01T00:00:00Z",
+                            size: "100",
+                        },
+                    ],
+                }),
+            );
             mockFetch.mockResolvedValueOnce(jsonResponse({}));
 
             await adapter.setRevisionKeepForever("doc.md", "rev-1", false);
-            
+
             const patchCall = mockFetch.mock.calls[1];
             expect(JSON.parse(patchCall[1].body)).toEqual({ keepForever: false });
         });
@@ -852,14 +1103,24 @@ describe("GoogleDriveAdapter - Full Coverage", () => {
     describe("deleteRevision - Lines 628-637", () => {
         it("should delete revision", async () => {
             // getFileMetadata
-            mockFetch.mockResolvedValueOnce(jsonResponse({
-                files: [{ id: "file-1", name: "doc.md", mimeType: "text/plain", modifiedTime: "2026-01-01T00:00:00Z", size: "100" }],
-            }));
+            mockFetch.mockResolvedValueOnce(
+                jsonResponse({
+                    files: [
+                        {
+                            id: "file-1",
+                            name: "doc.md",
+                            mimeType: "text/plain",
+                            modifiedTime: "2026-01-01T00:00:00Z",
+                            size: "100",
+                        },
+                    ],
+                }),
+            );
             // DELETE revision
             mockFetch.mockResolvedValueOnce(jsonResponse(null, 204));
 
             await adapter.deleteRevision("doc.md", "rev-1");
-            
+
             const deleteCall = mockFetch.mock.calls[1];
             expect(deleteCall[1].method).toBe("DELETE");
             expect(deleteCall[0]).toContain("/revisions/rev-1");
@@ -892,9 +1153,19 @@ describe("GoogleDriveAdapter - Full Coverage", () => {
         });
 
         it("should accept valid paths with dots", async () => {
-            mockFetch.mockResolvedValueOnce(jsonResponse({
-                files: [{ id: "file-1", name: "file.name.md", mimeType: "text/plain", modifiedTime: "2026-01-01T00:00:00Z", size: "100" }],
-            }));
+            mockFetch.mockResolvedValueOnce(
+                jsonResponse({
+                    files: [
+                        {
+                            id: "file-1",
+                            name: "file.name.md",
+                            mimeType: "text/plain",
+                            modifiedTime: "2026-01-01T00:00:00Z",
+                            size: "100",
+                        },
+                    ],
+                }),
+            );
             mockFetch.mockResolvedValueOnce(jsonResponse({ revisions: [] }));
 
             // Should not throw
@@ -902,9 +1173,19 @@ describe("GoogleDriveAdapter - Full Coverage", () => {
         });
 
         it("should accept valid paths with hyphens and underscores", async () => {
-            mockFetch.mockResolvedValueOnce(jsonResponse({
-                files: [{ id: "file-1", name: "my-file_name.md", mimeType: "text/plain", modifiedTime: "2026-01-01T00:00:00Z", size: "100" }],
-            }));
+            mockFetch.mockResolvedValueOnce(
+                jsonResponse({
+                    files: [
+                        {
+                            id: "file-1",
+                            name: "my-file_name.md",
+                            mimeType: "text/plain",
+                            modifiedTime: "2026-01-01T00:00:00Z",
+                            size: "100",
+                        },
+                    ],
+                }),
+            );
             mockFetch.mockResolvedValueOnce(jsonResponse({ revisions: [] }));
 
             await expect(adapter.listRevisions("my-file_name.md")).resolves.toBeDefined();
@@ -932,7 +1213,7 @@ describe("GoogleDriveAdapter - Full Coverage", () => {
         it("should clone without logger", () => {
             // Ensure no logger is set
             (adapter as any).logger = null;
-            
+
             const cloned = adapter.cloneWithNewVaultName("ClonedVault") as GoogleDriveAdapter;
             expect(cloned.vaultName).toBe("ClonedVault");
         });
@@ -945,10 +1226,10 @@ describe("GoogleDriveAdapter - Full Coverage", () => {
     describe("HTTP Client Integration", () => {
         it("should escape query values properly", () => {
             const escapeSpy = vi.spyOn(http, "escapeQueryValue").mockReturnValue("escaped\\'value");
-            
+
             // Trigger a query that needs escaping
             mockFetch.mockResolvedValueOnce(jsonResponse({ files: [] }));
-            
+
             // Note: This test verifies the escapeQueryValue method exists and is called
             expect(() => http.escapeQueryValue("test'value")).not.toThrow();
             escapeSpy.mockRestore();
@@ -968,29 +1249,37 @@ describe("GoogleDriveAdapter - Full Coverage", () => {
         });
 
         it("should handle missing size in file metadata", async () => {
-            mockFetch.mockResolvedValueOnce(jsonResponse({
-                files: [{
-                    id: "file-1",
-                    name: "nosize.md",
-                    mimeType: "text/plain",
-                    modifiedTime: "2026-01-01T00:00:00Z",
-                    // No size field
-                }],
-            }));
+            mockFetch.mockResolvedValueOnce(
+                jsonResponse({
+                    files: [
+                        {
+                            id: "file-1",
+                            name: "nosize.md",
+                            mimeType: "text/plain",
+                            modifiedTime: "2026-01-01T00:00:00Z",
+                            // No size field
+                        },
+                    ],
+                }),
+            );
 
             const files = await adapter.listFiles();
             expect(files[0].size).toBe(0);
         });
 
         it("should handle null file in getChanges", async () => {
-            mockFetch.mockResolvedValueOnce(jsonResponse({
-                newStartPageToken: "next",
-                changes: [{
-                    fileId: "null-file",
-                    removed: false,
-                    file: null,
-                }],
-            }));
+            mockFetch.mockResolvedValueOnce(
+                jsonResponse({
+                    newStartPageToken: "next",
+                    changes: [
+                        {
+                            fileId: "null-file",
+                            removed: false,
+                            file: null,
+                        },
+                    ],
+                }),
+            );
 
             const result = await adapter.getChanges("token");
             // When file is null and removed is false, the code doesn't mark it as removed

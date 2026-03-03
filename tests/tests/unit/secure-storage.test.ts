@@ -27,6 +27,13 @@ import { MockApp, MockVaultOperations } from "../../helpers/mock-vault-adapter";
 import { Platform } from "../../__mocks__/obsidian";
 import * as crypto from "node:crypto";
 
+// Mock child_process module
+vi.mock("child_process", () => ({
+    spawn: vi.fn(() => ({
+        on: vi.fn(),
+    })),
+}));
+
 // Polyfill window.crypto for tests
 if (typeof window === "undefined") {
     (global as any).window = {
@@ -129,7 +136,7 @@ describe("SecureStorage", () => {
             const secretId = (storage as any).secretId;
             expect(app.secretStorage.getSecret(secretId)).toBe(JSON.stringify(data));
             expect(consoleSpy).toHaveBeenCalledWith(
-                expect.stringContaining("Saved credentials to SecretStorage")
+                expect.stringContaining("Saved credentials to SecretStorage"),
             );
 
             consoleSpy.mockRestore();
@@ -143,7 +150,9 @@ describe("SecureStorage", () => {
 
             // Now restore SecretStorage and save again
             (storage as any).secretStorage = app.secretStorage;
-            const cleanupSpy = vi.spyOn(storage as any, "cleanupFiles").mockResolvedValue(undefined);
+            const cleanupSpy = vi
+                .spyOn(storage as any, "cleanupFiles")
+                .mockResolvedValue(undefined);
 
             await storage.saveCredentials({ token: "new" });
 
@@ -171,13 +180,11 @@ describe("SecureStorage", () => {
             // Should have warned about SecretStorage failure
             expect(warnSpy).toHaveBeenCalledWith(
                 expect.stringContaining("Failed to save to SecretStorage"),
-                expect.any(Error)
+                expect.any(Error),
             );
 
             // Should have logged file fallback
-            expect(logSpy).toHaveBeenCalledWith(
-                expect.stringContaining("Saving credentials to")
-            );
+            expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("Saving credentials to"));
 
             // Verify file was created
             expect(await app.vaultAdapter.exists("data/local/.sync-state")).toBe(true);
@@ -210,10 +217,12 @@ describe("SecureStorage", () => {
 
             const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-            await expect(fileStorage.saveCredentials({ test: "data" })).rejects.toThrow("Disk full");
+            await expect(fileStorage.saveCredentials({ test: "data" })).rejects.toThrow(
+                "Disk full",
+            );
             expect(errorSpy).toHaveBeenCalledWith(
                 expect.stringContaining("Failed to save credentials to file"),
-                expect.any(Error)
+                expect.any(Error),
             );
 
             errorSpy.mockRestore();
@@ -223,7 +232,9 @@ describe("SecureStorage", () => {
             const vaultOps = new MockVaultOperations(app.vaultAdapter, app.vault);
             const fileStorage = new SecureStorage(vaultOps, "", SECRET, null);
 
-            const hideFileSpy = vi.spyOn(fileStorage as any, "hideFile").mockImplementation(() => {});
+            const hideFileSpy = vi
+                .spyOn(fileStorage as any, "hideFile")
+                .mockImplementation(() => {});
 
             await fileStorage.saveCredentials({ test: "data" });
 
@@ -237,7 +248,9 @@ describe("SecureStorage", () => {
             // Save once to create file
             await fileStorage.saveCredentials({ test: "data1" });
 
-            const hideFileSpy = vi.spyOn(fileStorage as any, "hideFile").mockImplementation(() => {});
+            const hideFileSpy = vi
+                .spyOn(fileStorage as any, "hideFile")
+                .mockImplementation(() => {});
 
             // Save again
             await fileStorage.saveCredentials({ test: "data2" });
@@ -256,7 +269,7 @@ describe("SecureStorage", () => {
 
             expect(loaded).toEqual(data);
             expect(logSpy).toHaveBeenCalledWith(
-                expect.stringContaining("Loaded credentials from SecretStorage")
+                expect.stringContaining("Loaded credentials from SecretStorage"),
             );
 
             logSpy.mockRestore();
@@ -266,7 +279,9 @@ describe("SecureStorage", () => {
             const data = { token: "secret" };
             await storage.saveCredentials(data);
 
-            const cleanupSpy = vi.spyOn(storage as any, "cleanupFiles").mockResolvedValue(undefined);
+            const cleanupSpy = vi
+                .spyOn(storage as any, "cleanupFiles")
+                .mockResolvedValue(undefined);
 
             await storage.loadCredentials();
 
@@ -296,7 +311,7 @@ describe("SecureStorage", () => {
 
             expect(loaded).toBeNull();
             expect(logSpy).toHaveBeenCalledWith(
-                expect.stringContaining("No credentials file found")
+                expect.stringContaining("No credentials file found"),
             );
 
             logSpy.mockRestore();
@@ -312,7 +327,7 @@ describe("SecureStorage", () => {
             // Corrupt with too short data (less than SALT_LENGTH + IV_LENGTH = 28 bytes)
             await app.vaultAdapter.writeBinary(
                 "data/local/.sync-state",
-                new Uint8Array([1, 2, 3]).buffer
+                new Uint8Array([1, 2, 3]).buffer,
             );
 
             const loaded = await storage.loadCredentials();
@@ -339,7 +354,7 @@ describe("SecureStorage", () => {
             expect(loaded).toBeNull();
             expect(errorSpy).toHaveBeenCalledWith(
                 expect.stringContaining("Failed to decrypt file"),
-                expect.any(Error)
+                expect.any(Error),
             );
 
             errorSpy.mockRestore();
@@ -367,7 +382,7 @@ describe("SecureStorage", () => {
 
             expect(warnSpy).toHaveBeenCalledWith(
                 expect.stringContaining("Failed to load from SecretStorage"),
-                expect.any(Error)
+                expect.any(Error),
             );
             // Should fallback to file
             expect(loaded).toEqual({ fallback: "data" });
@@ -413,7 +428,7 @@ describe("SecureStorage", () => {
             // Mock returns null for empty/falsy values
             expect(app.secretStorage.getSecret(secretId)).toBeNull();
             expect(logSpy).toHaveBeenCalledWith(
-                expect.stringContaining("Cleared credentials from SecretStorage")
+                expect.stringContaining("Cleared credentials from SecretStorage"),
             );
 
             logSpy.mockRestore();
@@ -434,7 +449,7 @@ describe("SecureStorage", () => {
 
             expect(await app.vaultAdapter.exists("data/local/.sync-state")).toBe(false);
             expect(logSpy).toHaveBeenCalledWith(
-                expect.stringContaining("Cleared credentials from local files")
+                expect.stringContaining("Cleared credentials from local files"),
             );
 
             logSpy.mockRestore();
@@ -463,7 +478,7 @@ describe("SecureStorage", () => {
 
             expect(warnSpy).toHaveBeenCalledWith(
                 expect.stringContaining("Failed to clear SecretStorage"),
-                expect.any(Error)
+                expect.any(Error),
             );
 
             warnSpy.mockRestore();
@@ -483,7 +498,7 @@ describe("SecureStorage", () => {
 
             expect(await app.vaultAdapter.exists("data/local/.sync-state")).toBe(false);
             expect(logSpy).toHaveBeenCalledWith(
-                expect.stringContaining("Deleted redundant credential file")
+                expect.stringContaining("Deleted redundant credential file"),
             );
 
             logSpy.mockRestore();
@@ -511,7 +526,7 @@ describe("SecureStorage", () => {
 
             expect(warnSpy).toHaveBeenCalledWith(
                 expect.stringContaining("Failed to delete"),
-                expect.any(Error)
+                expect.any(Error),
             );
 
             warnSpy.mockRestore();
@@ -538,7 +553,7 @@ describe("SecureStorage", () => {
             expect(await app.vaultAdapter.exists("deep")).toBe(true);
             expect(await app.vaultAdapter.exists("deep/nested")).toBe(true);
             expect(logSpy).toHaveBeenCalledWith(
-                expect.stringContaining("Creating directory structure")
+                expect.stringContaining("Creating directory structure"),
             );
 
             logSpy.mockRestore();
@@ -566,7 +581,7 @@ describe("SecureStorage", () => {
 
             // Should not throw
             await expect(
-                (storage as any).ensureDir("data/local/.sync-state")
+                (storage as any).ensureDir("data/local/.sync-state"),
             ).resolves.not.toThrow();
 
             expect(debugSpy).toHaveBeenCalled();
@@ -634,10 +649,10 @@ describe("SecureStorage", () => {
 
             (storage as any).hideFile("data/local/.sync-state");
 
-            expect(spawnSpy).toHaveBeenCalledWith(
-                "attrib",
-                ["+h", "C:\\vault\\data\\local\\.sync-state"]
-            );
+            expect(spawnSpy).toHaveBeenCalledWith("attrib", [
+                "+h",
+                "C:\\vault\\data\\local\\.sync-state",
+            ]);
 
             // Simulate error
             const errorCallback = onMock.mock.calls.find((call: any[]) => call[0] === "error")?.[1];
@@ -646,7 +661,7 @@ describe("SecureStorage", () => {
                 errorCallback(new Error("Spawn failed"));
                 expect(errorSpy).toHaveBeenCalledWith(
                     expect.stringContaining("Failed to hide .sync-state on Windows"),
-                    expect.any(Error)
+                    expect.any(Error),
                 );
                 errorSpy.mockRestore();
             }
@@ -666,10 +681,10 @@ describe("SecureStorage", () => {
 
             (storage as any).hideFile("data/local/.sync-state");
 
-            expect(spawnSpy).toHaveBeenCalledWith(
-                "chflags",
-                ["hidden", "/Users/test/vault/data/local/.sync-state"]
-            );
+            expect(spawnSpy).toHaveBeenCalledWith("chflags", [
+                "hidden",
+                "/Users/test/vault/data/local/.sync-state",
+            ]);
 
             // Simulate error
             const errorCallback = onMock.mock.calls.find((call: any[]) => call[0] === "error")?.[1];
@@ -678,35 +693,52 @@ describe("SecureStorage", () => {
                 errorCallback(new Error("Spawn failed"));
                 expect(errorSpy).toHaveBeenCalledWith(
                     expect.stringContaining("Failed to hide .sync-state on Mac"),
-                    expect.any(Error)
+                    expect.any(Error),
                 );
                 errorSpy.mockRestore();
             }
         });
 
-        it("should handle child_process import failure", () => {
+        it("should handle child_process import failure", async () => {
             const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-            // Mock require to throw for child_process
-            const originalRequire = require;
-            vi.spyOn(storage as any, "hideFile").mockImplementation(() => {
-                try {
-                    throw new Error("Module not found");
-                } catch (e) {
-                    console.warn(
-                        "VaultSync: Optional file hiding failed (child_process not available)",
-                        e
-                    );
-                }
+            // Create a new SecureStorage instance with a mocked vault that has getBasePath
+            const vaultOps = new MockVaultOperations(app.vaultAdapter, app.vault);
+            const testStorage = new SecureStorage(vaultOps, "", SECRET, null);
+
+            // Mock getBasePath to return a valid path
+            (vaultOps as any).getBasePath = () => "/vault/path";
+
+            // Override process.platform to trigger the Windows path
+            Object.defineProperty(process, "platform", {
+                value: "win32",
             });
 
-            (storage as any).hideFile("data/local/.sync-state");
+            // Clear the child_process module from the cache to force re-require
+            const modName = require.resolve("child_process");
+            delete require.cache[modName];
+
+            // Temporarily make the module throw when required
+            require.cache[modName] = {
+                id: modName,
+                filename: modName,
+                loaded: true,
+                get exports() {
+                    throw new Error("Module not found");
+                },
+                set exports(_val) {},
+            } as any;
+
+            // Call hideFile - it should catch the error from require
+            (testStorage as any).hideFile("data/local/.sync-state");
 
             expect(warnSpy).toHaveBeenCalledWith(
                 expect.stringContaining("Optional file hiding failed"),
-                expect.any(Error)
+                expect.any(Error),
             );
 
+            // Restore by clearing the cache again
+            delete require.cache[modName];
             warnSpy.mockRestore();
         });
 
@@ -726,7 +758,6 @@ describe("SecureStorage", () => {
             // Linux is not handled specifically, so no spawn should happen
             expect(spawnSpy).not.toHaveBeenCalled();
         });
-
     });
 
     describe("getKey", () => {
@@ -783,7 +814,7 @@ describe("SecureStorage", () => {
 
             // Should not throw
             await expect(
-                (storage as any).setExtraSecret("api-key", "secret-value")
+                (storage as any).setExtraSecret("api-key", "secret-value"),
             ).resolves.not.toThrow();
         });
 
@@ -835,9 +866,7 @@ describe("SecureStorage", () => {
             (storage as any).secretStorage = null;
 
             // Should not throw
-            await expect(
-                (storage as any).removeExtraSecret("api-key")
-            ).resolves.not.toThrow();
+            await expect((storage as any).removeExtraSecret("api-key")).resolves.not.toThrow();
         });
 
         it("should use unique secret IDs for different types", async () => {

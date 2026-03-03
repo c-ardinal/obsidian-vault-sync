@@ -14,11 +14,35 @@ import { describe, it, expect } from "vitest";
 import { checkPasswordStrength } from "../../../src/encryption/password-strength";
 
 describe("checkPasswordStrength", () => {
-    it("should reject passwords shorter than 8 characters", () => {
+    it("should reject passwords shorter than 8 characters (line 26 branch)", () => {
         const result = checkPasswordStrength("short");
         expect(result.score).toBe(0);
         expect(result.strength).toBe("weak");
         expect(result.feedback).toContain("passwordTooShort");
+    });
+
+    it("should cover line 29 (length >= 8 branch)", () => {
+        // This test specifically ensures line 29 (if (password.length >= 8)) is covered
+        // with the true branch - previous test covers the false branch (early return)
+        const result = checkPasswordStrength("exactly8");
+        // Should NOT have passwordTooShort feedback since length >= 8
+        expect(result.feedback).not.toContain("passwordTooShort");
+        expect(result.score).toBeGreaterThanOrEqual(0);
+    });
+
+    it("should cover exactly 8 character boundary (lines 29-31)", () => {
+        // Test the boundary where length is exactly 8
+        const result8 = checkPasswordStrength("aBcDe1Fg");
+        // Just verify it was processed (line 29 is about checking length >= 8)
+        expect(result8.feedback).not.toContain("passwordTooShort");
+
+        // Test length 12 for next score increment (line 30)
+        const result12 = checkPasswordStrength("aBcDeFgHiJ1K");
+        expect(result12.score).toBeGreaterThanOrEqual(result8.score);
+
+        // Test length 16 for final score increment (line 31)
+        const result16 = checkPasswordStrength("aBcDeFgHiJkLmN1P");
+        expect(result16.score).toBeGreaterThanOrEqual(result12.score);
     });
 
     it("should reject common passwords", () => {
@@ -62,5 +86,14 @@ describe("checkPasswordStrength", () => {
     it("should return feedback for borderline passwords", () => {
         const result = checkPasswordStrength("simpleee");
         expect(result.feedback.length).toBeGreaterThan(0);
+    });
+
+    it("should add 'passwordCouldBeStronger' feedback for weak passwords with no other issues", () => {
+        // Password with length >= 8, 2 char types, no repeats/sequences, not common
+        // Results in score = 1 with empty feedback, triggering line 70
+        const result = checkPasswordStrength("a1b2c3d4");
+        expect(result.score).toBe(1);
+        expect(result.strength).toBe("weak");
+        expect(result.feedback).toContain("passwordCouldBeStronger");
     });
 });

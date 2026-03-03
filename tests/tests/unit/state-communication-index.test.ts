@@ -359,6 +359,32 @@ describe("state - communication management", () => {
             expect(ctx.log).toHaveBeenCalled();
         });
 
+        it("should handle save error when releasing lock (line 121)", async () => {
+            const now = Date.now();
+            const commData: CommunicationData = {
+                mergeLocks: {
+                    "test.md": { holder: "test-device", expiresAt: now + 60000 },
+                },
+                lastUpdated: now,
+            };
+
+            // loadCommunication succeeds
+            ctx.adapter.getFileMetadata = vi.fn().mockResolvedValue({ id: "comm-id", path: "comm.json" });
+            ctx.adapter.downloadFile = vi.fn().mockResolvedValue(
+                new TextEncoder().encode(JSON.stringify(commData)).buffer,
+            );
+            // saveCommunication fails
+            ctx.adapter.uploadFile = vi.fn().mockRejectedValue(new Error("Save failed"));
+
+            await releaseMergeLock(ctx, "test.md", "TestPrefix");
+
+            // Line 121: Error should be logged from catch block
+            expect(ctx.log).toHaveBeenCalledWith(
+                expect.stringContaining("Failed to release lock for test.md"),
+                "error",
+            );
+        });
+
         it("should handle custom log prefix", async () => {
             const now = Date.now();
             const commData: CommunicationData = {
@@ -592,6 +618,20 @@ describe("state - index management", () => {
             // Should use or generate device ID
             expect(ctx.deviceId).toBeDefined();
             expect(ctx.localIndex).toEqual({});
+        });
+
+        it("should log error when load fails and not already logged (line 249)", async () => {
+            // Set logFolder to a different path so isAlreadyLogged is false
+            ctx.logFolder = ".obsidian/plugins/obsidian-vault-sync/logs/different-device";
+            ctx.vault.exists = vi.fn().mockRejectedValue(new Error("Filesystem error"));
+
+            await loadLocalIndex(ctx);
+
+            // Line 249: Error should be logged because isAlreadyLogged is false
+            expect(ctx.log).toHaveBeenCalledWith(
+                expect.stringContaining("[Local Index] Load failed"),
+                "error",
+            );
         });
 
         it("should avoid duplicate logs when called multiple times", async () => {

@@ -2,7 +2,7 @@
  * @file VSC2チャンク分割暗号化の検証テスト
  *
  * @description
- * VSC2 (VaultSync Crypto v2) フォーマットのチャンク分割暗号化/復号を検証する。
+ * VSC2 (Vault-Sync Crypto v2) フォーマットのチャンク分割暗号化/復号を検証する。
  * ワイヤフォーマット判定、サイズ計算、Round-trip (encrypt→decrypt)、出力形式、
  * エラーケース、EncryptedAdapterの閾値ルーティング (Phase 1/Phase 2)、
  * ストリーミングアップロード (initiateResumableSession + uploadChunk) を含む。

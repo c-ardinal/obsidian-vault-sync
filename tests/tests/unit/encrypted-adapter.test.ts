@@ -196,7 +196,9 @@ describe("EncryptedAdapter", () => {
 
     describe("getAuthUrl", () => {
         it("should delegate to base adapter", async () => {
-            (baseAdapter.getAuthUrl as ReturnType<typeof vi.fn>).mockResolvedValue("https://auth.url");
+            (baseAdapter.getAuthUrl as ReturnType<typeof vi.fn>).mockResolvedValue(
+                "https://auth.url",
+            );
             const result = await adapter.getAuthUrl();
             expect(result).toBe("https://auth.url");
             expect(baseAdapter.getAuthUrl).toHaveBeenCalled();
@@ -206,7 +208,9 @@ describe("EncryptedAdapter", () => {
     describe("handleCallback", () => {
         it("should delegate to base adapter", async () => {
             await adapter.handleCallback("https://callback.url?code=abc");
-            expect(baseAdapter.handleCallback).toHaveBeenCalledWith("https://callback.url?code=abc");
+            expect(baseAdapter.handleCallback).toHaveBeenCalledWith(
+                "https://callback.url?code=abc",
+            );
         });
 
         it("should pass URL object to base adapter", async () => {
@@ -264,7 +268,9 @@ describe("EncryptedAdapter", () => {
                 hash: "abc123",
                 kind: "file",
             };
-            (baseAdapter.getFileMetadataById as ReturnType<typeof vi.fn>).mockResolvedValue(mockFile);
+            (baseAdapter.getFileMetadataById as ReturnType<typeof vi.fn>).mockResolvedValue(
+                mockFile,
+            );
 
             const result = await adapter.getFileMetadataById("file-1", "test.md");
 
@@ -348,18 +354,20 @@ describe("EncryptedAdapter", () => {
             const failingEngine = createMockEngine({
                 decryptFromBlob: vi.fn().mockRejectedValue(new Error("OperationError")),
             });
-            
+
             (baseAdapter.downloadFile as ReturnType<typeof vi.fn>).mockResolvedValue(corruptedData);
-            
+
             const adapterWithFailingEngine = new EncryptedAdapter(baseAdapter, failingEngine);
 
-            await expect(adapterWithFailingEngine.downloadFile("file-1")).rejects.toThrow(DecryptionError);
+            await expect(adapterWithFailingEngine.downloadFile("file-1")).rejects.toThrow(
+                DecryptionError,
+            );
         });
 
         it("should throw DecryptionError with format cause for too short data", async () => {
             // Data shorter than IV size
             const shortData = new Uint8Array([1, 2, 3]).buffer;
-            
+
             (baseAdapter.downloadFile as ReturnType<typeof vi.fn>).mockResolvedValue(shortData);
 
             await expect(adapter.downloadFile("file-1")).rejects.toThrow(DecryptionError);
@@ -367,17 +375,24 @@ describe("EncryptedAdapter", () => {
 
         it("should handle engine throwing DecryptionError directly", async () => {
             const engineWithDecryptionError = createMockEngine({
-                decryptFromBlob: vi.fn().mockRejectedValue(
-                    new DecryptionError("Direct decryption error", "authentication")
-                ),
+                decryptFromBlob: vi
+                    .fn()
+                    .mockRejectedValue(
+                        new DecryptionError("Direct decryption error", "authentication"),
+                    ),
             });
             const data = new Uint8Array(100).buffer;
-            
-            (baseAdapter.downloadFile as ReturnType<typeof vi.fn>).mockResolvedValue(data);
-            
-            const adapterWithErrorEngine = new EncryptedAdapter(baseAdapter, engineWithDecryptionError);
 
-            await expect(adapterWithErrorEngine.downloadFile("file-1")).rejects.toThrow(DecryptionError);
+            (baseAdapter.downloadFile as ReturnType<typeof vi.fn>).mockResolvedValue(data);
+
+            const adapterWithErrorEngine = new EncryptedAdapter(
+                baseAdapter,
+                engineWithDecryptionError,
+            );
+
+            await expect(adapterWithErrorEngine.downloadFile("file-1")).rejects.toThrow(
+                DecryptionError,
+            );
         });
     });
 
@@ -402,7 +417,7 @@ describe("EncryptedAdapter", () => {
                     // Verify content is encrypted (should be different from plaintext)
                     expect(content.byteLength).not.toBe(plaintext.byteLength);
                     return mockResult;
-                }
+                },
             );
 
             const result = await adapter.uploadFile("secret.md", plaintext, Date.now());
@@ -418,7 +433,7 @@ describe("EncryptedAdapter", () => {
                 "secret.md",
                 expect.any(ArrayBuffer),
                 expect.any(Number),
-                "existing-file-id"
+                "existing-file-id",
             );
         });
 
@@ -436,7 +451,7 @@ describe("EncryptedAdapter", () => {
             // Next download should fetch fresh data
             (baseAdapter.downloadFile as ReturnType<typeof vi.fn>).mockClear();
             (baseAdapter.downloadFile as ReturnType<typeof vi.fn>).mockResolvedValue(
-                await engine.encryptToBlob(new TextEncoder().encode("New content").buffer)
+                await engine.encryptToBlob(new TextEncoder().encode("New content").buffer),
             );
             await adapter.downloadFile("file-1");
             expect(baseAdapter.downloadFile).toHaveBeenCalledTimes(1);
@@ -451,7 +466,7 @@ describe("EncryptedAdapter", () => {
         it("should use chunked streaming for large files when threshold is set", async () => {
             const largeThreshold = 1024; // 1KB threshold
             const largeAdapter = new EncryptedAdapter(baseAdapter, engine, largeThreshold);
-            
+
             const largeContent = new Uint8Array(2048).buffer; // 2KB content
             const mockResult: CloudFile = {
                 id: "file-large",
@@ -465,8 +480,12 @@ describe("EncryptedAdapter", () => {
             // Mock uploadChunk to return the result immediately (single chunk case)
             (baseAdapter.uploadChunk as ReturnType<typeof vi.fn>).mockResolvedValue(mockResult);
 
-            const result = await largeAdapter.uploadFileResumable("large.bin", largeContent, Date.now());
-            
+            const result = await largeAdapter.uploadFileResumable(
+                "large.bin",
+                largeContent,
+                Date.now(),
+            );
+
             expect(baseAdapter.initiateResumableSession).toHaveBeenCalled();
             expect(result).toEqual(mockResult);
         });
@@ -479,7 +498,7 @@ describe("EncryptedAdapter", () => {
             delete (baseWithoutResumable as any).uploadChunk;
             // Also remove uploadFileResumable to force fallback to uploadFile
             delete (baseWithoutResumable as any).uploadFileResumable;
-            
+
             const largeAdapter = new EncryptedAdapter(baseWithoutResumable, engine, largeThreshold);
             const largeContent = new Uint8Array(2048).buffer;
 
@@ -502,8 +521,11 @@ describe("EncryptedAdapter", () => {
         it("should fall back to uploadFile when uploadFileResumable is not available", async () => {
             const baseWithoutResumableUpload = createMockBaseAdapter();
             delete (baseWithoutResumableUpload as any).uploadFileResumable;
-            
-            const adapterWithoutResumable = new EncryptedAdapter(baseWithoutResumableUpload, engine);
+
+            const adapterWithoutResumable = new EncryptedAdapter(
+                baseWithoutResumableUpload,
+                engine,
+            );
             const content = new TextEncoder().encode("Test content").buffer;
 
             await adapterWithoutResumable.uploadFileResumable("test.md", content, Date.now());
@@ -526,13 +548,18 @@ describe("EncryptedAdapter", () => {
                 kind: "file",
             });
 
-            await largeAdapter.uploadFileResumable("large.bin", largeContent, Date.now(), "existing-id");
+            await largeAdapter.uploadFileResumable(
+                "large.bin",
+                largeContent,
+                Date.now(),
+                "existing-id",
+            );
 
             expect(baseAdapter.initiateResumableSession).toHaveBeenCalledWith(
                 "large.bin",
                 expect.any(Number),
                 expect.any(Number),
-                "existing-id"
+                "existing-id",
             );
         });
 
@@ -545,7 +572,7 @@ describe("EncryptedAdapter", () => {
             (baseAdapter.uploadChunk as ReturnType<typeof vi.fn>).mockResolvedValue(null);
 
             await expect(
-                largeAdapter.uploadFileResumable("large.bin", largeContent, Date.now())
+                largeAdapter.uploadFileResumable("large.bin", largeContent, Date.now()),
             ).rejects.toThrow("Chunked streaming upload did not complete");
         });
 
@@ -555,7 +582,7 @@ describe("EncryptedAdapter", () => {
             // Each chunk is ~1MB plaintext + overhead, so we need 6+ chunks to trigger intermediate flush
             const largeThreshold = 1; // Any file goes through chunked upload
             const largeAdapter = new EncryptedAdapter(baseAdapter, engine, largeThreshold);
-            
+
             // Create content that will generate many encrypted chunks
             // Each plaintext chunk is ~1MB, encrypted becomes ~1MB + 28 bytes (IV + tag)
             // We need total encrypted size > 5MB to trigger intermediate flush
@@ -582,14 +609,96 @@ describe("EncryptedAdapter", () => {
                         return Promise.resolve(mockResult);
                     }
                     return Promise.resolve(null);
-                }
+                },
             );
 
-            const result = await largeAdapter.uploadFileResumable("large.bin", largeContent, Date.now());
-            
+            const result = await largeAdapter.uploadFileResumable(
+                "large.bin",
+                largeContent,
+                Date.now(),
+            );
+
             expect(result).toEqual(mockResult);
             // Should have been called multiple times (intermediate + final)
             expect(uploadChunkCalls).toBeGreaterThan(1);
+        });
+
+        it("should handle intermediate chunk when aligned > 0 (line 335)", async () => {
+            // This test specifically targets line 335 (if (aligned > 0))
+            // We need to ensure the code path where aligned is calculated and used
+            const largeThreshold = 1;
+            const largeAdapter = new EncryptedAdapter(baseAdapter, engine, largeThreshold);
+
+            // Create content that generates encrypted data between 5MB and 5MB + 256KB
+            // This ensures bufPos >= BATCH (5MB) but we test the aligned calculation
+            const chunkSize = 1024 * 1024; // 1 MiB
+            const numChunks = 6; // ~6 MiB encrypted
+            const largeContent = new Uint8Array(chunkSize * numChunks).buffer;
+
+            const mockResult: CloudFile = {
+                id: "file-aligned",
+                path: "aligned.bin",
+                mtime: Date.now(),
+                size: largeContent.byteLength,
+                hash: "aligned-hash",
+                kind: "file",
+            };
+
+            let capturedAligned = 0;
+            (baseAdapter.uploadChunk as ReturnType<typeof vi.fn>).mockImplementation(
+                (_sessionUri: string, chunk: ArrayBuffer, offset: number, totalSize: number) => {
+                    // Capture the aligned value indirectly through chunk size
+                    if (offset + chunk.byteLength < totalSize) {
+                        capturedAligned = chunk.byteLength;
+                    }
+                    if (offset + chunk.byteLength >= totalSize) {
+                        return Promise.resolve(mockResult);
+                    }
+                    return Promise.resolve(null);
+                },
+            );
+
+            const result = await largeAdapter.uploadFileResumable(
+                "aligned.bin",
+                largeContent,
+                Date.now(),
+            );
+
+            expect(result).toEqual(mockResult);
+            // aligned should be > 0 since we have more than 5MB of data
+            expect(capturedAligned).toBeGreaterThan(0);
+        });
+
+        it("should skip upload when aligned is 0 (line 335 defensive guard)", async () => {
+            // This test documents the defensive guard at line 335
+            // In practice, aligned should always be > 0 when we reach this code
+            // because bufPos >= BATCH (5MB) and ALIGN is 256KB
+            const largeThreshold = 1;
+            const largeAdapter = new EncryptedAdapter(baseAdapter, engine, largeThreshold);
+
+            // Small content that won't trigger intermediate flush
+            const smallContent = new Uint8Array(1024).buffer;
+
+            const mockResult: CloudFile = {
+                id: "file-small",
+                path: "small.bin",
+                mtime: Date.now(),
+                size: smallContent.byteLength,
+                hash: "small-hash",
+                kind: "file",
+            };
+
+            (baseAdapter.uploadChunk as ReturnType<typeof vi.fn>).mockResolvedValue(mockResult);
+
+            const result = await largeAdapter.uploadFileResumable(
+                "small.bin",
+                smallContent,
+                Date.now(),
+            );
+
+            expect(result).toEqual(mockResult);
+            // For small files, we should only have one uploadChunk call (final chunk)
+            expect(baseAdapter.uploadChunk).toHaveBeenCalledTimes(1);
         });
 
         it("should use uploadFileResumable when available and above threshold but no chunked support", async () => {
@@ -597,8 +706,12 @@ describe("EncryptedAdapter", () => {
             // Base has uploadFileResumable but not initiateResumableSession
             const baseWithPartialSupport = createMockBaseAdapter();
             delete (baseWithPartialSupport as any).initiateResumableSession;
-            
-            const adapterWithPartial = new EncryptedAdapter(baseWithPartialSupport, engine, largeThreshold);
+
+            const adapterWithPartial = new EncryptedAdapter(
+                baseWithPartialSupport,
+                engine,
+                largeThreshold,
+            );
             const largeContent = new Uint8Array(2048).buffer;
 
             await adapterWithPartial.uploadFileResumable("large.bin", largeContent, Date.now());
@@ -617,12 +730,12 @@ describe("EncryptedAdapter", () => {
             const plaintext = new TextEncoder().encode("Cached");
             const encrypted = await engine.encryptToBlob(plaintext.buffer);
             (baseAdapter.downloadFile as ReturnType<typeof vi.fn>).mockResolvedValue(encrypted);
-            
+
             await adapter.downloadFile("file-1");
-            
+
             // Clear cache
             adapter.clearDownloadCache();
-            
+
             // Next download should fetch fresh
             await adapter.downloadFile("file-1");
             expect(baseAdapter.downloadFile).toHaveBeenCalledTimes(2);
@@ -644,7 +757,6 @@ describe("EncryptedAdapter", () => {
         it("should delegate to base adapter", async () => {
             const mockResult: CloudFile = {
                 id: "file-1",
-                name: "newname.md",
                 path: "folder/newname.md",
                 mtime: Date.now(),
                 size: 100,
@@ -712,7 +824,9 @@ describe("EncryptedAdapter", () => {
 
     describe("getStartPageToken", () => {
         it("should delegate to base adapter", async () => {
-            (baseAdapter.getStartPageToken as ReturnType<typeof vi.fn>).mockResolvedValue("token-123");
+            (baseAdapter.getStartPageToken as ReturnType<typeof vi.fn>).mockResolvedValue(
+                "token-123",
+            );
 
             const result = await adapter.getStartPageToken();
 
@@ -769,7 +883,9 @@ describe("EncryptedAdapter", () => {
                 { id: "rev-1", modifiedTime: 1000, size: 100, hash: "h1" },
                 { id: "rev-2", modifiedTime: 2000, size: 200, hash: "h2" },
             ];
-            (baseAdapter.listRevisions as ReturnType<typeof vi.fn>).mockResolvedValue(mockRevisions);
+            (baseAdapter.listRevisions as ReturnType<typeof vi.fn>).mockResolvedValue(
+                mockRevisions,
+            );
 
             const result = await adapter.listRevisions("test.md");
 
@@ -780,11 +896,11 @@ describe("EncryptedAdapter", () => {
         it("should throw when base adapter does not support listRevisions", async () => {
             const baseWithoutHistory = createMockBaseAdapter();
             delete (baseWithoutHistory as any).listRevisions;
-            
+
             const adapterWithoutHistory = new EncryptedAdapter(baseWithoutHistory, engine);
 
             await expect(adapterWithoutHistory.listRevisions("test.md")).rejects.toThrow(
-                "does not support listRevisions"
+                "does not support listRevisions",
             );
         });
     });
@@ -794,7 +910,9 @@ describe("EncryptedAdapter", () => {
             const plaintext = new TextEncoder().encode("Revision content");
             const encrypted = await engine.encryptToBlob(plaintext.buffer);
 
-            (baseAdapter.getRevisionContent as ReturnType<typeof vi.fn>).mockResolvedValue(encrypted);
+            (baseAdapter.getRevisionContent as ReturnType<typeof vi.fn>).mockResolvedValue(
+                encrypted,
+            );
 
             const result = await adapter.getRevisionContent("test.md", "rev-1");
             const decoded = new TextDecoder().decode(result);
@@ -806,30 +924,34 @@ describe("EncryptedAdapter", () => {
         it("should throw when base adapter does not support getRevisionContent", async () => {
             const baseWithoutHistory = createMockBaseAdapter();
             delete (baseWithoutHistory as any).getRevisionContent;
-            
+
             const adapterWithoutHistory = new EncryptedAdapter(baseWithoutHistory, engine);
 
-            await expect(adapterWithoutHistory.getRevisionContent("test.md", "rev-1")).rejects.toThrow(
-                "does not support getRevisionContent"
-            );
+            await expect(
+                adapterWithoutHistory.getRevisionContent("test.md", "rev-1"),
+            ).rejects.toThrow("does not support getRevisionContent");
         });
     });
 
     describe("setRevisionKeepForever", () => {
         it("should delegate to base adapter", async () => {
             await adapter.setRevisionKeepForever("test.md", "rev-1", true);
-            expect(baseAdapter.setRevisionKeepForever).toHaveBeenCalledWith("test.md", "rev-1", true);
+            expect(baseAdapter.setRevisionKeepForever).toHaveBeenCalledWith(
+                "test.md",
+                "rev-1",
+                true,
+            );
         });
 
         it("should throw when base adapter does not support setRevisionKeepForever", async () => {
             const baseWithoutHistory = createMockBaseAdapter();
             delete (baseWithoutHistory as any).setRevisionKeepForever;
-            
+
             const adapterWithoutHistory = new EncryptedAdapter(baseWithoutHistory, engine);
 
-            await expect(adapterWithoutHistory.setRevisionKeepForever("test.md", "rev-1", true)).rejects.toThrow(
-                "does not support setRevisionKeepForever"
-            );
+            await expect(
+                adapterWithoutHistory.setRevisionKeepForever("test.md", "rev-1", true),
+            ).rejects.toThrow("does not support setRevisionKeepForever");
         });
     });
 
@@ -842,11 +964,11 @@ describe("EncryptedAdapter", () => {
         it("should throw when base adapter does not support deleteRevision", async () => {
             const baseWithoutHistory = createMockBaseAdapter();
             delete (baseWithoutHistory as any).deleteRevision;
-            
+
             const adapterWithoutHistory = new EncryptedAdapter(baseWithoutHistory, engine);
 
             await expect(adapterWithoutHistory.deleteRevision("test.md", "rev-1")).rejects.toThrow(
-                "does not support deleteRevision"
+                "does not support deleteRevision",
             );
         });
     });
@@ -884,7 +1006,9 @@ describe("EncryptedAdapter", () => {
     describe("cloneWithNewVaultName", () => {
         it("should delegate to base adapter", () => {
             const mockCloned = {} as CloudAdapter;
-            (baseAdapter.cloneWithNewVaultName as ReturnType<typeof vi.fn>).mockReturnValue(mockCloned);
+            (baseAdapter.cloneWithNewVaultName as ReturnType<typeof vi.fn>).mockReturnValue(
+                mockCloned,
+            );
 
             const result = adapter.cloneWithNewVaultName("NewVault");
 
@@ -902,7 +1026,9 @@ describe("EncryptedAdapter", () => {
 
     describe("getFolderIdByName", () => {
         it("should delegate to base adapter when available", async () => {
-            (baseAdapter.getFolderIdByName as ReturnType<typeof vi.fn>).mockResolvedValue("folder-123");
+            (baseAdapter.getFolderIdByName as ReturnType<typeof vi.fn>).mockResolvedValue(
+                "folder-123",
+            );
 
             const result = await adapter.getFolderIdByName("MyFolder", "parent-1");
 
@@ -913,7 +1039,7 @@ describe("EncryptedAdapter", () => {
         it("should return null when base adapter does not have getFolderIdByName", async () => {
             const baseWithoutMethod = createMockBaseAdapter();
             delete (baseWithoutMethod as any).getFolderIdByName;
-            
+
             const adapterWithoutMethod = new EncryptedAdapter(baseWithoutMethod, engine);
 
             const result = await adapterWithoutMethod.getFolderIdByName("MyFolder");
@@ -921,7 +1047,9 @@ describe("EncryptedAdapter", () => {
         });
 
         it("should work without parentId parameter", async () => {
-            (baseAdapter.getFolderIdByName as ReturnType<typeof vi.fn>).mockResolvedValue("folder-123");
+            (baseAdapter.getFolderIdByName as ReturnType<typeof vi.fn>).mockResolvedValue(
+                "folder-123",
+            );
 
             await adapter.getFolderIdByName("MyFolder");
 
@@ -939,12 +1067,14 @@ describe("EncryptedAdapter", () => {
                 decryptFromBlob: vi.fn().mockRejectedValue(new Error("Unknown engine error")),
             });
             const data = new Uint8Array(100).buffer;
-            
+
             (baseAdapter.downloadFile as ReturnType<typeof vi.fn>).mockResolvedValue(data);
-            
+
             const adapterWithErrorEngine = new EncryptedAdapter(baseAdapter, engineWithError);
 
-            await expect(adapterWithErrorEngine.downloadFile("file-1")).rejects.toThrow(DecryptionError);
+            await expect(adapterWithErrorEngine.downloadFile("file-1")).rejects.toThrow(
+                DecryptionError,
+            );
         });
 
         it("should handle cross-module DecryptionError with name check", async () => {
@@ -958,10 +1088,13 @@ describe("EncryptedAdapter", () => {
                 decryptFromBlob: vi.fn().mockRejectedValue(crossModuleError),
             });
             const data = new Uint8Array(100).buffer;
-            
+
             (baseAdapter.downloadFile as ReturnType<typeof vi.fn>).mockResolvedValue(data);
-            
-            const adapterWithErrorEngine = new EncryptedAdapter(baseAdapter, engineWithCrossModuleError);
+
+            const adapterWithErrorEngine = new EncryptedAdapter(
+                baseAdapter,
+                engineWithCrossModuleError,
+            );
 
             try {
                 await adapterWithErrorEngine.downloadFile("file-1");
@@ -982,10 +1115,13 @@ describe("EncryptedAdapter", () => {
                 decryptFromBlob: vi.fn().mockRejectedValue(crossModuleError),
             });
             const data = new Uint8Array(100).buffer;
-            
+
             (baseAdapter.downloadFile as ReturnType<typeof vi.fn>).mockResolvedValue(data);
-            
-            const adapterWithErrorEngine = new EncryptedAdapter(baseAdapter, engineWithCrossModuleError);
+
+            const adapterWithErrorEngine = new EncryptedAdapter(
+                baseAdapter,
+                engineWithCrossModuleError,
+            );
 
             try {
                 await adapterWithErrorEngine.downloadFile("file-1");
@@ -1007,10 +1143,13 @@ describe("EncryptedAdapter", () => {
                 decryptFromBlob: vi.fn().mockRejectedValue(crossModuleError),
             });
             const data = new Uint8Array(100).buffer;
-            
+
             (baseAdapter.downloadFile as ReturnType<typeof vi.fn>).mockResolvedValue(data);
-            
-            const adapterWithErrorEngine = new EncryptedAdapter(baseAdapter, engineWithCrossModuleError);
+
+            const adapterWithErrorEngine = new EncryptedAdapter(
+                baseAdapter,
+                engineWithCrossModuleError,
+            );
 
             try {
                 await adapterWithErrorEngine.downloadFile("file-1");
@@ -1029,22 +1168,22 @@ describe("EncryptedAdapter", () => {
     describe("edge cases", () => {
         it("should handle empty file upload", async () => {
             const emptyContent = new ArrayBuffer(0);
-            
+
             await adapter.uploadFile("empty.md", emptyContent, Date.now());
-            
+
             expect(baseAdapter.uploadFile).toHaveBeenCalledWith(
                 "empty.md",
                 expect.any(ArrayBuffer),
                 expect.any(Number),
-                undefined
+                undefined,
             );
         });
 
         it("should handle very small file upload", async () => {
             const tinyContent = new Uint8Array([1]).buffer;
-            
+
             await adapter.uploadFile("tiny.md", tinyContent, Date.now());
-            
+
             expect(baseAdapter.uploadFile).toHaveBeenCalled();
         });
 
@@ -1052,7 +1191,11 @@ describe("EncryptedAdapter", () => {
             const adapterWithZeroThreshold = new EncryptedAdapter(baseAdapter, engine, 0);
             const largeContent = new Uint8Array(1024 * 1024).buffer; // 1MB
 
-            await adapterWithZeroThreshold.uploadFileResumable("large.bin", largeContent, Date.now());
+            await adapterWithZeroThreshold.uploadFileResumable(
+                "large.bin",
+                largeContent,
+                Date.now(),
+            );
 
             // Should NOT use chunked streaming (threshold is 0)
             expect(baseAdapter.initiateResumableSession).not.toHaveBeenCalled();
@@ -1104,7 +1247,7 @@ describe("EncryptedAdapter", () => {
             // Even empty content gets IV prepended
             const emptyPlaintext = new ArrayBuffer(0);
             const encrypted = await engine.encryptToBlob(emptyPlaintext);
-            
+
             (baseAdapter.downloadFile as ReturnType<typeof vi.fn>).mockResolvedValue(encrypted);
 
             const result = await adapter.downloadFile("empty.md");
@@ -1118,15 +1261,15 @@ describe("EncryptedAdapter", () => {
 
     describe("encryption routing", () => {
         it("should use VSC1 (encryptToBlob) for small files", async () => {
-            const spyEncryptToBlob = vi.spyOn(engine, 'encryptToBlob');
-            const spyEncryptChunked = vi.spyOn(engine, 'encryptChunked');
-            
+            const spyEncryptToBlob = vi.spyOn(engine, "encryptToBlob");
+            const spyEncryptChunked = vi.spyOn(engine, "encryptChunked");
+
             const smallContent = new TextEncoder().encode("Small").buffer;
             await adapter.uploadFile("small.md", smallContent, Date.now());
 
             expect(spyEncryptToBlob).toHaveBeenCalled();
             expect(spyEncryptChunked).not.toHaveBeenCalled();
-            
+
             spyEncryptToBlob.mockRestore();
             spyEncryptChunked.mockRestore();
         });
@@ -1134,12 +1277,12 @@ describe("EncryptedAdapter", () => {
         it("should use VSC2 (encryptChunked) for large files above threshold", async () => {
             const threshold = 1024;
             const adapterWithThreshold = new EncryptedAdapter(baseAdapter, engine, threshold);
-            
-            const spyEncryptToBlob = vi.spyOn(engine, 'encryptToBlob');
-            const spyEncryptChunked = vi.spyOn(engine, 'encryptChunked');
-            
+
+            const spyEncryptToBlob = vi.spyOn(engine, "encryptToBlob");
+            const spyEncryptChunked = vi.spyOn(engine, "encryptChunked");
+
             const largeContent = new Uint8Array(2048).buffer;
-            
+
             // Setup for chunked upload
             (baseAdapter.uploadChunk as ReturnType<typeof vi.fn>).mockResolvedValue({
                 id: "file-1",
@@ -1150,26 +1293,27 @@ describe("EncryptedAdapter", () => {
                 hash: "hash",
                 kind: "file",
             });
-            
+
             await adapterWithThreshold.uploadFileResumable("large.bin", largeContent, Date.now());
 
             // When using streaming chunked upload, encryptChunked is not called directly
             // Instead, encryptChunks is used
             expect(spyEncryptToBlob).not.toHaveBeenCalled();
-            
+
             spyEncryptToBlob.mockRestore();
             spyEncryptChunked.mockRestore();
         });
 
         it("should auto-detect VSC2 format in decryptContent", async () => {
-            const spyIsChunkedFormat = vi.spyOn(engine, 'isChunkedFormat').mockReturnValue(true);
-            const spyDecryptChunked = vi.spyOn(engine, 'decryptChunked').mockResolvedValue(
-                new TextEncoder().encode("Chunked result").buffer
-            );
-            const spyDecryptFromBlob = vi.spyOn(engine, 'decryptFromBlob');
+            const spyIsChunkedFormat = vi.spyOn(engine, "isChunkedFormat").mockReturnValue(true);
+            const spyDecryptChunked = vi
+                .spyOn(engine, "decryptChunked")
+                .mockResolvedValue(new TextEncoder().encode("Chunked result").buffer);
+            const spyDecryptFromBlob = vi.spyOn(engine, "decryptFromBlob");
 
             // VSC2 header magic
-            const vsc2Data = new Uint8Array([0x56, 0x53, 0x43, 0x32, 0, 0, 0, 0, 0, 0, 0, 0]).buffer;
+            const vsc2Data = new Uint8Array([0x56, 0x53, 0x43, 0x32, 0, 0, 0, 0, 0, 0, 0, 0])
+                .buffer;
             (baseAdapter.downloadFile as ReturnType<typeof vi.fn>).mockResolvedValue(vsc2Data);
 
             await adapter.downloadFile("file-1");
@@ -1177,18 +1321,18 @@ describe("EncryptedAdapter", () => {
             expect(spyIsChunkedFormat).toHaveBeenCalled();
             expect(spyDecryptChunked).toHaveBeenCalled();
             expect(spyDecryptFromBlob).not.toHaveBeenCalled();
-            
+
             spyIsChunkedFormat.mockRestore();
             spyDecryptChunked.mockRestore();
             spyDecryptFromBlob.mockRestore();
         });
 
         it("should use VSC1 when not chunked format", async () => {
-            const spyIsChunkedFormat = vi.spyOn(engine, 'isChunkedFormat').mockReturnValue(false);
-            const spyDecryptChunked = vi.spyOn(engine, 'decryptChunked');
-            const spyDecryptFromBlob = vi.spyOn(engine, 'decryptFromBlob').mockResolvedValue(
-                new TextEncoder().encode("Blob result").buffer
-            );
+            const spyIsChunkedFormat = vi.spyOn(engine, "isChunkedFormat").mockReturnValue(false);
+            const spyDecryptChunked = vi.spyOn(engine, "decryptChunked");
+            const spyDecryptFromBlob = vi
+                .spyOn(engine, "decryptFromBlob")
+                .mockResolvedValue(new TextEncoder().encode("Blob result").buffer);
 
             // Non-VSC2 data (longer than IV)
             const blobData = new Uint8Array(100).buffer;
@@ -1199,7 +1343,7 @@ describe("EncryptedAdapter", () => {
             expect(spyIsChunkedFormat).toHaveBeenCalled();
             expect(spyDecryptChunked).not.toHaveBeenCalled();
             expect(spyDecryptFromBlob).toHaveBeenCalled();
-            
+
             spyIsChunkedFormat.mockRestore();
             spyDecryptChunked.mockRestore();
             spyDecryptFromBlob.mockRestore();

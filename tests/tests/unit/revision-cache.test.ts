@@ -74,6 +74,21 @@ describe("RevisionCache", () => {
             expect(arr).toEqual(new Uint8Array([0, 1, 2, 255, 128, 64]));
         });
 
+        it("should create cache directory in set if it does not exist", async () => {
+            // Don't call init() - directly call set() to test the redundant check
+            const content = new TextEncoder().encode("test content").buffer as ArrayBuffer;
+
+            await cache.set("notes/test.md", "rev-123", content);
+
+            // Directory should be created
+            const exists = await adapter.exists(`${PLUGIN_DIR}/cache`);
+            expect(exists).toBe(true);
+
+            // Content should be retrievable
+            const result = await cache.get("notes/test.md", "rev-123");
+            expect(result).not.toBeNull();
+        });
+
         it("should separate cache entries for different revisions", async () => {
             await cache.init();
             const content1 = new TextEncoder().encode("version 1").buffer as ArrayBuffer;
@@ -183,6 +198,22 @@ describe("RevisionCache", () => {
 
             const exists = await adapter.exists(`${PLUGIN_DIR}/cache/readme.txt`);
             expect(exists).toBe(true);
+        });
+
+        it("should log error when cleanup fails", async () => {
+            await cache.init();
+            const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+            // Mock list to throw an error
+            vi.spyOn(vaultOps, "list").mockRejectedValue(new Error("List failed"));
+
+            await cache.cleanup();
+
+            expect(consoleErrorSpy).toHaveBeenCalledWith(
+                "[Cache] Cleanup failed",
+                expect.any(Error),
+            );
+            consoleErrorSpy.mockRestore();
         });
     });
 

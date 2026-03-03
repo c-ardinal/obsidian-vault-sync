@@ -392,7 +392,7 @@ describe("executeSmartSync - Activity State Management", () => {
 
     it("should call smartPull for postPushPull when adapter doesn't support ChangesAPI", async () => {
         const ctx = createSmartSyncContext();
-        ctx.adapter.supportsChangesAPI = false;
+        (ctx.adapter as any).supportsChangesAPI = false;
         let smartPullCallCount = 0;
         (ctx.smartPull as any).mockImplementation(() => {
             smartPullCallCount++;
@@ -487,7 +487,7 @@ function createSmartSyncContext(): SyncContext {
     const ctx = createMockCtx({
         currentTrigger: "manual-sync",
     });
-    ctx.adapter.supportsChangesAPI = true;
+    (ctx.adapter as any).supportsChangesAPI = true;
     return ctx;
 }
 
@@ -714,8 +714,8 @@ describe("executeFullScan - Comprehensive Coverage", () => {
     it("should skip plugin data path during scan", async () => {
         const ctx = createMockCtx();
         ctx.adapter.listFiles = vi.fn(async () => [
-            { id: "file1", path: ctx.pluginDataPath, mtime: Date.now(), size: 100, hash: "abc" },
-            { id: "file2", path: "notes/test.md", mtime: Date.now(), size: 100, hash: "def" },
+            { id: "file1", path: ctx.pluginDataPath, mtime: Date.now(), size: 100, hash: "abc", kind: "file" as const },
+            { id: "file2", path: "notes/test.md", mtime: Date.now(), size: 100, hash: "def", kind: "file" as const },
         ]);
 
         await executeFullScan(ctx);
@@ -730,7 +730,7 @@ describe("executeFullScan - Comprehensive Coverage", () => {
     it("should skip ignored files during scan", async () => {
         const ctx = createMockCtx();
         ctx.adapter.listFiles = vi.fn(async () => [
-            { id: "file1", path: ".git/config", mtime: Date.now(), size: 100, hash: "abc" },
+            { id: "file1", path: ".git/config", mtime: Date.now(), size: 100, hash: "abc", kind: "file" as const },
         ]);
 
         await executeFullScan(ctx);
@@ -751,7 +751,7 @@ describe("executeFullScan - Comprehensive Coverage", () => {
             hash: "abc",
         };
         ctx.adapter.listFiles = vi.fn(async () => [
-            { id: "file1", path: "notes/missing.md", mtime: Date.now(), size: 100, hash: "abc" },
+            { id: "file1", path: "notes/missing.md", mtime: Date.now(), size: 100, hash: "abc", kind: "file" as const },
         ]);
 
         await executeFullScan(ctx);
@@ -772,7 +772,7 @@ describe("executeFullScan - Comprehensive Coverage", () => {
             currentIndex: 0,
             totalFiles: 1,
             localFiles: [{ path: "notes/adopt.md", mtime: Date.now(), size: 4 }],
-            remoteFiles: [{ id: "file1", path: "notes/adopt.md", mtime: Date.now(), size: 4, hash }],
+            remoteFiles: [{ id: "file1", path: "notes/adopt.md", mtime: Date.now(), size: 4, hash }] as any[],
             startedAt: Date.now(),
         };
 
@@ -790,7 +790,7 @@ describe("executeFullScan - Comprehensive Coverage", () => {
         const content = new TextEncoder().encode("different content").buffer;
 
         ctx.adapter.listFiles = vi.fn(async () => [
-            { id: "file1", path: "notes/no-adopt.md", mtime: Date.now(), size: 100, hash: "nomatch" },
+            { id: "file1", path: "notes/no-adopt.md", mtime: Date.now(), size: 100, hash: "nomatch", kind: "file" as const },
         ]);
         (ctx.vault.readBinary as any).mockResolvedValue(content);
 
@@ -803,7 +803,7 @@ describe("executeFullScan - Comprehensive Coverage", () => {
         const ctx = createMockCtx();
 
         ctx.adapter.listFiles = vi.fn(async () => [
-            { id: "file1", path: "notes/error.md", mtime: Date.now(), size: 100, hash: "abc" },
+            { id: "file1", path: "notes/error.md", mtime: Date.now(), size: 100, hash: "abc", kind: "file" as const },
         ]);
         (ctx.vault.readBinary as any).mockRejectedValue(new Error("Read failed"));
 
@@ -821,6 +821,7 @@ describe("executeFullScan - Comprehensive Coverage", () => {
             mtime: Date.now(),
             size: 100,
             hash: `hash${i}`,
+            kind: "file" as const,
         }));
 
         ctx.adapter.listFiles = vi.fn(async () => files);
@@ -919,7 +920,7 @@ describe("executeFullScan - Comprehensive Coverage", () => {
         const content = new TextEncoder().encode("test content").buffer;
 
         ctx.adapter.listFiles = vi.fn(async () => [
-            { id: "file1", path: "notes/no-hash.md", mtime: Date.now(), size: 100 },
+            { id: "file1", path: "notes/no-hash.md", mtime: Date.now(), size: 100, kind: "file" as const },
         ]);
         (ctx.vault.readBinary as any).mockResolvedValue(content);
 
@@ -1134,13 +1135,13 @@ describe("State Machine Transitions", () => {
 
         // Track state changes
         Object.defineProperty(ctx, "syncState", {
-            get: () => ctx._syncState,
+            get: () => (ctx as any)._syncState,
             set: (value: string) => {
                 states.push(value);
-                ctx._syncState = value;
+                (ctx as any)._syncState = value;
             },
         });
-        ctx._syncState = "IDLE";
+        (ctx as any)._syncState = "IDLE";
 
         await requestSmartSync(ctx, false);
 
@@ -1168,7 +1169,7 @@ describe("State Machine Transitions", () => {
             currentIndex: 0,
             totalFiles: 1,
             localFiles: [{ path: "notes/test.md", mtime: Date.now(), size: 100 }],
-            remoteFiles: [{ id: "file1", path: "notes/test.md", mtime: Date.now(), size: 100, hash: "abc" }],
+            remoteFiles: [{ id: "file1", path: "notes/test.md", mtime: Date.now(), size: 100, hash: "abc" }] as any[],
             startedAt: Date.now(),
         };
 

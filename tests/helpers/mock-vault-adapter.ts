@@ -56,10 +56,23 @@ export class MockVaultAdapter {
         await this.writeBinary(path, buf);
     }
 
-    async stat(path: string): Promise<{ mtime: number; size: number; ctime: number } | null> {
+    async stat(
+        path: string,
+    ): Promise<{ mtime: number; size: number; ctime: number; type?: "file" | "folder" } | null> {
         const entry = this.files.get(path);
-        if (!entry) return null;
-        return { mtime: entry.mtime, size: entry.content.byteLength, ctime: entry.mtime };
+        if (!entry) {
+            // Check if it's a folder
+            if (this.folders.has(path)) {
+                return { mtime: Date.now(), size: 0, ctime: Date.now(), type: "folder" };
+            }
+            return null;
+        }
+        return {
+            mtime: entry.mtime,
+            size: entry.content.byteLength,
+            ctime: entry.mtime,
+            type: "file",
+        };
     }
 
     async rename(from: string, to: string): Promise<void> {
@@ -286,26 +299,66 @@ export class MockVaultOperations implements IVaultOperations {
     ) {}
 
     // ── Low-level ────────────────────────────────────────────────────
-    exists(path: string) { return this.adapter.exists(path); }
-    stat(path: string) { return this.adapter.stat(path); }
-    read(path: string) { return this.adapter.read(path); }
-    readBinary(path: string) { return this.adapter.readBinary(path); }
-    write(path: string, data: string) { return this.adapter.write(path, data); }
-    writeBinary(path: string, data: ArrayBuffer) { return this.adapter.writeBinary(path, data); }
-    list(path: string) { return this.adapter.list(path); }
-    mkdir(path: string) { return this.adapter.mkdir(path); }
-    async rmdir(path: string, _recursive: boolean) { await this.adapter.remove(path); }
-    rename(oldPath: string, newPath: string) { return this.adapter.rename(oldPath, newPath); }
-    remove(path: string) { return this.adapter.remove(path); }
+    exists(path: string) {
+        return this.adapter.exists(path);
+    }
+    stat(path: string) {
+        return this.adapter.stat(path);
+    }
+    read(path: string) {
+        return this.adapter.read(path);
+    }
+    readBinary(path: string) {
+        return this.adapter.readBinary(path);
+    }
+    write(path: string, data: string) {
+        return this.adapter.write(path, data);
+    }
+    writeBinary(path: string, data: ArrayBuffer) {
+        return this.adapter.writeBinary(path, data);
+    }
+    list(path: string) {
+        return this.adapter.list(path);
+    }
+    mkdir(path: string) {
+        return this.adapter.mkdir(path);
+    }
+    async rmdir(path: string, _recursive: boolean) {
+        await this.adapter.remove(path);
+    }
+    rename(oldPath: string, newPath: string) {
+        return this.adapter.rename(oldPath, newPath);
+    }
+    remove(path: string) {
+        return this.adapter.remove(path);
+    }
 
     // ── High-level ───────────────────────────────────────────────────
-    getFiles() { return this.vault.getFiles(); }
-    getAbstractFileByPath(path: string) { return this.vault.getAbstractFileByPath(path); }
-    async createFolder(path: string) { await this.vault.createFolder(path); }
-    async createBinary(path: string, data: ArrayBuffer) { await this.vault.createBinary(path, data); }
-    modifyBinary(file: TFile, data: ArrayBuffer) { return this.vault.modifyBinary(file, data); }
-    async readFile(file: TFile) { return this.adapter.read(file.path); }
-    renameFile(file: TAbstractFile, newPath: string) { return this.vault.rename(file, newPath); }
-    trashFile(file: TAbstractFile, _system: boolean) { return this.vault.trash(file as TFile, true); }
-    getVaultName() { return this.vault.getName(); }
+    getFiles() {
+        return this.vault.getFiles();
+    }
+    getAbstractFileByPath(path: string) {
+        return this.vault.getAbstractFileByPath(path);
+    }
+    async createFolder(path: string) {
+        await this.vault.createFolder(path);
+    }
+    async createBinary(path: string, data: ArrayBuffer) {
+        await this.vault.createBinary(path, data);
+    }
+    modifyBinary(file: TFile, data: ArrayBuffer) {
+        return this.vault.modifyBinary(file, data);
+    }
+    async readFile(file: TFile) {
+        return this.adapter.read(file.path);
+    }
+    renameFile(file: TAbstractFile, newPath: string) {
+        return this.vault.rename(file, newPath);
+    }
+    trashFile(file: TAbstractFile, _system: boolean) {
+        return this.vault.trash(file as TFile, true);
+    }
+    getVaultName() {
+        return this.vault.getName();
+    }
 }
