@@ -4,22 +4,22 @@ import { t } from "../i18n";
 import { getSettingsSections } from "./settings-schema";
 import { ExclusionPatternModal } from "./exclusion-modal";
 
-const OPENED_GROUPS_KEY = "vault-sync:opened-groups";
+const CLOSED_GROUPS_KEY = "vault-sync:closed-groups";
 
 export class VaultSyncSettingTab extends PluginSettingTab {
     plugin: VaultSync;
-    /** Stores keys of groups the user has explicitly opened. All groups default to collapsed. */
-    private openedGroups: Set<string>;
+    /** Stores keys of groups the user has explicitly closed. All groups default to expanded. */
+    private closedGroups: Set<string>;
 
     constructor(app: App, plugin: VaultSync) {
         super(app, plugin);
         this.plugin = plugin;
-        this.openedGroups = this.loadOpenedGroups();
+        this.closedGroups = this.loadClosedGroups();
     }
 
-    private loadOpenedGroups(): Set<string> {
+    private loadClosedGroups(): Set<string> {
         try {
-            const stored = window.localStorage.getItem(OPENED_GROUPS_KEY);
+            const stored = window.localStorage.getItem(CLOSED_GROUPS_KEY);
             if (stored) return new Set(JSON.parse(stored));
         } catch {
             /* ignore */
@@ -27,9 +27,9 @@ export class VaultSyncSettingTab extends PluginSettingTab {
         return new Set();
     }
 
-    private saveOpenedGroups(): void {
+    private saveClosedGroups(): void {
         try {
-            window.localStorage.setItem(OPENED_GROUPS_KEY, JSON.stringify([...this.openedGroups]));
+            window.localStorage.setItem(CLOSED_GROUPS_KEY, JSON.stringify([...this.closedGroups]));
         } catch {
             /* ignore */
         }
@@ -47,7 +47,7 @@ export class VaultSyncSettingTab extends PluginSettingTab {
         containerEl.createEl("h3", { text: t("settingAuthSection") });
 
         const authGroupKey = "auth:_subheader_account";
-        const authCollapsed = !this.openedGroups.has(authGroupKey);
+        const authCollapsed = this.closedGroups.has(authGroupKey);
 
         const authGroup = containerEl.createDiv({ cls: "vault-sync-subheader-group" });
         const authHeader = authGroup.createDiv({ cls: "vault-sync-subheader-label" });
@@ -64,12 +64,12 @@ export class VaultSyncSettingTab extends PluginSettingTab {
         }
 
         authHeader.addEventListener("click", () => {
-            if (this.openedGroups.has(authGroupKey)) {
-                this.openedGroups.delete(authGroupKey);
+            if (this.closedGroups.has(authGroupKey)) {
+                this.closedGroups.delete(authGroupKey);
             } else {
-                this.openedGroups.add(authGroupKey);
+                this.closedGroups.add(authGroupKey);
             }
-            this.saveOpenedGroups();
+            this.saveClosedGroups();
             this.display();
         });
 
@@ -181,7 +181,7 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                 // When a subheader is encountered, create a new group wrapper
                 if (item.type === "subheader") {
                     const groupKey = `${section.id}:${item.key}`;
-                    groupCollapsed = !this.openedGroups.has(groupKey);
+                    groupCollapsed = this.closedGroups.has(groupKey);
 
                     groupEl = containerEl.createDiv({ cls: "vault-sync-subheader-group" });
                     const headerEl = groupEl.createDiv({ cls: "vault-sync-subheader-label" });
@@ -195,12 +195,12 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                     }
 
                     headerEl.addEventListener("click", () => {
-                        if (this.openedGroups.has(groupKey)) {
-                            this.openedGroups.delete(groupKey);
+                        if (this.closedGroups.has(groupKey)) {
+                            this.closedGroups.delete(groupKey);
                         } else {
-                            this.openedGroups.add(groupKey);
+                            this.closedGroups.add(groupKey);
                         }
-                        this.saveOpenedGroups();
+                        this.saveClosedGroups();
                         this.display();
                     });
                     continue;
