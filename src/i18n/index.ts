@@ -228,7 +228,7 @@ export const en: Record<string, string> = {
     labelFullAudit: "Audit & Fix Consistency (Full Scan)",
     labelViewHistory: "View History in Cloud (Vault-Sync)",
     labelE2EESetup: "E2EE: Start Vault Encryption",
-    labelE2EEUnlock: "E2EE: Unlock Vault Encryption",
+    labelE2EEUnlock: "E2EE: Unlock Vault",
     labelE2EEChangePassword: "E2EE: Change Encryption Password",
     labelE2EEShowRecovery: "E2EE: Show Recovery Code",
     labelE2EERecover: "E2EE: Recover Vault with Recovery Code",

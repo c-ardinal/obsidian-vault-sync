@@ -15,7 +15,10 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { loadExternalCryptoEngine } from "../../../src/encryption/engine-loader";
+import {
+    loadExternalCryptoEngine,
+    APPROVED_ENGINE_HASH,
+} from "../../../src/encryption/engine-loader";
 import type { IVaultOperations } from "../../../src/types/vault-operations";
 
 // ─── Required methods that a valid engine must have ───
@@ -107,7 +110,7 @@ async function sha256(content: string): Promise<string> {
 }
 
 /** Get the approved hash constant value */
-const APPROVED_HASH = "b59efbdf2574d545ff359e3598c157969d1ea57e4be3c0138645f3388f0a7cd0";
+const APPROVED_HASH = APPROVED_ENGINE_HASH;
 
 /** Convert hex string to ArrayBuffer */
 function hexToArrayBuffer(hex: string): ArrayBuffer {

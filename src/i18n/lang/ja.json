@@ -191,7 +191,7 @@
     "labelFullAudit": "完全スキャンと整合性チェック (Full Audit)",
     "labelViewHistory": "クラウドの変更履歴を表示 (Vault-Sync)",
     "labelE2EESetup": "E2EE: Vaultの暗号化を開始する",
-    "labelE2EEUnlock": "E2EE: Vaultの暗号化を解除する",
+    "labelE2EEUnlock": "E2EE: Vaultのロックを解除する",
     "labelE2EEChangePassword": "E2EE: 暗号化パスワードを変更する",
     "labelE2EEShowRecovery": "E2EE: リカバリーコードを表示する",
     "labelE2EERecover": "E2EE: リカバリーコードでVaultを復元する",

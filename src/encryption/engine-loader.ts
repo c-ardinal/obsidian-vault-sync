@@ -6,8 +6,8 @@ import type { IVaultOperations } from "../types/vault-operations";
 
 // SHA-256 hash of the approved e2ee-engine.js file.
 // Update via: npm run hash (in Vault-Sync-E2EE-Engine repo)
-const APPROVED_ENGINE_HASH: string =
-    "b59efbdf2574d545ff359e3598c157969d1ea57e4be3c0138645f3388f0a7cd0";
+export const APPROVED_ENGINE_HASH: string =
+    "ceb308f41e3660254de0a678059b41ca877fee457a244e13a214bd6305c2b965";
 
 /**
  * Compute SHA-256 hash of content
