@@ -33,7 +33,7 @@ export class DrivePathResolver {
     }
 
     private async log(msg: string, level: string = "debug") {
-        console.log(`VaultSync: [${level.toUpperCase()}] ${msg}`);
+        console.log(`Vault-Sync: [${level.toUpperCase()}] ${msg}`);
         if (this.logger) this.logger(msg, level);
     }
 
@@ -383,11 +383,14 @@ export class DrivePathResolver {
         };
         if (parentId) metadata.parents = [parentId];
 
-        const response = await this.http.fetchWithAuth("https://www.googleapis.com/drive/v3/files", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(metadata),
-        });
+        const response = await this.http.fetchWithAuth(
+            "https://www.googleapis.com/drive/v3/files",
+            {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(metadata),
+            },
+        );
 
         const data = await response.json();
         return data.id;
@@ -451,7 +454,7 @@ export class DrivePathResolver {
                                 if (data.files && data.files.length > 0) {
                                     currentParentId = data.files[0].id;
                                     console.log(
-                                        `VaultSync: Found existing folder: ${pathAccumulator} (id=${currentParentId})`,
+                                        `Vault-Sync: Found existing folder: ${pathAccumulator} (id=${currentParentId})`,
                                     );
                                 } else {
                                     currentParentId = await this.createFolder(
@@ -459,7 +462,7 @@ export class DrivePathResolver {
                                         currentParentId,
                                     );
                                     console.log(
-                                        `VaultSync: Created new folder: ${pathAccumulator} (id=${currentParentId})`,
+                                        `Vault-Sync: Created new folder: ${pathAccumulator} (id=${currentParentId})`,
                                     );
                                 }
                                 this.folderCache.set(pathAccumulator, currentParentId);
@@ -488,10 +491,10 @@ export class DrivePathResolver {
 
     /** Get folder ID by name, optionally within a parent. */
     async getFolderIdByName(name: string, parentId?: string): Promise<string | null> {
-        const safeName = name.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        const safeName = name.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
         let query = `name = '${safeName}' and trashed = false and mimeType = 'application/vnd.google-apps.folder'`;
         if (parentId) {
-            const safeParentId = parentId.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+            const safeParentId = parentId.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
             query += ` and '${safeParentId}' in parents`;
         }
         const resp = await this.http.fetchWithAuth(

@@ -15,7 +15,7 @@ interface TriggerManagerDeps {
  * Manages sync triggers: save hooks, modify debounce, interval timer,
  * layout-change events, and file create/delete/rename tracking.
  *
- * Extracted from the main VaultSync plugin class to separate
+ * Extracted from the main Vault-Sync plugin class to separate
  * trigger management from plugin lifecycle orchestration.
  */
 export class TriggerManager {

@@ -5,7 +5,7 @@ import { toHex } from "../utils/format";
 import type { IVaultOperations } from "../types/vault-operations";
 
 // SHA-256 hash of the approved e2ee-engine.js file.
-// Update via: npm run hash (in VaultSync-E2EE-Engine repo)
+// Update via: npm run hash (in Vault-Sync-E2EE-Engine repo)
 const APPROVED_ENGINE_HASH: string =
     "b59efbdf2574d545ff359e3598c157969d1ea57e4be3c0138645f3388f0a7cd0";
 
@@ -39,7 +39,7 @@ export async function loadExternalCryptoEngine(
     // Remove duplicates
     const uniquePaths = [...new Set(variations)];
     console.log(
-        `VaultSync: Attempting to load E2EE engine. Candidates: ${JSON.stringify(uniquePaths)}`,
+        `Vault-Sync: Attempting to load E2EE engine. Candidates: ${JSON.stringify(uniquePaths)}`,
     );
 
     let content: string | null = null;
@@ -58,27 +58,27 @@ export async function loadExternalCryptoEngine(
     }
 
     if (!content) {
-        console.log("VaultSync: E2EE engine file not found at any candidate paths.");
+        console.log("Vault-Sync: E2EE engine file not found at any candidate paths.");
         return null;
     }
 
     try {
-        console.log(`VaultSync: Loading engine from [${successfulPath}]...`);
+        console.log(`Vault-Sync: Loading engine from [${successfulPath}]...`);
 
         // Verify engine hash for security (skip in development mode)
         if (APPROVED_ENGINE_HASH !== "CHANGE_THIS_TO_ACTUAL_HASH_BEFORE_RELEASE") {
             const actualHash = await computeSHA256(content);
             if (actualHash !== APPROVED_ENGINE_HASH) {
                 console.error(
-                    `VaultSync: E2EE engine hash mismatch! Expected: ${APPROVED_ENGINE_HASH}, Got: ${actualHash}`,
+                    `Vault-Sync: E2EE engine hash mismatch! Expected: ${APPROVED_ENGINE_HASH}, Got: ${actualHash}`,
                 );
                 if (onNotify) await onNotify("noticeEngineVerifyFailed");
                 return null;
             }
         } else {
             const actualHash = await computeSHA256(content);
-            console.warn("VaultSync: E2EE engine hash verification skipped (development mode)");
-            console.warn(`VaultSync: Engine SHA-256: ${actualHash}`);
+            console.warn("Vault-Sync: E2EE engine hash verification skipped (development mode)");
+            console.warn(`Vault-Sync: Engine SHA-256: ${actualHash}`);
         }
 
         // Dynamic execution of the engine script as CommonJS
@@ -89,7 +89,7 @@ export async function loadExternalCryptoEngine(
             if (name === "obsidian") return obsidianModule;
             const globalRequire = (window as any).require;
             if (globalRequire) return globalRequire(name);
-            console.warn(`VaultSync: Engine required '${name}' but no require available.`);
+            console.warn(`Vault-Sync: Engine required '${name}' but no require available.`);
             return undefined;
         };
 
@@ -123,15 +123,15 @@ export async function loadExternalCryptoEngine(
 
         if (missingMethods.length > 0) {
             console.error(
-                `VaultSync: E2EE engine missing required methods: ${missingMethods.join(", ")}`,
+                `Vault-Sync: E2EE engine missing required methods: ${missingMethods.join(", ")}`,
             );
             return null;
         }
 
-        console.log("VaultSync: External E2EE engine fully verified.");
+        console.log("Vault-Sync: External E2EE engine fully verified.");
         return engine;
     } catch (e) {
-        console.error("VaultSync: Engine execution failed", e);
+        console.error("Vault-Sync: Engine execution failed", e);
         return null;
     }
 }

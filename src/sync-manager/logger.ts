@@ -128,7 +128,7 @@ export class SyncLogger {
             this.criticalLogged = true;
         }
 
-        console.log(`VaultSync: [${level.toUpperCase()}] ${message}`);
+        console.log(`Vault-Sync: [${level.toUpperCase()}] ${message}`);
 
         if (this.options.isDeveloperMode) {
             await this.writeEntry(entry);
@@ -171,7 +171,7 @@ export class SyncLogger {
         try {
             await this.options.onWrite(line, entry.timestamp);
         } catch (e) {
-            console.error("VaultSync: Failed to write log entry", e);
+            console.error("Vault-Sync: Failed to write log entry", e);
         }
     }
 }

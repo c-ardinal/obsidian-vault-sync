@@ -15,7 +15,6 @@ export class SecureStorage {
     private keyCache: Map<string, CryptoKey> = new Map();
     private filePath: string;
 
-
     private vaultHash: string;
     private secretId: string;
 
@@ -133,7 +132,6 @@ export class SecureStorage {
 
         const basePath = this.vault.getBasePath?.();
         if (basePath) {
-
             // Dynamic import to avoid bundling issues on mobile
             // Use try-catch to prevent crashes if module resolution fails
             try {
@@ -145,19 +143,19 @@ export class SecureStorage {
                     const fullPath = `${basePath}/${relativePath}`.replace(/\//g, "\\");
                     const child = cp.spawn("attrib", ["+h", fullPath]);
                     child.on("error", (err: any) => {
-                        console.error("VaultSync: Failed to hide .sync-state on Windows", err);
+                        console.error("Vault-Sync: Failed to hide .sync-state on Windows", err);
                     });
                 } else if (process.platform === "darwin") {
                     // MacOS: chflags hidden (adds redundancy to dot-prefix)
                     const fullPath = `${basePath}/${relativePath}`;
                     const child = cp.spawn("chflags", ["hidden", fullPath]);
                     child.on("error", (err: any) => {
-                        console.error("VaultSync: Failed to hide .sync-state on Mac", err);
+                        console.error("Vault-Sync: Failed to hide .sync-state on Mac", err);
                     });
                 }
             } catch (e) {
                 console.warn(
-                    "VaultSync: Optional file hiding failed (child_process not available)",
+                    "Vault-Sync: Optional file hiding failed (child_process not available)",
                     e,
                 );
             }

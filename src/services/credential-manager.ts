@@ -14,7 +14,7 @@ interface CredentialManagerDeps {
  * Manages OAuth credentials, token persistence, adapter authentication
  * facades, and protocol handler callback logic.
  *
- * Extracted from the main VaultSync plugin class to separate
+ * Extracted from the main Vault-Sync plugin class to separate
  * credential management from plugin lifecycle orchestration.
  */
 export class CredentialManager {
@@ -28,7 +28,7 @@ export class CredentialManager {
         const { adapter, getSecureStorage } = this.deps;
 
         adapter.onAuthFailure = async () => {
-            console.log("VaultSync: Auth failed (token expired/revoked). Clearing credentials.");
+            console.log("Vault-Sync: Auth failed (token expired/revoked). Clearing credentials.");
             await getSecureStorage().clearCredentials();
             adapter.setTokens(null, null);
         };
@@ -78,7 +78,7 @@ export class CredentialManager {
                 syncManager.requestSmartSync("manual-sync").catch(() => {});
             } catch (e: any) {
                 await syncManager.notify("noticeAuthFailed", e.message);
-                console.error("VaultSync: Auth failed via proxy protocol handler", e);
+                console.error("Vault-Sync: Auth failed via proxy protocol handler", e);
             }
         } else if (params.code) {
             try {
@@ -97,7 +97,7 @@ export class CredentialManager {
                 syncManager.requestSmartSync("manual-sync").catch(() => {});
             } catch (e: any) {
                 await syncManager.notify("noticeAuthFailed", e.message);
-                console.error("VaultSync: Auth failed via protocol handler", e);
+                console.error("Vault-Sync: Auth failed via protocol handler", e);
             }
         } else if (params.error) {
             await syncManager.notify("noticeAuthFailed", params.error);
@@ -126,7 +126,10 @@ export class CredentialManager {
 
     // === Adapter Facade ===
 
-    setAuthConfig(method: "default" | "custom-proxy" | "client-credentials", proxyUrl: string): void {
+    setAuthConfig(
+        method: "default" | "custom-proxy" | "client-credentials",
+        proxyUrl: string,
+    ): void {
         this.deps.adapter.setAuthConfig(method, proxyUrl);
     }
 

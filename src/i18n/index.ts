@@ -7,7 +7,7 @@ const languages: Record<string, Record<string, string>> = { ja };
 
 export const en: Record<string, string> = {
     // Settings UI
-    settingSettingsTitle: "VaultSync Settings",
+    settingSettingsTitle: "Vault-Sync Settings",
     settingAuthSection: "Authentication",
     settingClientId: "Google Client ID",
     settingClientIdDesc: "Enter your Google Cloud Project Client ID.",
@@ -48,11 +48,9 @@ export const en: Record<string, string> = {
     settingConcurrency: "Simultaneous Sync Files",
     settingConcurrencyDesc: "Max number of files to sync at the same time.",
     settingDetailedNotifications: "Show Detailed Notifications",
-    settingDetailedNotificationsDesc:
-        "Show progress notifications for each file pushed/pulled.",
+    settingDetailedNotificationsDesc: "Show progress notifications for each file pushed/pulled.",
     settingEnableLogging: "Enable Detailed Logging",
-    settingEnableLoggingDesc:
-        "Developer: Write detailed logs to obsidian-vault-sync/logs folder.",
+    settingEnableLoggingDesc: "Developer: Write detailed logs to obsidian-vault-sync/logs folder.",
     settingCloudRootFolder: "Cloud Root Folder",
     settingCloudRootFolderDesc: "Root folder name on Cloud.\n(default: ObsidianVaultSync)",
 
@@ -61,7 +59,7 @@ export const en: Record<string, string> = {
     settingSyncAppearanceDesc: "Sync .obsidian/themes and .obsidian/snippets.",
     settingSyncCommunityPlugins: "Sync Community Plugins",
     settingSyncCommunityPluginsDesc:
-        "Sync installed plugins.\n(Caution: VaultSync itself is always synced)",
+        "Sync installed plugins.\n(Caution: Vault-Sync itself is always synced)",
     settingSyncCoreConfig: "Sync Core Configuration",
     settingSyncCoreConfigDesc: "Sync app.json, hotkeys.json, and core-plugins.json.",
     settingSyncImagesAndMedia: "Sync Images & Media",
@@ -91,14 +89,15 @@ export const en: Record<string, string> = {
     settingSubheaderSecurity: "Security",
     settingSubheaderAccount: "Account",
     settingExclusionModalToggleExclusion: "Managed by toggle",
-    settingSyncFlexibleData: "Sync VaultSync Data",
-    settingSyncFlexibleDataDesc: "Sync VaultSync plugin data (data/flexible/ directory).",
+    settingSyncFlexibleData: "Sync Vault-Sync Data",
+    settingSyncFlexibleDataDesc: "Sync Vault-Sync plugin data (data/flexible/ directory).",
     settingSyncDeviceLogs: "Sync Device Logs",
     settingSyncDeviceLogsDesc: "Sync device-specific logs (logs/{deviceId}/).",
     settingExclusionPatterns: "Exclude Files/Folders",
     settingExclusionPatternsDesc:
         "Glob patterns (one per line).\nUse * for any chars, ** for recursive dirs.\nExample: *.tmp, temp/**",
-    settingExclusionPatternsInvalid: "Invalid patterns detected. Check glob syntax (unmatched [ ] or { }).",
+    settingExclusionPatternsInvalid:
+        "Invalid patterns detected. Check glob syntax (unmatched [ ] or { }).",
     settingExclusionPatternCount: "patterns configured",
     settingExclusionPatternNone: "No exclusion patterns",
     settingExclusionConfigure: "Configure",
@@ -110,7 +109,8 @@ export const en: Record<string, string> = {
     settingExclusionModalDuplicate: "This pattern already exists.",
     settingExclusionModalScanning: "Scanning vault files...",
     settingExclusionModalFileCount: "{0} files scanned",
-    settingCloudRootFolderWarning: "Changing the root folder disconnects from current synced data. A full re-sync will occur. Continue?",
+    settingCloudRootFolderWarning:
+        "Changing the root folder disconnects from current synced data. A full re-sync will occur. Continue?",
     settingNotificationLevel: "Notification Level",
     settingNotificationLevelDesc: "Choose how much feedback you want during sync.",
     settingNotificationLevelVerbose: "All (Verbose)",
@@ -173,16 +173,15 @@ export const en: Record<string, string> = {
     noticeSyncFailedNetwork: "[Sync] Network error. Check your connection and try again.",
     noticeSyncFailed: "[Sync] Sync failed: {0}",
 
-    noticeMergeLockLost: "[Conflict] Merge lock expired. Result saved locally, will push on next sync.",
+    noticeMergeLockLost:
+        "[Conflict] Merge lock expired. Result saved locally, will push on next sync.",
     noticeMergeSuccess: "[Conflict] Auto-resolved",
-    noticeCheckOtherDevice:
-        "[Conflict] Merge may have failed. Check other device for details",
+    noticeCheckOtherDevice: "[Conflict] Merge may have failed. Check other device for details",
     noticeRemoteMergeSynced: "[Conflict] Remote merge result applied",
     noticeConflictSaved: "[Conflict] Local preserved as conflict file, Remote pulled",
     noticeConflictRemoteSaved: "[Conflict] Remote preserved as conflict file, Local pulled",
     noticeSavedKeepForever: "[History] Saved to Keep Forever",
-    noticeFailedToSave:
-        "[History] Failed to keep forever because of cloud-side specifications.",
+    noticeFailedToSave: "[History] Failed to keep forever because of cloud-side specifications.",
     noticeFileRestored: "[History] File restored",
     noticeHistoryRestoreAs: "[History] File restored as: {0}",
     noticeRevisionDeleted: "[History] Revision deleted",
@@ -227,7 +226,7 @@ export const en: Record<string, string> = {
     labelSyncTooltip: "Sync with Cloud",
     labelSyncCommand: "Sync with Cloud",
     labelFullAudit: "Audit & Fix Consistency (Full Scan)",
-    labelViewHistory: "View History in Cloud (VaultSync)",
+    labelViewHistory: "View History in Cloud (Vault-Sync)",
     labelE2EESetup: "E2EE: Start Vault Encryption",
     labelE2EEUnlock: "E2EE: Unlock Vault Encryption",
     labelE2EEChangePassword: "E2EE: Change Encryption Password",
@@ -235,7 +234,7 @@ export const en: Record<string, string> = {
     labelE2EERecover: "E2EE: Recover Vault with Recovery Code",
 
     // Transfer Status
-    labelTransferStatus: "Transfer Status (VaultSync)",
+    labelTransferStatus: "Transfer Status (Vault-Sync)",
     transferTitle: "Transfer Status",
     transferActiveSection: "Active Transfers",
     transferHistorySection: "Recent History",
@@ -275,7 +274,7 @@ export const en: Record<string, string> = {
     // E2EE Setup Modal
     e2eeSetupTitle: "E2EE Setup",
     e2eeSetupDesc:
-        "Welcome to VaultSync E2EE.\nThis wizard will migrate your vault to an encrypted format.",
+        "Welcome to Vault-Sync E2EE.\nThis wizard will migrate your vault to an encrypted format.",
     e2eeSetupMigratingBg: "Migration is currently running in the background.",
     e2eeSetupPasswordLabel: "Encryption Password",
     e2eeSetupPasswordDesc: "Used to derive your Master Key. Don't lose it!",
@@ -310,20 +309,24 @@ export const en: Record<string, string> = {
 
     // E2EE Password Change Modal
     e2eeChangePasswordTitle: "Change Encryption Password",
-    e2eeChangePasswordDesc: "Enter a new password to re-encrypt your master key.\nExisting encrypted data will remain unchanged.",
+    e2eeChangePasswordDesc:
+        "Enter a new password to re-encrypt your master key.\nExisting encrypted data will remain unchanged.",
     e2eeChangePasswordNewLabel: "New Password",
     e2eeChangePasswordConfirmLabel: "Confirm New Password",
     e2eeChangePasswordButton: "Change Password",
 
     // E2EE Recovery Code Modal
     e2eeRecoveryExportTitle: "Recovery Code",
-    e2eeRecoveryExportDesc: "This code can restore access to your vault if you forget your password.",
-    e2eeRecoveryWarning: "Store this code in a safe place. Anyone with this code can decrypt your vault.",
+    e2eeRecoveryExportDesc:
+        "This code can restore access to your vault if you forget your password.",
+    e2eeRecoveryWarning:
+        "Store this code in a safe place. Anyone with this code can decrypt your vault.",
     e2eeRecoveryCopy: "Copy to Clipboard",
     e2eeRecoveryCopied: "Copied!",
     e2eeRecoveryClose: "Close",
     e2eeRecoveryImportTitle: "Recover Vault",
-    e2eeRecoveryImportDesc: "Enter your recovery code and set a new password to restore vault access.",
+    e2eeRecoveryImportDesc:
+        "Enter your recovery code and set a new password to restore vault access.",
     e2eeRecoveryCodeLabel: "Recovery Code",
     e2eeRecoveryRestoreButton: "Recover Vault",
 };

@@ -18,11 +18,11 @@ interface SettingsManagerDeps {
 }
 
 /**
- * Manages loading and saving VaultSync settings from split JSON files
+ * Manages loading and saving Vault-Sync settings from split JSON files
  * (open-data.json / local-data.json), encryption secret initialization,
  * and credential loading from SecretStorage.
  *
- * Extracted from the main VaultSync plugin class to separate
+ * Extracted from the main Vault-Sync plugin class to separate
  * settings persistence from plugin lifecycle orchestration.
  */
 export class SettingsManager {
@@ -43,7 +43,7 @@ export class SettingsManager {
                 const openData = JSON.parse(await vaultOps.read(openDataPath));
                 loadedSettings = { ...loadedSettings, ...openData };
             } catch (e) {
-                console.error("VaultSync: Failed to load open-data.json", e);
+                console.error("Vault-Sync: Failed to load open-data.json", e);
             }
         }
 
@@ -52,7 +52,7 @@ export class SettingsManager {
                 const localData = JSON.parse(await vaultOps.read(localDataPath));
                 loadedSettings = { ...loadedSettings, ...localData };
             } catch (e) {
-                console.error("VaultSync: Failed to load local-data.json", e);
+                console.error("Vault-Sync: Failed to load local-data.json", e);
             }
         }
 
@@ -107,19 +107,12 @@ export class SettingsManager {
 
             // Backward compatibility: existing users with clientId/clientSecret
             // should default to client-credentials mode if authMethod is not explicitly set
-            if (
-                !loadedSettings.authMethod &&
-                credentials.clientId &&
-                credentials.clientSecret
-            ) {
+            if (!loadedSettings.authMethod && credentials.clientId && credentials.clientSecret) {
                 this.settings.authMethod = "client-credentials";
             }
         }
 
-        adapter.setAuthConfig(
-            this.settings.authMethod,
-            this.settings.customProxyUrl,
-        );
+        adapter.setAuthConfig(this.settings.authMethod, this.settings.customProxyUrl);
     }
 
     async saveSettings(): Promise<void> {
