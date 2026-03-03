@@ -8,6 +8,7 @@ export default defineConfig({
         include: ["tests/**/*.test.ts"],
         testTimeout: 30000,
         coverage: {
+            reporter: ["text", "lcov"],
             include: ["src/**/*.ts"],
             exclude: [
                 // Barrel re-exports (実体は各モジュールでカバー済み)
