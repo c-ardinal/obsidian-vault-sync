@@ -22,7 +22,7 @@
     "license": "MIT",
     "devDependencies": {
         "@cloudflare/workers-types": "^4.20260219.0",
-        "@codecov/vite-plugin": "^1.9.1",
+        "@codecov/rollup-plugin": "^1.9.1",
         "@rollup/plugin-commonjs": "^29.0.0",
         "@rollup/plugin-json": "^6.1.0",
         "@rollup/plugin-node-resolve": "^16.0.3",

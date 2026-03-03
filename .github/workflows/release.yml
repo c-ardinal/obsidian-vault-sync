@@ -26,6 +26,8 @@ jobs:
 
             - name: Run Build
               run: npm run build:release
+              env:
+                  CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
             - name: Get Version
               id: get_version

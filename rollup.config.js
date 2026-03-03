@@ -5,6 +5,7 @@ import { nodeResolve } from "@rollup/plugin-node-resolve";
 import commonjs from "@rollup/plugin-commonjs";
 import json from "@rollup/plugin-json";
 import terser from "@rollup/plugin-terser";
+import { codecovRollupPlugin } from "@codecov/rollup-plugin";
 
 const isProd = process.env.BUILD === "production";
 
@@ -63,6 +64,11 @@ export default {
             { src: "manifest.json", dest: "dist/obsidian-vault-sync" },
             { src: "src/styles.css", dest: "dist/obsidian-vault-sync" },
         ]),
+        codecovRollupPlugin({
+            enableBundleAnalysis: process.env.CODECOV_TOKEN !== undefined,
+            bundleName: "obsidian-vault-sync",
+            uploadToken: process.env.CODECOV_TOKEN,
+        }),
     ],
     treeshake: true,
 };
