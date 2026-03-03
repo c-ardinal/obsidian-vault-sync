@@ -441,6 +441,58 @@ export class DeviceSimulator {
     clearLogs(): void {
         this.logs.length = 0;
     }
+
+    // ─── Advanced State Setup ───
+
+    /**
+     * Set the pendingConflict flag for a file in localIndex.
+     */
+    setPendingConflict(path: string, value: boolean): void {
+        if (!this.sm.localIndex[path]) {
+            throw new Error(`File ${path} not found in localIndex`);
+        }
+        if (value) {
+            this.sm.localIndex[path].pendingConflict = true;
+        } else {
+            delete this.sm.localIndex[path].pendingConflict;
+        }
+    }
+
+    /**
+     * Set the large file threshold in MB.
+     */
+    setLargeFileThreshold(mb: number): void {
+        this.sm.settings.largeFileThresholdMB = mb;
+    }
+
+    /**
+     * Create a file with specific size (for testing large file thresholds).
+     * The content will be padded to match the target size.
+     */
+    setupFileWithSize(path: string, content: string, size: number): void {
+        // Create content padded to target size
+        let paddedContent = content;
+        if (content.length < size) {
+            const paddingNeeded = size - content.length;
+            paddedContent += "x".repeat(paddingNeeded);
+        }
+        this.app.vaultAdapter.setFile(path, paddedContent);
+    }
+
+    /**
+     * Directly expose the smartPull function for testing.
+     */
+    async smartPull(): Promise<boolean> {
+        const { smartPull } = await import("../../src/sync-manager/sync-pull");
+        return smartPull(this.sm);
+    }
+
+    /**
+     * Get direct access to the internal SyncContext for advanced testing.
+     */
+    getContext(): any {
+        return this.sm;
+    }
 }
 
 /**

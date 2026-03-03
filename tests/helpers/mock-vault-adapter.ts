@@ -10,6 +10,26 @@ export class MockVaultAdapter {
     private files = new Map<string, { content: ArrayBuffer; mtime: number }>();
     /** path set for folders */
     private folders = new Set<string>();
+    private errorMap = new Map<string, Error>();
+
+    setErrorOnMethod(methodName: string, error: Error): void {
+        this.errorMap.set(methodName, error);
+    }
+
+    clearErrorOnMethod(methodName: string): void {
+        this.errorMap.delete(methodName);
+    }
+
+    clearAllErrors(): void {
+        this.errorMap.clear();
+    }
+
+    private maybeThrow(methodName: string): void {
+        const error = this.errorMap.get(methodName);
+        if (error) {
+            throw error;
+        }
+    }
 
     async exists(path: string): Promise<boolean> {
         return this.files.has(path) || this.folders.has(path);
@@ -43,6 +63,7 @@ export class MockVaultAdapter {
     }
 
     async rename(from: string, to: string): Promise<void> {
+        this.maybeThrow("rename");
         if (this.folders.has(from)) {
             const fromPrefix = from + "/";
             const toPrefix = to + "/";
@@ -136,9 +157,29 @@ export class MockVaultAdapter {
 export class MockVault {
     adapter: MockVaultAdapter;
     private tfiles = new Map<string, TFile>();
+    private errorMap = new Map<string, Error>();
 
     constructor(vaultAdapter: MockVaultAdapter) {
         this.adapter = vaultAdapter;
+    }
+
+    setErrorOnMethod(methodName: string, error: Error): void {
+        this.errorMap.set(methodName, error);
+    }
+
+    clearErrorOnMethod(methodName: string): void {
+        this.errorMap.delete(methodName);
+    }
+
+    clearAllErrors(): void {
+        this.errorMap.clear();
+    }
+
+    private maybeThrow(methodName: string): void {
+        const error = this.errorMap.get(methodName);
+        if (error) {
+            throw error;
+        }
     }
 
     getAbstractFileByPath(path: string): TAbstractFile | null {
@@ -157,6 +198,7 @@ export class MockVault {
     }
 
     async rename(file: TAbstractFile, newPath: string): Promise<void> {
+        this.maybeThrow("rename");
         await this.adapter.rename(file.path, newPath);
         this.tfiles.delete(file.path);
         file.path = newPath;
@@ -169,6 +211,7 @@ export class MockVault {
     }
 
     async trash(file: TFile, system: boolean): Promise<void> {
+        this.maybeThrow("trash");
         await this.adapter.remove(file.path);
     }
 

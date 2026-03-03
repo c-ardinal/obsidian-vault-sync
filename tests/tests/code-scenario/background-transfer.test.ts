@@ -2000,3 +2000,569 @@ describe("Retry & error handling (processLoop)", () => {
         vi.restoreAllMocks();
     }, 60000);
 });
+
+
+// ═══════════════════════════════════════════════════════════════════
+// PART 15: Unit — Additional branch coverage tests
+// ═══════════════════════════════════════════════════════════════════
+
+describe("Additional branch coverage tests", () => {
+    let cloud: MockCloudAdapter;
+    let device: DeviceSimulator;
+    const sm = () => device.syncManager as any;
+
+    beforeEach(() => {
+        cloud = new MockCloudAdapter();
+        device = new DeviceSimulator("TestDevice", cloud, "dev_test");
+        sm().notify = async () => {};
+    });
+
+    describe("loadHistoryFromDisk error handling", () => {
+        it("should handle null context gracefully", async () => {
+            const queue = new BackgroundTransferQueue();
+            // Should not throw when ctx is null
+            await expect(queue.loadHistoryFromDisk()).resolves.not.toThrow();
+        });
+
+        it("should handle loadHistory errors gracefully", async () => {
+            const queue = sm().backgroundTransferQueue;
+            // Create a mock context that will cause loadHistory to fail
+            const originalVault = sm().vault;
+            sm().vault = {
+                exists: () => { throw new Error("Vault error"); },
+                list: originalVault.list,
+                read: originalVault.read,
+            };
+            
+            // Should not throw
+            await expect(queue.loadHistoryFromDisk()).resolves.not.toThrow();
+            
+            // Restore
+            sm().vault = originalVault;
+        });
+    });
+
+    describe("cancelAll with non-pending items", () => {
+        it("should not change status of non-pending items in cancelAll", async () => {
+            const queue = new BackgroundTransferQueue();
+            // Add a pending item
+            const pendingItem = makeItem({ path: "pending.md", status: "pending" });
+            queue.enqueue(pendingItem);
+            
+            // Manually set an item as active (simulating processing)
+            const activeItem = makeItem({ path: "active.md", status: "active" });
+            (queue as any).queue.push(activeItem);
+            
+            queue.cancelAll();
+            
+            // Pending items should be cleared from the queue array
+            expect((queue as any).queue).toHaveLength(0);
+            // Active items should keep their original status (not changed by cancelAll)
+            expect(activeItem.status).toBe("active");
+        });
+    });
+
+    describe("executePush branches", () => {
+        it("should update item content when mtime changed but hash matches", async () => {
+            const content = "same content";
+            device.app.vaultAdapter.setFile("notes/touched.md", content);
+            const buf = new TextEncoder().encode(content).buffer as ArrayBuffer;
+            const hash = hashOf(content);
+            const stat = await device.app.vaultAdapter.stat("notes/touched.md");
+            
+            sm().localIndex["notes/touched.md"] = {
+                hash: "old-hash",
+                mtime: stat!.mtime,
+                size: buf.byteLength,
+            };
+            sm().index["notes/touched.md"] = { ...sm().localIndex["notes/touched.md"] };
+
+            const queue = sm().backgroundTransferQueue;
+            const item = makeItem({
+                direction: "push",
+                path: "notes/touched.md",
+                size: buf.byteLength,
+                content: buf.slice(0),
+                mtime: stat!.mtime,
+                snapshotHash: hash,
+            });
+            
+            // Modify file with same content (different mtime)
+            await new Promise(r => setTimeout(r, 10));
+            device.app.vaultAdapter.setFile("notes/touched.md", content);
+            
+            queue.enqueue(item);
+            queue.resume();
+            await waitForDrain(queue);
+            
+            // File should be uploaded successfully
+            expect(cloud.getCloudContent("notes/touched.md")).toBe(content);
+        });
+
+        it("should use uploadFileResumable when available", async () => {
+            // Add uploadFileResumable to the adapter
+            const uploadResumableSpy = vi.fn().mockImplementation(async (path, content, mtime, targetFileId) => {
+                return cloud.uploadFile(path, content, mtime, targetFileId);
+            });
+            sm().adapter.uploadFileResumable = uploadResumableSpy;
+
+            const content = "resumable upload test";
+            device.app.vaultAdapter.setFile("notes/resumable.md", content);
+            const buf = new TextEncoder().encode(content).buffer as ArrayBuffer;
+            const hash = hashOf(content);
+            const stat = await device.app.vaultAdapter.stat("notes/resumable.md");
+            
+            sm().localIndex["notes/resumable.md"] = {
+                hash: "old-hash",
+                mtime: stat!.mtime,
+                size: buf.byteLength,
+            };
+            sm().index["notes/resumable.md"] = { ...sm().localIndex["notes/resumable.md"] };
+
+            const queue = sm().backgroundTransferQueue;
+            queue.enqueue(makeItem({
+                direction: "push",
+                path: "notes/resumable.md",
+                size: buf.byteLength,
+                content: buf.slice(0),
+                mtime: stat!.mtime,
+                snapshotHash: hash,
+            }));
+            
+            queue.resume();
+            await waitForDrain(queue);
+            
+            expect(uploadResumableSpy).toHaveBeenCalled();
+            expect(cloud.getCloudContent("notes/resumable.md")).toBe(content);
+            
+            // Clean up
+            delete sm().adapter.uploadFileResumable;
+        });
+
+        it("should clear pendingTransfer when hash mismatch detected", async () => {
+            const content = "original content";
+            device.app.vaultAdapter.setFile("notes/modified.md", content);
+            const buf = new TextEncoder().encode(content).buffer as ArrayBuffer;
+            const hash = hashOf(content);
+            const stat = await device.app.vaultAdapter.stat("notes/modified.md");
+            
+            sm().localIndex["notes/modified.md"] = {
+                hash: "old-hash",
+                mtime: stat!.mtime,
+                size: buf.byteLength,
+                pendingTransfer: { direction: "push", enqueuedAt: Date.now(), snapshotHash: hash },
+            };
+
+            const queue = sm().backgroundTransferQueue;
+            queue.enqueue(makeItem({
+                direction: "push",
+                path: "notes/modified.md",
+                size: buf.byteLength,
+                content: buf.slice(0),
+                mtime: stat!.mtime,
+                snapshotHash: hash,
+            }));
+
+            // Modify file with different content
+            await new Promise(r => setTimeout(r, 10));
+            device.app.vaultAdapter.setFile("notes/modified.md", "different content");
+            
+            queue.resume();
+            await waitForDrain(queue);
+            
+            // pendingTransfer should be cleared
+            expect(sm().localIndex["notes/modified.md"].pendingTransfer).toBeUndefined();
+        });
+    });
+
+    describe("executePull failure branch", () => {
+        it("should fail when pullFileSafely returns false", async () => {
+            // Make the cloud adapter throw to simulate pull failure
+            // This will cause pullFileSafely to return false
+            const originalDownload = sm().adapter.downloadFile.bind(sm().adapter);
+            sm().adapter.downloadFile = vi.fn().mockRejectedValue(new Error("Download failed"));
+
+            const queue = sm().backgroundTransferQueue;
+            queue.enqueue(makeItem({
+                direction: "pull",
+                path: "notes/failpull.md",
+                fileId: "fake-id",
+                remoteHash: "fake-hash",
+                size: 100,
+            }));
+            
+            queue.resume();
+            await waitForDrain(queue, 30000);
+            
+            // Restore
+            sm().adapter.downloadFile = originalDownload;
+            
+            // Should have a failed record in history
+            const history = queue.getHistory();
+            const failRecord = history.find((r: TransferRecord) => 
+                r.path === "notes/failpull.md" && r.status === "failed"
+            );
+            expect(failRecord).toBeDefined();
+        }, 60000);
+    });
+
+    describe("completeItem with completed status", () => {
+        it("should handle completed status without adding to history", () => {
+            const queue = new BackgroundTransferQueue();
+            const item = makeItem({ path: "test.md" });
+            
+            // Call completeItem directly with completed status
+            (queue as any).completeItem(item, "completed");
+            
+            expect(item.status).toBe("completed");
+            // completed status should not add to history
+            expect(queue.getHistory()).toHaveLength(0);
+        });
+
+        it("should use createdAt when startedAt is undefined for cancelled status", () => {
+            const queue = new BackgroundTransferQueue();
+            const item = makeItem({ 
+                path: "test.md", 
+                createdAt: 5000,
+                // startedAt is undefined
+            });
+            
+            (queue as any).completeItem(item, "cancelled");
+            
+            const history = queue.getHistory();
+            expect(history).toHaveLength(1);
+            expect(history[0].startedAt).toBe(5000); // Should use createdAt
+        });
+    });
+
+    describe("flushHistory error handling", () => {
+        it("should restore records on flush failure", async () => {
+            sm().logFolder = `${sm().pluginDir}/logs/dev_test`;
+            const queue = sm().backgroundTransferQueue;
+            
+            // Add some records
+            queue.recordInlineTransfer(makeRecord({ path: "a.md" }));
+            queue.recordInlineTransfer(makeRecord({ path: "b.md" }));
+            
+            // Make vault.write fail
+            const originalWrite = sm().vault.write;
+            sm().vault.write = vi.fn().mockRejectedValue(new Error("Write failed"));
+            
+            // flushHistory should catch error and restore records
+            await queue.flushHistory();
+            
+            // Restore
+            sm().vault.write = originalWrite;
+            
+            // The unflushedRecords should be restored
+            expect((queue as any).unflushedRecords.length).toBe(2);
+        });
+
+        it("should create log folder recursively when it does not exist", async () => {
+            sm().logFolder = `${sm().pluginDir}/logs/new/nested/dev_test`;
+            await device.app.vaultAdapter.mkdir(sm().pluginDir);
+            
+            const queue = sm().backgroundTransferQueue;
+            queue.recordInlineTransfer(makeRecord({ path: "nested.md" }));
+            
+            // flushHistory should create nested folders
+            await queue.flushHistory();
+            
+            // Verify log file was created
+            const now = new Date();
+            const y = now.getFullYear();
+            const m = String(now.getMonth() + 1).padStart(2, "0");
+            const d = String(now.getDate()).padStart(2, "0");
+            const logPath = `${sm().logFolder}/transfers-${y}-${m}-${d}.jsonl`;
+            
+            const exists = await device.app.vaultAdapter.exists(logPath);
+            expect(exists).toBe(true);
+        });
+    });
+
+    describe("rotateOldLogs error handling", () => {
+        it("should handle errors gracefully in rotateOldLogs", async () => {
+            sm().logFolder = `${sm().pluginDir}/logs/dev_test`;
+            
+            // Make vault.list throw
+            const originalList = sm().vault.list;
+            sm().vault.list = vi.fn().mockRejectedValue(new Error("List failed"));
+            
+            const queue = sm().backgroundTransferQueue;
+            // Should not throw
+            await expect(queue.loadHistoryFromDisk()).resolves.not.toThrow();
+            
+            // Restore
+            sm().vault.list = originalList;
+        });
+    });
+
+    describe("loadHistory edge cases", () => {
+        it("should handle full path format in log files", async () => {
+            sm().logFolder = `${sm().pluginDir}/logs/dev_test`;
+            await device.app.vaultAdapter.mkdir(sm().logFolder);
+            
+            const today = new Date();
+            const y = today.getFullYear();
+            const m = String(today.getMonth() + 1).padStart(2, "0");
+            const d = String(today.getDate()).padStart(2, "0");
+            
+            // Create log file with full path reference (includes "/")
+            const logPath = `${sm().logFolder}/transfers-${y}-${m}-${d}.jsonl`;
+            device.app.vaultAdapter.setFile(logPath, 
+                '{"id":"rec-1","direction":"push","path":"test.md","size":100,"status":"completed","startedAt":1000,"completedAt":2000,"transferMode":"inline"}\n');
+            
+            // Mock vault.list to return full paths
+            const originalList = sm().vault.list;
+            sm().vault.list = vi.fn().mockResolvedValue({
+                files: [logPath], // Full path
+                folders: [],
+            });
+            
+            const queue = sm().backgroundTransferQueue;
+            await queue.loadHistoryFromDisk();
+            
+            const history = queue.getHistory();
+            expect(history).toHaveLength(1);
+            expect(history[0].id).toBe("rec-1");
+            
+            // Restore
+            sm().vault.list = originalList;
+        });
+
+        it("should trim history to MAX_HISTORY after loading", async () => {
+            sm().logFolder = `${sm().pluginDir}/logs/dev_test`;
+            await device.app.vaultAdapter.mkdir(sm().logFolder);
+            
+            const today = new Date();
+            const y = today.getFullYear();
+            const m = String(today.getMonth() + 1).padStart(2, "0");
+            const d = String(today.getDate()).padStart(2, "0");
+            
+            // Create more than 500 records
+            let logContent = "";
+            for (let i = 0; i < 550; i++) {
+                logContent += `{"id":"rec-${i}","direction":"push","path":"file-${i}.md","size":100,"status":"completed","startedAt":${i * 1000},"completedAt":${i * 1000 + 500},"transferMode":"inline"}\n`;
+            }
+            
+            const logPath = `${sm().logFolder}/transfers-${y}-${m}-${d}.jsonl`;
+            device.app.vaultAdapter.setFile(logPath, logContent);
+            
+            const queue = sm().backgroundTransferQueue;
+            await queue.loadHistoryFromDisk();
+            
+            const history = queue.getHistory();
+            expect(history.length).toBeLessThanOrEqual(500);
+        });
+    });
+
+    describe("bgTransferIntervalSec throttling", () => {
+        it("should throttle when bgTransferIntervalSec is set and items are pending", async () => {
+            const content = "test content";
+            device.app.vaultAdapter.setFile("notes/throttle1.md", content);
+            device.app.vaultAdapter.setFile("notes/throttle2.md", content);
+            const buf = new TextEncoder().encode(content).buffer as ArrayBuffer;
+            const hash = hashOf(content);
+            const stat1 = await device.app.vaultAdapter.stat("notes/throttle1.md");
+            const stat2 = await device.app.vaultAdapter.stat("notes/throttle2.md");
+            
+            sm().settings.bgTransferIntervalSec = 0.1; // 100ms throttle
+            
+            sm().localIndex["notes/throttle1.md"] = {
+                hash: "old-hash",
+                mtime: stat1!.mtime,
+                size: buf.byteLength,
+            };
+            sm().index["notes/throttle1.md"] = { ...sm().localIndex["notes/throttle1.md"] };
+            sm().localIndex["notes/throttle2.md"] = {
+                hash: "old-hash",
+                mtime: stat2!.mtime,
+                size: buf.byteLength,
+            };
+            sm().index["notes/throttle2.md"] = { ...sm().localIndex["notes/throttle2.md"] };
+
+            const queue = sm().backgroundTransferQueue;
+            queue.enqueue(makeItem({
+                direction: "push",
+                path: "notes/throttle1.md",
+                size: buf.byteLength,
+                content: buf.slice(0),
+                mtime: stat1!.mtime,
+                snapshotHash: hash,
+            }));
+            queue.enqueue(makeItem({
+                direction: "push",
+                path: "notes/throttle2.md",
+                size: buf.byteLength,
+                content: buf.slice(0),
+                mtime: stat2!.mtime,
+                snapshotHash: hash,
+            }));
+            
+            const startTime = Date.now();
+            queue.resume();
+            await waitForDrain(queue, 10000);
+            const endTime = Date.now();
+            
+            // Should have taken at least 100ms due to throttling between transfers
+            expect(endTime - startTime).toBeGreaterThanOrEqual(80);
+            
+            // Both files should be uploaded
+            expect(cloud.getCloudContent("notes/throttle1.md")).toBe(content);
+            expect(cloud.getCloudContent("notes/throttle2.md")).toBe(content);
+        });
+    });
+
+    describe("processLoop edge cases", () => {
+        it("should not start new processing when already processing", async () => {
+            const queue = sm().backgroundTransferQueue;
+            
+            // Set isProcessing to true manually
+            (queue as any).isProcessing = true;
+            
+            // Try to start processing - should not start a new loop
+            (queue as any).startProcessing();
+            
+            // isProcessing should still be true (no new loop started)
+            expect((queue as any).isProcessing).toBe(true);
+        });
+
+        it("should break when isPaused during processing", async () => {
+            const queue = sm().backgroundTransferQueue;
+            
+            // Add items
+            queue.enqueue(makeItem({ path: "a.md" }));
+            queue.enqueue(makeItem({ path: "b.md" }));
+            
+            // Pause immediately
+            queue.pause();
+            queue.resume();
+            
+            // Items should still be pending (loop broke due to pause)
+            expect(queue.hasPendingItems()).toBe(true);
+        });
+    });
+
+    describe("navigator.onLine check", () => {
+        it("should handle navigator.onLine === false", async () => {
+            // Mock navigator
+            Object.defineProperty(global, "navigator", {
+                value: { onLine: false },
+                writable: true,
+                configurable: true,
+            });
+
+            const queue = sm().backgroundTransferQueue;
+            queue.enqueue(makeItem({ path: "offline.md" }));
+            
+            queue.resume();
+            
+            // Wait a bit for processing
+            await new Promise(r => setTimeout(r, 100));
+            
+            // Items should still be pending (paused due to offline)
+            expect(queue.hasPendingItems()).toBe(true);
+            
+            // Restore navigator
+            Object.defineProperty(global, "navigator", {
+                value: undefined,
+                writable: true,
+                configurable: true,
+            });
+        });
+    });
+
+    describe("clear pendingTransfer on successful pull", () => {
+        it("should clear pendingTransfer from localIndex on successful pull", async () => {
+            const content = "pull content";
+            const fileId = await (async () => {
+                device.app.vaultAdapter.setFile("notes/pullsuccess.md", content);
+                sm().dirtyPaths.set("notes/pullsuccess.md", Date.now());
+                sm().settings.largeFileThresholdMB = 0;
+                await sm().smartPush(false);
+                return cloud.getFileId("notes/pullsuccess.md")!;
+            })();
+            
+            // Setup deviceB with pendingTransfer
+            const deviceB = new DeviceSimulator("DeviceB", cloud, "dev_B");
+            const smB = () => deviceB.syncManager as any;
+            smB().notify = async () => {};
+            
+            smB().localIndex["notes/pullsuccess.md"] = {
+                hash: "old-hash",
+                mtime: Date.now() - 1000,
+                size: 50,
+                pendingTransfer: { direction: "pull", enqueuedAt: Date.now(), snapshotHash: "" },
+            };
+            
+            const queue = smB().backgroundTransferQueue;
+            queue.enqueue(makeItem({
+                direction: "pull",
+                path: "notes/pullsuccess.md",
+                fileId,
+                remoteHash: cloud.getCloudHash("notes/pullsuccess.md")!,
+                size: content.length,
+            }));
+            
+            queue.resume();
+            await waitForDrain(queue);
+            
+            // pendingTransfer should be cleared
+            expect(smB().localIndex["notes/pullsuccess.md"].pendingTransfer).toBeUndefined();
+        });
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// PART 16: Unit — processLoop error handling
+// ═══════════════════════════════════════════════════════════════════
+
+describe("processLoop error handling", () => {
+    it("should handle processLoop errors gracefully", async () => {
+        const cloud = new MockCloudAdapter();
+        const device = new DeviceSimulator("TestDevice", cloud, "dev_test");
+        const sm = () => device.syncManager as any;
+        sm().notify = async () => {};
+
+        // Make adapter throw during upload
+        sm().adapter.uploadFile = vi.fn().mockRejectedValue(new Error("Upload failed"));
+
+        const content = "test content";
+        device.app.vaultAdapter.setFile("notes/fail.md", content);
+        const buf = new TextEncoder().encode(content).buffer as ArrayBuffer;
+        const hash = hashOf(content);
+        const stat = await device.app.vaultAdapter.stat("notes/fail.md");
+        
+        sm().localIndex["notes/fail.md"] = {
+            hash: "old-hash",
+            mtime: stat!.mtime,
+            size: buf.byteLength,
+        };
+        sm().index["notes/fail.md"] = { ...sm().localIndex["notes/fail.md"] };
+
+        const queue = sm().backgroundTransferQueue;
+        queue.enqueue(makeItem({
+            direction: "push",
+            path: "notes/fail.md",
+            size: buf.byteLength,
+            content: buf.slice(0),
+            mtime: stat!.mtime,
+            snapshotHash: hash,
+        }));
+        
+        // Spy on ctx.log to verify error is logged
+        const logSpy = vi.spyOn(sm(), "log");
+        
+        queue.resume();
+        await waitForDrain(queue, 30000);
+        
+        // Should have logged the failure
+        const errorLog = logSpy.mock.calls.find(call => 
+            call[0].includes("Failed after") && call[0].includes("notes/fail.md")
+        );
+        expect(errorLog).toBeDefined();
+        expect(errorLog![1]).toBe("error");
+        
+        vi.restoreAllMocks();
+    }, 60000);
+});

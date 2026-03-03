@@ -31,7 +31,7 @@ function createMockAdapter(): CloudAdapter & { _store: Map<string, { id: string;
         getFileMetadata: vi.fn(async (path: string): Promise<CloudFile | null> => {
             const entry = store.get(path);
             if (!entry) return null;
-            return { id: entry.id, name: path, path, mtime: Date.now(), size: entry.content.byteLength, hash: "mock" } as CloudFile;
+            return { id: entry.id, kind: "file", name: path, path, mtime: Date.now(), size: entry.content.byteLength, hash: "mock" } as CloudFile;
         }),
         downloadFile: vi.fn(async (id: string): Promise<ArrayBuffer> => {
             for (const entry of store.values()) {
@@ -42,7 +42,7 @@ function createMockAdapter(): CloudAdapter & { _store: Map<string, { id: string;
         uploadFile: vi.fn(async (path: string, content: ArrayBuffer, _mtime: number, existingId?: string): Promise<CloudFile> => {
             const id = existingId || `file_${++idCounter}`;
             store.set(path, { id, content: content instanceof ArrayBuffer ? content : (content as any).buffer || content });
-            return { id, name: path, path, mtime: Date.now(), size: content.byteLength, hash: "mock" } as CloudFile;
+            return { id, kind: "file", name: path, path, mtime: Date.now(), size: content.byteLength, hash: "mock" } as CloudFile;
         }),
         deleteFile: vi.fn(async (id: string): Promise<void> => {
             for (const [path, entry] of store.entries()) {
@@ -50,7 +50,7 @@ function createMockAdapter(): CloudAdapter & { _store: Map<string, { id: string;
             }
         }),
         moveFile: vi.fn(async (id: string, newName: string, _newParent: string | null): Promise<CloudFile> => {
-            return { id, name: newName, path: newName, mtime: Date.now(), size: 0, hash: "mock" } as CloudFile;
+            return { id, kind: "file", name: newName, path: newName, mtime: Date.now(), size: 0, hash: "mock" } as CloudFile;
         }),
         getFolderIdByName: vi.fn(async (name: string, _parentId?: string): Promise<string | null> => {
             return `folder_${name}`;

@@ -43,6 +43,7 @@ export class MockCloudAdapter implements CloudAdapter {
         existingFileId?: string; chunks: ArrayBuffer[];
     }>();
     private nextSessionId = 1;
+    private errorMap = new Map<string, Error>();
 
     // --- Auth (no-op) ---
     isAuthenticated(): boolean {
@@ -56,6 +57,7 @@ export class MockCloudAdapter implements CloudAdapter {
 
     // --- File Operations ---
     async getFileMetadata(path: string): Promise<CloudFile | null> {
+        this.maybeThrow("getFileMetadata");
         const id = this.pathToId.get(path);
         if (!id) return null;
         const file = this.files.get(id);
@@ -121,6 +123,7 @@ export class MockCloudAdapter implements CloudAdapter {
     }
 
     async deleteFile(fileId: string): Promise<void> {
+        this.maybeThrow("deleteFile");
         const file = this.files.get(fileId);
         if (file) {
             this.pathToId.delete(file.path);
@@ -214,6 +217,7 @@ export class MockCloudAdapter implements CloudAdapter {
 
     // --- Changes API ---
     async getStartPageToken(): Promise<string> {
+        this.maybeThrow("getStartPageToken");
         return String(this.changeLog.length);
     }
 
@@ -278,6 +282,28 @@ export class MockCloudAdapter implements CloudAdapter {
 
     // --- Test Helpers ---
 
+    /**
+     * Manually add a change entry to the changelog (for Changes API testing).
+     */
+    addChangeEntry(fileId: string, path: string, size: number, hash: string, removed = false): void {
+        const cloudFile: CloudFile = {
+            id: fileId,
+            path,
+            mtime: Date.now(),
+            size,
+            kind: "file",
+            hash,
+        };
+        this.changeLog.push({ fileId, removed, file: removed ? undefined : cloudFile });
+    }
+
+    /**
+     * Clear the changelog (for clean state in Changes API testing).
+     */
+    clearChangeLog(): void {
+        this.changeLog = [];
+    }
+
     /** Get the current cloud content as text */
     getCloudContent(path: string): string | null {
         const id = this.pathToId.get(path);
@@ -307,6 +333,92 @@ export class MockCloudAdapter implements CloudAdapter {
     /** Get current change token (for syncing) */
     getCurrentToken(): string {
         return String(this.changeLog.length);
+    }
+
+    /**
+     * Set a specific fileId for a path (for rename testing).
+     * This allows simulating remote renames where the fileId stays the same
+     * but the path changes.
+     */
+    setFileId(path: string, fileId: string): void {
+        const existingFile = this.files.get(fileId);
+        if (existingFile) {
+            // Update existing file to have the new path
+            const oldPath = existingFile.path;
+            existingFile.path = path;
+            this.pathToId.delete(oldPath);
+            this.pathToId.set(path, fileId);
+        }
+    }
+
+    /**
+     * Register a file with a specific fileId without uploading.
+     * Useful for setting up rename scenarios.
+     */
+    registerFileWithId(fileId: string, path: string, content: ArrayBuffer, mtime: number, hash: string): void {
+        const stored: StoredFile = {
+            id: fileId,
+            path,
+            content: content.slice(0),
+            mtime,
+            size: content.byteLength,
+            hash,
+        };
+        this.files.set(fileId, stored);
+        this.pathToId.set(path, fileId);
+        this.addRevision(path, content, hash, mtime);
+        this.recordChange(fileId, false, this.toCloudFile(stored));
+    }
+
+    /**
+     * Add a fake folder entry that will be returned by getFileMetadata.
+     * This is used for testing folder-related error handling.
+     */
+    addFakeFolder(path: string, id?: string): string {
+        const folderId = id || `folder_${this.nextFileId++}`;
+        // Store as a file with empty content but mark it as a "folder"
+        const stored: StoredFile = {
+            id: folderId,
+            path,
+            content: new ArrayBuffer(0),
+            mtime: Date.now(),
+            size: 0,
+            hash: "",
+        };
+        this.files.set(folderId, stored);
+        this.pathToId.set(path, folderId);
+        return folderId;
+    }
+
+    // --- Error Simulation ---
+
+    /**
+     * Set an error to be thrown when a specific method is called.
+     * Use clearErrorOnMethod to remove the error.
+     */
+    setErrorOnMethod(methodName: string, error: Error): void {
+        this.errorMap.set(methodName, error);
+    }
+
+    /**
+     * Clear the error for a specific method.
+     */
+    clearErrorOnMethod(methodName: string): void {
+        this.errorMap.delete(methodName);
+    }
+
+    /**
+     * Clear all method errors.
+     */
+    clearAllErrors(): void {
+        this.errorMap.clear();
+    }
+
+    private maybeThrow(methodName: string): void {
+        const error = this.errorMap.get(methodName);
+        if (error) {
+            throw error;
+        }
     }
 
     // --- Internals ---

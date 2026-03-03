@@ -24,7 +24,6 @@ export default defineConfig({
                 "src/sync-manager/context.ts",
                 "src/encryption/interfaces.ts",
                 // Obsidian-dependent services (require App instance)
-                "src/services/notification-service.ts",
                 "src/services/obsidian-vault-operations.ts",
                 "src/services/settings-manager.ts",
                 // Strategy interface (pure type)

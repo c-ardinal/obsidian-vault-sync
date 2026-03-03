@@ -89,6 +89,24 @@ describe("state - dirty tracking", () => {
             markDirty(ctx, "notes//hello.md");
             expect(ctx.dirtyPaths.has("notes/hello.md")).toBe(true);
         });
+
+        it("should skip paths matching exclusion patterns", () => {
+            ctx.settings.exclusionPatterns = "private/**";
+            markDirty(ctx, "private/secret.md");
+            expect(ctx.dirtyPaths.has("private/secret.md")).toBe(false);
+        });
+
+        it("should skip workspace settings when syncWorkspace is false", () => {
+            ctx.settings.syncWorkspace = false;
+            markDirty(ctx, ".obsidian/workspace.json");
+            expect(ctx.dirtyPaths.has(".obsidian/workspace.json")).toBe(false);
+        });
+
+        it("should skip appearance settings when syncCoreConfig is false", () => {
+            ctx.settings.syncCoreConfig = false;
+            markDirty(ctx, ".obsidian/appearance.json");
+            expect(ctx.dirtyPaths.has(".obsidian/appearance.json")).toBe(false);
+        });
     });
 
     describe("markDeleted", () => {
@@ -101,6 +119,19 @@ describe("state - dirty tracking", () => {
         it("should not mark file when it does not exist in index", () => {
             markDeleted(ctx, "notes/unknown.md");
             expect(ctx.dirtyPaths.has("notes/unknown.md")).toBe(false);
+        });
+
+        it("should skip ignored paths", () => {
+            ctx.index["private/secret.md"] = { fileId: "f1", mtime: 100, size: 10, hash: "abc" };
+            ctx.settings.exclusionPatterns = "private/**";
+            markDeleted(ctx, "private/secret.md");
+            expect(ctx.dirtyPaths.has("private/secret.md")).toBe(false);
+        });
+
+        it("should skip system ignore files", () => {
+            ctx.index[".DS_Store"] = { fileId: "f1", mtime: 100, size: 10, hash: "abc" };
+            markDeleted(ctx, ".DS_Store");
+            expect(ctx.dirtyPaths.has(".DS_Store")).toBe(false);
         });
     });
 
@@ -116,6 +147,27 @@ describe("state - dirty tracking", () => {
             expect(ctx.dirtyPaths.has("docs/a.md")).toBe(true);
             expect(ctx.dirtyPaths.has("docs/sub/b.md")).toBe(true);
             expect(ctx.dirtyPaths.has("other/c.md")).toBe(false);
+        });
+
+        it("should skip ignored folders", () => {
+            ctx.settings.exclusionPatterns = "private/**";
+            ctx.index["private/secret.md"] = { fileId: "f1", mtime: 100, size: 10, hash: "a" };
+
+            markFolderDeleted(ctx, "private");
+
+            expect(ctx.deletedFolders.has("private")).toBe(false);
+            expect(ctx.dirtyPaths.has("private/secret.md")).toBe(false);
+        });
+
+        it("should skip ignored children in folder", () => {
+            ctx.index["docs/secret.txt"] = { fileId: "f1", mtime: 100, size: 10, hash: "a" };
+            ctx.index["docs/readable.md"] = { fileId: "f2", mtime: 100, size: 10, hash: "b" };
+            ctx.settings.exclusionPatterns = "docs/*.txt";
+
+            markFolderDeleted(ctx, "docs");
+
+            expect(ctx.dirtyPaths.has("docs/secret.txt")).toBe(false);
+            expect(ctx.dirtyPaths.has("docs/readable.md")).toBe(true);
         });
     });
 
@@ -157,6 +209,41 @@ describe("state - dirty tracking", () => {
             expect(ctx.index["folder-b/file.md"]).toBeDefined();
             expect(ctx.index["folder-b/file.md"].pendingMove).toEqual({ oldPath: "folder-a/file.md" });
         });
+
+        it("should skip if new path should be ignored", () => {
+            ctx.settings.exclusionPatterns = "archive/**";
+            ctx.index["notes/file.md"] = { fileId: "f1", mtime: 100, size: 10, hash: "abc" };
+
+            markRenamed(ctx, "notes/file.md", "archive/file.md");
+
+            // Original should remain in index
+            expect(ctx.index["notes/file.md"]).toBeDefined();
+            // New path should not be created
+            expect(ctx.index["archive/file.md"]).toBeUndefined();
+            expect(ctx.dirtyPaths.has("archive/file.md")).toBe(false);
+        });
+
+        it("should handle rename with only index entry (no localIndex)", () => {
+            ctx.index["notes/old.md"] = { fileId: "f1", mtime: 100, size: 10, hash: "abc" };
+            // No localIndex entry
+
+            markRenamed(ctx, "notes/old.md", "notes/new.md");
+
+            expect(ctx.index["notes/old.md"]).toBeUndefined();
+            expect(ctx.index["notes/new.md"]).toBeDefined();
+            expect(ctx.localIndex["notes/new.md"]).toBeUndefined(); // No localIndex migration
+        });
+
+        it("should handle rename with only localIndex entry (no index)", () => {
+            ctx.localIndex["notes/old.md"] = { fileId: "f1", mtime: 100, size: 10, hash: "abc" };
+            // No index entry
+
+            markRenamed(ctx, "notes/old.md", "notes/new.md");
+
+            expect(ctx.index["notes/new.md"]).toBeUndefined(); // No index migration
+            expect(ctx.localIndex["notes/old.md"]).toBeUndefined();
+            expect(ctx.localIndex["notes/new.md"]).toBeDefined();
+        });
     });
 
     describe("markFolderRenamed", () => {
@@ -191,6 +278,48 @@ describe("state - dirty tracking", () => {
             markFolderRenamed(ctx, "myFolder", "renamedFolder");
 
             expect(ctx.deletedFolders.has("myFolder")).toBe(false);
+        });
+
+        it("should skip ignored old paths during folder rename", () => {
+            ctx.settings.exclusionPatterns = "project/*.tmp";
+            ctx.index["project/file.tmp"] = { fileId: "f1", mtime: 100, size: 10, hash: "a" };
+            ctx.index["project/file.md"] = { fileId: "f2", mtime: 100, size: 10, hash: "b" };
+
+            markFolderRenamed(ctx, "project", "archived");
+
+            // Ignored file should not be migrated
+            expect(ctx.index["project/file.tmp"]).toBeDefined();
+            expect(ctx.index["archived/file.tmp"]).toBeUndefined();
+            // Non-ignored file should be migrated
+            expect(ctx.index["archived/file.md"]).toBeDefined();
+        });
+
+        it("should skip ignored new paths during folder rename", () => {
+            ctx.settings.exclusionPatterns = "archived/*.secret";
+            ctx.index["project/file.secret"] = { fileId: "f1", mtime: 100, size: 10, hash: "a" };
+            ctx.index["project/file.md"] = { fileId: "f2", mtime: 100, size: 10, hash: "b" };
+
+            markFolderRenamed(ctx, "project", "archived");
+
+            // File that would become ignored should be skipped
+            expect(ctx.index["project/file.secret"]).toBeDefined();
+            expect(ctx.index["archived/file.secret"]).toBeUndefined();
+            // Non-ignored file should be migrated
+            expect(ctx.index["archived/file.md"]).toBeDefined();
+        });
+
+        it("should handle folder rename when only localIndex has entries", () => {
+            ctx.localIndex["project/file.md"] = { fileId: "f1", mtime: 100, size: 10, hash: "a" };
+            // No index entry
+
+            markFolderRenamed(ctx, "project", "archived");
+
+            // When there's no index entry, markFolderRenamed doesn't process the file at all
+            // because it iterates over Object.keys(ctx.index)
+            expect(ctx.index["archived/file.md"]).toBeUndefined();
+            expect(ctx.localIndex["archived/file.md"]).toBeUndefined();
+            // Original localIndex entry remains unchanged
+            expect(ctx.localIndex["project/file.md"]).toBeDefined();
         });
     });
 
