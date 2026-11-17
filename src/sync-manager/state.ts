@@ -10,6 +10,12 @@ import {
     LOCK_JITTER_MIN_MS,
     LOCK_JITTER_RANGE_MS,
 } from "./constants";
+import {
+    attemptedUploadsSnapshot,
+    restoreAttemptedUploads,
+    pendingPullsSnapshot,
+    restorePendingPulls,
+} from "./sync-helpers";
 
 function generateDeviceId(): string {
     const randomArray = new Uint8Array(4);
@@ -475,6 +481,14 @@ export async function loadLocalIndex(ctx: SyncContext): Promise<void> {
             const parsed = JSON.parse(data);
             ctx.localIndex = parsed.index || {};
             ctx.deviceId = parsed.deviceId || "";
+            restoreAttemptedUploads(ctx, parsed.attemptedUploads);
+            restorePendingPulls(ctx, parsed.pendingPulls);
+            // The background queue does not survive a restart. Its owed pulls are in
+            // pendingPulls (retried by the next sync) and unpushed files are found by
+            // the startup scan, so the markers only kept the device "busy" forever.
+            for (const entry of Object.values(ctx.localIndex)) {
+                if (entry.pendingTransfer) delete entry.pendingTransfer;
+            }
 
             if (!ctx.deviceId) {
                 ctx.deviceId = generateDeviceId();
@@ -549,12 +563,15 @@ export async function saveIndex(ctx: SyncContext): Promise<void> {
         console.error("Vault-Sync: Failed to save raw index backup", e);
     }
 
-    await saveLocalIndex(ctx);
+    // Never deferred: the index (and its Changes API token) was just written, and a
+    // local index older than it means, after the app is killed, files we already
+    // pulled look locally modified against a change we will never see again.
+    await saveLocalIndex(ctx, true);
 }
 
-export async function saveLocalIndex(ctx: SyncContext): Promise<void> {
+export async function saveLocalIndex(ctx: SyncContext, immediate = false): Promise<void> {
     const s = cycleState(ctx);
-    if (s.deferDepth > 0) {
+    if (s.deferDepth > 0 && !immediate) {
         s.localIndexDirty = true;
         if (++s.skippedLocalIndexSaves < LOCAL_INDEX_CHECKPOINT_EVERY) return;
     }
@@ -564,6 +581,8 @@ export async function saveLocalIndex(ctx: SyncContext): Promise<void> {
         const data = JSON.stringify({
             index: ctx.localIndex,
             deviceId: ctx.deviceId,
+            attemptedUploads: attemptedUploadsSnapshot(ctx),
+            pendingPulls: pendingPullsSnapshot(ctx),
         });
         await ctx.vault.write(ctx.localIndexPath, data);
     } catch (e) {

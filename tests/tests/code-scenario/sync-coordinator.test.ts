@@ -32,6 +32,7 @@ function createMockCtx(overrides: Partial<SyncContext> = {}): SyncContext {
 
     const backgroundTransferQueue = {
         pause: vi.fn(),
+        pauseAndSettle: vi.fn(async () => {}),
         resume: vi.fn(),
         flushHistory: vi.fn(async () => {}),
     };
@@ -142,10 +143,29 @@ describe("requestSmartSync", () => {
 describe("executeSmartSync", () => {
     it("should call smartPull and smartPush", async () => {
         const ctx = createMockCtx();
+        await executeSmartSync(ctx, true); // the first sync of a session always scans
         await executeSmartSync(ctx, false);
 
         expect(ctx.smartPull).toHaveBeenCalled();
-        expect(ctx.smartPush).toHaveBeenCalledWith(false);
+        expect(ctx.smartPush).toHaveBeenLastCalledWith(false);
+    });
+
+    it("scans the vault on the first sync even when not asked (edits made while closed)", async () => {
+        const ctx = createMockCtx();
+        await executeSmartSync(ctx, false);
+        expect(ctx.smartPush).toHaveBeenCalledWith(true);
+    });
+
+    it("keeps owing the scan until a sync gets through the push", async () => {
+        const ctx = createMockCtx();
+        (ctx.smartPull as any).mockRejectedValueOnce(new Error("Failed to fetch"));
+        await expect(executeSmartSync(ctx, true)).rejects.toThrow();
+        expect(ctx.smartPush).not.toHaveBeenCalled();
+
+        await executeSmartSync(ctx, false); // offline startup sync failed: this one scans
+        expect(ctx.smartPush).toHaveBeenLastCalledWith(true);
+        await executeSmartSync(ctx, false);
+        expect(ctx.smartPush).toHaveBeenLastCalledWith(false);
     });
 
     it("should pass scanVault=true to smartPush", async () => {
@@ -202,7 +222,7 @@ describe("executeSmartSync", () => {
         const ctx = createMockCtx();
         await executeSmartSync(ctx, false);
 
-        expect(ctx.backgroundTransferQueue.pause).toHaveBeenCalled();
+        expect(ctx.backgroundTransferQueue.pauseAndSettle).toHaveBeenCalled();
         expect(ctx.backgroundTransferQueue.resume).toHaveBeenCalled();
     });
 

@@ -10,7 +10,7 @@ import {
     shouldIgnore,
     hashContent,
 } from "./file-utils";
-import { loadCommunication, saveIndex, releaseLockAfterPush, findForeignLock, renameLocal, confirmMissingForDeletion, noteDeleteIntent, takeUnsyncedRename } from "./state";
+import { loadCommunication, saveIndex, saveLocalIndex, releaseLockAfterPush, findForeignLock, renameLocal, confirmMissingForDeletion, noteDeleteIntent, takeUnsyncedRename } from "./state";
 import { pullFileSafely } from "./merge";
 import { isMergeableText, recoverOverwrittenVersion } from "./overwrite-recovery";
 import { findPathCollision, freeCollisionPath, moveIndexEntry, pathKey } from "./path-collision";
@@ -26,6 +26,8 @@ import {
     buildRemoteIndexPayload,
     recordAttemptedUpload,
     forgetAttemptedUpload,
+    isAttemptedUpload,
+    forgetAttemptedVersion,
 } from "./sync-helpers";
 
 
@@ -132,7 +134,7 @@ async function executeFolderDeletions(ctx: SyncContext): Promise<{ folderDeleted
  * the upload under its new name as a pending move (or mark it for remote deletion).
  * Returns true when the upload was re-homed this way.
  */
-async function reconcileVanishedAfterUpload(
+export async function reconcileVanishedAfterUpload(
     ctx: SyncContext,
     path: string,
     content: ArrayBuffer,
@@ -698,9 +700,20 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
         const tasks: (() => Promise<void>)[] = [];
         let completed = 0;
 
+        // Write-ahead record of what we are about to upload. If the app is killed
+        // after an upload reached the server but before the index was saved, the
+        // next start recognises the cloud version as our own (not another device's
+        // edit) instead of turning the local note into a conflict copy.
+        const toRecord = inlineUploadQueue.filter((f) => f.hash && f.path !== ctx.pluginDataPath);
+        if (toRecord.length > 0) {
+            for (const f of toRecord) recordAttemptedUpload(ctx, f.path, f.hash!);
+            await saveLocalIndex(ctx, true);
+        }
+
         for (const file of inlineUploadQueue) {
             tasks.push(async () => {
                 const taskStartTime = Date.now();
+                let uploadStarted = false;
                 ctx.backgroundTransferQueue.markInlineStart(file.path, "push", file.size);
                 try {
                     const currentStat = await ctx.vault.stat(file.path);
@@ -773,6 +786,17 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                     await ctx.log(
                                         `[Smart Push] Allowing push of merged file (hash mismatch expected): ${file.path}`,
                                         "debug",
+                                    );
+                                } else if (
+                                    !ctx.e2eeEnabled &&
+                                    isAttemptedUpload(ctx, file.path, remoteHash)
+                                ) {
+                                    // The remote version is our own earlier upload whose result
+                                    // was never recorded (response lost, or the app was killed
+                                    // right after it). Not another device's edit: no conflict.
+                                    await ctx.log(
+                                        `[Smart Push] Remote version of ${file.path} is our own unrecorded upload. Updating it.`,
+                                        "info",
                                     );
                                 } else {
                                     await ctx.log(
@@ -910,6 +934,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
 
                     const targetFileId = remoteMeta?.id || ctx.index[file.path]?.fileId;
 
+                    uploadStarted = true;
                     const uploaded = await ctx.adapter.uploadFile(
                         file.path,
                         file.content,
@@ -919,6 +944,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                         // upload turn into an update of a file another device created since.
                         targetFileId ? undefined : { createOnly: true },
                     );
+                    forgetAttemptedUpload(ctx, file.path);
 
                     const plainHash = await hashContent(file.content);
 
@@ -974,6 +1000,8 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                     // A lost response may still have been applied by the server
                     recordAttemptedUpload(ctx, file.path, file.hash);
                 } finally {
+                    // Never sent: drop the write-ahead record (it was not attempted)
+                    if (!uploadStarted) forgetAttemptedVersion(ctx, file.path, file.hash);
                     ctx.backgroundTransferQueue.markInlineEnd(file.path);
                     await releaseLockAfterPush(ctx, file.path);
                 }

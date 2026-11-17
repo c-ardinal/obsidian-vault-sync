@@ -1427,6 +1427,28 @@ describe("smartPull comprehensive coverage", () => {
         expect(typeof result).toBe("boolean");
     });
 
+    it("follows nextPageToken past an empty Changes page", async () => {
+        // Drive can return a page with no changes that is not the last one (all its
+        // entries superseded). Stopping there left another device's edits unpulled.
+        cloud.changesPageSize = 2;
+        cloud.changesLatestStateOnly = true;
+        ctx.startPageToken = await cloud.getStartPageToken();
+        // Two changes of one file on page 1, both superseded later -> page 1 is empty
+        const g = await cloud.uploadFile("notes/other.md", encode("o1"), Date.now());
+        await cloud.uploadFile("notes/other.md", encode("o2"), Date.now(), g.id);
+        await cloud.uploadFile("notes/other.md", encode("o3"), Date.now(), g.id);
+        await cloud.uploadFile("notes/late.md", encode("v2"), Date.now());
+        const first = await cloud.getChanges(ctx.startPageToken!);
+        expect(first.changes).toEqual([]);
+        expect(first.nextPageToken).toBeDefined();
+
+        await pullViaChangesAPI(ctx);
+
+        expect(dev.getLocalContent("notes/late.md")).toBe("v2");
+        expect(dev.getLocalContent("notes/other.md")).toBe("o3");
+        expect(ctx.startPageToken).toBe(await cloud.getStartPageToken());
+    });
+
     // ==========================================
     // Folder cleanup scenarios
     // ==========================================

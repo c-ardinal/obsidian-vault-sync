@@ -5,9 +5,10 @@ import type { CloudFile } from "../types/adapter";
 import type { SyncContext } from "./context";
 import { hashContent } from "./file-utils";
 import { pullFileSafely } from "./merge";
+import { reconcileVanishedAfterUpload } from "./sync-push";
 import { saveIndex } from "./state";
 import { compress } from "./file-utils";
-import { buildRemoteIndexPayload } from "./sync-helpers";
+import { buildRemoteIndexPayload, releasePendingPull, settlePendingPull } from "./sync-helpers";
 import type {
     TransferItem,
     TransferRecord,
@@ -28,6 +29,8 @@ export class BackgroundTransferQueue {
     private history: TransferRecord[] = [];
     private isProcessing = false;
     private isPaused = false;
+    /** The transfer the process loop is executing right now */
+    private activeTransfer: Promise<void> | null = null;
     private callbacks: TransferCallbacks = {};
     private ctx: SyncContext | null = null;
     private onlineHandler: (() => void) | null = null;
@@ -93,6 +96,18 @@ export class BackgroundTransferQueue {
 
     pause(): void {
         this.isPaused = true;
+    }
+
+    /**
+     * Pause and wait until the transfer in progress (if any) has finished. A sync
+     * cycle must not run alongside a background transfer: the transfer rewrites
+     * the index entry of its file in the middle of the cycle, and the cycle then
+     * took a just-uploaded file for one "removed from remote but modified
+     * locally" (a false conflict copy), or similar.
+     */
+    async pauseAndSettle(): Promise<void> {
+        this.pause();
+        if (this.activeTransfer) await this.activeTransfer.catch(() => {});
     }
 
     resume(): void {
@@ -223,11 +238,11 @@ export class BackgroundTransferQueue {
                 ctx.startActivity();
 
                 try {
-                    if (next.direction === "push") {
-                        await this.executePush(ctx, next);
-                    } else {
-                        await this.executePull(ctx, next);
-                    }
+                    this.activeTransfer =
+                        next.direction === "push"
+                            ? this.executePush(ctx, next)
+                            : this.executePull(ctx, next);
+                    await this.activeTransfer;
                 } catch (e) {
                     const errorMsg = String(e);
                     next.error = errorMsg;
@@ -250,6 +265,8 @@ export class BackgroundTransferQueue {
                         this.addToHistory(record);
                         this.callbacks.onTransferFailed?.(record);
                         this.queue = this.queue.filter((q) => q !== next);
+                        // A pull owed by a Changes API change: retried inline by later syncs
+                        if (next.direction === "pull") releasePendingPull(ctx, next.fileId);
 
                         await ctx.log(
                             `[Background Transfer] Failed after ${TRANSFER_MAX_RETRIES} retries: ${next.path} - ${errorMsg}`,
@@ -269,6 +286,7 @@ export class BackgroundTransferQueue {
                     }
                 }
 
+                this.activeTransfer = null;
                 ctx.endActivity();
 
                 // Throttle: wait between consecutive background transfers
@@ -393,12 +411,18 @@ export class BackgroundTransferQueue {
             lastAction: "push" as const,
             ancestorHash: previousAncestorHash || uploaded.hash,
         };
-        ctx.index[item.path] = entry;
-        ctx.localIndex[item.path] = { ...entry };
+        if (await reconcileVanishedAfterUpload(ctx, item.path, item.content!, entry)) {
+            // Renamed or deleted while uploading: the upload was re-homed (as for
+            // inline pushes). Registering the old path made both names exist on
+            // every device.
+        } else {
+            ctx.index[item.path] = entry;
+            ctx.localIndex[item.path] = { ...entry };
 
-        // Only remove from dirty if the file wasn't re-dirtied during upload.
-        if (ctx.dirtyPaths.get(item.path) === dirtyAt) {
-            ctx.dirtyPaths.delete(item.path);
+            // Only remove from dirty if the file wasn't re-dirtied during upload.
+            if (ctx.dirtyPaths.get(item.path) === dirtyAt) {
+                ctx.dirtyPaths.delete(item.path);
+            }
         }
 
         await this.uploadIndex(ctx);
@@ -444,6 +468,26 @@ export class BackgroundTransferQueue {
             return;
         }
 
+        // The queue can hold an item for a long time (retries, offline). If the file
+        // was renamed or deleted on the cloud meanwhile, downloading it now wrote it
+        // back under its old name next to the renamed copy. The rename/delete arrives
+        // as a change of its own, so just drop the stale item.
+        if (item.fileId) {
+            const meta = await ctx.adapter.getFileMetadataById(item.fileId, item.path);
+            const holder = Object.entries(ctx.index).find(([, e]) => e.fileId === item.fileId)?.[0];
+            if (!meta || meta.path !== item.path || (holder !== undefined && holder !== item.path)) {
+                await ctx.log(
+                    `[Background Transfer] ${item.path} was ${meta ? `renamed to ${meta.path}` : "removed"} on the cloud since it was queued. Skipping.`,
+                    "info",
+                );
+                if (ctx.localIndex[item.path]?.pendingTransfer) {
+                    delete ctx.localIndex[item.path].pendingTransfer;
+                }
+                this.completeItem(item, "cancelled");
+                return;
+            }
+        }
+
         const success = await pullFileSafely(ctx, {
             path: item.path,
             fileId: item.fileId,
@@ -455,6 +499,11 @@ export class BackgroundTransferQueue {
             if (ctx.localIndex[item.path]?.pendingTransfer) {
                 delete ctx.localIndex[item.path].pendingTransfer;
             }
+            settlePendingPull(ctx, item.fileId);
+            // Persist now (both indexes): if the app is killed before the next sync
+            // writes them, the downloaded file looked like a new local file and a
+            // later remote rename of it was not recognised, leaving a stray copy.
+            await saveIndex(ctx);
 
             const record: TransferRecord = {
                 id: item.id,
@@ -483,6 +532,9 @@ export class BackgroundTransferQueue {
     // === Helpers ===
 
     private completeItem(item: TransferItem, status: "completed" | "cancelled"): void {
+        // A cancelled pull is handled by the sync cycle (local edit) or by its own
+        // change (renamed / removed on the cloud): nothing is owed any more.
+        if (item.direction === "pull" && this.ctx) settlePendingPull(this.ctx, item.fileId);
         item.status = status;
         item.completedAt = Date.now();
         if (status === "cancelled") {

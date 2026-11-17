@@ -32,6 +32,7 @@ import {
     getThresholdBytes,
     generateTransferId,
     markPendingTransfer,
+    pendingPullsOf,
 } from "./sync-helpers";
 
 
@@ -706,6 +707,15 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
             `[Smart Pull] ${counter.failed} new file(s) could not be pulled yet; will retry from the remote index.`,
             "info",
         );
+    } else if (deferredPullCount > 0) {
+        // Large files go to the background queue and have no index entry until they
+        // arrive. Recording this index as seen made our next index upload skip the
+        // merge with it, and the upload then dropped those files from the shared
+        // index: devices joining later never received them. Leave it unseen.
+        await ctx.log(
+            `[Smart Pull] Remote index not marked as seen until ${deferredPullCount} background download(s) finish.`,
+            "debug",
+        );
     } else {
         ctx.index[ctx.pluginDataPath] = {
             fileId: remoteIndexMeta.id,
@@ -737,13 +747,11 @@ export const CHANGES_MAX_PULL_RETRIES = 3;
 
 type ChangedFile = { id: string; path: string; hash?: string; size: number; [key: string]: any };
 
-/**
- * Changes whose pull failed (network error etc.), keyed by fileId. The page
- * token still advances (re-reading pages would replay unrelated changes), so
- * without this list a failed pull was silently lost until the file changed
- * again. Entries are dropped when a newer change for the same file arrives.
- */
-const failedChangePulls = new WeakMap<object, Map<string, { file: ChangedFile; attempts: number }>>();
+// Changes whose pull failed (network error etc.) or went to the background queue,
+// keyed by fileId: see pendingPullsOf (persisted with the local index). The page
+// token still advances (re-reading pages would replay unrelated changes), so
+// without this list a failed pull was silently lost until the file changed
+// again. Entries are dropped when a newer change for the same file arrives.
 
 /**
  * Pull via Changes API (for adapters that support it).
@@ -776,13 +784,16 @@ export async function pullViaChangesAPI(
     // Failed pulls from earlier syncs. Updated as pages are processed, so a
     // newer change for the same file supersedes the retry even if this call
     // throws half-way.
-    let pendingRetries = failedChangePulls.get(ctx);
-    if (!pendingRetries) {
-        pendingRetries = new Map();
-        failedChangePulls.set(ctx, pendingRetries);
-    }
-    const pending = pendingRetries;
-    const retryCandidates = new Map(pending);
+    const pending = pendingPullsOf(ctx);
+    // Pulls the background queue still holds are not retried inline
+    const queuedInBackground = new Set(
+        (ctx.backgroundTransferQueue.getPendingTransfers?.() ?? [])
+            .filter((t) => t.direction === "pull")
+            .map((t) => t.path),
+    );
+    const retryCandidates = new Map(
+        [...pending].filter(([, p]) => !(p.background && queuedInBackground.has(p.file.path))),
+    );
     let newFailureCount = 0;
     const seenFileIds = new Set<string>();
     let remoteIndexChanged = false;
@@ -809,6 +820,14 @@ export async function pullViaChangesAPI(
     for (let page = 0; page < CHANGES_MAX_PAGES_PER_SYNC && currentPageToken; page++) {
         const changes = await ctx.adapter.getChanges(currentPageToken);
 
+        if (changes.changes.length === 0 && changes.nextPageToken) {
+            // Drive may return an empty page that is not the last one (e.g. every change
+            // on it was superseded or filtered). Stopping here skipped all later pages,
+            // so another device's edits were never pulled.
+            currentPageToken = changes.nextPageToken;
+            ctx.startPageToken = currentPageToken;
+            continue;
+        }
         if (changes.changes.length === 0) {
             await ctx.log("[Smart Pull] No changes from Changes API", "debug");
             if (changes.newStartPageToken) {
@@ -1272,6 +1291,21 @@ async function processChangePage(
                             );
                         }
                     } else if (
+                        !ctx.index[newPath] &&
+                        !ctx.localIndex[newPath] &&
+                        !(await ctx.vault.exists(oldPath))
+                    ) {
+                        // The rename is already done here, only its index update was lost
+                        // (the app was killed after renaming, before the index was saved,
+                        // and this change is replayed). Skipping it treated the file as an
+                        // unknown local one: its edits ended up in a conflict copy.
+                        moveIndexEntry(ctx, oldPath, newPath);
+                        localIdToPath.set(cloudFile.id, newPath);
+                        await ctx.log(
+                            `[Changes API] Remote Rename ${oldPath} -> ${newPath} was already applied locally. Index updated.`,
+                            "info",
+                        );
+                    } else if (
                         pathKey(oldPath) !== pathKey(newPath) &&
                         (await ctx.vault.exists(oldPath)) &&
                         findPathCollision(ctx, newPath, cloudFile.id)
@@ -1404,6 +1438,7 @@ async function processChangePage(
                     remoteHash: cloudFile.hash,
                 });
                 markPendingTransfer(ctx, cloudFile.path, "pull", cloudFile.hash || "");
+                pendingPullsOf(ctx).set(cloudFile.id, { file: cloudFile, attempts: 0, background: true });
                 await ctx.log(
                     `[Changes API] Deferred to background (${formatSize(cloudFile.size)}): ${cloudFile.path}`,
                     "info",

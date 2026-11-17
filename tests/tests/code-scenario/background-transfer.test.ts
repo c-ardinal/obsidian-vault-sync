@@ -2187,6 +2187,16 @@ describe("Additional branch coverage tests", () => {
             // This will cause pullFileSafely to return false
             const originalDownload = sm().adapter.downloadFile.bind(sm().adapter);
             sm().adapter.downloadFile = vi.fn().mockRejectedValue(new Error("Download failed"));
+            // The file still exists on the cloud under the queued path
+            const originalMeta = sm().adapter.getFileMetadataById.bind(sm().adapter);
+            sm().adapter.getFileMetadataById = vi.fn().mockResolvedValue({
+                id: "fake-id",
+                path: "notes/failpull.md",
+                mtime: 0,
+                size: 100,
+                kind: "file",
+                hash: "fake-hash",
+            });
 
             const queue = sm().backgroundTransferQueue;
             queue.enqueue(
@@ -2204,6 +2214,7 @@ describe("Additional branch coverage tests", () => {
 
             // Restore
             sm().adapter.downloadFile = originalDownload;
+            sm().adapter.getFileMetadataById = originalMeta;
 
             // Should have a failed record in history
             const history = queue.getHistory();
