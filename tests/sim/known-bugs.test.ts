@@ -61,6 +61,17 @@ const CHAOS: Partial<SimConfig> = {
     offlineRate: 0.04,
     maxClockSkewMs: 120_000,
 };
+/** Same settings as the restart scenario in multi-device.sim.test.ts */
+const RESTART: Partial<SimConfig> = {
+    profile: "disjoint",
+    devices: 3,
+    actions: 50,
+    binaryRate: 0.25,
+    restartRate: 0.08,
+    settings: { largeFileThresholdMB: 0.0001 },
+    network: { minLatencyMs: 20, maxLatencyMs: 1500, failureRate: 0.03, lostResponseRate: 0.3 },
+    offlineRate: 0.03,
+};
 const CROSS_OS: Partial<SimConfig> = {
     profile: "disjoint",
     devices: 3,
@@ -400,6 +411,30 @@ const FIXED_REGRESSIONS: Case[] = [
         title: "E2EE: a remote version that is our own lost-response upload is adopted, not merged",
         symptom: "With E2EE, an edit made after a network error ends up in a conflict copy",
         config: { seed: 438, ...E2EE },
+        expect: [],
+    },
+    {
+        title: "restart: a pulled note whose index entry was lost is the base, not a conflict",
+        symptom: "After the app is closed mid-sync, an untouched note comes back as a conflict copy",
+        config: { seed: 135, ...RESTART },
+        expect: [],
+    },
+    {
+        title: "restart: a background upload that finished after the app was closed is recognised",
+        symptom: "An attachment stays 'not synced' forever after the app is closed during its upload",
+        config: { seed: 143, ...RESTART },
+        expect: [],
+    },
+    {
+        title: "restart: a rename made before the app was closed is not lost",
+        symptom: "A renamed note exists twice (old and new name) on every device",
+        config: { seed: 258, ...RESTART },
+        expect: [],
+    },
+    {
+        title: "restart: renaming a note whose upload result was lost moves the cloud copy",
+        symptom: "After a lost upload and a restart, renaming the note leaves a copy under the old name",
+        config: { seed: 278, ...RESTART },
         expect: [],
     },
 ];

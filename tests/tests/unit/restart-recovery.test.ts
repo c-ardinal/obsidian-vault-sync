@@ -253,3 +253,26 @@ describe("hashing", () => {
         for (const c of cases) expect(await hashContent(c)).toBe(legacyHashContent(c));
     });
 });
+
+describe("renames survive a restart", () => {
+    it("a rename of a synced note is saved at once, not at the next push", async () => {
+        const { markRenamed } = await import("../../../src/sync-manager/state");
+        const ctx = makeCtx();
+        const entry = { fileId: "f1", hash: "h", mtime: 1, size: 1 } as any;
+        ctx.index["old.md"] = { ...entry };
+        ctx.localIndex["old.md"] = { ...entry };
+        markRenamed(ctx, "old.md", "new.md");
+        await vi.waitFor(() => expect(ctx.files.has(LOCAL)).toBe(true));
+        const saved = persistedLocal(ctx).index;
+        expect(saved["old.md"]).toBeUndefined();
+        expect(saved["new.md"].pendingMove).toEqual({ oldPath: "old.md" });
+    });
+
+    it("after a restart, renaming a note whose upload result is unknown is tracked as unsynced", async () => {
+        const { markRenamed, takeUnsyncedRename } = await import("../../../src/sync-manager/state");
+        const ctx = makeCtx(); // fresh start: nothing dirty in memory
+        recordAttemptedUpload(ctx, "draft.md", "abc");
+        markRenamed(ctx, "draft.md", "final.md");
+        expect(takeUnsyncedRename(ctx, "draft.md")).toBe("final.md");
+    });
+});

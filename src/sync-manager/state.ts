@@ -15,6 +15,7 @@ import {
     restoreAttemptedUploads,
     pendingPullsSnapshot,
     restorePendingPulls,
+    peekAttemptedUpload,
 } from "./sync-helpers";
 
 function generateDeviceId(): string {
@@ -754,7 +755,9 @@ export function markRenamed(ctx: SyncContext, oldPath: string, newPath: string):
     const isMove = oldDir !== newDir;
 
     // 未同期ファイルのリネーム/移動（oldPath がインデックスになく dirtyPaths にある）
-    if (ctx.dirtyPaths.has(oldPath) && !ctx.index[oldPath]) {
+    // After a restart the dirty set is empty, but a saved upload record still says the
+    // file was never confirmed: its lost upload may be in the cloud under the old name.
+    if (!ctx.index[oldPath] && (ctx.dirtyPaths.has(oldPath) || peekAttemptedUpload(ctx, oldPath))) {
         noteUnsyncedRename(ctx, oldPath, newPath);
         ctx.dirtyPaths.delete(oldPath);
         ctx.dirtyPaths.set(newPath, Date.now());
@@ -799,6 +802,16 @@ export function markRenamed(ctx: SyncContext, oldPath: string, newPath: string):
         `[Dirty] Marked (${isMove ? "moved" : "renamed"}): ${newPath} (Migrated ID from ${oldPath})`,
         "debug",
     );
+    persistMove(ctx);
+}
+
+/**
+ * Save a rename at once: it lives only in memory until the next push, and if the app
+ * was closed before that, the next start saw the old name as deleted and the new one
+ * as a new note, so the note ended up twice in the cloud.
+ */
+function persistMove(ctx: SyncContext): void {
+    void saveIndex(ctx).catch((e) => console.error("Vault-Sync: Failed to save index after a rename", e));
 }
 
 export function markFolderRenamed(
@@ -850,6 +863,7 @@ export function markFolderRenamed(
             );
         }
     }
+    persistMove(ctx);
 }
 
 // === State Queries ===

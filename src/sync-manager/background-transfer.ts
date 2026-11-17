@@ -6,9 +6,15 @@ import type { SyncContext } from "./context";
 import { hashContent } from "./file-utils";
 import { pullFileSafely } from "./merge";
 import { reconcileVanishedAfterUpload } from "./sync-push";
-import { saveIndex } from "./state";
+import { saveIndex, saveLocalIndex } from "./state";
 import { compress } from "./file-utils";
-import { buildRemoteIndexPayload, releasePendingPull, settlePendingPull } from "./sync-helpers";
+import {
+    buildRemoteIndexPayload,
+    forgetAttemptedUpload,
+    recordAttemptedUpload,
+    releasePendingPull,
+    settlePendingPull,
+} from "./sync-helpers";
 import type {
     TransferItem,
     TransferRecord,
@@ -366,6 +372,37 @@ export class BackgroundTransferQueue {
             const remoteHash = remoteMeta.hash;
             if (
                 remoteHash &&
+                (!lastKnownHash || lastKnownHash.toLowerCase() !== remoteHash.toLowerCase()) &&
+                !ctx.e2eeEnabled &&
+                remoteHash.toLowerCase() === md5(item.content!)
+            ) {
+                // The cloud already has exactly this content: our own earlier upload whose
+                // result was never recorded (the app was closed while it was in flight).
+                // Treating it as a conflict deferred the file to the sync cycle, which
+                // deferred it back here, forever.
+                const entry = {
+                    fileId: remoteMeta.id,
+                    mtime: item.mtime!,
+                    size: remoteMeta.size,
+                    hash: remoteHash.toLowerCase(),
+                    plainHash: await hashContent(item.content!),
+                    lastAction: "push" as const,
+                    ancestorHash: remoteHash.toLowerCase(),
+                };
+                ctx.index[item.path] = entry;
+                ctx.localIndex[item.path] = { ...entry };
+                forgetAttemptedUpload(ctx, item.path);
+                if (ctx.dirtyPaths.get(item.path) === dirtyAt) ctx.dirtyPaths.delete(item.path);
+                await ctx.log(
+                    `[Background Transfer] ${item.path} is already in the cloud (our own earlier upload).`,
+                    "info",
+                );
+                await this.uploadIndex(ctx);
+                this.completeItem(item, "completed");
+                return;
+            }
+            if (
+                remoteHash &&
                 (!lastKnownHash || lastKnownHash.toLowerCase() !== remoteHash.toLowerCase())
             ) {
                 await ctx.log(
@@ -382,6 +419,10 @@ export class BackgroundTransferQueue {
         }
 
         const targetFileId = remoteMeta?.id || ctx.index[item.path]?.fileId;
+        // Write-ahead record (as for inline uploads): if the app is closed while this
+        // upload is in flight, the next start recognises the cloud version as ours.
+        recordAttemptedUpload(ctx, item.path, md5(item.content!));
+        await saveLocalIndex(ctx, true);
         let uploaded: CloudFile;
         if (ctx.adapter.uploadFileResumable) {
             uploaded = await ctx.adapter.uploadFileResumable(
@@ -399,6 +440,7 @@ export class BackgroundTransferQueue {
             );
         }
 
+        forgetAttemptedUpload(ctx, item.path);
         const plainHash = await hashContent(item.content!);
 
         const previousAncestorHash = ctx.localIndex[item.path]?.ancestorHash;
