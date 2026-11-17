@@ -43,6 +43,7 @@ export class MockCloudAdapter implements CloudAdapter {
 
     private files = new Map<string, StoredFile>();
     private pathToId = new Map<string, string>();
+    /** Revisions keyed by file id, like Drive (they follow the file across renames) */
     private revisions = new Map<string, StoredRevision[]>();
     private nextFileId = 1;
     private nextRevisionId = 1;
@@ -106,7 +107,7 @@ export class MockCloudAdapter implements CloudAdapter {
             existing.hash = hash;
 
             // Add revision
-            this.addRevision(path, content, hash, mtime);
+            this.addRevision(id, content, hash, mtime);
 
             // Record change
             this.recordChange(id, false, this.toCloudFile(existing));
@@ -126,7 +127,7 @@ export class MockCloudAdapter implements CloudAdapter {
             this.pathToId.set(path, id);
 
             // Add first revision
-            this.addRevision(path, content, hash, mtime);
+            this.addRevision(id, content, hash, mtime);
 
             this.recordChange(id, false, this.toCloudFile(stored));
             return this.toCloudFile(stored);
@@ -161,13 +162,6 @@ export class MockCloudAdapter implements CloudAdapter {
 
         // 新パスでパスマップを登録
         this.pathToId.set(newPath, fileId);
-
-        // リビジョンのパスも更新
-        const oldRevisions = this.revisions.get(oldPath);
-        if (oldRevisions) {
-            this.revisions.delete(oldPath);
-            this.revisions.set(newPath, oldRevisions);
-        }
 
         this.recordChange(fileId, false, this.toCloudFile(file));
         return this.toCloudFile(file);
@@ -275,8 +269,10 @@ export class MockCloudAdapter implements CloudAdapter {
     }
 
     // --- History ---
-    async listRevisions(path: string): Promise<FileRevision[]> {
-        const revs = this.revisions.get(path) || [];
+    async listRevisions(path: string, fileId?: string): Promise<FileRevision[]> {
+        const id = fileId ?? this.pathToId.get(path);
+        if (!id || !this.files.has(id)) throw new Error(`File not found: ${path}`);
+        const revs = this.revisions.get(id) || [];
         return revs.map((r) => ({
             id: r.id,
             modifiedTime: r.modifiedTime,
@@ -285,11 +281,11 @@ export class MockCloudAdapter implements CloudAdapter {
         }));
     }
 
-    async getRevisionContent(_path: string, revisionId: string): Promise<ArrayBuffer> {
-        for (const revs of this.revisions.values()) {
-            const rev = revs.find((r) => r.id === revisionId);
-            if (rev) return rev.content.slice(0);
-        }
+    async getRevisionContent(path: string, revisionId: string, fileId?: string): Promise<ArrayBuffer> {
+        const id = fileId ?? this.pathToId.get(path);
+        if (!id || !this.files.has(id)) throw new Error(`File not found: ${path}`);
+        const rev = (this.revisions.get(id) || []).find((r) => r.id === revisionId);
+        if (rev) return rev.content.slice(0);
         throw new Error(`Revision not found: ${revisionId}`);
     }
 
@@ -337,6 +333,14 @@ export class MockCloudAdapter implements CloudAdapter {
     }
 
     /** Get the current cloud content as text */
+    /** Raw stored bytes (ciphertext when E2EE is on) */
+    getCloudBytes(path: string): Uint8Array | null {
+        const id = this.pathToId.get(path);
+        if (!id) return null;
+        const file = this.files.get(id);
+        return file ? new Uint8Array(file.content) : null;
+    }
+
     getCloudContent(path: string): string | null {
         const id = this.pathToId.get(path);
         if (!id) return null;
@@ -359,7 +363,8 @@ export class MockCloudAdapter implements CloudAdapter {
 
     /** Get revision count */
     getRevisionCount(path: string): number {
-        return (this.revisions.get(path) || []).length;
+        const id = this.pathToId.get(path);
+        return id ? (this.revisions.get(id) || []).length : 0;
     }
 
     /** Get current change token (for syncing) */
@@ -398,7 +403,7 @@ export class MockCloudAdapter implements CloudAdapter {
         };
         this.files.set(fileId, stored);
         this.pathToId.set(path, fileId);
-        this.addRevision(path, content, hash, mtime);
+        this.addRevision(fileId, content, hash, mtime);
         this.recordChange(fileId, false, this.toCloudFile(stored));
     }
 
@@ -454,11 +459,11 @@ export class MockCloudAdapter implements CloudAdapter {
     }
 
     // --- Internals ---
-    private addRevision(path: string, content: ArrayBuffer, hash: string, mtime: number): void {
-        if (!this.revisions.has(path)) {
-            this.revisions.set(path, []);
+    private addRevision(fileId: string, content: ArrayBuffer, hash: string, mtime: number): void {
+        if (!this.revisions.has(fileId)) {
+            this.revisions.set(fileId, []);
         }
-        const revs = this.revisions.get(path)!;
+        const revs = this.revisions.get(fileId)!;
         revs.push({
             id: `rev_${this.nextRevisionId++}`,
             modifiedTime: mtime,

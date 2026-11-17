@@ -1,3 +1,4 @@
+import type { CommunicationData } from "./types";
 import type { SyncContext } from "./context";
 import type { LocalFileIndex } from "./types";
 import {
@@ -8,13 +9,23 @@ import {
     isAlwaysForbiddenOnRemote,
     shouldIgnore,
 } from "./file-utils";
-import { loadCommunication, saveIndex, saveLocalIndex, clearPendingPushStates, checkMergeLock } from "./state";
+import {
+    loadCommunication,
+    saveIndex,
+    saveLocalIndex,
+    clearPendingPushStates,
+    checkMergeLock,
+    releaseOrphanedOwnLocks,
+    findForeignLock,
+} from "./state";
 import { pullFileSafely } from "./merge";
 import { TransferPriority } from "./transfer-types";
 import { formatSize } from "../utils/format";
-import { basename } from "../utils/path";
+import { basename, dirname } from "../utils/path";
+import { findPathCollision, freeCollisionPath, moveIndexEntry, pathKey } from "./path-collision";
 import { INTEGRITY_MIN_INDEX_SIZE_BYTES, INTEGRITY_MIN_LOCAL_FILE_COUNT } from "./constants";
 import {
+    computeLocalHash,
     downloadRemoteIndex,
     getThresholdBytes,
     generateTransferId,
@@ -25,6 +36,7 @@ import {
 /** Check for active merge locks from other devices */
 async function checkMergeLocks(ctx: SyncContext): Promise<void> {
     const commData = await loadCommunication(ctx);
+    await releaseOrphanedOwnLocks(ctx, commData);
     const now = Date.now();
     let localIndexChanged = false;
     for (const [path, lock] of Object.entries(commData.mergeLocks)) {
@@ -333,6 +345,38 @@ function buildInlineDownloadTasks(
     return tasks;
 }
 
+/**
+ * Apply a deletion made on another device. If the local file changed since our
+ * last sync (an edit made here, or a brand-new note created at the same path),
+ * the edit wins: the file is kept and uploaded again as a new file instead of
+ * being trashed. Returns true if the local file was deleted.
+ */
+async function applyRemoteDeletion(ctx: SyncContext, path: string): Promise<boolean> {
+    const file = ctx.vault.getAbstractFileByPath(path);
+    const base = ctx.localIndex[path] ?? ctx.index[path];
+    if (file && base && (await ctx.vault.exists(path))) {
+        const content = await ctx.vault.readBinary(path);
+        const { localHash, compareHash } = await computeLocalHash(ctx, content, base);
+        if (!compareHash || localHash !== compareHash.toLowerCase()) {
+            delete ctx.index[path];
+            delete ctx.localIndex[path];
+            ctx.recentlyDeletedFromRemote.delete(path);
+            ctx.dirtyPaths.set(path, Date.now());
+            await ctx.log(
+                `[Smart Pull] ${path} was deleted on another device but has local changes. Keeping it and uploading it again.`,
+                "warn",
+            );
+            return false;
+        }
+    }
+    if (file) {
+        await ctx.vault.trashFile(file, true);
+    }
+    delete ctx.index[path];
+    delete ctx.localIndex[path];
+    return true;
+}
+
 /** Build tasks to delete local files that were removed on remote */
 function buildLocalDeletionTasks(
     ctx: SyncContext,
@@ -346,12 +390,7 @@ function buildLocalDeletionTasks(
         ctx.recentlyDeletedFromRemote.add(path);
         tasks.push(async () => {
             try {
-                const file = ctx.vault.getAbstractFileByPath(path);
-                if (file) {
-                    await ctx.vault.trashFile(file, true);
-                }
-                delete ctx.index[path];
-                delete ctx.localIndex[path];
+                if (!(await applyRemoteDeletion(ctx, path))) return;
 
                 counter.completed++;
                 await ctx.log(`[Smart Pull] [${counter.completed}/${total}] Deleted locally: ${path}`, "info");
@@ -476,33 +515,67 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
                 }
 
                 if (unlockedPaths.length > 0) {
-                    // Download remote index once for all pending files
-                    const remoteIndexMeta = await ctx.adapter.getFileMetadata(ctx.pluginDataPath);
-                    if (remoteIndexMeta?.id) {
-                        const remoteIndex = await downloadRemoteIndex(ctx, remoteIndexMeta.id);
-                        let pendingPulled = false;
-                        for (const path of unlockedPaths) {
-                            const remoteEntry = remoteIndex[path];
-                            if (remoteEntry) {
-                                await ctx.log(
-                                    `[Smart Pull] Re-checking pendingConflict file (lock expired): ${path}`,
-                                    "info",
-                                );
-                                const remoteMeta = {
-                                    path,
-                                    fileId: remoteEntry.fileId,
-                                    hash: remoteEntry.hash,
-                                    plainHash: remoteEntry.plainHash,
-                                    mtime: remoteEntry.mtime,
-                                    size: remoteEntry.size,
-                                    ancestorHash: remoteEntry.ancestorHash,
-                                };
-                                await pullFileSafely(ctx, remoteMeta, "Pending Conflict");
-                                pendingPulled = true;
-                            }
+                    // The remote index only supplies ancestorHash/plainHash. The file's own
+                    // metadata is the truth for its content: the index can lag behind (the
+                    // merging device uploads the file before its index), and re-checking
+                    // against a stale index hash made this device declare "already in sync"
+                    // and drop the merged result for good (the change was already consumed).
+                    let remoteIndex: LocalFileIndex = {};
+                    try {
+                        const remoteIndexMeta = await ctx.adapter.getFileMetadata(ctx.pluginDataPath);
+                        if (remoteIndexMeta?.id) {
+                            remoteIndex = await downloadRemoteIndex(ctx, remoteIndexMeta.id);
                         }
-                        if (pendingPulled) return true;
+                    } catch (e) {
+                        await ctx.log(`[Smart Pull] Failed to load remote index for pending conflicts: ${e}`, "warn");
                     }
+                    let pendingPulled = false;
+                    for (const path of unlockedPaths) {
+                        const fileId =
+                            ctx.localIndex[path]?.fileId || ctx.index[path]?.fileId || remoteIndex[path]?.fileId;
+                        let meta: Awaited<ReturnType<typeof ctx.adapter.getFileMetadata>> = null;
+                        try {
+                            meta = fileId
+                                ? await ctx.adapter.getFileMetadataById(fileId, path)
+                                : await ctx.adapter.getFileMetadata(path);
+                        } catch (e) {
+                            // Transient error: keep pendingConflict and re-check next sync
+                            await ctx.log(`[Smart Pull] Pending conflict re-check failed for ${path}: ${e}`, "warn");
+                            continue;
+                        }
+                        if (!meta || meta.kind === "folder" || meta.path !== path) {
+                            // Deleted or renamed remotely: those arrive as changes of their own.
+                            if (ctx.localIndex[path]?.pendingConflict) {
+                                delete ctx.localIndex[path].pendingConflict;
+                                await saveLocalIndex(ctx);
+                            }
+                            continue;
+                        }
+                        const remoteEntry = remoteIndex[path];
+                        const indexIsCurrent =
+                            !!remoteEntry?.hash &&
+                            !!meta.hash &&
+                            remoteEntry.hash.toLowerCase() === meta.hash.toLowerCase();
+                        await ctx.log(
+                            `[Smart Pull] Re-checking pendingConflict file (lock expired): ${path}`,
+                            "info",
+                        );
+                        await pullFileSafely(
+                            ctx,
+                            {
+                                path,
+                                fileId: meta.id,
+                                hash: meta.hash,
+                                mtime: meta.mtime,
+                                size: meta.size,
+                                plainHash: indexIsCurrent ? remoteEntry.plainHash : undefined,
+                                ancestorHash: indexIsCurrent ? remoteEntry.ancestorHash : undefined,
+                            },
+                            "Pending Conflict",
+                        );
+                        pendingPulled = true;
+                    }
+                    if (pendingPulled) return true;
                 }
             }
 
@@ -929,7 +1002,7 @@ async function processChangePage(
         file?: { kind: string; id: string; path: string; hash?: string; size: number; [key: string]: any };
     }>,
     remoteIndex: LocalFileIndex,
-    commData: { mergeLocks: Record<string, { holder: string; expiresAt: number }> },
+    commData: Pick<CommunicationData, "mergeLocks">,
 ): Promise<{
     tasks: (() => Promise<void>)[];
     completed: { count: number };
@@ -958,12 +1031,7 @@ async function processChangePage(
                 ctx.recentlyDeletedFromRemote.add(pathToDelete);
                 tasks.push(async () => {
                     try {
-                        const file = ctx.vault.getAbstractFileByPath(pathToDelete);
-                        if (file) {
-                            await ctx.vault.trashFile(file, true);
-                        }
-                        delete ctx.index[pathToDelete];
-                        delete ctx.localIndex[pathToDelete];
+                        if (!(await applyRemoteDeletion(ctx, pathToDelete))) return;
                         ctx.logger.markActionTaken();
                         completed.count++;
                         await ctx.log(`[Smart Pull] Deleted: ${pathToDelete}`, "info");
@@ -982,8 +1050,16 @@ async function processChangePage(
             if (isManagedSeparately(cloudFile.path)) continue;
 
             // Populate ancestorHash and plainHash from remote index.
+            // Only when the index describes THIS version: the index is uploaded after the
+            // file, so it can lag behind, and a stale ancestorHash made the Safety Guard
+            // accept a version that does not contain our push.
             const remoteEntry = remoteIndex[cloudFile.path];
-            if (remoteEntry) {
+            if (
+                remoteEntry &&
+                (!remoteEntry.hash ||
+                    !cloudFile.hash ||
+                    remoteEntry.hash.toLowerCase() === cloudFile.hash.toLowerCase())
+            ) {
                 cloudFile.ancestorHash = remoteEntry.ancestorHash;
                 if (remoteEntry.plainHash) {
                     cloudFile.plainHash = remoteEntry.plainHash;
@@ -1012,25 +1088,7 @@ async function processChangePage(
                 continue;
             }
 
-            // Check if another device is merging this file
-            const mergeLock = commData.mergeLocks[cloudFile.path];
-            const now = Date.now();
-            if (mergeLock && mergeLock.holder !== ctx.deviceId && mergeLock.expiresAt > now) {
-                await ctx.log(
-                    `[Smart Pull] Waiting: ${cloudFile.path} is being merged by ${mergeLock.holder} (expires in ${Math.round((mergeLock.expiresAt - now) / 1000)}s)`,
-                    "warn",
-                );
-                await ctx.notify("noticeWaitOtherDeviceMerge", basename(cloudFile.path));
-                // Mark as pending conflict so next sync shows "merge result applied"
-                if (ctx.localIndex[cloudFile.path]) {
-                    ctx.localIndex[cloudFile.path].pendingConflict = true;
-                    await saveLocalIndex(ctx);
-                }
-                continue; // Skip this file, wait for merge to complete
-            }
-
-            // Skip if local index hash matches (already synced by this client)
-            const localEntry = ctx.index[cloudFile.path];
+            // Remote rename of a file we know under another path
             if (localIdToPath.has(cloudFile.id)) {
                 const prevPathForId = localIdToPath.get(cloudFile.id);
                 if (prevPathForId && prevPathForId !== cloudFile.path) {
@@ -1123,6 +1181,31 @@ async function processChangePage(
                                 "warn",
                             );
                         }
+                    } else if (
+                        pathKey(oldPath) !== pathKey(newPath) &&
+                        (await ctx.vault.exists(oldPath)) &&
+                        findPathCollision(ctx, newPath, cloudFile.id)
+                    ) {
+                        // Another synced file already has this name here (on Windows/macOS
+                        // "Note.md" and "note.md" are one file). Skipping the rename left
+                        // the old index entry behind, so a later note created under the
+                        // old name was taken for an edit of this one and overwritten.
+                        // Give this file a free name, in the cloud too.
+                        const alt = await freeCollisionPath(ctx, newPath);
+                        try {
+                            await ctx.adapter.moveFile(cloudFile.id, basename(alt), dirname(alt) || null);
+                            await ctx.vault.rename(oldPath, alt);
+                            ctx.logger.markActionTaken();
+                            moveIndexEntry(ctx, oldPath, alt);
+                            localIdToPath.set(cloudFile.id, alt);
+                            cloudFile.path = alt;
+                            await ctx.log(
+                                `[Changes API] Remote Rename: ${newPath} has the same name as another note on Windows/macOS. Renamed ${oldPath} to ${alt}.`,
+                                "warn",
+                            );
+                        } catch (e) {
+                            await ctx.log(`[Changes API] Failed to rename ${oldPath} -> ${alt}: ${e}`, "warn");
+                        }
                     } else {
                         await ctx.log(
                             `[Changes API] Remote Rename: Target ${newPath} exists. Skipping rename to avoid overwrite.`,
@@ -1131,6 +1214,10 @@ async function processChangePage(
                     }
                 }
             }
+
+            // Skip if local index hash matches (already synced by this client).
+            // Read after the rename above so a renamed entry is found under its new path.
+            const localEntry = ctx.index[cloudFile.path];
 
             // Guard: If remote hash matches our ancestorHash, it's likely a stale echo
             if (localEntry?.ancestorHash && cloudFile.hash === localEntry.ancestorHash) {
@@ -1175,6 +1262,27 @@ async function processChangePage(
 
                 await ctx.log(`[Smart Pull] Skipping (hash match): ${cloudFile.path}`, "debug");
                 continue;
+            }
+
+            // Check if another device is merging this file. Checked only now: applying a
+            // remote rename and confirming our own upload are metadata-only and must not
+            // be skipped while the content is locked - the change is consumed, so a skipped
+            // rename was lost for good, and a skipped confirmation left a stale merge base
+            // (our own edit then looked like a conflicting change in the next merge).
+            const now = Date.now();
+            const mergeLock = findForeignLock(ctx, commData, cloudFile.path, cloudFile.id, now);
+            if (mergeLock) {
+                await ctx.log(
+                    `[Smart Pull] Waiting: ${cloudFile.path} is being merged by ${mergeLock.holder} (expires in ${Math.round((mergeLock.expiresAt - now) / 1000)}s)`,
+                    "warn",
+                );
+                await ctx.notify("noticeWaitOtherDeviceMerge", basename(cloudFile.path));
+                // Mark as pending conflict so next sync shows "merge result applied"
+                if (ctx.localIndex[cloudFile.path]) {
+                    ctx.localIndex[cloudFile.path].pendingConflict = true;
+                    await saveLocalIndex(ctx);
+                }
+                continue; // Skip this file, wait for merge to complete
             }
 
             const changesThreshold = getThresholdBytes(ctx);
@@ -1237,3 +1345,4 @@ async function processChangePage(
 
     return { tasks, completed, confirmedCount, failed };
 }
+

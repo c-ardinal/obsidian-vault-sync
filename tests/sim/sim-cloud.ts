@@ -164,11 +164,20 @@ export class SimCloud {
     }
 
     /** Snapshot of user-visible files on the cloud (excludes plugin internals) */
-    async snapshot(isInternal: (path: string) => boolean): Promise<Record<string, string>> {
+    async snapshot(
+        isInternal: (path: string) => boolean,
+        decode?: (bytes: ArrayBuffer) => Promise<ArrayBuffer>,
+    ): Promise<Record<string, string>> {
         const out: Record<string, string> = {};
         for (const f of await this.store.listFiles()) {
             if (isInternal(f.path)) continue;
-            out[f.path] = this.store.getCloudContent(f.path) ?? "";
+            if (decode) {
+                const raw = this.store.getCloudBytes(f.path);
+                const plain = raw ? await decode(raw.slice().buffer) : new ArrayBuffer(0);
+                out[f.path] = new TextDecoder().decode(plain);
+            } else {
+                out[f.path] = this.store.getCloudContent(f.path) ?? "";
+            }
         }
         return out;
     }

@@ -8,7 +8,7 @@
  *
  * @pass_criteria
  * - getFileMetadata: 存在→CloudFile, 不在→null
- * - getFileMetadataById: 正常→CloudFile, trashed→null, エラー→null
+ * - getFileMetadataById: 正常→CloudFile, trashed→null, 404→null, 一時エラー→throw, リネーム→現在のパス
  * - downloadFile: ArrayBuffer返却
  * - uploadFile: 新規POST / 既存PATCH
  * - deleteFile: DELETE呼出
@@ -104,10 +104,17 @@ describe("GoogleDriveAdapter", () => {
             expect(result).toBeNull();
         });
 
-        it("should return null when parent resolution fails", async () => {
-            pathResolver.resolveParentId.mockRejectedValueOnce(new Error("not found"));
+        it("should return null when the parent folder does not exist", async () => {
+            pathResolver.resolveParentId.mockRejectedValueOnce(new Error("Folder not found: bad"));
             const result = await adapter.getFileMetadata("bad/path.md");
             expect(result).toBeNull();
+        });
+
+        it("should throw (not return null) on transient errors", async () => {
+            // null means "file does not exist" to callers; a network error must not
+            // be mistaken for that, or uploads skip their conflict check.
+            mockFetch.mockRejectedValueOnce(Object.assign(new Error("API Error 503"), { status: 503 }));
+            await expect(adapter.getFileMetadata("notes/a.md")).rejects.toThrow("503");
         });
 
         it("should detect folder kind", async () => {
@@ -155,10 +162,31 @@ describe("GoogleDriveAdapter", () => {
             expect(result).toBeNull();
         });
 
-        it("should return null on error", async () => {
-            mockFetch.mockRejectedValueOnce(new Error("404"));
+        it("should return null on 404", async () => {
+            mockFetch.mockRejectedValueOnce(Object.assign(new Error("API Error 404"), { status: 404 }));
             const result = await adapter.getFileMetadataById("nonexistent");
             expect(result).toBeNull();
+        });
+
+        it("should throw on transient errors", async () => {
+            mockFetch.mockRejectedValueOnce(new Error("Network request failed"));
+            await expect(adapter.getFileMetadataById("file-1", "a.md")).rejects.toThrow();
+        });
+
+        it("should report the current path when the file was renamed elsewhere", async () => {
+            mockFetch.mockResolvedValueOnce(jsonResponse({
+                id: "file-456",
+                name: "renamed.md",
+                mimeType: "text/plain",
+                modifiedTime: "2026-02-01T00:00:00Z",
+                size: "512",
+                md5Checksum: "def456",
+                trashed: false,
+                parents: ["folder-x"],
+            }));
+            pathResolver.resolveFullPath.mockResolvedValueOnce("other"); // parent folder path
+            const result = await adapter.getFileMetadataById("file-456", "notes/found.md");
+            expect(result!.path).toBe("other/renamed.md");
         });
     });
 
@@ -271,9 +299,14 @@ describe("GoogleDriveAdapter", () => {
             expect(await adapter.fileExistsById("trashed")).toBe(false);
         });
 
-        it("should return false on error", async () => {
-            mockFetch.mockRejectedValueOnce(new Error("404"));
+        it("should return false on 404", async () => {
+            mockFetch.mockRejectedValueOnce(Object.assign(new Error("API Error 404"), { status: 404 }));
             expect(await adapter.fileExistsById("gone")).toBe(false);
+        });
+
+        it("should throw on transient errors", async () => {
+            mockFetch.mockRejectedValueOnce(new Error("timeout"));
+            await expect(adapter.fileExistsById("x")).rejects.toThrow();
         });
     });
 

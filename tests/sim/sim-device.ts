@@ -4,6 +4,7 @@ import { RevisionCache } from "../../src/services/revision-cache";
 import { BackgroundTransferQueue } from "../../src/sync-manager/background-transfer";
 import type { INotificationService } from "../../src/services/notification-service";
 import type { CloudAdapter } from "../../src/types/adapter";
+import type { ICryptoEngine } from "../../src/encryption/interfaces";
 import { MockApp, MockVaultAdapter, MockVaultOperations } from "../helpers/mock-vault-adapter";
 import type { Rng } from "./rng";
 import { PersonalityVaultAdapter, RealFsVaultAdapter, type FsPersonality } from "./sim-vault";
@@ -144,6 +145,8 @@ export interface DeviceOptions {
     /** Offset added to this device's file mtimes (virtual ms) */
     clockSkewMs: number;
     settings?: Partial<SyncManagerSettings>;
+    /** When set, the device runs with E2EE enabled and this engine unlocked */
+    cryptoEngine?: ICryptoEngine;
     /** File-system semantics of this device (default: linux) */
     fs?: FsPersonality;
     /** Shared timeline sink */
@@ -193,7 +196,11 @@ export class SimDevice {
         );
 
         const notifier: INotificationService = { show: () => {} };
-        const settings = { ...SIM_SETTINGS, ...(opts.settings ?? {}) };
+        const settings = {
+            ...SIM_SETTINGS,
+            ...(opts.settings ?? {}),
+            ...(opts.cryptoEngine ? { e2eeEnabled: true } : {}),
+        };
         this.sm = new SyncManager(
             this.ops,
             opts.cloudView(this),
@@ -205,7 +212,10 @@ export class SimDevice {
             new RevisionCache(this.ops, PLUGIN_DIR),
             new BackgroundTransferQueue(),
         );
+        if (opts.cryptoEngine) this.sm.cryptoEngine = opts.cryptoEngine;
         this.ctx = this.sm as any;
+        this.ctx.unicodeInsensitiveFs =
+            this.fs === "macos" || (this.fs === "real-fs" && process.platform === "darwin");
         this.ctx.log = async (msg: string, level = "info") => {
             opts.log(this.name, `${level.toUpperCase()} ${msg}`);
         };

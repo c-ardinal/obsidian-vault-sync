@@ -15,8 +15,6 @@ export class EncryptedAdapter implements CloudAdapter {
     readonly supportsHash: boolean;
     readonly supportsHistory: boolean;
 
-    /** Sync-cycle scoped cache: fileId -> decrypted content. Call clearDownloadCache() between cycles. */
-    private downloadCache = new Map<string, ArrayBuffer>();
 
     private static readonly UPLOAD_BATCH_SIZE = 5 * 1024 * 1024; // 5 MiB
     private static readonly ALIGN = 262144; // 256 KiB
@@ -70,19 +68,16 @@ export class EncryptedAdapter implements CloudAdapter {
     }
 
     async downloadFile(fileId: string): Promise<ArrayBuffer> {
-        const cached = this.downloadCache.get(fileId);
-        if (cached) return cached.slice(0);
-
+        // No caching by fileId: another device can replace the content at any time,
+        // and a cached copy was served as the NEW version (the sync recorded the new
+        // hash with old content, then pushed it back over the other device's edit).
+        // The same staleness hit sync-index.json and communication.json re-reads.
         const encryptedContent = await this.baseAdapter.downloadFile(fileId);
-        const decrypted = await this.decryptContent(encryptedContent);
-        this.downloadCache.set(fileId, decrypted);
-        return decrypted;
+        return this.decryptContent(encryptedContent);
     }
 
-    /** Clear the sync-cycle download cache. Call between sync cycles. */
-    clearDownloadCache(): void {
-        this.downloadCache.clear();
-    }
+    /** Kept for interface compatibility; downloads are no longer cached. */
+    clearDownloadCache(): void {}
 
     async uploadFile(
         path: string,
@@ -92,7 +87,6 @@ export class EncryptedAdapter implements CloudAdapter {
     ): Promise<CloudFile> {
         const encrypted = await this.encryptContent(content);
         const result = await this.baseAdapter.uploadFile(path, encrypted, mtime, existingFileId);
-        this.downloadCache.delete(result.id);
         return result;
     }
 
@@ -121,11 +115,9 @@ export class EncryptedAdapter implements CloudAdapter {
                 mtime,
                 existingFileId,
             );
-            this.downloadCache.delete(r.id);
             return r;
         }
         const r = await this.baseAdapter.uploadFile(path, encrypted, mtime, existingFileId);
-        this.downloadCache.delete(r.id);
         return r;
     }
 
@@ -170,18 +162,18 @@ export class EncryptedAdapter implements CloudAdapter {
 
     // === History Support (delegated to base adapter with decryption) ===
 
-    async listRevisions(path: string): Promise<FileRevision[]> {
+    async listRevisions(path: string, fileId?: string): Promise<FileRevision[]> {
         if (!this.baseAdapter.listRevisions) {
             throw new Error("Base adapter does not support listRevisions");
         }
-        return this.baseAdapter.listRevisions(path);
+        return this.baseAdapter.listRevisions(path, fileId);
     }
 
-    async getRevisionContent(path: string, revisionId: string): Promise<ArrayBuffer> {
+    async getRevisionContent(path: string, revisionId: string, fileId?: string): Promise<ArrayBuffer> {
         if (!this.baseAdapter.getRevisionContent) {
             throw new Error("Base adapter does not support getRevisionContent");
         }
-        const encryptedContent = await this.baseAdapter.getRevisionContent(path, revisionId);
+        const encryptedContent = await this.baseAdapter.getRevisionContent(path, revisionId, fileId);
         return this.decryptContent(encryptedContent);
     }
 
@@ -326,7 +318,6 @@ export class EncryptedAdapter implements CloudAdapter {
                         mtime,
                     );
                     if (result) {
-                        this.downloadCache.delete(result.id);
                         return result;
                     }
                 } else {

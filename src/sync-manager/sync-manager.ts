@@ -165,6 +165,8 @@ export class SyncManager {
     public onSettingsUpdated: () => Promise<void> = async () => {};
     public onSaveSettings: () => Promise<void> = async () => {};
     private isSpinning = false;
+    /** Set on macOS / iOS, whose file systems treat NFC and NFD names as one file */
+    unicodeInsensitiveFs = false;
     public settingsUpdated = false;
 
     private startActivity() {

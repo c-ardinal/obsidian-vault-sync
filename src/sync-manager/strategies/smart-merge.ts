@@ -17,11 +17,12 @@ export class SmartMergeStrategy implements IMergeStrategy {
         localContent: localContentStr,
         remoteContent: remoteContentStr,
         baseHash,
+        fileId,
     }: MergeParams): Promise<ArrayBuffer | null> {
         await ctx.log(`[Merge] Attempting 3-way merge for ${path}...`, "info");
         await ctx.log(`[Merge] Looking for base revision with hash: ${baseHash}`, "debug");
 
-        const revisions = await listRevisions(ctx, path);
+        const revisions = await listRevisions(ctx, path, fileId);
         await ctx.log(
             `[Merge] Found ${revisions.length} revisions: ${revisions.map((r) => r.hash?.substring(0, 8) || "no-hash").join(", ")}`,
             "debug",
@@ -43,7 +44,7 @@ export class SmartMergeStrategy implements IMergeStrategy {
 
         await ctx.log(`[Merge] Found base revision: ${baseRev.id} (hash: ${baseRev.hash})`, "debug");
 
-        const baseBuffer = await getRevisionContent(ctx, path, baseRev.id);
+        const baseBuffer = await getRevisionContent(ctx, path, baseRev.id, fileId);
         const baseContentStr = new TextDecoder().decode(baseBuffer);
 
         const baseNorm = normalizeLineEndings(baseContentStr);

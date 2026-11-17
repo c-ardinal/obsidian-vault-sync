@@ -27,6 +27,46 @@ interface Case {
 }
 
 const NET = { minLatencyMs: 5, maxLatencyMs: 400, failureRate: 0, lostResponseRate: 0 };
+/** Same settings as the flaky-network / e2ee scenarios in multi-device.sim.test.ts */
+const FLAKY: Partial<SimConfig> = {
+    profile: "disjoint",
+    devices: 3,
+    actions: 50,
+    network: { minLatencyMs: 20, maxLatencyMs: 2000, failureRate: 0.05, lostResponseRate: 0.3 },
+    offlineRate: 0.05,
+    maxClockSkewMs: 120_000,
+};
+const E2EE: Partial<SimConfig> = {
+    profile: "disjoint",
+    devices: 3,
+    actions: 45,
+    e2ee: true,
+    fs: ["linux", "windows", "macos"],
+    windowsLineEndings: true,
+    binaryRate: 0.2,
+    network: { minLatencyMs: 5, maxLatencyMs: 800, failureRate: 0.02, lostResponseRate: 0.15 },
+};
+
+/** Same settings as the chaos / cross-os scenarios in multi-device.sim.test.ts */
+const CHAOS: Partial<SimConfig> = {
+    profile: "chaos",
+    devices: 4,
+    actions: 60,
+    fs: ["linux", "windows", "macos", "linux"],
+    windowsLineEndings: true,
+    binaryRate: 0.15,
+    network: { minLatencyMs: 5, maxLatencyMs: 1500, failureRate: 0.03, lostResponseRate: 0.3 },
+    offlineRate: 0.04,
+    maxClockSkewMs: 120_000,
+};
+const CROSS_OS: Partial<SimConfig> = {
+    profile: "disjoint",
+    devices: 3,
+    actions: 45,
+    fs: ["linux", "windows", "macos"],
+    windowsLineEndings: true,
+    binaryRate: 0.25,
+};
 
 const KNOWN_BUGS: Case[] = [
     // Empty: every bug found so far is fixed and lives in FIXED_REGRESSIONS.
@@ -124,6 +164,54 @@ const FIXED_REGRESSIONS: Case[] = [
         // Full clean-network seed 12 run: C types while its merge downloads revisions, and A
         // renames + edits the note C just merged into.
         config: { seed: 12, profile: "disjoint", devices: 3, actions: 40, network: NET },
+        expect: [],
+    },
+    {
+        title: "a note renamed while its upload is in flight is not deleted remotely",
+        symptom: "Rename a note right after editing it on a slow network: the note vanishes on every device",
+        config: { seed: 282, ...FLAKY },
+        expect: [],
+    },
+    {
+        title: "a network error while fetching the merge base does not create a conflict copy",
+        symptom: "'(Conflict ...)' copies appear for edits on different lines after a network hiccup",
+        config: { seed: 6, ...E2EE },
+        expect: [],
+    },
+    {
+        title: "E2EE: a file changed by another device mid-sync is not served from a stale download cache",
+        symptom: "With E2EE on, another device's edit silently disappears after the next sync",
+        config: { seed: 102, ...E2EE },
+        expect: [],
+    },
+    {
+        title: "merge locks hold even when the two devices know the note under different paths",
+        symptom: "Right after a rename, two devices merge the same note at once and one overwrites the other",
+        config: { seed: 255, ...E2EE },
+        expect: [],
+    },
+    {
+        title: "two notes whose names differ only in case / Unicode form both survive on macOS and Windows",
+        symptom: "'projects/café.md' and 'Projects/café.md' from two Linux devices: one overwrites the other on a Mac",
+        config: { seed: 216, ...CHAOS },
+        expect: [],
+    },
+    {
+        title: "every device renames the same note of a colliding pair",
+        symptom: "Both colliding notes get renamed to '(2)' on different devices, collide again and one is lost",
+        config: { seed: 116, ...CHAOS },
+        expect: [],
+    },
+    {
+        title: "a note created while a pull of the same name is downloading is not overwritten",
+        symptom: "Create a note (or attachment) right as another device's file with that name syncs in: yours vanishes",
+        config: { seed: 225, ...CHAOS },
+        expect: [],
+    },
+    {
+        title: "an edit to a note renamed on another device follows the rename instead of being stranded",
+        symptom: "A note edited on one device while renamed on another stays forever under its old name",
+        config: { seed: 137, ...CROSS_OS },
         expect: [],
     },
 ];

@@ -87,6 +87,21 @@ export const SCENARIOS: Scenario[] = [
         maxClockSkewMs: 120_000,
     },
     {
+        // E2EE on every device: each upload gets a fresh IV, so the cloud md5 of
+        // identical content differs per upload. Mixed OS + binaries + lossy network
+        // exercise the plainHash paths (conflict detection, echo suppression, merge).
+        ...DEFAULT_CONFIG,
+        name: "e2ee",
+        profile: "disjoint",
+        devices: 3,
+        actions: 45,
+        e2ee: true,
+        fs: ["linux", "windows", "macos"],
+        windowsLineEndings: true,
+        binaryRate: 0.2,
+        network: { minLatencyMs: 5, maxLatencyMs: 800, failureRate: 0.02, lostResponseRate: 0.15 },
+    },
+    {
         // Devices use the REAL file system of the machine running the test.
         // Run this on the CI OS matrix to catch NTFS / APFS / ext4 differences.
         ...DEFAULT_CONFIG,

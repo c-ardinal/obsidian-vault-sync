@@ -192,34 +192,55 @@ export class GoogleDriveAdapter implements CloudAdapter {
             }
             return null;
         } catch (e) {
-            // If parent resolution fails, file definitely doesn't exist
-            return null;
+            // A missing parent folder means the file does not exist. Anything else
+            // (network, 429/5xx after retries, auth) is NOT "not found": callers that
+            // got null used to upload without their conflict check (overwriting another
+            // device's version) or create a second file with the same name.
+            if (isNotFound(e)) return null;
+            throw e;
         }
     }
 
     async getFileMetadataById(fileId: string, knownPath?: string): Promise<CloudFile | null> {
+        let file: any;
         try {
             // Direct ID lookup provides stronger consistency than query search
             const response = await this.http.fetchWithAuth(
-                `https://www.googleapis.com/drive/v3/files/${fileId}?fields=id,name,mimeType,modifiedTime,size,md5Checksum,trashed`,
+                `https://www.googleapis.com/drive/v3/files/${fileId}?fields=id,name,mimeType,modifiedTime,size,md5Checksum,trashed,parents`,
             );
-            const file = await response.json();
-
-            // Handle deleted/trashed files as null
-            if (!file.id || file.trashed) return null;
-
-            return {
-                id: file.id,
-                path: knownPath || file.name,
-                mtime: new Date(file.modifiedTime).getTime(),
-                size: parseInt(file.size || "0"),
-                kind: file.mimeType === "application/vnd.google-apps.folder" ? "folder" : "file",
-                hash: file.md5Checksum,
-            };
+            file = await response.json();
         } catch (e) {
-            // 404 or other errors -> treat as not found
-            return null;
+            // Only a real 404 means "gone"; transient errors must not look like a deletion
+            if (isNotFound(e)) return null;
+            throw e;
         }
+
+        // Handle deleted/trashed files as null
+        if (!file.id || file.trashed) return null;
+
+        // Report the CURRENT path. Echoing knownPath back hid renames made by other
+        // devices from every caller that compares paths.
+        let path = knownPath || file.name;
+        if (knownPath && basename(knownPath) !== file.name) {
+            path = file.name;
+            if (file.parents?.[0]) {
+                try {
+                    const parentPath = await this.pathResolver.resolveFullPath(file.parents[0]);
+                    path = parentPath ? `${parentPath}/${file.name}` : file.name;
+                } catch {
+                    /* keep the bare name: still signals the rename */
+                }
+            }
+        }
+
+        return {
+            id: file.id,
+            path,
+            mtime: new Date(file.modifiedTime).getTime(),
+            size: parseInt(file.size || "0"),
+            kind: file.mimeType === "application/vnd.google-apps.folder" ? "folder" : "file",
+            hash: file.md5Checksum,
+        };
     }
 
     async downloadFile(fileId: string): Promise<ArrayBuffer> {
@@ -459,9 +480,10 @@ export class GoogleDriveAdapter implements CloudAdapter {
                 `https://www.googleapis.com/drive/v3/files/${fileId}?fields=id,trashed`,
             );
             const data = await response.json();
-            return data.id && !data.trashed;
+            return !!data.id && !data.trashed;
         } catch (e) {
-            return false;
+            if (isNotFound(e)) return false;
+            throw e;
         }
     }
 
@@ -603,9 +625,12 @@ export class GoogleDriveAdapter implements CloudAdapter {
         }
     }
 
-    async listRevisions(path: string): Promise<import("../../types/adapter").FileRevision[]> {
+    async listRevisions(
+        path: string,
+        fileId?: string,
+    ): Promise<import("../../types/adapter").FileRevision[]> {
         this.validatePath(path);
-        const meta = await this.getFileMetadata(path);
+        const meta = fileId ? { id: fileId } : await this.getFileMetadata(path);
         if (!meta) throw new Error(`File not found: ${path}`);
 
         const response = await this.http.fetchWithAuth(
@@ -623,9 +648,9 @@ export class GoogleDriveAdapter implements CloudAdapter {
         }));
     }
 
-    async getRevisionContent(path: string, revisionId: string): Promise<ArrayBuffer> {
+    async getRevisionContent(path: string, revisionId: string, fileId?: string): Promise<ArrayBuffer> {
         this.validatePath(path);
-        const meta = await this.getFileMetadata(path);
+        const meta = fileId ? { id: fileId } : await this.getFileMetadata(path);
         if (!meta) throw new Error(`File not found: ${path}`);
 
         const metaResponse = await this.http.fetchWithAuth(
@@ -682,4 +707,12 @@ export class GoogleDriveAdapter implements CloudAdapter {
             { method: "DELETE" },
         );
     }
+}
+
+/** A 404 from Drive, or our own "folder not found" while resolving a parent path */
+function isNotFound(e: any): boolean {
+    if (!e) return false;
+    if (e.status === 404) return true;
+    const msg: string = e.message ?? "";
+    return msg.startsWith("Folder not found") || msg.includes("API Error 404") || msg.includes("File not found");
 }

@@ -328,7 +328,19 @@ export class BackgroundTransferQueue {
             } else {
                 remoteMeta = await ctx.adapter.getFileMetadata(item.path);
             }
-        } catch {
+        } catch (e) {
+            // Uploading without the conflict check could overwrite another
+            // device's edit. Defer to the next sync cycle instead.
+            await ctx.log(
+                `[Background Transfer] Remote check failed for ${item.path}, deferring: ${e}`,
+                "warn",
+            );
+            ctx.dirtyPaths.set(item.path, Date.now());
+            if (ctx.localIndex[item.path]?.pendingTransfer) {
+                delete ctx.localIndex[item.path].pendingTransfer;
+            }
+            this.completeItem(item, "cancelled");
+            return;
         }
 
         if (remoteMeta) {

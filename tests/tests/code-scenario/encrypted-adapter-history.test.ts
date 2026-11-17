@@ -115,7 +115,7 @@ describe("EncryptedAdapter History Support", () => {
 
             const result = await adapter.listRevisions("test.md");
             expect(result).toEqual(revisions);
-            expect(baseAdapter.listRevisions).toHaveBeenCalledWith("test.md");
+            expect(baseAdapter.listRevisions).toHaveBeenCalledWith("test.md", undefined);
         });
 
         it("should throw if base adapter does not support listRevisions", async () => {
@@ -143,7 +143,7 @@ describe("EncryptedAdapter History Support", () => {
             const decoded = new TextDecoder().decode(result);
             expect(decoded).toBe("Hello, World!");
 
-            expect(baseAdapter.getRevisionContent).toHaveBeenCalledWith("test.md", "rev1");
+            expect(baseAdapter.getRevisionContent).toHaveBeenCalledWith("test.md", "rev1", undefined);
             expect(engine.decrypt).toHaveBeenCalledWith(
                 expect.any(ArrayBuffer),
                 expect.any(Uint8Array),
