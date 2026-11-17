@@ -542,6 +542,20 @@ const MATRIX: MatrixEntry[] = [
         },
     },
     {
+        // ⚠️ Vault uses an add-on missing on this device
+        key: "noticeAddonRequired",
+        scenarios: {
+            initialSync: { v: "Show", s: "Show" },
+            startupSync: { v: "Show", s: "Show" },
+            manualSync: { v: "Show", s: "Show" },
+            timerSync: { v: "Show", s: "Show" },
+            saveSync: { v: "Show", s: "Show" },
+            modifySync: { v: "Show", s: "Show" },
+            layoutSync: { v: "Show", s: "Show" },
+            fullScan: { v: "Show", s: "Show" },
+        },
+    },
+    {
         // 🔒 E2EE: 暗号化検出
         key: "noticeE2EEAutoEnabled",
         scenarios: {
@@ -674,12 +688,16 @@ const FORMAT_SPECS: FormatSpec[] = [
         specJa: "🔒 [E2EE] Vaultがロック中のため同期を一時停止しています。コマンドパレットから「E2EE: ロック解除」を実行してください。",
     },
     {
+        key: "noticeAddonRequired",
+        specJa: "⚠️ このVaultでは、このデバイスに未導入のアドオンが使われています。設定 → アドオン から導入してください。同期を一時停止しています。",
+    },
+    {
         key: "noticeE2EEAutoEnabled",
         specJa: "🔒 [E2EE] このVaultは他デバイスで暗号化されています。パスワードを入力してロックを解除してください。",
     },
     {
         key: "noticeEngineVerifyFailed",
-        specJa: "❌ [E2EE] エンジンの検証に失敗しました。プラグインを再インストールしてください。",
+        specJa: "❌ アドオンの検証に失敗しました。アドオンを再導入してください。",
     },
     { key: "e2eeUnlockSuccess", specJa: "ロック解除しました！" },
     { key: "e2eeUnlockFailed", specJa: "パスワードが正しくありません。" },
@@ -769,6 +787,7 @@ describe("Notification Visibility Matrix", () => {
             "noticeMigrationFailed",
             // E2EE
             "noticeVaultLocked",
+            "noticeAddonRequired",
             "noticeE2EEAutoEnabled",
             "noticeEngineVerifyFailed",
             "e2eeUnlockSuccess",
@@ -1073,6 +1092,7 @@ const NEVER_DURING_CLEAN_SYNC: string[] = [
     "noticeMigrationFailed",
     // E2EE: not triggered during clean sync (vault is unlocked)
     "noticeVaultLocked",
+    "noticeAddonRequired",
     "noticeE2EEAutoEnabled",
     "noticeEngineVerifyFailed",
     "e2eeUnlockSuccess",

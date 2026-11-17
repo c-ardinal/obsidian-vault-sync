@@ -1,20 +1,19 @@
 import * as obsidianModule from "obsidian";
 import { normalizePath } from "obsidian";
 import { ICryptoEngine } from "./interfaces";
+import { APPROVED_ADDONS } from "../addons/approved-addons";
 import { toHex } from "../utils/format";
 import type { IVaultOperations } from "../types/vault-operations";
 
-// SHA-256 hash of the approved e2ee-engine.js file.
-// Update via: npm run hash (in Vault-Sync-E2EE-Engine repo)
-export const APPROVED_ENGINE_HASH: string =
-    "e2b6e3758b768d4dbc2fe896e5830c3cec5bf8d8fd786992f35737661190fa06";
+// SHA-256 hash of the approved engine file, pinned in the add-on registry.
+// Update via the add-on's `npm run build` output (src/addons/approved-addons.ts).
+export const APPROVED_ENGINE_HASH: string = (() => {
+    const addon = APPROVED_ADDONS.find((a) => a.kind === "crypto-engine")!;
+    return addon.files[addon.installAs];
+})();
 
 /** File name of the engine inside the plugin folder. */
 export const ENGINE_FILE_NAME = "e2ee-engine.js";
-
-/** Where users download the engine themselves (opened from the install dialog). */
-export const ENGINE_RELEASE_URL =
-    "https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine/releases/latest";
 
 /**
  * Compute SHA-256 hash of content

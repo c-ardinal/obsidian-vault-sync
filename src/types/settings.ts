@@ -64,6 +64,11 @@ export interface VaultSyncSettings {
     encryptionSecret: string;
     e2eeEnabled: boolean;
     e2eeAutoUnlock: boolean; // Store password for auto-unlock (opt-in with warning)
+    /** Add-ons the user installed, with the exact terms they agreed to. Keyed by add-on id. */
+    addonAgreements?: Record<
+        string,
+        { name: string; version: string; termsHash: string; agreedAt: string }
+    >;
     // Internal State
     hasCompletedFirstSync: boolean;
 }

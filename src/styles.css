@@ -1486,26 +1486,39 @@
     padding: 2px 6px;
 }
 
-/* E2EE engine install dialog */
-.vault-sync-engine-install h3 {
+/* Add-on install dialog */
+.vault-sync-addon-install h3 {
     margin-top: 1.2em;
     margin-bottom: 0.2em;
     font-size: 1em;
 }
-.vault-sync-engine-install .setting-item-description {
+.vault-sync-addon-install .setting-item-description {
     color: var(--text-normal);
 }
-.vault-sync-engine-install-notice {
+.vault-sync-addon-install-notice {
     padding: 8px 12px;
     border-radius: var(--radius-s);
     background: var(--background-modifier-hover);
     font-weight: 600;
 }
-.vault-sync-engine-install-status {
+.vault-sync-addon-install-name {
+    font-weight: 600;
+    margin-bottom: 0.2em;
+}
+.vault-sync-addon-terms {
+    max-height: 40vh;
+    overflow-y: auto;
+    padding: 4px 12px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-s);
+    background: var(--background-secondary);
+    font-size: 0.9em;
+}
+.vault-sync-addon-install-status {
     min-height: 1.4em;
     margin-top: 8px;
     color: var(--text-success);
 }
-.vault-sync-engine-install-status.mod-error {
+.vault-sync-addon-install-status.mod-error {
     color: var(--text-error);
 }
