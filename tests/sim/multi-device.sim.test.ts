@@ -102,6 +102,35 @@ export const SCENARIOS: Scenario[] = [
         network: { minLatencyMs: 5, maxLatencyMs: 800, failureRate: 0.02, lostResponseRate: 0.15 },
     },
     {
+        // Files above the large-file threshold go through the background transfer
+        // queue (resumable uploads, deferred pulls) on a lossy network. The tiny
+        // threshold (~100 bytes) routes binaries and grown notes there.
+        ...DEFAULT_CONFIG,
+        name: "large-files",
+        profile: "disjoint",
+        devices: 3,
+        actions: 45,
+        binaryRate: 0.3,
+        settings: { largeFileThresholdMB: 0.0001 },
+        network: { minLatencyMs: 20, maxLatencyMs: 1500, failureRate: 0.04, lostResponseRate: 0.3 },
+        offlineRate: 0.03,
+    },
+    {
+        // The app is killed at random moments (mid-sync, mid-background-transfer,
+        // before dirty edits were pushed) and started again with only what it
+        // persisted. The startup sync (with vault scan) must recover everything.
+        ...DEFAULT_CONFIG,
+        name: "restart",
+        profile: "disjoint",
+        devices: 3,
+        actions: 50,
+        binaryRate: 0.25,
+        restartRate: 0.08,
+        settings: { largeFileThresholdMB: 0.0001 },
+        network: { minLatencyMs: 20, maxLatencyMs: 1500, failureRate: 0.03, lostResponseRate: 0.3 },
+        offlineRate: 0.03,
+    },
+    {
         // Devices use the REAL file system of the machine running the test.
         // Run this on the CI OS matrix to catch NTFS / APFS / ext4 differences.
         ...DEFAULT_CONFIG,

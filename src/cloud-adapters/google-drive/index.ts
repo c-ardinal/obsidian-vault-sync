@@ -316,19 +316,35 @@ export class GoogleDriveAdapter implements CloudAdapter {
         return result;
     }
 
+    /** Bytes per request of a resumable upload (a multiple of 256 KiB, as Drive requires) */
+    static readonly RESUMABLE_CHUNK_BYTES = 8 * 1024 * 1024;
+    /** How often one chunk may be resumed after a network error */
+    static readonly MAX_CHUNK_RESUMES = 5;
+
+    /**
+     * Resumable upload in chunks. A dropped connection only costs the chunk in
+     * flight: the server is asked how much it has and the rest is sent. Before,
+     * the whole file went in one request and any interruption restarted it.
+     */
     async uploadFileResumable(
         path: string,
         content: ArrayBuffer,
         mtime: number,
         existingFileId?: string,
     ): Promise<CloudFile> {
-        const sessionUri = await this.initiateResumableSession(
-            path,
-            content.byteLength,
-            mtime,
-            existingFileId,
-        );
-        return (await this.uploadChunk(sessionUri, content, 0, content.byteLength, path, mtime))!;
+        if (content.byteLength === 0) return this.uploadFile(path, content, mtime, existingFileId);
+        const total = content.byteLength;
+        const sessionUri = await this.initiateResumableSession(path, total, mtime, existingFileId);
+        const step = GoogleDriveAdapter.RESUMABLE_CHUNK_BYTES;
+        for (let offset = 0; offset < total; offset += step) {
+            const end = Math.min(offset + step, total);
+            const done = await this.uploadChunk(sessionUri, content.slice(offset, end), offset, total, path, mtime);
+            if (done) return done;
+        }
+        // Every byte was acknowledged but the final answer got lost: ask once more
+        const status = await this.queryResumableStatus(sessionUri, total, path, mtime);
+        if (status.done) return status.done;
+        throw new Error(`Resumable upload of ${path} did not complete`);
     }
 
     async initiateResumableSession(
@@ -388,19 +404,65 @@ export class GoogleDriveAdapter implements CloudAdapter {
         mtime: number,
     ): Promise<CloudFile | null> {
         const end = offset + chunk.byteLength - 1;
-        const uploadResponse = await this.http.fetchWithAuth(sessionUri, {
-            method: "PUT",
-            headers: {
-                "Content-Type": "application/octet-stream",
-                "Content-Length": String(chunk.byteLength),
-                "Content-Range": `bytes ${offset}-${end}/${totalSize}`,
-            },
-            body: chunk,
-        });
+        let confirmed = 0; // bytes of this chunk the server already has
+        for (let attempt = 0; ; attempt++) {
+            const body = confirmed === 0 ? chunk : chunk.slice(confirmed);
+            try {
+                const uploadResponse = await this.http.fetchWithAuth(
+                    sessionUri,
+                    {
+                        method: "PUT",
+                        headers: {
+                            "Content-Type": "application/octet-stream",
+                            "Content-Range": `bytes ${offset + confirmed}-${end}/${totalSize}`,
+                        },
+                        body,
+                    },
+                    0,
+                    // 308 "Resume Incomplete" is the normal answer to every chunk but the
+                    // last; treating it as an error failed every multi-chunk upload.
+                    { okStatuses: [308], retryNetworkErrors: false },
+                );
+                if (uploadResponse.status === 308) return null; // Resume Incomplete
+                return this.resumableResult(await uploadResponse.json(), path, mtime, totalSize);
+            } catch (e) {
+                if (!(e instanceof TypeError) || attempt >= GoogleDriveAdapter.MAX_CHUNK_RESUMES) throw e;
+                await new Promise((r) => setTimeout(r, Math.min(30_000, 1000 * 2 ** attempt)));
+                const status = await this.queryResumableStatus(sessionUri, totalSize, path, mtime);
+                if (status.done) return status.done;
+                const inChunk = status.received - offset;
+                if (inChunk < 0) throw e; // the server lost earlier data: start over
+                if (inChunk >= chunk.byteLength) return null;
+                confirmed = inChunk;
+            }
+        }
+    }
 
-        if (uploadResponse.status === 308) return null; // Resume Incomplete
+    /**
+     * Ask a resumable session how many bytes it has (Content-Range: bytes * /total).
+     * `done` is set when the upload already completed.
+     */
+    async queryResumableStatus(
+        sessionUri: string,
+        totalSize: number,
+        path: string,
+        mtime: number,
+    ): Promise<{ received: number; done?: CloudFile }> {
+        const res = await this.http.fetchWithAuth(
+            sessionUri,
+            { method: "PUT", headers: { "Content-Range": `bytes */${totalSize}` } },
+            0,
+            { okStatuses: [308] },
+        );
+        if (res.status !== 308) {
+            return { received: totalSize, done: this.resumableResult(await res.json(), path, mtime, totalSize) };
+        }
+        const range = res.headers?.get?.("Range"); // "bytes=0-12345"
+        const m = range ? /bytes=0-(\d+)/.exec(range) : null;
+        return { received: m ? Number(m[1]) + 1 : 0 };
+    }
 
-        const data = await uploadResponse.json();
+    private resumableResult(data: any, path: string, mtime: number, totalSize: number): CloudFile {
         const result: CloudFile = {
             id: data.id,
             path: path,
@@ -409,7 +471,6 @@ export class GoogleDriveAdapter implements CloudAdapter {
             kind: "file",
             hash: data.md5Checksum,
         };
-
         this.pathResolver.cacheIdToPath(result.id, result.path);
         return result;
     }

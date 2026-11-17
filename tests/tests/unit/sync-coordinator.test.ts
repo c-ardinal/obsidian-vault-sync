@@ -38,6 +38,7 @@ function createMockCtx(overrides: Partial<SyncContext> = {}): SyncContext {
 
     const backgroundTransferQueue = {
         pause: vi.fn(),
+        pauseAndSettle: vi.fn(async () => {}),
         resume: vi.fn(),
         flushHistory: vi.fn(async () => {}),
     };

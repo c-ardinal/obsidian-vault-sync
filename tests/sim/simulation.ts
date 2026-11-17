@@ -53,6 +53,8 @@ export interface SimConfig {
     network: NetworkProfile;
     /** Probability that an action toggles a device offline/online */
     offlineRate: number;
+    /** Probability that an action kills the app on a device and starts it again */
+    restartRate?: number;
     maxEventDelayMs: number;
     maxClockSkewMs: number;
     /** Max API calls an idle (nothing changed) sync may make per device */
@@ -92,7 +94,8 @@ export type Action =
     | { t: number; dev: string; kind: "delete"; pick: number }
     | { t: number; dev: string; kind: "rename"; pick: number; to: string }
     | { t: number; dev: string; kind: "sync"; scan: boolean }
-    | { t: number; dev: string; kind: "offline" | "online" };
+    | { t: number; dev: string; kind: "offline" | "online" }
+    | { t: number; dev: string; kind: "restart" };
 
 const EPOCH = Date.UTC(2026, 0, 1, 0, 0, 0);
 
@@ -126,6 +129,11 @@ export function generatePlan(cfg: SimConfig): Action[] {
             const wasOffline = offline.has(dev);
             wasOffline ? offline.delete(dev) : offline.add(dev);
             plan.push({ t, dev, kind: wasOffline ? "online" : "offline" });
+            continue;
+        }
+        // Only consumes randomness when enabled, so other scenarios keep their plans
+        if (cfg.restartRate && rng.chance(cfg.restartRate)) {
+            plan.push({ t, dev, kind: "restart" });
             continue;
         }
 
@@ -384,6 +392,11 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
                 dev.online = true;
                 log(a.dev, "ONLINE");
                 return;
+            case "restart":
+                log(a.dev, "KILL + RESTART (in-memory state lost)");
+                await dev.restart();
+                dev.startSync("startup-sync", true);
+                return;
             case "sync":
                 log(a.dev, `SYNC requested${a.scan ? " (scan)" : ""}`);
                 dev.startSync(a.scan ? "startup-sync" : "timer-sync", a.scan);
@@ -530,6 +543,12 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
                         fail("HANG", `${d.name} sync in round ${round} never finished (${r})`);
                         break;
                     }
+                    // Large files move in the background after the sync returns
+                    const rt = await drive(d.transfersSettled(), 15 * 60_000);
+                    if (rt !== "ok") {
+                        fail("HANG", `${d.name} background transfers in round ${round} never settled (${rt})`);
+                        break;
+                    }
                     await advance(cfg.maxEventDelayMs + 1);
                     const calls = cloud.calls.slice(callsBefore);
                     idleCalls[d.name] = calls.length;
@@ -578,6 +597,8 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
                     fail("NOT_IDLE", `${d.name} still has dirty paths after convergence: ${s.dirtyPaths.join(", ")}`);
                 if (s.pendingConflicts.length)
                     fail("NOT_IDLE", `${d.name} still has pendingConflict: ${s.pendingConflicts.join(", ")}`);
+                if (s.pendingTransfers.length)
+                    fail("NOT_IDLE", `${d.name} still has background transfers: ${s.pendingTransfers.join(", ")}`);
             }
         }
 

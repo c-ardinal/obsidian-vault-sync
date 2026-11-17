@@ -71,12 +71,49 @@ export function markPendingTransfer(
  * The download is skipped when the remote index is still the one we last saw.
  * Any failure falls back to uploading our own index (the previous behaviour).
  */
+/**
+ * Entries our last index upload took over from other devices but that our own
+ * index does not have yet (a file not pulled yet: deferred to the background
+ * queue, or its pull failed). When the remote index is still our own upload, the
+ * merge below is skipped, and the next upload used to drop these entries again:
+ * devices doing their first sync from the shared index then never got the file.
+ */
+const carriedRemoteEntries = new WeakMap<object, LocalFileIndex>();
+
 export async function buildRemoteIndexPayload(ctx: SyncContext): Promise<ArrayBuffer> {
     const merged: LocalFileIndex = { ...ctx.index };
     try {
         const meta = await ctx.adapter.getFileMetadata(ctx.pluginDataPath);
         const lastSeen = ctx.index[ctx.pluginDataPath]?.hash?.toLowerCase() || "";
-        if (meta?.id && meta.hash && meta.hash.toLowerCase() !== lastSeen) {
+        if (meta?.id && meta.hash && meta.hash.toLowerCase() === lastSeen) {
+            const carried = carriedRemoteEntries.get(ctx) ?? {};
+            for (const [path, entry] of Object.entries(carried)) {
+                const mine = ctx.index[path];
+                const caughtUp =
+                    !!mine &&
+                    (mine.lastAction === "push" ||
+                        mine.lastAction === "merge" ||
+                        !!mine.forcePush ||
+                        !!mine.pendingMove ||
+                        (!!mine.hash && !!entry.hash && mine.hash.toLowerCase() === entry.hash.toLowerCase()));
+                if (caughtUp) {
+                    delete carried[path];
+                    continue;
+                }
+                if (!mine && entry.fileId) {
+                    // Gone since (we deleted or moved it): don't bring it back.
+                    const movedByUs = Object.values(ctx.index).some((e) => e.fileId === entry.fileId);
+                    const exists = movedByUs
+                        ? false
+                        : await ctx.adapter.fileExistsById(entry.fileId).catch(() => true);
+                    if (!exists) {
+                        delete carried[path];
+                        continue;
+                    }
+                }
+                merged[path] = entry;
+            }
+        } else if (meta?.id && meta.hash) {
             const remote = await downloadRemoteIndex(ctx, meta.id);
             const ourPathById = new Map<string, string>();
             for (const [p, e] of Object.entries(ctx.index)) if (e.fileId) ourPathById.set(e.fileId, p);
@@ -123,6 +160,11 @@ export async function buildRemoteIndexPayload(ctx: SyncContext): Promise<ArrayBu
                     kept++;
                 }
             }
+            const carried: LocalFileIndex = {};
+            for (const [path, entry] of Object.entries(merged)) {
+                if (entry !== ctx.index[path]) carried[path] = entry;
+            }
+            carriedRemoteEntries.set(ctx, carried);
             if (kept > 0) {
                 await ctx.log(
                     `[Index] Merged ${kept} entr${kept === 1 ? "y" : "ies"} written by other devices into the remote index.`,
@@ -154,29 +196,126 @@ export async function buildRemoteIndexPayload(ctx: SyncContext): Promise<ArrayBu
  * edit: adopting it avoids overwriting a new local note with it, or a false
  * 3-way conflict between our own older and newer edits.
  */
-const attemptedUploads = new WeakMap<object, Map<string, string>>();
+const attemptedUploads = new WeakMap<object, Map<string, string[]>>();
+/** Unknown-outcome versions remembered per path (newest last) */
+const MAX_ATTEMPTS_PER_PATH = 3;
 
 export function recordAttemptedUpload(ctx: SyncContext, path: string, hash: string): void {
     let m = attemptedUploads.get(ctx);
     if (!m) attemptedUploads.set(ctx, (m = new Map()));
-    m.set(path, hash.toLowerCase());
+    const h = hash.toLowerCase();
+    const list = (m.get(path) ?? []).filter((x) => x !== h);
+    list.push(h);
+    m.set(path, list.slice(-MAX_ATTEMPTS_PER_PATH));
 }
 
 /** Returns true (and forgets the record) if `hash` is what we tried to upload to `path`. */
 export function takeAttemptedUpload(ctx: SyncContext, path: string, hash: string | undefined): boolean {
-    const m = attemptedUploads.get(ctx);
-    const rec = m?.get(path);
-    if (!rec || !hash || rec !== hash.toLowerCase()) return false;
-    m!.delete(path);
+    if (!isAttemptedUpload(ctx, path, hash)) return false;
+    attemptedUploads.get(ctx)!.delete(path);
     return true;
+}
+
+/** Whether `hash` is one of our uploads to `path` with an unknown outcome */
+export function isAttemptedUpload(ctx: SyncContext, path: string, hash: string | undefined): boolean {
+    const list = attemptedUploads.get(ctx)?.get(path);
+    return !!list && !!hash && list.includes(hash.toLowerCase());
 }
 
 /** The hash we last tried to upload to `path` with an unknown outcome, if any. */
 export function peekAttemptedUpload(ctx: SyncContext, path: string): string | undefined {
-    return attemptedUploads.get(ctx)?.get(path);
+    const list = attemptedUploads.get(ctx)?.get(path);
+    return list?.[list.length - 1];
 }
 
 /** Forget the unknown-outcome upload of `path` (a later upload succeeded). */
 export function forgetAttemptedUpload(ctx: SyncContext, path: string): void {
     attemptedUploads.get(ctx)?.delete(path);
+}
+
+/** Forget only the given version (an upload of it was never sent). */
+export function forgetAttemptedVersion(ctx: SyncContext, path: string, hash: string | undefined): void {
+    const m = attemptedUploads.get(ctx);
+    const list = m?.get(path);
+    if (!list || !hash) return;
+    const rest = list.filter((x) => x !== hash.toLowerCase());
+    if (rest.length) m!.set(path, rest);
+    else m!.delete(path);
+}
+
+/** The unknown-outcome uploads, for persisting with the local index */
+export function attemptedUploadsSnapshot(ctx: SyncContext): Record<string, string[]> | undefined {
+    const m = attemptedUploads.get(ctx);
+    return m && m.size > 0 ? Object.fromEntries(m) : undefined;
+}
+
+/**
+ * Restore persisted unknown-outcome uploads (plugin startup). A killed app does not
+ * know whether its last uploads arrived; without the record, its own new note came
+ * back as "another device's version" and the local copy became a conflict file.
+ */
+export function restoreAttemptedUploads(ctx: SyncContext, data: unknown): void {
+    if (!data || typeof data !== "object") return;
+    let m = attemptedUploads.get(ctx);
+    if (!m) attemptedUploads.set(ctx, (m = new Map()));
+    for (const [path, hashes] of Object.entries(data as Record<string, unknown>)) {
+        const list = (Array.isArray(hashes) ? hashes : [hashes]).filter(
+            (h): h is string => typeof h === "string",
+        );
+        if (list.length && !m.has(path)) m.set(path, list.map((h) => h.toLowerCase()));
+    }
+}
+
+/**
+ * Changes API changes whose file has not been pulled yet: the pull failed, or the
+ * file went to the background queue. The page token has already moved past them,
+ * so this list is the only record that they are still owed. It is persisted with
+ * the local index: when the app was killed (or the queue gave up), those files
+ * otherwise kept their old version on this device until they changed again.
+ */
+export interface PendingPull {
+    file: { id: string; path: string; hash?: string; size: number; [key: string]: any };
+    attempts: number;
+    /** Handed to the background queue (not retried inline while it is queued there) */
+    background?: boolean;
+}
+
+const pendingPulls = new WeakMap<object, Map<string, PendingPull>>();
+
+export function pendingPullsOf(ctx: SyncContext): Map<string, PendingPull> {
+    let m = pendingPulls.get(ctx);
+    if (!m) pendingPulls.set(ctx, (m = new Map()));
+    return m;
+}
+
+/** The background queue finished (or dropped) the pull of this file */
+export function settlePendingPull(ctx: SyncContext, fileId: string | undefined): void {
+    if (fileId) pendingPulls.get(ctx)?.delete(fileId);
+}
+
+/** The background queue gave up: let the Changes API retry pull it inline */
+export function releasePendingPull(ctx: SyncContext, fileId: string | undefined): void {
+    const p = fileId ? pendingPulls.get(ctx)?.get(fileId) : undefined;
+    if (p) p.background = false;
+}
+
+export function pendingPullsSnapshot(ctx: SyncContext): Record<string, PendingPull> | undefined {
+    const m = pendingPulls.get(ctx);
+    if (!m || m.size === 0) return undefined;
+    const out: Record<string, PendingPull> = {};
+    for (const [id, p] of m) {
+        const { id: fid, path, hash, size } = p.file;
+        out[id] = { file: { id: fid, path, hash, size }, attempts: p.attempts };
+    }
+    return out;
+}
+
+export function restorePendingPulls(ctx: SyncContext, data: unknown): void {
+    if (!data || typeof data !== "object") return;
+    const m = pendingPullsOf(ctx);
+    for (const [id, p] of Object.entries(data as Record<string, PendingPull>)) {
+        if (!p?.file?.id || typeof p.file.path !== "string" || m.has(id)) continue;
+        // The background queue did not survive the restart: retry inline
+        m.set(id, { file: p.file, attempts: Number(p.attempts) || 0 });
+    }
 }

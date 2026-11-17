@@ -184,6 +184,17 @@ export async function scanVaultChanges(ctx: SyncContext): Promise<void> {
             }
         }
 
+        // A rename or move recorded in the index but not pushed yet (pendingMove /
+        // forcePush). Its dirty mark only lived in memory, so after the app was killed
+        // nothing pushed it: the other devices kept the old name forever.
+        for (const [path, entry] of Object.entries(ctx.index)) {
+            if (!(entry.pendingMove || entry.forcePush)) continue;
+            if (path === ctx.pluginDataPath || ctx.dirtyPaths.has(path)) continue;
+            if (!currentPaths.has(path)) continue;
+            ctx.dirtyPaths.set(path, Date.now());
+            await ctx.log(`[Vault Scan] Unpushed ${entry.pendingMove ? "move" : "change"}: ${path}`, "debug");
+        }
+
         await pairRenames(ctx, missingPaths, newPaths);
 
         await ctx.log(`[Vault Scan] Completed in ${Date.now() - start}ms`, "debug");

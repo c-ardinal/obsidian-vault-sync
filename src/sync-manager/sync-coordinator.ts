@@ -92,16 +92,27 @@ export async function requestSmartSync(
 }
 
 /**
+ * Sync managers that completed a vault scan since they were created. Edits made
+ * while the app was closed, and those a killed app had not pushed yet (the dirty
+ * list lives in memory), are only found by a scan. Only the startup sync asks for
+ * one; when it fails (offline at launch, a network error, the E2EE check) or
+ * startup sync is disabled, the first sync that gets through scans instead.
+ */
+const scanDone = new WeakSet<object>();
+
+/**
  * Execute Smart Sync logic
  * - Pull: Check remote changes via sync-index.json hash comparison (or Changes API)
  * - Push: Upload dirty files
  */
 export async function executeSmartSync(ctx: SyncContext, scanVault: boolean): Promise<void> {
+    const scanRequested = scanVault;
+    if (!scanDone.has(ctx)) scanVault = true;
     ctx.logger.startCycle(ctx.currentTrigger);
     if (ALWAYS_SHOW_ACTIVITY.has(ctx.currentTrigger)) {
         ctx.startActivity();
     }
-    ctx.backgroundTransferQueue.pause();
+    await ctx.backgroundTransferQueue.pauseAndSettle();
     beginSyncCycle(ctx);
     try {
         await ctx.log("=== SMART SYNC START ===", "info");
@@ -121,10 +132,11 @@ export async function executeSmartSync(ctx: SyncContext, scanVault: boolean): Pr
         // Call via ctx so vi.spyOn on SyncManager instance methods works in tests
         const pulled = await ctx.smartPull();
 
-        if (scanVault) {
+        if (scanRequested) {
             await ctx.notify("noticeScanningLocalFiles");
         }
         const pushed = await ctx.smartPush(scanVault);
+        if (scanVault) scanDone.add(ctx);
 
         if (pushed) {
             await postPushPull(ctx);

@@ -59,6 +59,13 @@ export class MockVaultAdapter {
     async stat(
         path: string,
     ): Promise<{ mtime: number; size: number; ctime: number; type?: "file" | "folder" } | null> {
+        return this.statSync(path);
+    }
+
+    /** Synchronous stat, backing TFile.stat (Obsidian keeps it in its metadata cache) */
+    statSync(
+        path: string,
+    ): { mtime: number; size: number; ctime: number; type?: "file" | "folder" } | null {
         const entry = this.files.get(path);
         if (!entry) {
             // Check if it's a folder
@@ -205,6 +212,16 @@ export class MockVault {
         // Auto-create if file exists in adapter
         if (this.adapter.hasFile(path)) {
             const tf = new TFile();
+            // Like Obsidian, TFile.stat reflects the file's current mtime/size
+            // (a constant 0 made vault scans miss every edit made while closed).
+            const adapter = this.adapter;
+            Object.defineProperty(tf, "stat", {
+                get() {
+                    const st = adapter.statSync(tf.path);
+                    return { mtime: st?.mtime ?? 0, ctime: st?.ctime ?? 0, size: st?.size ?? 0 };
+                },
+                configurable: true,
+            });
             tf.path = path;
             tf.name = path.split("/").pop() || path;
             tf.basename = tf.name.replace(/\.[^.]+$/, "");
