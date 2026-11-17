@@ -305,22 +305,18 @@ describe("EncryptedAdapter", () => {
             expect(baseAdapter.downloadFile).toHaveBeenCalledWith("file-1");
         });
 
-        it("should use cache for repeated downloads", async () => {
-            const plaintext = new TextEncoder().encode("Cached content");
-            const encrypted = await engine.encryptToBlob(plaintext.buffer);
+        it("should return the CURRENT content when another device replaced the file", async () => {
+            // Regression: a fileId-keyed cache returned the old version after another
+            // device uploaded, and the sync recorded the new hash with the old content.
+            (baseAdapter.downloadFile as ReturnType<typeof vi.fn>)
+                .mockResolvedValueOnce(await engine.encryptToBlob(new TextEncoder().encode("v1").buffer))
+                .mockResolvedValueOnce(await engine.encryptToBlob(new TextEncoder().encode("v2").buffer));
 
-            (baseAdapter.downloadFile as ReturnType<typeof vi.fn>).mockResolvedValue(encrypted);
-
-            // First download
             const result1 = await adapter.downloadFile("file-1");
-            expect(new TextDecoder().decode(result1)).toBe("Cached content");
-
-            // Second download should use cache
+            expect(new TextDecoder().decode(result1)).toBe("v1");
             const result2 = await adapter.downloadFile("file-1");
-            expect(new TextDecoder().decode(result2)).toBe("Cached content");
-
-            // downloadFile should only be called once
-            expect(baseAdapter.downloadFile).toHaveBeenCalledTimes(1);
+            expect(new TextDecoder().decode(result2)).toBe("v2");
+            expect(baseAdapter.downloadFile).toHaveBeenCalledTimes(2);
         });
 
         it("should return cached content copy (not reference)", async () => {
@@ -889,7 +885,7 @@ describe("EncryptedAdapter", () => {
 
             const result = await adapter.listRevisions("test.md");
 
-            expect(baseAdapter.listRevisions).toHaveBeenCalledWith("test.md");
+            expect(baseAdapter.listRevisions).toHaveBeenCalledWith("test.md", undefined);
             expect(result).toEqual(mockRevisions);
         });
 
@@ -918,7 +914,7 @@ describe("EncryptedAdapter", () => {
             const decoded = new TextDecoder().decode(result);
 
             expect(decoded).toBe("Revision content");
-            expect(baseAdapter.getRevisionContent).toHaveBeenCalledWith("test.md", "rev-1");
+            expect(baseAdapter.getRevisionContent).toHaveBeenCalledWith("test.md", "rev-1", undefined);
         });
 
         it("should throw when base adapter does not support getRevisionContent", async () => {
