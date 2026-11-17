@@ -161,9 +161,12 @@ export class SimDevice {
     readonly fs: FsPersonality;
     readonly app: MockApp;
     readonly vaultAdapter: MockVaultAdapter;
-    readonly ops: EventedVaultOperations;
-    readonly sm: SyncManager;
-    readonly ctx: any;
+    ops!: EventedVaultOperations;
+    sm!: SyncManager;
+    ctx: any;
+    /** Bumped on every restart; work of an older generation is fenced off */
+    generation = 0;
+    restarts = 0;
     online = true;
     joined = false;
     /** Errors thrown out of requestSmartSync */
@@ -188,12 +191,40 @@ export class SimDevice {
         (this.app as any)._adapter = this.vaultAdapter;
         (this.app.vault as any).adapter = this.vaultAdapter;
 
-        this.ops = new EventedVaultOperations(
+        this.boot();
+    }
+
+    /**
+     * Build a fresh plugin instance (SyncManager, vault operations, cloud view,
+     * transfer queue) on top of the persistent vault storage. Everything the
+     * previous instance still has in flight is fenced: its vault and cloud calls
+     * throw, and its pending file-watcher events are dropped, like a killed app.
+     */
+    private boot(): void {
+        const opts = this.opts;
+        const gen = this.generation;
+        const alive = () => this.generation === gen;
+        const fence = <T extends object>(target: T): T =>
+            new Proxy(target, {
+                get(t, prop, receiver) {
+                    const v = Reflect.get(t, prop, receiver);
+                    if (typeof v !== "function") return v;
+                    return (...args: unknown[]) => {
+                        if (!alive()) throw new Error("SIM: app was killed");
+                        return v.apply(t, args);
+                    };
+                },
+            });
+
+        const rawOps = new EventedVaultOperations(
             this.vaultAdapter,
             this.app.vault,
-            (ev) => this.scheduleEvent(ev),
+            (ev) => {
+                if (alive()) this.scheduleEvent(ev, gen);
+            },
             this.vaultAdapter,
         );
+        this.ops = rawOps;
 
         const notifier: INotificationService = { show: () => {} };
         const settings = {
@@ -201,15 +232,16 @@ export class SimDevice {
             ...(opts.settings ?? {}),
             ...(opts.cryptoEngine ? { e2eeEnabled: true } : {}),
         };
+        const fencedOps = fence(rawOps);
         this.sm = new SyncManager(
-            this.ops,
-            opts.cloudView(this),
+            fencedOps,
+            fence(opts.cloudView(this)),
             SYNC_INDEX_PATH,
             settings,
             PLUGIN_DIR,
             (key: string) => key,
             notifier,
-            new RevisionCache(this.ops, PLUGIN_DIR),
+            new RevisionCache(fencedOps, PLUGIN_DIR),
             new BackgroundTransferQueue(),
         );
         if (opts.cryptoEngine) this.sm.cryptoEngine = opts.cryptoEngine;
@@ -217,8 +249,22 @@ export class SimDevice {
         this.ctx.unicodeInsensitiveFs =
             this.fs === "macos" || (this.fs === "real-fs" && process.platform === "darwin");
         this.ctx.log = async (msg: string, level = "info") => {
-            opts.log(this.name, `${level.toUpperCase()} ${msg}`);
+            if (alive()) opts.log(this.name, `${level.toUpperCase()} ${msg}`);
         };
+    }
+
+    /**
+     * The app is killed (no unload hooks run) and started again: in-memory state
+     * (dirty paths, queues, retry lists) is lost, the vault and the persisted
+     * indexes stay. The new instance loads its indexes like plugin startup does.
+     */
+    async restart(): Promise<void> {
+        this.generation++;
+        this.restarts++;
+        this.inflight.clear();
+        this.boot();
+        await this.sm.loadLocalIndex();
+        await this.sm.loadIndex();
     }
 
     /** Emulates plugin startup: deterministic device id + index load. */
@@ -234,13 +280,14 @@ export class SimDevice {
 
     // ─── Vault events (TriggerManager equivalent) ───
 
-    private scheduleEvent(ev: VaultEvent): void {
+    private scheduleEvent(ev: VaultEvent, gen: number): void {
         if (isInternalPath(ev.path)) return; // Obsidian doesn't emit vault events for config dir
         const delay = this.opts.maxEventDelayMs > 0 ? this.opts.rng.int(0, this.opts.maxEventDelayMs) : 0;
         this.pendingEvents++;
         setTimeout(() => {
             this.pendingEvents--;
-            this.deliverEvent(ev);
+            // A killed app never sees the events of its file watcher
+            if (gen === this.generation) this.deliverEvent(ev);
         }, delay);
     }
 
@@ -339,14 +386,17 @@ export class SimDevice {
     /** Fire-and-forget sync (like a trigger). Errors are recorded, not thrown. */
     startSync(trigger: SyncTrigger = "timer-sync", scanVault = false): Promise<void> {
         this.syncsStarted++;
+        const gen = this.generation;
         const p = this.sm
             .requestSmartSync(trigger, scanVault)
             .catch((e) => {
+                if (gen !== this.generation) return; // the app was killed meanwhile
                 const msg = e instanceof Error ? e.message : String(e);
                 this.syncErrors.push(msg);
                 this.opts.log(this.name, `SYNC-ERROR ${msg}`);
             })
             .finally(() => {
+                if (gen !== this.generation) return;
                 this.syncsFinished++;
                 this.inflight.delete(p);
             });
@@ -356,6 +406,18 @@ export class SimDevice {
 
     inflightSyncs(): Promise<void>[] {
         return [...this.inflight];
+    }
+
+    /** Resolves once the background transfer queue has nothing pending or running */
+    transfersSettled(): Promise<void> {
+        const q = this.ctx.backgroundTransferQueue as any;
+        return new Promise((resolve) => {
+            const check = () => {
+                if (!q.isProcessing && !q.hasPendingItems()) resolve();
+                else setTimeout(check, 50);
+            };
+            check();
+        });
     }
 
     describe(): Record<string, unknown> {
@@ -369,6 +431,13 @@ export class SimDevice {
             pendingConflicts: Object.entries(this.ctx.localIndex)
                 .filter(([, e]: any) => e.pendingConflict)
                 .map(([p]) => p),
+            pendingTransfers: [
+                ...this.ctx.backgroundTransferQueue.getPendingTransfers().map((t: any) => `${t.direction}:${t.path}`),
+                ...Object.entries(this.ctx.localIndex)
+                    .filter(([, e]: any) => e.pendingTransfer)
+                    .map(([p, e]: any) => `marked-${e.pendingTransfer.direction}:${p}`),
+            ],
+            restarts: this.restarts,
             files: this.userFiles(),
             index: this.ctx.index,
             localIndex: this.ctx.localIndex,

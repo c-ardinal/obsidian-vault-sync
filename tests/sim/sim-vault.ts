@@ -84,7 +84,7 @@ export class PersonalityVaultAdapter extends MockVaultAdapter {
         });
     }
 
-    override async stat(path: string) {
+    override statSync(path: string) {
         const k = this.fold(path);
         const e = this.entries.get(k);
         if (e) return { mtime: e.mtime, size: e.content.byteLength, ctime: e.mtime, type: "file" as const };
@@ -202,7 +202,7 @@ export class RealFsVaultAdapter extends MockVaultAdapter {
         writeFileSync(p, Buffer.from(content));
         this.mtimes.set(path, this.now());
     }
-    override async stat(path: string) {
+    override statSync(path: string) {
         if (!existsSync(this.abs(path))) return null;
         const s = statSync(this.abs(path));
         return {
