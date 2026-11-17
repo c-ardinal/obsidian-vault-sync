@@ -11,7 +11,8 @@ import {
     saveLocalIndex,
 } from "./state";
 import { listRevisions, TransientHistoryError } from "./history";
-import { basename } from "../utils/path";
+import { claimPullPath, findPathCollision, freeCollisionPath, moveIndexEntry } from "./path-collision";
+import { basename, dirname } from "../utils/path";
 import { MERGE_MAX_INLINE_DOWNLOAD_BYTES } from "./constants";
 import { takeAttemptedUpload } from "./sync-helpers";
 import { getMergeStrategy } from "./strategies";
@@ -218,6 +219,65 @@ export async function pullFileSafely(
     const fileId = item.fileId || item.id;
     if (!fileId && !isRemoteDeleted) return false;
 
+    // Two cloud names that are one file on Windows/macOS ("Note.md" / "note.md",
+    // NFC / NFD): give the incoming one a distinct name everywhere before pulling.
+    let release: (() => void) | null = null;
+    if (fileId && !isRemoteDeleted && !ctx.index[item.path]) {
+        let clash = findPathCollision(ctx, item.path, fileId);
+        if (!clash) {
+            release = claimPullPath(ctx, item.path, fileId);
+            if (!release) clash = findPathCollision(ctx, item.path, fileId) ?? item.path;
+        }
+        // Every device must rename the SAME file of the pair, or each renames a
+        // different one and the "(2)" names collide again: the larger file id moves.
+        const clashId = clash ? ctx.index[clash]?.fileId : undefined;
+        if (clash && clashId && fileId < clashId && (await ctx.vault.exists(clash))) {
+            const alt = await freeCollisionPath(ctx, clash);
+            try {
+                await ctx.adapter.moveFile(clashId, basename(alt), dirname(alt) || null);
+                await ctx.vault.rename(clash, alt);
+            } catch (e) {
+                await ctx.log(`[${logPrefix}] Could not rename colliding ${clash}: ${e}`, "warn");
+                return false;
+            }
+            moveIndexEntry(ctx, clash, alt);
+            await ctx.log(
+                `[${logPrefix}] ${clash} has the same name as ${item.path} on Windows/macOS. Renamed it to ${alt}.`,
+                "warn",
+            );
+            clash = null;
+            release = claimPullPath(ctx, item.path, fileId);
+        }
+        if (clash) {
+            const newPath = await freeCollisionPath(ctx, item.path);
+            try {
+                await ctx.adapter.moveFile(fileId, basename(newPath), dirname(newPath) || null);
+            } catch (e) {
+                await ctx.log(`[${logPrefix}] Could not rename colliding ${item.path}: ${e}`, "warn");
+                return false;
+            }
+            await ctx.log(
+                `[${logPrefix}] ${item.path} has the same name as ${clash} on Windows/macOS. Renamed it to ${newPath}.`,
+                "warn",
+            );
+            item = { ...item, path: newPath };
+            release = claimPullPath(ctx, newPath, fileId);
+        }
+    }
+    try {
+        return await pullFileUnchecked(ctx, item, logPrefix, isRemoteDeleted, fileId);
+    } finally {
+        release?.();
+    }
+}
+
+async function pullFileUnchecked(
+    ctx: SyncContext,
+    item: Parameters<typeof pullFileSafely>[1],
+    logPrefix: string,
+    isRemoteDeleted: boolean,
+    fileId: string | undefined,
+): Promise<boolean> {
     const isText = item.path.endsWith(".md") || item.path.endsWith(".txt") || item.path.endsWith(".json");
 
     const lockStatus = await checkMergeLock(ctx, item.path);
@@ -860,6 +920,17 @@ export async function pullFileSafely(
         await ensureLocalFolder(ctx, item.path);
 
         const content = await ctx.adapter.downloadFile(fileId || "");
+        if (!exists && (await ctx.vault.exists(item.path))) {
+            // The user created a note with this name while we were downloading (vault
+            // events are suppressed meanwhile). Writing would replace it unseen; keep it
+            // and let the push reconcile the two versions.
+            ctx.dirtyPaths.set(item.path, Date.now());
+            await ctx.log(
+                `[${logPrefix}] ${item.path} was created locally during the download. Keeping the local file.`,
+                "info",
+            );
+            return false;
+        }
         await ctx.vault.writeBinary(item.path, content);
 
         const plainHash = await hashContent(content);

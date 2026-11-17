@@ -87,6 +87,12 @@ export async function buildRemoteIndexPayload(ctx: SyncContext): Promise<ArrayBu
                         // (as before) reverted their rename in the shared index, and devices
                         // doing their first sync from it then created the note at the old path.
                         if (changedByUs(ctx.index[ourPath])) continue;
+                        // We may also have moved it ourselves while pulling (a name
+                        // collision rename): ask the cloud which name is current.
+                        const actual = await ctx.adapter
+                            .getFileMetadataById(entry.fileId!, ourPath)
+                            .catch(() => null);
+                        if (actual?.path === ourPath) continue;
                         delete merged[ourPath];
                     } else if (
                         entry.fileId &&

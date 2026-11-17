@@ -21,7 +21,8 @@ import {
 import { pullFileSafely } from "./merge";
 import { TransferPriority } from "./transfer-types";
 import { formatSize } from "../utils/format";
-import { basename } from "../utils/path";
+import { basename, dirname } from "../utils/path";
+import { findPathCollision, freeCollisionPath, moveIndexEntry, pathKey } from "./path-collision";
 import { INTEGRITY_MIN_INDEX_SIZE_BYTES, INTEGRITY_MIN_LOCAL_FILE_COUNT } from "./constants";
 import {
     computeLocalHash,
@@ -1180,6 +1181,31 @@ async function processChangePage(
                                 "warn",
                             );
                         }
+                    } else if (
+                        pathKey(oldPath) !== pathKey(newPath) &&
+                        (await ctx.vault.exists(oldPath)) &&
+                        findPathCollision(ctx, newPath, cloudFile.id)
+                    ) {
+                        // Another synced file already has this name here (on Windows/macOS
+                        // "Note.md" and "note.md" are one file). Skipping the rename left
+                        // the old index entry behind, so a later note created under the
+                        // old name was taken for an edit of this one and overwritten.
+                        // Give this file a free name, in the cloud too.
+                        const alt = await freeCollisionPath(ctx, newPath);
+                        try {
+                            await ctx.adapter.moveFile(cloudFile.id, basename(alt), dirname(alt) || null);
+                            await ctx.vault.rename(oldPath, alt);
+                            ctx.logger.markActionTaken();
+                            moveIndexEntry(ctx, oldPath, alt);
+                            localIdToPath.set(cloudFile.id, alt);
+                            cloudFile.path = alt;
+                            await ctx.log(
+                                `[Changes API] Remote Rename: ${newPath} has the same name as another note on Windows/macOS. Renamed ${oldPath} to ${alt}.`,
+                                "warn",
+                            );
+                        } catch (e) {
+                            await ctx.log(`[Changes API] Failed to rename ${oldPath} -> ${alt}: ${e}`, "warn");
+                        }
                     } else {
                         await ctx.log(
                             `[Changes API] Remote Rename: Target ${newPath} exists. Skipping rename to avoid overwrite.`,
@@ -1319,3 +1345,4 @@ async function processChangePage(
 
     return { tasks, completed, confirmedCount, failed };
 }
+

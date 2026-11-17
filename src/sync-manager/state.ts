@@ -586,14 +586,30 @@ export function clearPendingPushStates(ctx: SyncContext): void {
 
 // === Dirty Path Tracking ===
 
+/**
+ * macOS can report a name in decomposed Unicode (NFD: "e" + accent) while the index
+ * holds it composed (NFC: "é"), or the other way round. Both are the same file
+ * there, so map an event path onto the index key it refers to. Only on such file
+ * systems: on Linux / Windows the two spellings are two files. Case differences
+ * are NOT folded: on Linux "Note.md" and "note.md" are two files.
+ */
+export function indexKeyFor(ctx: SyncContext, path: string): string {
+    if (!ctx.unicodeInsensitiveFs || ctx.index[path] || ctx.localIndex[path]) return path;
+    const nfc = path.normalize("NFC");
+    if (nfc === path && path.normalize("NFD") === path) return path; // plain ASCII etc.
+    for (const k of Object.keys(ctx.index)) if (k.normalize("NFC") === nfc) return k;
+    return path;
+}
+
 export function markDirty(ctx: SyncContext, path: string): void {
-    path = normalizePath(path);
+    path = indexKeyFor(ctx, normalizePath(path));
     if (shouldIgnore(ctx, path)) return;
     if (ctx.syncingPaths.has(path)) return;
     ctx.dirtyPaths.set(path, Date.now());
 }
 
 export function markDeleted(ctx: SyncContext, path: string): void {
+    path = indexKeyFor(ctx, path);
     if (shouldIgnore(ctx, path)) return;
     if (ctx.index[path]) {
         ctx.dirtyPaths.set(path, Date.now());
@@ -617,6 +633,7 @@ export function markFolderDeleted(ctx: SyncContext, folderPath: string): void {
 
 export function markRenamed(ctx: SyncContext, oldPath: string, newPath: string): void {
     if (shouldIgnore(ctx, newPath)) return;
+    oldPath = indexKeyFor(ctx, oldPath);
 
     const oldDir = dirname(oldPath);
     const newDir = dirname(newPath);

@@ -64,6 +64,8 @@ export interface SyncContext {
     settingsUpdated: boolean;
     e2eeEnabled: boolean;
     e2eeLocked: boolean;
+    /** The file system treats NFC and NFD names as one file (macOS / iOS) */
+    unicodeInsensitiveFs?: boolean;
 
     // === Caches ===
     revisionCache: RevisionCache;

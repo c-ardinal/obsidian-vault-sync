@@ -589,10 +589,16 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
         for (const d of devices.values()) {
             // Conflict copies are local-only by design (shouldNotBeOnRemote), so they
             // are not a divergence. FALSE_CONFLICT / DATA_LOSS still look at them.
+            // macOS hands names back decomposed (NFD): "café" in the cloud is the same
+            // file as "cafe\u0301" on disk, so compare names in NFC there.
+            const nfc = d.fs === "macos" ? (p: string) => p.normalize("NFC") : (p: string) => p;
             const local = Object.fromEntries(
-                Object.entries(d.userFiles()).filter(([p]) => !CONFLICT_RE.test(p)),
+                Object.entries(d.userFiles())
+                    .filter(([p]) => !CONFLICT_RE.test(p))
+                    .map(([p, c]) => [nfc(p), c]),
             );
-            const diff = diffMaps(cloudFiles, local);
+            const cloudView = Object.fromEntries(Object.entries(cloudFiles).map(([p, c]) => [nfc(p), c]));
+            const diff = diffMaps(cloudView, local);
             if (diff.length) fail("DIVERGED", `${d.name} differs from cloud: ${diff.slice(0, 5).join("; ")}`);
         }
 

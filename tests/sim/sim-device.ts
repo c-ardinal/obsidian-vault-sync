@@ -214,6 +214,8 @@ export class SimDevice {
         );
         if (opts.cryptoEngine) this.sm.cryptoEngine = opts.cryptoEngine;
         this.ctx = this.sm as any;
+        this.ctx.unicodeInsensitiveFs =
+            this.fs === "macos" || (this.fs === "real-fs" && process.platform === "darwin");
         this.ctx.log = async (msg: string, level = "info") => {
             opts.log(this.name, `${level.toUpperCase()} ${msg}`);
         };

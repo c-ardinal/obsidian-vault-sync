@@ -12,6 +12,7 @@ import {
 } from "./file-utils";
 import { loadCommunication, saveIndex, releaseLockAfterPush, findForeignLock } from "./state";
 import { pullFileSafely } from "./merge";
+import { findPathCollision, freeCollisionPath, moveIndexEntry } from "./path-collision";
 import { TransferPriority } from "./transfer-types";
 import { formatSize } from "../utils/format";
 import { basename, dirname } from "../utils/path";
@@ -291,6 +292,34 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
             // Priority 1: 完全に外部(専用ロジック)で管理するファイル。汎用ループでは一切触らない。
             if (isManagedSeparately(path)) {
                 return;
+            }
+
+            // A new note whose name differs from a synced one only by case/normalization
+            // would be the same file on Windows/macOS: rename it before it reaches the cloud.
+            if (!ctx.index[path] && (await ctx.vault.exists(path))) {
+                const clash = findPathCollision(ctx, path);
+                if (clash && (await ctx.vault.exists(clash))) {
+                    const mine = await ctx.vault.readBinary(path);
+                    const theirs = await ctx.vault.readBinary(clash);
+                    if (md5(mine) === md5(theirs)) {
+                        // Same physical file seen under another spelling (case-insensitive
+                        // FS): sync it under its known name.
+                        ctx.dirtyPaths.delete(path);
+                        ctx.dirtyPaths.set(clash, Date.now());
+                        return;
+                    }
+                }
+                if (clash) {
+                    const newPath = await freeCollisionPath(ctx, path);
+                    await ctx.vault.rename(path, newPath);
+                    ctx.dirtyPaths.delete(path);
+                    ctx.dirtyPaths.set(newPath, Date.now());
+                    await ctx.log(
+                        `[Smart Push] ${path} has the same name as ${clash} on Windows/macOS. Renamed it to ${newPath}.`,
+                        "warn",
+                    );
+                    return;
+                }
             }
 
             // Priority 2: リモートに存在してはいけないファイル。
@@ -723,6 +752,26 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                     if (!(await ctx.vault.exists(file.path))) {
                                         // Renamed/deleted while we were checking: pulling now
                                         // would resurrect the old path next to the new one.
+                                        return;
+                                    }
+                                    if (
+                                        remoteMeta.path &&
+                                        remoteMeta.path !== file.path &&
+                                        !ctx.index[file.path]?.pendingMove &&
+                                        !ctx.index[remoteMeta.path] &&
+                                        !(await ctx.vault.exists(remoteMeta.path))
+                                    ) {
+                                        // Another device also renamed the note. Pulling now would
+                                        // write the new name next to ours and strand our edit
+                                        // under the old one. Follow the rename; the next cycle
+                                        // merges the content at the new path.
+                                        await ctx.vault.rename(file.path, remoteMeta.path);
+                                        moveIndexEntry(ctx, file.path, remoteMeta.path);
+                                        ctx.dirtyPaths.set(remoteMeta.path, Date.now());
+                                        await ctx.log(
+                                            `[Smart Push] ${file.path} was renamed to ${remoteMeta.path} on another device. Following the rename before merging.`,
+                                            "info",
+                                        );
                                         return;
                                     }
                                     const resolved = await pullFileSafely(ctx, remoteMeta, "Push Conflict");

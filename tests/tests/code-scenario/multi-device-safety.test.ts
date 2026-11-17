@@ -106,3 +106,56 @@ describe("multi-device safety", () => {
         expect(findForeignLock(ctx, comm, PATH)).toBeNull();
     });
 });
+
+describe("names that are one file on Windows/macOS", () => {
+    let cloud: MockCloudAdapter;
+    let b: DeviceSimulator;
+
+    beforeEach(async () => {
+        cloud = new MockCloudAdapter();
+        b = new DeviceSimulator("B", cloud, "dev_B");
+        b.getContext().startPageToken = await cloud.getStartPageToken();
+        await b.app.vaultAdapter.mkdir("notes");
+    });
+
+    async function pullBoth(existing: string, incoming: string) {
+        const ex = await cloud.uploadFile(existing, enc("existing\n"), Date.now());
+        b.setupSyncedFile(existing, "existing\n", ex.id);
+        await cloud.uploadFile(incoming, enc("incoming\n"), Date.now());
+        await b.smartPull();
+        const cloudFiles = ["notes/Todo.md", "notes/todo.md", "notes/Todo (2).md", "notes/todo (2).md"]
+            .map((p) => [p, cloud.getCloudContent(p)] as const)
+            .filter(([, c]) => c !== null);
+        return Object.fromEntries(cloudFiles);
+    }
+
+    it("keeps both notes under names that no longer collide, in the cloud and locally", async () => {
+        const onCloud = await pullBoth("notes/todo.md", "notes/Todo.md");
+        expect(Object.values(onCloud).sort()).toEqual(["existing\n", "incoming\n"]);
+        const keys = Object.keys(onCloud).map((p) => p.toLowerCase());
+        expect(new Set(keys).size).toBe(2);
+        for (const [p, c] of Object.entries(onCloud)) expect(b.getLocalContent(p)).toBe(c);
+    });
+
+    it("renames the same note of the pair whichever one a device sees first", async () => {
+        // Device B knows "todo.md" and pulls "Todo.md"; device C the other way round.
+        const onB = await pullBoth("notes/todo.md", "notes/Todo.md");
+        const renamedOnB = Object.entries(onB).find(([p]) => p.includes("(2)"))![1];
+
+        const cloud2 = new MockCloudAdapter();
+        const c = new DeviceSimulator("C", cloud2, "dev_C");
+        c.getContext().startPageToken = await cloud2.getStartPageToken();
+        await c.app.vaultAdapter.mkdir("notes");
+        // Same file ids as on B's cloud: "existing" first, "incoming" second
+        const first = await cloud2.uploadFile("notes/todo.md", enc("existing\n"), Date.now());
+        const second = await cloud2.uploadFile("notes/Todo.md", enc("incoming\n"), Date.now());
+        c.getContext().startPageToken = await cloud2.getStartPageToken();
+        c.setupSyncedFile("notes/Todo.md", "incoming\n", second.id);
+        await cloud2.uploadFile("notes/todo.md", enc("existing\n"), Date.now(), first.id); // C now sees it arrive
+        await c.smartPull();
+        const renamedOnC = ["notes/Todo (2).md", "notes/todo (2).md"]
+            .map((p) => cloud2.getCloudContent(p))
+            .find((x) => x !== null);
+        expect(renamedOnC).toBe(renamedOnB);
+    });
+});
