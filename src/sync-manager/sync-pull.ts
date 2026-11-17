@@ -679,6 +679,8 @@ export async function pullViaChangesAPI(
     const pending = pendingRetries;
     const retryCandidates = new Map(pending);
     let newFailureCount = 0;
+    const seenFileIds = new Set<string>();
+    let remoteIndexChanged = false;
 
     const loadRemoteIndex = async () => {
         // One metadata call; the body is re-downloaded only when it changed.
@@ -735,6 +737,8 @@ export async function pullViaChangesAPI(
         for (const c of changes.changes) {
             pending.delete(c.fileId);
             retryCandidates.delete(c.fileId);
+            seenFileIds.add(c.fileId);
+            if (c.file?.path === ctx.pluginDataPath) remoteIndexChanged = true;
         }
 
         const {
@@ -769,6 +773,18 @@ export async function pullViaChangesAPI(
             break;
         } else {
             break;
+        }
+    }
+
+    // Another device published a new index: pick up files it lists that this
+    // device has never seen (e.g. uploaded just before this device took its
+    // first page token, so no change for them will ever arrive).
+    if (remoteIndexChanged) {
+        await loadRemoteIndex();
+        const recovered = await pullFilesMissingFromIndex(ctx, remoteIndex, seenFileIds, pending);
+        if (recovered > 0) {
+            totalCompleted += recovered;
+            hasTotalChanges = true;
         }
     }
 
@@ -845,6 +861,63 @@ export async function pullViaChangesAPI(
         return true;
     }
     return false;
+}
+
+/**
+ * Pull files listed in the remote index that this device has no record of
+ * at all (no index entry, fileId unknown, not dirty, not just deleted).
+ * Existence is re-checked by id first so a stale index entry of a file that
+ * was deleted meanwhile is never resurrected.
+ */
+async function pullFilesMissingFromIndex(
+    ctx: SyncContext,
+    remoteIndex: LocalFileIndex,
+    seenFileIds: Set<string>,
+    pendingRetries: Map<string, unknown>,
+): Promise<number> {
+    const knownIds = new Set<string>();
+    for (const e of Object.values(ctx.index)) if (e.fileId) knownIds.add(e.fileId);
+    for (const e of Object.values(ctx.localIndex)) if (e.fileId) knownIds.add(e.fileId);
+
+    const missing: Array<[string, LocalFileIndex[string]]> = [];
+    for (const [path, entry] of Object.entries(remoteIndex)) {
+        if (!entry?.fileId || path === ctx.pluginDataPath) continue;
+        if (isManagedSeparately(path) || isAlwaysForbiddenOnRemote(path) || shouldIgnore(ctx, path)) continue;
+        if (ctx.index[path] || ctx.localIndex[path]) continue;
+        if (knownIds.has(entry.fileId) || seenFileIds.has(entry.fileId)) continue;
+        if (pendingRetries.has(entry.fileId)) continue;
+        if (ctx.dirtyPaths.has(path) || ctx.recentlyDeletedFromRemote.has(path)) continue;
+        missing.push([path, entry]);
+    }
+    if (missing.length === 0) return 0;
+
+    let count = 0;
+    const tasks = missing.map(([path, entry]) => async () => {
+        try {
+            const meta = await ctx.adapter.getFileMetadataById(entry.fileId, path);
+            if (!meta || meta.kind === "folder" || basename(meta.path) !== basename(path)) return;
+            await ctx.log(`[Changes API] Pulling file listed in remote index but never seen: ${path}`, "info");
+            const ok = await pullFileSafely(
+                ctx,
+                {
+                    path,
+                    fileId: entry.fileId,
+                    hash: meta.hash,
+                    size: meta.size,
+                    mtime: meta.mtime,
+                    ancestorHash: entry.ancestorHash,
+                    plainHash: entry.plainHash,
+                },
+                "Index Reconcile",
+            );
+            if (ok) count++;
+        } catch (e) {
+            await ctx.log(`[Changes API] Index reconcile failed for ${path}: ${e}`, "warn");
+        }
+    });
+    ctx.startActivity();
+    await runParallel(tasks, ctx.settings.concurrency);
+    return count;
 }
 
 /** Process one page of Changes API results */

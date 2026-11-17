@@ -213,4 +213,35 @@ describe("Changes API draining and retry", () => {
         await pullViaChangesAPI(ctx); // no new changes, but the failed pull is retried
         expect(await ctx.vault.exists("notes/a.md")).toBe(true);
     });
+
+    it("pulls a file the remote index lists but no change ever announced", async () => {
+        const ctx = makeCtx(cloud);
+        // File uploaded BEFORE this device took its first page token
+        const early = await upload("notes/early.md", "early");
+        ctx.startPageToken = await cloud.getStartPageToken();
+        ctx.index = { "seed.md": { fileId: "x", mtime: 0, size: 0, hash: "h" } };
+        // Another device then publishes an index that lists it
+        await upload(
+            ctx.pluginDataPath,
+            JSON.stringify({ index: { "notes/early.md": { fileId: early.id, mtime: 0, size: 5, hash: early.hash } } }),
+        );
+
+        await pullViaChangesAPI(ctx);
+        expect(await ctx.vault.exists("notes/early.md")).toBe(true);
+    });
+
+    it("does not resurrect a file the remote index still lists after it was deleted", async () => {
+        const ctx = makeCtx(cloud);
+        const gone = await upload("notes/gone.md", "gone");
+        await cloud.deleteFile(gone.id);
+        ctx.startPageToken = await cloud.getStartPageToken();
+        ctx.index = { "seed.md": { fileId: "x", mtime: 0, size: 0, hash: "h" } };
+        await upload(
+            ctx.pluginDataPath,
+            JSON.stringify({ index: { "notes/gone.md": { fileId: gone.id, mtime: 0, size: 4, hash: gone.hash } } }),
+        );
+
+        await pullViaChangesAPI(ctx);
+        expect(await ctx.vault.exists("notes/gone.md")).toBe(false);
+    });
 });
