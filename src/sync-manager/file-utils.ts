@@ -415,7 +415,21 @@ export function normalizeLineEndings(s: string): string {
     return s.replace(/\r\n/g, "\n");
 }
 
+const strictUtf8 = new TextDecoder("utf-8", { fatal: true });
+
 export async function hashContent(content: ArrayBuffer): Promise<string> {
+    // Fast path: valid UTF-8 without CR and without BOM decodes and re-encodes to the
+    // very same bytes, so hash them directly (no string copy of a large file).
+    const bytes = new Uint8Array(content);
+    const hasBom = bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf;
+    if (!hasBom && bytes.indexOf(0x0d) === -1) {
+        try {
+            strictUtf8.decode(bytes);
+            return md5(content);
+        } catch {
+            // not UTF-8 (binary): fall through to the original computation
+        }
+    }
     // Normalize line endings for consistent hash calculation across platforms
     const contentStr = new TextDecoder().decode(content);
     const normalizedContent = normalizeLineEndings(contentStr);
