@@ -175,3 +175,8 @@ export function takeAttemptedUpload(ctx: SyncContext, path: string, hash: string
 export function peekAttemptedUpload(ctx: SyncContext, path: string): string | undefined {
     return attemptedUploads.get(ctx)?.get(path);
 }
+
+/** Forget the unknown-outcome upload of `path` (a later upload succeeded). */
+export function forgetAttemptedUpload(ctx: SyncContext, path: string): void {
+    attemptedUploads.get(ctx)?.delete(path);
+}

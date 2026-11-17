@@ -268,6 +268,23 @@ export async function pullFileSafely(
             release = claimPullPath(ctx, newPath, fileId);
         }
     }
+    // Renamed here meanwhile (the rename event moved the index entry to its new name):
+    // pulling the old name would recreate the note there next to the renamed one. The
+    // push moves it in the cloud first and then reconciles the remote change.
+    if (fileId && !isRemoteDeleted && !(await ctx.vault.exists(item.path))) {
+        const movedTo = Object.entries(ctx.index).find(
+            ([p, e]) => p !== item.path && e.fileId === fileId && e.pendingMove?.oldPath === item.path,
+        )?.[0];
+        if (movedTo) {
+            release?.();
+            ctx.dirtyPaths.set(movedTo, ctx.dirtyPaths.get(movedTo) ?? Date.now());
+            await ctx.log(
+                `[${logPrefix}] ${item.path} was renamed to ${movedTo} here. Pushing the rename first.`,
+                "info",
+            );
+            return false;
+        }
+    }
     try {
         const ok = await pullFileUnchecked(ctx, item, logPrefix, isRemoteDeleted, fileId);
         if (ok && fileId && ctx.index[item.path]?.fileId === fileId) {
@@ -290,6 +307,7 @@ export async function pullFileSafely(
 async function dropStaleAliases(ctx: SyncContext, path: string, fileId: string, logPrefix: string): Promise<void> {
     for (const [other, entry] of Object.entries(ctx.index)) {
         if (other === path || entry.fileId !== fileId) continue;
+        if (entry.pendingMove) continue; // renamed here, not yet pushed: not a stale copy
         delete ctx.index[other];
         delete ctx.localIndex[other];
         try {
@@ -364,6 +382,29 @@ async function builtOnEarlierVersion(
 ): Promise<boolean> {
     const order = await revisionOrder(ctx, path, fileId, ourHash, declaredBase);
     return !!order && order.declared < order.ours;
+}
+
+/**
+ * The cloud hash of the bytes we just downloaded. item.hash comes from the remote index
+ * (or a Changes API entry) and can be stale relative to them; a stale base hash makes
+ * the next sync think the unmodified file was edited locally. With E2EE the bytes are
+ * decrypted plaintext: the encrypted hash is looked up again when the plaintext shows
+ * that item described an older version.
+ */
+async function hashOfDownload(
+    ctx: SyncContext,
+    item: { path: string; hash?: string; plainHash?: string },
+    fileId: string | undefined,
+    content: ArrayBuffer,
+    plainHash: string,
+): Promise<string> {
+    if (!ctx.e2eeEnabled) return md5(content);
+    let hash = item.hash || "";
+    if (fileId && item.plainHash && item.plainHash.toLowerCase() !== plainHash.toLowerCase()) {
+        const current = await ctx.adapter.getFileMetadataById(fileId, item.path).catch(() => null);
+        if (current?.hash) hash = current.hash;
+    }
+    return hash;
 }
 
 /** Positions (last occurrence) of two versions in the file's history, or null if unknown. */
@@ -764,15 +805,19 @@ async function pullFileUnchecked(
                             const stat = await ctx.vault.stat(item.path);
                             // Calculate plainHash for downloaded content
                             const plainHash = await hashContent(remoteContent);
+                            // The file may have changed again between the listing and the
+                            // download: record the version we actually got, or the next
+                            // push takes this unedited note for a local edit of the older one.
+                            const gotHash = await hashOfDownload(ctx, item, fileId, remoteContent, plainHash);
 
                             const entry = {
                                 fileId: fileId || "",
                                 mtime: stat?.mtime || Date.now(),
                                 size: remoteContent.byteLength,
-                                hash: item.hash,
+                                hash: gotHash,
                                 plainHash: plainHash,
                                 lastAction: "pull" as const,
-                                ancestorHash: item.hash,
+                                ancestorHash: gotHash,
                             };
                             ctx.index[item.path] = entry;
                             ctx.localIndex[item.path] = { ...entry };
@@ -809,6 +854,7 @@ async function pullFileUnchecked(
 
                         let baseHash = localBase.ancestorHash;
                         let origin = "ancestorHash";
+                        const attempted = peekAttemptedUpload(ctx, item.path)?.toLowerCase();
 
                         // The remote version was built directly on the version we pushed
                         // (e.g. another device merged our push before we saw it confirmed).
@@ -823,6 +869,36 @@ async function pullFileUnchecked(
                         ) {
                             baseHash = localBase.hash;
                             origin = "remote ancestorHash (our push)";
+                        } else if (
+                            attempted &&
+                            item.hash &&
+                            attempted !== item.hash.toLowerCase() &&
+                            baseHash?.toLowerCase() !== attempted &&
+                            (await revisionOrder(ctx, item.path, fileId, attempted, item.hash)) !== null &&
+                            (await builtOnLaterVersion(ctx, item.path, fileId, attempted, item.hash))
+                        ) {
+                            // An upload of ours whose response was lost is in the history before
+                            // the remote version. Our local content derives from it, and whoever
+                            // uploaded over it repairs it (overwrite-recovery), so it is the
+                            // common ancestor.
+                            baseHash = attempted;
+                            origin = "our unconfirmed upload (in history)";
+                        } else if (
+                            localBase.lastAction === "push" &&
+                            localBase.hash &&
+                            item.hash &&
+                            baseHash?.toLowerCase() !== localBase.hash.toLowerCase() &&
+                            (await builtOnLaterVersion(ctx, item.path, fileId, localBase.hash, item.hash)) &&
+                            (await revisionOrder(ctx, item.path, fileId, localBase.hash, item.hash)) !== null
+                        ) {
+                            // Our upload is in the history before the remote version, but we never
+                            // saw it confirmed (another device uploaded right after). A version
+                            // that replaced ours without including it is repaired by the device
+                            // that uploaded it (overwrite-recovery), so the remote builds on ours.
+                            // The older ancestorHash made our own pushed lines look like edits we
+                            // made again, conflicting with the remote's copy of them.
+                            baseHash = localBase.hash;
+                            origin = "our unconfirmed push (in history)";
                         }
 
                         await ctx.log(
@@ -1186,6 +1262,18 @@ async function pullFileUnchecked(
         await ensureLocalFolder(ctx, item.path);
 
         const content = await ctx.adapter.downloadFile(fileId || "");
+        if (
+            !exists &&
+            fileId &&
+            Object.entries(ctx.index).some(
+                ([p, e]) => p !== item.path && e.fileId === fileId && e.pendingMove?.oldPath === item.path,
+            )
+        ) {
+            // Renamed here during the download: writing would recreate the old name next
+            // to the renamed note. The push moves it and then reconciles the change.
+            await ctx.log(`[${logPrefix}] ${item.path} was renamed here during the download. Skipping.`, "info");
+            return false;
+        }
         if (!exists && (await ctx.vault.exists(item.path))) {
             // The user created a note with this name while we were downloading (vault
             // events are suppressed meanwhile). Writing would replace it unseen; keep it
@@ -1204,19 +1292,7 @@ async function pullFileUnchecked(
         // (or a Changes API entry) and can be stale relative to the bytes we just fetched; a
         // stale base hash makes the next pull think this unmodified file was edited locally.
         // With E2EE the bytes are decrypted plaintext, so the (encrypted) remote hash is kept.
-        let downloadedHash = ctx.e2eeEnabled ? item.hash || "" : md5(content);
-        if (
-            ctx.e2eeEnabled &&
-            fileId &&
-            item.plainHash &&
-            item.plainHash.toLowerCase() !== plainHash.toLowerCase()
-        ) {
-            // The index was stale (the file changed after it was written), so item.hash is
-            // the encrypted hash of an OLDER version. Keeping it made the next pull merge
-            // from that old base, and our unchanged lines looked like local edits.
-            const current = await ctx.adapter.getFileMetadataById(fileId, item.path).catch(() => null);
-            if (current?.hash) downloadedHash = current.hash;
-        }
+        const downloadedHash = await hashOfDownload(ctx, item, fileId, content, plainHash);
 
         const stat = await ctx.vault.stat(item.path);
         const entry = {

@@ -324,6 +324,54 @@ const FIXED_REGRESSIONS: Case[] = [
         config: { seed: 152, ...FLAKY },
         expect: [],
     },
+    {
+        title: "two devices uploading the same note at the same moment: the overwritten edit is merged back",
+        symptom: "An edit made on one device disappears when another device saves the same note at the same time",
+        config: { seed: 278, ...CLEAN, maxEventDelayMs: 0 },
+        expect: [],
+    },
+    {
+        title: "an overwritten edit is repaired after the device that is merging the note finishes",
+        symptom: "An edit vanishes when the note was being merged elsewhere while it was overwritten",
+        config: { seed: 102, ...CROSS_OS },
+        expect: [],
+    },
+    {
+        title: "E2EE: an overwritten edit is repaired once the note's merge lock is free",
+        symptom: "With E2EE, an edit vanishes after two devices saved the note at the same time",
+        config: { seed: 164, ...E2EE },
+        expect: [],
+    },
+    {
+        title: "a note renamed right after its upload was overwritten merges with the repaired version",
+        symptom: "A conflict copy appears for a renamed note whose edits were made on different lines",
+        config: { seed: 269, ...E2EE },
+        expect: [],
+    },
+    {
+        title: "a version built on our lost-response upload merges from that upload",
+        symptom: "A conflict copy appears after a network error, although the edits were on different lines",
+        config: { seed: 136, ...FLAKY },
+        expect: [],
+    },
+    {
+        title: "the overwrite repair merges again when the user types during it",
+        symptom: "An edit typed while another device's overwritten edit was being restored is lost",
+        config: { seed: 276, ...CLEAN },
+        expect: [],
+    },
+    {
+        title: "lines both devices appended near the same spot keep the note's other lines",
+        symptom: "A note loses its first line after two devices appended lines at the same time",
+        config: { seed: 217, ...CHAOS },
+        expect: [],
+    },
+    {
+        title: "a rename onto a name another note is leaving in the same batch is not a name clash",
+        symptom: "Notes named \"todo (2) (2) (2)...\" keep multiplying between devices",
+        config: { seed: 192, ...CHAOS },
+        expect: [],
+    },
 ];
 
 function configOf(c: Case, name: string): SimConfig {
