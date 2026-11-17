@@ -37,6 +37,11 @@ export interface LocalFileIndex {
         /** Hash of the common ancestor (last known synced state between devices).
          *  Set on pull, preserved on push. Used as base for 3-way merge. */
         ancestorHash?: string;
+        /** Set when our own upload is confirmed: the version that upload was built on.
+         *  A newer remote version that names its base is then checked against the file's
+         *  history: another device may have uploaded over ours from an older base (the
+         *  cloud has no compare-and-set), and then we merge instead of accepting it. */
+        ownPushBase?: string;
 /** True when this device detected a conflict and is waiting for another device to resolve it */
         pendingConflict?: boolean;
         /** If true, force upload even if hash matches (used for renaming to trigger PATCH) */

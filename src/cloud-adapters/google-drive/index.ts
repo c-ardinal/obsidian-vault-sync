@@ -255,6 +255,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
         content: ArrayBuffer,
         mtime: number,
         existingFileId?: string,
+        opts?: { createOnly?: boolean },
     ): Promise<CloudFile> {
         const name = basename(path);
         const metadata: any = {
@@ -263,7 +264,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
         };
 
         let activeFileId = existingFileId;
-        if (!activeFileId) {
+        if (!activeFileId && !opts?.createOnly) {
             const existing = await this.getFileMetadata(path);
             if (existing) activeFileId = existing.id;
         }

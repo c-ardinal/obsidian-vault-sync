@@ -94,9 +94,11 @@ export class MockCloudAdapter implements CloudAdapter {
         content: ArrayBuffer,
         mtime: number,
         targetFileId?: string,
+        opts?: { createOnly?: boolean },
     ): Promise<CloudFile> {
         const hash = md5(content);
-        let id = targetFileId || this.pathToId.get(path);
+        // Like Drive: createOnly always makes a new file, even if one has this name
+        let id = targetFileId || (opts?.createOnly ? undefined : this.pathToId.get(path));
 
         if (id && this.files.has(id)) {
             // Update existing file
@@ -124,7 +126,8 @@ export class MockCloudAdapter implements CloudAdapter {
                 hash,
             };
             this.files.set(id, stored);
-            this.pathToId.set(path, id);
+            // A same-name duplicate does not hide the file already found by name
+            if (!this.pathToId.has(path)) this.pathToId.set(path, id);
 
             // Add first revision
             this.addRevision(id, content, hash, mtime);
@@ -138,8 +141,8 @@ export class MockCloudAdapter implements CloudAdapter {
         this.maybeThrow("deleteFile");
         const file = this.files.get(fileId);
         if (file) {
-            this.pathToId.delete(file.path);
             this.files.delete(fileId);
+            this.unmapPath(file.path, fileId);
             this.recordChange(fileId, true);
         }
     }
@@ -153,8 +156,9 @@ export class MockCloudAdapter implements CloudAdapter {
         if (!file) throw new Error(`Cloud file not found: ${fileId}`);
 
         const oldPath = file.path;
-        // 旧パスからパスマップを削除
-        this.pathToId.delete(oldPath);
+        // 旧パスからパスマップを削除（同名の重複ファイルがあればそちらを指す）
+        file.path = "";
+        this.unmapPath(oldPath, fileId);
 
         // 新パスを構築
         const newPath = newParentPath ? `${newParentPath}/${newName}` : newName;
@@ -165,6 +169,18 @@ export class MockCloudAdapter implements CloudAdapter {
 
         this.recordChange(fileId, false, this.toCloudFile(file));
         return this.toCloudFile(file);
+    }
+
+    /** Drop `path -> fileId`; another file still at `path` (a duplicate) takes its place. */
+    private unmapPath(path: string, fileId: string): void {
+        if (this.pathToId.get(path) !== fileId) return;
+        this.pathToId.delete(path);
+        for (const f of this.files.values()) {
+            if (f.path === path) {
+                this.pathToId.set(path, f.id);
+                break;
+            }
+        }
     }
 
     async createFolder(_path: string): Promise<string> {

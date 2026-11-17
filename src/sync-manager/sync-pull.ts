@@ -17,6 +17,7 @@ import {
     checkMergeLock,
     releaseOrphanedOwnLocks,
     findForeignLock,
+    renameLocal,
 } from "./state";
 import { pullFileSafely } from "./merge";
 import { TransferPriority } from "./transfer-types";
@@ -27,6 +28,7 @@ import { INTEGRITY_MIN_INDEX_SIZE_BYTES, INTEGRITY_MIN_LOCAL_FILE_COUNT } from "
 import {
     computeLocalHash,
     downloadRemoteIndex,
+    downloadRemoteIndexData,
     getThresholdBytes,
     generateTransferId,
     markPendingTransfer,
@@ -141,7 +143,7 @@ async function detectPullChanges(
                                 `[Smart Pull] Remote Rename detected (Full Scan): ${oldPath} -> ${newPath}`,
                                 "info",
                             );
-                            await ctx.vault.rename(oldPath, newPath);
+                            await renameLocal(ctx, oldPath, newPath);
 
                             if (ctx.index[oldPath]) {
                                 ctx.index[newPath] = { ...ctx.index[oldPath] };
@@ -489,6 +491,7 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
         await cleanupForbiddenDirectories(ctx);
     }
 
+    let tokenJustInitialized = false;
     if (ctx.adapter.supportsChangesAPI) {
         // Don't use Changes API when index is empty — a stale startPageToken
         // would skip files that haven't changed since the token was issued,
@@ -581,6 +584,7 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
 
             return changesResult;
         } else {
+            tokenJustInitialized = true;
             try {
                 ctx.startPageToken = await ctx.adapter.getStartPageToken();
                 await saveIndex(ctx);
@@ -617,7 +621,18 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
         "info",
     );
 
-    const remoteIndex = await downloadRemoteIndex(ctx, remoteIndexMeta.id);
+    const { index: remoteIndex, startPageToken: remoteToken } = await downloadRemoteIndexData(
+        ctx,
+        remoteIndexMeta.id,
+    );
+    if (tokenJustInitialized && remoteToken && ctx.adapter.supportsChangesAPI) {
+        // The remote index can be older than the token we just took: another device may
+        // have renamed or edited a file after uploading it. Pulling from the index and
+        // then reading changes only from NOW lost those changes for good (the note stayed
+        // under its old name on this device). Read changes from where the index's writer
+        // stood instead; changes we already have are skipped as in sync.
+        ctx.startPageToken = remoteToken;
+    }
 
     // === CORRUPTION CHECK ===
     const remoteKeys = Object.keys(remoteIndex);
@@ -882,7 +897,15 @@ export async function pullViaChangesAPI(
                 ) {
                     ok = true; // renamed since: the stored path is stale, the rename is its own change
                 } else {
-                    const remoteEntry = remoteIndex[r.file.path];
+                    // Index annotations only when the index describes THIS version (as for
+                    // fresh changes): a lagging index's plainHash belongs to an older version,
+                    // and matching it against our content declared "in sync" a file that
+                    // another device had changed.
+                    const indexed = remoteIndex[r.file.path];
+                    const remoteEntry =
+                        indexed?.hash && meta.hash && indexed.hash.toLowerCase() === meta.hash.toLowerCase()
+                            ? indexed
+                            : undefined;
                     const item = {
                         ...r.file,
                         hash: meta.hash,
@@ -1116,6 +1139,10 @@ async function processChangePage(
                             const confirmed = cloudFile.hash.toLowerCase();
                             localIndexEntry.ancestorHash = confirmed;
                             if (ctx.localIndex[oldPath]) {
+                                const pushedFrom = ctx.localIndex[oldPath].ancestorHash;
+                                if (pushedFrom && pushedFrom.toLowerCase() !== confirmed) {
+                                    ctx.localIndex[oldPath].ownPushBase = pushedFrom;
+                                }
                                 ctx.localIndex[oldPath].ancestorHash = confirmed;
                                 ctx.localIndex[oldPath].lastAction = "pull";
                             }
@@ -1142,7 +1169,7 @@ async function processChangePage(
                                     "info",
                                 );
 
-                                await ctx.vault.rename(oldPath, newPath);
+                                await renameLocal(ctx, oldPath, newPath);
                                 ctx.logger.markActionTaken();
 
                                 if (ctx.index[oldPath]) {
@@ -1194,7 +1221,7 @@ async function processChangePage(
                         const alt = await freeCollisionPath(ctx, newPath);
                         try {
                             await ctx.adapter.moveFile(cloudFile.id, basename(alt), dirname(alt) || null);
-                            await ctx.vault.rename(oldPath, alt);
+                            await renameLocal(ctx, oldPath, alt);
                             ctx.logger.markActionTaken();
                             moveIndexEntry(ctx, oldPath, alt);
                             localIdToPath.set(cloudFile.id, alt);
@@ -1237,6 +1264,10 @@ async function processChangePage(
                     ctx.localIndex[cloudFile.path]?.lastAction === "push" ||
                     ctx.localIndex[cloudFile.path]?.lastAction === "merge"
                 ) {
+                    const pushedFrom = ctx.localIndex[cloudFile.path].ancestorHash;
+                    if (pushedFrom && pushedFrom.toLowerCase() !== cloudFile.hash.toLowerCase()) {
+                        ctx.localIndex[cloudFile.path].ownPushBase = pushedFrom;
+                    }
                     ctx.localIndex[cloudFile.path].lastAction = "pull";
                     ctx.localIndex[cloudFile.path].ancestorHash = cloudFile.hash;
                     ctx.index[cloudFile.path].ancestorHash = cloudFile.hash;

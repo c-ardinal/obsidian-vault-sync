@@ -608,10 +608,43 @@ export function markDirty(ctx: SyncContext, path: string): void {
     ctx.dirtyPaths.set(path, Date.now());
 }
 
+/**
+ * Paths the vault reported as deleted. A synced file that is merely missing when a
+ * push runs may instead have been renamed a moment ago, with the rename event still
+ * on its way: deleting it from the cloud then made other devices resurrect it under
+ * the old name next to the renamed copy. Such a path waits one sync for its event.
+ */
+const deleteIntents = new WeakMap<object, Set<string>>();
+const missingOnce = new WeakMap<object, Set<string>>();
+
+function setOf(map: WeakMap<object, Set<string>>, ctx: SyncContext): Set<string> {
+    let s = map.get(ctx);
+    if (!s) map.set(ctx, (s = new Set()));
+    return s;
+}
+
+/** A deletion the sync engine itself established (no vault event will report it). */
+export function noteDeleteIntent(ctx: SyncContext, path: string): void {
+    setOf(deleteIntents, ctx).add(path);
+}
+
+/** True when a missing synced file may be deleted remotely now (see deleteIntents). */
+export function confirmMissingForDeletion(ctx: SyncContext, path: string): boolean {
+    if (setOf(deleteIntents, ctx).delete(path)) {
+        setOf(missingOnce, ctx).delete(path);
+        return true;
+    }
+    const seen = setOf(missingOnce, ctx);
+    if (seen.delete(path)) return true;
+    seen.add(path);
+    return false;
+}
+
 export function markDeleted(ctx: SyncContext, path: string): void {
     path = indexKeyFor(ctx, path);
     if (shouldIgnore(ctx, path)) return;
     if (ctx.index[path]) {
+        setOf(deleteIntents, ctx).add(path);
         ctx.dirtyPaths.set(path, Date.now());
         ctx.log(`[Dirty] Marked for deletion: ${path}`, "debug");
     }
@@ -625,13 +658,71 @@ export function markFolderDeleted(ctx: SyncContext, folderPath: string): void {
     const prefix = folderPath + "/";
     for (const path of Object.keys(ctx.index)) {
         if (path.startsWith(prefix) && !shouldIgnore(ctx, path)) {
+            setOf(deleteIntents, ctx).add(path);
             ctx.dirtyPaths.set(path, Date.now());
             ctx.log(`[Dirty] Marked for deletion (child): ${path}`, "debug");
         }
     }
 }
 
+/**
+ * Renames the sync engine itself performs (following a remote rename, resolving a
+ * name collision). The vault reports them as user renames, possibly late: by then
+ * another file may already be indexed under the old name, and treating the event as
+ * a user rename moved THAT file in the cloud too. Such events are ignored.
+ */
+const ownRenames = new WeakMap<object, Map<string, number>>();
+
+export async function renameLocal(ctx: SyncContext, from: string, to: string): Promise<void> {
+    let m = ownRenames.get(ctx);
+    if (!m) ownRenames.set(ctx, (m = new Map()));
+    const key = `${from}\u0000${to}`;
+    m.set(key, (m.get(key) ?? 0) + 1);
+    try {
+        await ctx.vault.rename(from, to);
+    } catch (e) {
+        takeOwnRename(ctx, from, to);
+        throw e;
+    }
+}
+
+function takeOwnRename(ctx: SyncContext, from: string, to: string): boolean {
+    const m = ownRenames.get(ctx);
+    const key = `${from}\u0000${to}`;
+    const n = m?.get(key);
+    if (!n) return false;
+    if (n > 1) m!.set(key, n - 1);
+    else m!.delete(key);
+    return true;
+}
+
+/**
+ * Renames of files not synced yet: old path -> current path. An upload of the old
+ * path whose response was lost may still have reached the cloud; when it shows up
+ * there, it is moved to the current name instead of being pulled back as a copy.
+ */
+const unsyncedRenames = new WeakMap<object, Map<string, string>>();
+
+function noteUnsyncedRename(ctx: SyncContext, from: string, to: string): void {
+    let m = unsyncedRenames.get(ctx);
+    if (!m) unsyncedRenames.set(ctx, (m = new Map()));
+    for (const [k, v] of m) if (v === from) m.set(k, to);
+    m.set(from, to);
+}
+
+/** Where a never-synced file once at `path` lives now, if it was renamed (forgets it). */
+export function takeUnsyncedRename(ctx: SyncContext, path: string): string | undefined {
+    const m = unsyncedRenames.get(ctx);
+    const to = m?.get(path);
+    if (to !== undefined) m!.delete(path);
+    return to;
+}
+
 export function markRenamed(ctx: SyncContext, oldPath: string, newPath: string): void {
+    if (takeOwnRename(ctx, oldPath, newPath)) {
+        ctx.log(`[Dirty] Ignored our own rename: ${oldPath} -> ${newPath}`, "debug");
+        return;
+    }
     if (shouldIgnore(ctx, newPath)) return;
     oldPath = indexKeyFor(ctx, oldPath);
 
@@ -641,6 +732,7 @@ export function markRenamed(ctx: SyncContext, oldPath: string, newPath: string):
 
     // 未同期ファイルのリネーム/移動（oldPath がインデックスになく dirtyPaths にある）
     if (ctx.dirtyPaths.has(oldPath) && !ctx.index[oldPath]) {
+        noteUnsyncedRename(ctx, oldPath, newPath);
         ctx.dirtyPaths.delete(oldPath);
         ctx.dirtyPaths.set(newPath, Date.now());
         ctx.log(`[Dirty] Removed (renamed before sync): ${oldPath}`, "debug");

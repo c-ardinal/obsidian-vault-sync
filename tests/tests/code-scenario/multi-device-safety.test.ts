@@ -159,3 +159,25 @@ describe("names that are one file on Windows/macOS", () => {
         expect(renamedOnC).toBe(renamedOnB);
     });
 });
+
+describe("two devices creating the same note at the same time", () => {
+    it("keeps both when the cloud ends up with two files of one name", async () => {
+        const cloud = new MockCloudAdapter();
+        const b = new DeviceSimulator("B", cloud, "dev_B");
+        b.getContext().startPageToken = await cloud.getStartPageToken();
+        await b.app.vaultAdapter.mkdir("notes");
+        const mine = await cloud.uploadFile("notes/plan.md", enc("# B's plan\n"), Date.now());
+        b.setupSyncedFile("notes/plan.md", "# B's plan\n", mine.id);
+        // Another device checked, found nothing, and created its own note with that name
+        await cloud.uploadFile("notes/plan.md", enc("# A's plan\n"), Date.now(), undefined, {
+            createOnly: true,
+        });
+
+        await b.smartPull();
+
+        const names = ["notes/plan.md", "notes/plan (2).md"];
+        const onCloud = names.map((p) => cloud.getCloudContent(p)).sort();
+        expect(onCloud).toEqual(["# A's plan\n", "# B's plan\n"]);
+        for (const p of names) expect(b.getLocalContent(p)).toBe(cloud.getCloudContent(p));
+    });
+});

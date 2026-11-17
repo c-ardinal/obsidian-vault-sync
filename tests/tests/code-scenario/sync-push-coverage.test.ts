@@ -27,6 +27,7 @@ import { smartPush } from "../../../src/sync-manager/sync-push";
 import { TransferPriority } from "../../../src/sync-manager/transfer-types";
 import { md5 } from "../../../src/utils/md5";
 import type { SyncContext } from "../../../src/sync-manager/context";
+import { markDeleted } from "../../../src/sync-manager/state";
 import type { IVaultOperations } from "../../../src/types/vault-operations";
 
 // Helper to create a valid SyncContext-like object for testing internal functions
@@ -1216,6 +1217,7 @@ describe("smartPush complete coverage", () => {
             await device.app.vaultAdapter.remove("todelete.md");
 
             const ctx = await createTestContext(cloud, device);
+            markDeleted(ctx, "todelete.md"); // the vault reported the deletion
             await smartPush(ctx, false);
 
             // Should be deleted from remote
@@ -1235,6 +1237,7 @@ describe("smartPush complete coverage", () => {
             await device.app.vaultAdapter.remove("cleanup.md");
 
             const ctx = await createTestContext(cloud, device);
+            markDeleted(ctx, "cleanup.md"); // the vault reported the deletion
             await smartPush(ctx, false);
 
             expect(sm.index["cleanup.md"]).toBeUndefined();
@@ -1279,6 +1282,7 @@ describe("smartPush complete coverage", () => {
             await device.app.vaultAdapter.remove("faildelete.md");
 
             const ctx = await createTestContext(cloud, device);
+            markDeleted(ctx, "faildelete.md"); // the vault reported the deletion
 
             // Should not throw even if delete fails
             await expect(smartPush(ctx, false)).resolves.not.toThrow();
@@ -1966,6 +1970,7 @@ describe("coverage gap tests", () => {
             };
 
             const ctx = await createTestContext(cloud, device);
+            markDeleted(ctx, "deletefail.md"); // the vault reported the deletion
             await smartPush(ctx, false);
 
             // Restore
