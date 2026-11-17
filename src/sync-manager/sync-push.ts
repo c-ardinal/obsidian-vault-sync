@@ -359,12 +359,29 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                             );
                             ctx.logger.markActionTaken();
 
+                            // Another device may have updated the file since we last synced
+                            // it. Adopting moved.hash here would make our (older) local copy
+                            // look like it is based on that newer version, and the following
+                            // upload would silently overwrite the other device's edit. Keep
+                            // our known base hash so the push/pull sees the remote change and
+                            // merges it.
+                            const knownHash = ctx.index[path]?.hash;
+                            const remoteChangedMeanwhile =
+                                !!knownHash &&
+                                !!moved.hash &&
+                                knownHash.toLowerCase() !== moved.hash.toLowerCase();
+                            if (remoteChangedMeanwhile) {
+                                await ctx.log(
+                                    `[Smart Push] ${path} changed on another device before the move. Keeping base hash so the change is merged.`,
+                                    "info",
+                                );
+                            }
                             const updatedEntry = {
                                 ...ctx.index[path],
                                 fileId: moved.id,
                                 mtime: moved.mtime,
                                 size: moved.size,
-                                hash: moved.hash,
+                                hash: remoteChangedMeanwhile ? knownHash : moved.hash,
                                 lastAction: "pull" as const,
                                 ancestorHash: ctx.localIndex[path]?.ancestorHash || moved.hash,
                                 forcePush: false,

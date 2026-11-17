@@ -18,7 +18,8 @@ interface Case {
     /** What a user would see */
     symptom: string;
     config: Partial<SimConfig>;
-    plan: Action[];
+    /** Omit to replay the full plan generated from config.seed */
+    plan?: Action[];
     /** Failure kinds that prove the bug is present */
     expect: string[];
     /** Fixed cases only: upper bound on 3-way merges in the whole run (catches needless merges) */
@@ -115,6 +116,15 @@ const FIXED_REGRESSIONS: Case[] = [
         expect: [],
         // Only B (the device that pulls A's concurrent edit) needs to merge; A must just accept.
         maxMerges: 1,
+    },
+    {
+        title: "edits made during a merge, and edits to a note renamed on another device, are kept",
+        symptom:
+            "A line typed while 'merging' was shown disappeared; a renamed note lost another device's edit",
+        // Full clean-network seed 12 run: C types while its merge downloads revisions, and A
+        // renames + edits the note C just merged into.
+        config: { seed: 12, profile: "disjoint", devices: 3, actions: 40, network: NET },
+        expect: [],
     },
 ];
 

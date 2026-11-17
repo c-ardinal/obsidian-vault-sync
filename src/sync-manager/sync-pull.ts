@@ -850,6 +850,27 @@ async function processChangePage(
                     // dirty flag moves with the file, and the content is reconciled below.
                     const localIndexEntry = ctx.index[oldPath];
                     if (localIndexEntry?.pendingMove) {
+                        // Still confirm our own upload (same as the "Sync confirmed" path
+                        // below). Otherwise ancestorHash stays at an older version, and the
+                        // next merge uses a stale base and reports a conflict that isn't one.
+                        const lastAction = ctx.localIndex[oldPath]?.lastAction;
+                        if (
+                            (lastAction === "push" || lastAction === "merge") &&
+                            localIndexEntry.hash &&
+                            cloudFile.hash &&
+                            localIndexEntry.hash.toLowerCase() === cloudFile.hash.toLowerCase()
+                        ) {
+                            const confirmed = cloudFile.hash.toLowerCase();
+                            localIndexEntry.ancestorHash = confirmed;
+                            if (ctx.localIndex[oldPath]) {
+                                ctx.localIndex[oldPath].ancestorHash = confirmed;
+                                ctx.localIndex[oldPath].lastAction = "pull";
+                            }
+                            await ctx.log(
+                                `[Smart Pull] Sync confirmed for ${oldPath} (pending move). ancestorHash updated to ${confirmed.substring(0, 8)}`,
+                                "debug",
+                            );
+                        }
                         await ctx.log(
                             `[Changes API] Remote Rename skipped: ${oldPath} -> ${newPath} (local has pending move/changes)`,
                             "debug",
