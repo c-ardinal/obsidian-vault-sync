@@ -501,6 +501,120 @@ footer a:hover {
     transition-delay: 0s;
 }
 
+/* Back to top button (injected by site.js) */
+
+.to-top {
+    position: fixed;
+    right: max(1.25rem, env(safe-area-inset-right));
+    bottom: max(1.25rem, env(safe-area-inset-bottom));
+    z-index: 10;
+    width: 44px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border-radius: 999px;
+    border: 1px solid var(--border-strong);
+    background-color: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(8px);
+    transition:
+        opacity 0.25s ease,
+        transform 0.25s var(--ease-out),
+        visibility 0s linear 0.25s,
+        border-color 0.2s ease,
+        color 0.2s ease;
+}
+
+.to-top.is-shown {
+    opacity: 1;
+    visibility: visible;
+    transform: none;
+    transition:
+        opacity 0.25s ease,
+        transform 0.25s var(--ease-out),
+        visibility 0s,
+        border-color 0.2s ease,
+        color 0.2s ease;
+}
+
+.to-top:hover {
+    border-color: #555;
+    color: var(--text-strong);
+}
+
+.to-top:hover svg {
+    transform: translateY(-1px);
+}
+
+.to-top svg {
+    transition: transform 0.2s var(--ease-out);
+}
+
+/* Page transitions between the top page and the legal pages.
+   Cross-document view transitions; browsers without support just navigate.
+   site.js tags each transition as "forward" (into a legal page) or "back". */
+
+@media (prefers-reduced-motion: no-preference) {
+    @view-transition {
+        navigation: auto;
+    }
+}
+
+html:active-view-transition-type(forward)::view-transition-old(root) {
+    animation: vt-dim 0.42s var(--ease-out) both;
+}
+
+html:active-view-transition-type(forward)::view-transition-new(root) {
+    animation: vt-slide-in 0.42s var(--ease-out) both;
+    box-shadow: -12px 0 32px rgba(0, 0, 0, 0.35);
+}
+
+html:active-view-transition-type(back)::view-transition-old(root) {
+    z-index: 1;
+    animation: vt-slide-out 0.38s cubic-bezier(0.4, 0, 0.6, 1) both;
+    box-shadow: -12px 0 32px rgba(0, 0, 0, 0.35);
+}
+
+html:active-view-transition-type(back)::view-transition-new(root) {
+    animation: vt-undim 0.38s var(--ease-out) both;
+}
+
+@keyframes vt-slide-in {
+    from {
+        transform: translateX(100%);
+    }
+}
+
+@keyframes vt-slide-out {
+    to {
+        transform: translateX(100%);
+    }
+}
+
+@keyframes vt-dim {
+    to {
+        opacity: 0.6;
+    }
+}
+
+@keyframes vt-undim {
+    from {
+        opacity: 0.6;
+    }
+}
+
+/* The slide is the entrance; skip the page's own fade-in that time */
+.vt-arrived .container,
+.vt-arrived .lang.active,
+.vt-arrived .lang.active .hero-item {
+    animation: none;
+}
+
 /* Responsive */
 
 @media (max-width: 600px) {
