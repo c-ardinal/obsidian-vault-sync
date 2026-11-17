@@ -1,6 +1,7 @@
 import { md5 } from "../utils/md5";
 import type { CloudFile } from "../types/adapter";
 import type { SyncContext } from "./context";
+import type { LocalFileIndex } from "./types";
 import {
     runParallel,
     compress,
@@ -117,6 +118,50 @@ async function executeFolderDeletions(ctx: SyncContext): Promise<{ folderDeleted
     }
 
     return { folderDeletedCount, moveCount };
+}
+
+/**
+ * The user may rename (or delete) a NEW file while its first upload is in flight.
+ * The rename event finds no index entry for the old path yet, so it is treated as
+ * a brand-new file, and the finished upload would then register the old path too:
+ * both names end up on every device. If the uploaded path vanished locally, adopt
+ * the upload under its new name as a pending move (or mark it for remote deletion).
+ * Returns true when the upload was re-homed this way.
+ */
+async function reconcileVanishedAfterUpload(
+    ctx: SyncContext,
+    path: string,
+    content: ArrayBuffer,
+    entry: LocalFileIndex[string],
+): Promise<boolean> {
+    if (await ctx.vault.exists(path)) return false;
+    const uploadedHash = md5(content);
+    for (const candidate of ctx.dirtyPaths.keys()) {
+        if (candidate === path || ctx.index[candidate]) continue;
+        try {
+            if (!(await ctx.vault.exists(candidate))) continue;
+            const stat = await ctx.vault.stat(candidate);
+            if (stat?.type === "folder" || stat?.size !== content.byteLength) continue;
+            if (md5(await ctx.vault.readBinary(candidate)) !== uploadedHash) continue;
+        } catch {
+            continue;
+        }
+        const moved = { ...entry, forcePush: true, pendingMove: { oldPath: path } };
+        ctx.index[candidate] = moved;
+        ctx.localIndex[candidate] = { ...moved };
+        ctx.dirtyPaths.delete(path);
+        await ctx.log(
+            `[Smart Push] ${path} was renamed to ${candidate} during upload. Will move the remote file.`,
+            "info",
+        );
+        return true;
+    }
+    // Deleted (or renamed + edited) during upload: register it so the next push deletes it remotely.
+    ctx.index[path] = entry;
+    ctx.localIndex[path] = { ...entry };
+    ctx.dirtyPaths.set(path, Date.now());
+    await ctx.log(`[Smart Push] ${path} disappeared during upload. Will remove it remotely.`, "info");
+    return true;
 }
 
 /** Upload compressed index + raw backup */
@@ -671,11 +716,15 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                         lastAction: "push" as const,
                         ancestorHash: previousAncestorHash || uploaded.hash,
                     };
-                    ctx.index[file.path] = entry;
-                    ctx.localIndex[file.path] = { ...entry };
+                    if (await reconcileVanishedAfterUpload(ctx, file.path, file.content, entry)) {
+                        // handled as a rename/delete that happened while uploading
+                    } else {
+                        ctx.index[file.path] = entry;
+                        ctx.localIndex[file.path] = { ...entry };
 
-                    if (ctx.dirtyPaths.get(file.path) === file.dirtyAt) {
-                        ctx.dirtyPaths.delete(file.path);
+                        if (ctx.dirtyPaths.get(file.path) === file.dirtyAt) {
+                            ctx.dirtyPaths.delete(file.path);
+                        }
                     }
 
                     ctx.logger.markActionTaken();

@@ -29,20 +29,6 @@ const NET = { minLatencyMs: 5, maxLatencyMs: 400, failureRate: 0, lostResponseRa
 
 const KNOWN_BUGS: Case[] = [
     {
-        title: "rename while the first upload of a new note is in flight leaves a duplicate",
-        symptom: "Create 'Untitled.md', sync starts, rename it: both names exist on every device forever",
-        config: { seed: 17, maxEventDelayMs: 0, network: NET },
-        plan: [
-            { t: 0, dev: "A", kind: "join" },
-            { t: 8181, dev: "B", kind: "join" },
-            { t: 11488, dev: "C", kind: "join" },
-            { t: 13051, dev: "B", kind: "create", fid: "f1", path: "notes/B-1.md" },
-            { t: 13778, dev: "B", kind: "sync", scan: true },
-            { t: 16509, dev: "B", kind: "rename", pick: 0, to: "notes/B-r8.md" },
-        ],
-        expect: ["DUPLICATE"],
-    },
-    {
         title: "remote rename is dropped while the old path is dirty; the old file is stuck forever",
         symptom: "Edits made on another device to a just-renamed note are lost; every sync logs CONFLICT DETECTED",
         config: { seed: 12, maxEventDelayMs: 0, network: NET },
@@ -62,6 +48,20 @@ const KNOWN_BUGS: Case[] = [
 
 /** Former bugs that must stay fixed (move cases here when fixing them) */
 const FIXED_REGRESSIONS: Case[] = [
+    {
+        title: "rename while the first upload of a new note is in flight leaves a duplicate",
+        symptom: "Create 'Untitled.md', sync starts, rename it: both names exist on every device forever",
+        config: { seed: 17, maxEventDelayMs: 0, network: NET },
+        plan: [
+            { t: 0, dev: "A", kind: "join" },
+            { t: 8181, dev: "B", kind: "join" },
+            { t: 11488, dev: "C", kind: "join" },
+            { t: 13051, dev: "B", kind: "create", fid: "f1", path: "notes/B-1.md" },
+            { t: 13778, dev: "B", kind: "sync", scan: true },
+            { t: 16509, dev: "B", kind: "rename", pick: 0, to: "notes/B-r8.md" },
+        ],
+        expect: [],
+    },
     {
         title: "two devices pushing at the same time overwrite each other's sync-index entries",
         symptom:
