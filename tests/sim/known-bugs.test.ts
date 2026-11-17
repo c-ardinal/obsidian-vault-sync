@@ -288,6 +288,42 @@ const FIXED_REGRESSIONS: Case[] = [
         config: { seed: 193, ...FLAKY },
         expect: [],
     },
+    {
+        title: "a merge lock whose release failed on the network is released on the next sync",
+        symptom: "After a network hiccup, every other device keeps 'waiting for merge' on a note for a minute",
+        config: { seed: 185, ...CHAOS },
+        expect: [],
+    },
+    {
+        title: "a note renamed then deleted here, but renamed and edited on another device, comes back",
+        symptom: "A note edited on another device never arrives here (another note took its old name)",
+        config: { seed: 131, ...CHAOS },
+        expect: [],
+    },
+    {
+        title: "a lost upload request is not taken as the base of another device's same-name note",
+        symptom: "A new note is replaced by another device's note with the same name",
+        config: { seed: 268, ...CHAOS },
+        expect: [],
+    },
+    {
+        title: "E2EE: our own upload whose response was lost is not a conflict with itself",
+        symptom: "With E2EE on a flaky network, images get '(Conflict ...)' copies nobody caused",
+        config: { seed: 131, ...E2EE },
+        expect: [],
+    },
+    {
+        title: "E2EE: an edited file whose upload response was lost is recognised as ours",
+        symptom: "With E2EE, an edited image gets a conflict copy after a network error",
+        config: { seed: 198, ...E2EE },
+        expect: [],
+    },
+    {
+        title: "a new note whose upload response was lost, then edited on several devices, merges",
+        symptom: "Edits made offline to a just-created note end up in a conflict copy",
+        config: { seed: 152, ...FLAKY },
+        expect: [],
+    },
 ];
 
 function configOf(c: Case, name: string): SimConfig {
