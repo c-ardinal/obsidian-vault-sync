@@ -27,6 +27,25 @@ interface Case {
 }
 
 const NET = { minLatencyMs: 5, maxLatencyMs: 400, failureRate: 0, lostResponseRate: 0 };
+/** Same settings as the flaky-network / e2ee scenarios in multi-device.sim.test.ts */
+const FLAKY: Partial<SimConfig> = {
+    profile: "disjoint",
+    devices: 3,
+    actions: 50,
+    network: { minLatencyMs: 20, maxLatencyMs: 2000, failureRate: 0.05, lostResponseRate: 0.3 },
+    offlineRate: 0.05,
+    maxClockSkewMs: 120_000,
+};
+const E2EE: Partial<SimConfig> = {
+    profile: "disjoint",
+    devices: 3,
+    actions: 45,
+    e2ee: true,
+    fs: ["linux", "windows", "macos"],
+    windowsLineEndings: true,
+    binaryRate: 0.2,
+    network: { minLatencyMs: 5, maxLatencyMs: 800, failureRate: 0.02, lostResponseRate: 0.15 },
+};
 
 const KNOWN_BUGS: Case[] = [
     // Empty: every bug found so far is fixed and lives in FIXED_REGRESSIONS.
@@ -124,6 +143,30 @@ const FIXED_REGRESSIONS: Case[] = [
         // Full clean-network seed 12 run: C types while its merge downloads revisions, and A
         // renames + edits the note C just merged into.
         config: { seed: 12, profile: "disjoint", devices: 3, actions: 40, network: NET },
+        expect: [],
+    },
+    {
+        title: "a note renamed while its upload is in flight is not deleted remotely",
+        symptom: "Rename a note right after editing it on a slow network: the note vanishes on every device",
+        config: { seed: 282, ...FLAKY },
+        expect: [],
+    },
+    {
+        title: "a network error while fetching the merge base does not create a conflict copy",
+        symptom: "'(Conflict ...)' copies appear for edits on different lines after a network hiccup",
+        config: { seed: 6, ...E2EE },
+        expect: [],
+    },
+    {
+        title: "E2EE: a file changed by another device mid-sync is not served from a stale download cache",
+        symptom: "With E2EE on, another device's edit silently disappears after the next sync",
+        config: { seed: 102, ...E2EE },
+        expect: [],
+    },
+    {
+        title: "merge locks hold even when the two devices know the note under different paths",
+        symptom: "Right after a rename, two devices merge the same note at once and one overwrites the other",
+        config: { seed: 255, ...E2EE },
         expect: [],
     },
 ];

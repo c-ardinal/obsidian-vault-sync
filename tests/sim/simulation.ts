@@ -30,6 +30,7 @@ import { Rng } from "./rng";
 import { SimCloud, MUTATING_METHODS, PERFECT_NETWORK, type NetworkProfile } from "./sim-cloud";
 import { SimDevice, isInternalPath } from "./sim-device";
 import type { FsPersonality } from "./sim-vault";
+import { createSimCryptoEngine } from "./sim-crypto";
 
 // ───────────────────────── Config ─────────────────────────
 
@@ -64,6 +65,8 @@ export interface SimConfig {
     /** Fraction of created files that are binary (png-like bytes, never mergeable) */
     binaryRate?: number;
     settings?: Partial<SyncManagerSettings>;
+    /** Run every device with end-to-end encryption (random IV per upload) */
+    e2ee?: boolean;
 }
 
 export const DEFAULT_CONFIG: Omit<SimConfig, "name" | "seed"> = {
@@ -324,6 +327,7 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
     const devNames = deviceNames(cfg.devices);
     const worldRng = new Rng(cfg.seed).fork(3);
 
+    const cryptoEngine = cfg.e2ee ? createSimCryptoEngine(new Rng(cfg.seed).fork(11)) : undefined;
     const devices = new Map<string, SimDevice>();
     for (const name of devNames) {
         const skew =
@@ -336,6 +340,7 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
             clockSkewMs: skew,
             fs: cfg.fs?.length ? cfg.fs[devNames.indexOf(name) % cfg.fs.length] : "linux",
             settings: cfg.settings,
+            cryptoEngine,
             log,
             cloudView: (d) =>
                 cloud.createDeviceView(
@@ -437,10 +442,13 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
                     break;
                 }
                 const path = list[Math.floor(a.pick * list.length)];
-                const fid = fidOf(dev.read(path) ?? "");
+                // A file may hold several notes (merged collision) or be a binary
+                const content = dev.read(path) ?? "";
+                const bin = binaryMarker(content);
+                const fids = [...fidsOf(content), ...(bin ? [bin.fid] : [])];
                 applied = await dev.userDelete(path);
-                if (applied && fid) deletedFids.add(fid);
-                log(a.dev, `USER delete ${path} (${fid})`);
+                if (applied) fids.forEach((f) => deletedFids.add(f));
+                log(a.dev, `USER delete ${path} (${fids.join(",") || "?"})`);
                 break;
             }
             case "rename": {
@@ -573,10 +581,17 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
             }
         }
 
-        const cloudFiles = await cloud.snapshot(isInternalPath);
+        const cloudFiles = await cloud.snapshot(
+            isInternalPath,
+            cryptoEngine ? (b) => cryptoEngine.decryptFromBlob(b) : undefined,
+        );
         stats.cloudFiles = Object.keys(cloudFiles).length;
         for (const d of devices.values()) {
-            const local = d.userFiles();
+            // Conflict copies are local-only by design (shouldNotBeOnRemote), so they
+            // are not a divergence. FALSE_CONFLICT / DATA_LOSS still look at them.
+            const local = Object.fromEntries(
+                Object.entries(d.userFiles()).filter(([p]) => !CONFLICT_RE.test(p)),
+            );
             const diff = diffMaps(cloudFiles, local);
             if (diff.length) fail("DIVERGED", `${d.name} differs from cloud: ${diff.slice(0, 5).join("; ")}`);
         }
@@ -623,10 +638,26 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
                 }
             }
         } else {
+            // Notes that survive only in a device's local conflict copy are not lost,
+            // but they are invisible to every other device: count them.
+            const inLocalCopies = new Set<string>();
+            for (const d of devices.values())
+                for (const [p, c] of Object.entries(d.userFiles())) {
+                    if (!CONFLICT_RE.test(p)) continue;
+                    fidsOf(c).forEach((f) => inLocalCopies.add(f));
+                    const b = binaryMarker(c);
+                    if (b) inLocalCopies.add(b.fid);
+                }
+            let onlyLocal = 0;
             for (const fid of createdFids) {
-                if (deletedFids.has(fid)) continue;
-                if (!byFid.has(fid)) fail("DATA_LOSS", `note ${fid} vanished although nobody deleted it`);
+                if (deletedFids.has(fid) || byFid.has(fid)) continue;
+                if (inLocalCopies.has(fid)) {
+                    onlyLocal++;
+                    continue;
+                }
+                fail("DATA_LOSS", `note ${fid} vanished although nobody deleted it`);
             }
+            (stats as any).notesOnlyInLocalConflictCopy = onlyLocal;
         }
 
         return await finish();
