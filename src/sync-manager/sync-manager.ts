@@ -518,7 +518,9 @@ export class SyncManager {
                     await this.log("Remote E2EE detected. Enabling E2EE locally.", "system");
                     this.settings.e2eeEnabled = true;
                     await this.onSaveSettings();
-                    await this.notify("noticeE2EEAutoEnabled");
+                    await this.notify(
+                        this.cryptoEngine ? "noticeE2EEAutoEnabled" : "noticeAddonRequired",
+                    );
                 }
             } catch (e) {
                 if (this.baseAdapter.isAuthenticated()) {
@@ -536,7 +538,7 @@ export class SyncManager {
             if (isUserAction || !this.vaultLockedNotified) {
                 this.currentTrigger = trigger;
                 await this.log("Sync skipped: Vault is locked (E2EE).", "warn");
-                await this.notify("noticeVaultLocked");
+                await this.notify(this.cryptoEngine ? "noticeVaultLocked" : "noticeAddonRequired");
                 this.vaultLockedNotified = true;
             }
             return;

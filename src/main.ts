@@ -14,9 +14,9 @@ import { VaultSyncSettingTab } from "./ui/vault-sync-setting-tab";
 import {
     installEngineFromContent,
     loadExternalCryptoEngine,
-    type EngineInstallResult,
 } from "./encryption/engine-loader";
-import { EngineInstallModal } from "./ui/engine-install-modal";
+import { AddonInstallModal, type AddonInstallOutcome } from "./ui/addon-install-modal";
+import type { AddonPackage } from "./addons/addon-package";
 import { checkPasswordStrength } from "./encryption/password-strength";
 import type { E2EEPluginContext } from "./encryption/interfaces";
 import {
@@ -56,27 +56,52 @@ export default class VaultSync extends Plugin {
     public t = t;
 
     /**
-     * Installs an engine file the user picked (see EngineInstallModal) and
-     * activates it immediately, without restarting Obsidian.
+     * Installs a verified add-on package the user picked and agreed to (see
+     * AddonInstallModal), records the agreement, and activates the add-on
+     * immediately, without restarting Obsidian.
      */
-    public async installEngineFromFile(content: string): Promise<EngineInstallResult> {
-        const result = await installEngineFromContent(this.vaultOps, this.manifest.dir!, content);
-        if (result.ok) {
-            this.syncManager.cryptoEngine = result.engine;
-            await this.syncManager.log("E2EE engine installed from a user-picked file.", "system");
-            this.refreshSettingsUI();
-        } else {
-            await this.syncManager.log(`E2EE engine install rejected: ${result.reason}`, "warn");
+    public async installAddonPackage(pkg: AddonPackage): Promise<AddonInstallOutcome> {
+        // Only one kind of add-on exists today.
+        if (pkg.addon.kind !== "crypto-engine") return { ok: false, errorKey: "addonErrorUnknown" };
+
+        const result = await installEngineFromContent(
+            this.vaultOps,
+            this.manifest.dir!,
+            pkg.entrySource,
+        );
+        if (!result.ok) {
+            await this.syncManager.log(`Add-on install rejected: ${result.reason}`, "warn");
+            return {
+                ok: false,
+                errorKey: result.reason === "write-failed" ? "addonErrorWrite" : "addonErrorHash",
+            };
         }
-        return result;
+
+        this.syncManager.cryptoEngine = result.engine;
+        this.settings.addonAgreements = {
+            ...(this.settings.addonAgreements ?? {}),
+            [pkg.addon.id]: {
+                name: pkg.manifest.name,
+                version: pkg.manifest.version,
+                termsHash: pkg.termsHash,
+                agreedAt: new Date().toISOString(),
+            },
+        };
+        await this.saveSettings();
+        await this.syncManager.log(
+            `Add-on installed: ${pkg.manifest.id} ${pkg.manifest.version} (terms ${pkg.termsHash.slice(0, 12)})`,
+            "system",
+        );
+        this.refreshSettingsUI();
+        return { ok: true };
     }
 
-    public openEngineInstallModal(): void {
-        new EngineInstallModal(
+    public openAddonInstallModal(): void {
+        new AddonInstallModal(
             this.app,
-            (content) => this.installEngineFromFile(content),
+            (pkg) => this.installAddonPackage(pkg),
             () => {
-                // Already encrypted on another device: go straight to the password prompt.
+                // The vault already uses the add-on on another device: go straight to unlocking.
                 if (this.settings.e2eeEnabled && this.syncManager.e2eeLocked) {
                     this.syncManager.cryptoEngine?.showUnlockModal(this.buildE2EEContext());
                 }
@@ -258,7 +283,11 @@ export default class VaultSync extends Plugin {
                             );
                             this.settings.e2eeEnabled = true;
                             await this.saveSettings();
-                            await this.syncManager.notify("noticeE2EEAutoEnabled");
+                            await this.syncManager.notify(
+                                this.syncManager.cryptoEngine
+                                    ? "noticeE2EEAutoEnabled"
+                                    : "noticeAddonRequired",
+                            );
                         }
                     }
 
@@ -294,9 +323,9 @@ export default class VaultSync extends Plugin {
                         }
 
                         if (!this.syncManager.cryptoEngine) {
-                            // Encrypted on another device, but this device has no engine yet:
+                            // Used on another device, but this device lacks the add-on:
                             // walk the user through installing it (it then asks for the password).
-                            this.openEngineInstallModal();
+                            this.openAddonInstallModal();
                         } else if (!autoUnlocked) {
                             this.syncManager.cryptoEngine.showUnlockModal(this.buildE2EEContext());
                         }
@@ -362,7 +391,9 @@ export default class VaultSync extends Plugin {
             callback: async () => {
                 this.syncManager.currentTrigger = "full-scan";
                 if (this.syncManager.e2eeLocked) {
-                    await this.syncManager.notify("noticeVaultLocked");
+                    await this.syncManager.notify(
+                        this.syncManager.cryptoEngine ? "noticeVaultLocked" : "noticeAddonRequired",
+                    );
                     return;
                 }
                 await this.syncManager.notify("noticeScanningLocalFiles");
@@ -371,11 +402,11 @@ export default class VaultSync extends Plugin {
         });
 
         this.addCommand({
-            id: "e2ee-install-engine",
-            name: t("labelE2EEInstallEngine"),
+            id: "install-addon",
+            name: t("labelInstallAddon"),
             checkCallback: (checking: boolean) => {
                 if (this.syncManager.cryptoEngine) return false;
-                if (!checking) this.openEngineInstallModal();
+                if (!checking) this.openAddonInstallModal();
                 return true;
             },
         });

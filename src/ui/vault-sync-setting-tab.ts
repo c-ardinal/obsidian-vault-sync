@@ -385,15 +385,21 @@ export class VaultSyncSettingTab extends PluginSettingTab {
             }
         }
 
-        // E2EE engine is a separate, opt-in download. Offer a guided install when it is missing.
-        if (!this.plugin.syncManager.cryptoEngine) {
-            containerEl.createEl("h3", { text: t("engineSectionTitle") });
+        // Add-ons are separate, opt-in downloads with their own terms.
+        containerEl.createEl("h3", { text: t("addonSectionTitle") });
+        const agreements = this.plugin.settings.addonAgreements ?? {};
+        if (this.plugin.syncManager.cryptoEngine) {
+            const names = Object.values(agreements).map((a) => `${a.name} ${a.version}`);
             new Setting(containerEl)
-                .setName(t("engineStatusNotInstalled"))
-                .setDesc(t("engineStatusNotInstalledDesc"))
+                .setName(t("addonStatusInstalled"))
+                .setDesc(names.length > 0 ? names.join(", ") : t("addonStatusInstalledManually"));
+        } else {
+            new Setting(containerEl)
+                .setName(t("addonStatusNone"))
+                .setDesc(t("addonStatusNoneDesc"))
                 .addButton((btn) =>
-                    btn.setButtonText(t("engineInstallButton")).onClick(() => {
-                        this.plugin.openEngineInstallModal();
+                    btn.setButtonText(t("addonInstallOpen")).onClick(() => {
+                        this.plugin.openAddonInstallModal();
                     }),
                 );
         }

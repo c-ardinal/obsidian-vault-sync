@@ -92,9 +92,11 @@ describe("Bug 1: E2EE auto-detection in requestSmartSync", () => {
         // E2EE should now be enabled
         expect(sm(device).settings.e2eeEnabled).toBe(true);
 
-        // Should have notified about E2EE auto-enable AND vault locked
-        expect(notifications).toContain("noticeE2EEAutoEnabled");
-        expect(notifications).toContain("noticeVaultLocked");
+        // No add-on on this device: a neutral "add-on required" notice instead of
+        // the E2EE-specific ones (the plugin UI never names the add-on itself).
+        expect(notifications).toContain("noticeAddonRequired");
+        expect(notifications).not.toContain("noticeE2EEAutoEnabled");
+        expect(notifications).not.toContain("noticeVaultLocked");
 
         // Settings should have been saved
         expect(settingsSaved).toBe(true);
@@ -146,9 +148,32 @@ describe("Bug 1: E2EE auto-detection in requestSmartSync", () => {
         // Should not call checkForLockFile (E2EE already enabled)
         expect(checkSpy).not.toHaveBeenCalled();
 
-        // Should show vault locked notification (not auto-enable)
+        // Should show the add-on notice (no engine), not auto-enable
         expect(notifications).not.toContain("noticeE2EEAutoEnabled");
+        expect(notifications).toContain("noticeAddonRequired");
+    });
+
+    it("uses the E2EE notices when the add-on is installed but locked", async () => {
+        const cloud = new MockCloudAdapter();
+        const device = new DeviceSimulator("NewDevice", cloud);
+        await cloud.uploadFile(
+            VAULT_LOCK_PATH,
+            new TextEncoder().encode("encrypted-lock-blob").buffer as ArrayBuffer,
+            Date.now(),
+        );
+        sm(device).cryptoEngine = { isUnlocked: () => false } as any;
+        sm(device).onSaveSettings = async () => {};
+
+        const notifications: string[] = [];
+        sm(device).notify = async (key: string) => {
+            notifications.push(key);
+        };
+
+        await device.syncManager.requestSmartSync("manual-sync");
+
+        expect(notifications).toContain("noticeE2EEAutoEnabled");
         expect(notifications).toContain("noticeVaultLocked");
+        expect(notifications).not.toContain("noticeAddonRequired");
     });
 });
 

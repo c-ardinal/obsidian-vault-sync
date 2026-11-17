@@ -226,6 +226,16 @@ const VERBOSE: Record<string, VisibilityMap> = {
         "modify-sync": true,
         "layout-sync": true,
     },
+    noticeAddonRequired: {
+        "manual-sync": true,
+        "full-scan": true,
+        "initial-sync": true,
+        "startup-sync": true,
+        "timer-sync": true,
+        "save-sync": true,
+        "modify-sync": true,
+        "layout-sync": true,
+    },
     noticeE2EEAutoEnabled: {
         "startup-sync": true,
     },
