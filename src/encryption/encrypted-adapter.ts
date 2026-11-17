@@ -294,13 +294,15 @@ export class EncryptedAdapter implements CloudAdapter {
         let bufPos = 0;
         let httpOffset = 0;
 
-        // Write VSC2 header
+        // Write the chunked-format header. The same header goes to encryptChunks:
+        // the engine authenticates every chunk together with it and its position.
         const header = this.engine.buildChunkedHeader(plaintext.byteLength);
         buf.set(header, 0);
         bufPos = header.byteLength;
 
         for await (const { iv, ciphertext, index, totalChunks } of this.engine.encryptChunks(
             plaintext,
+            header,
         )) {
             buf.set(iv, bufPos);
             bufPos += iv.byteLength;
