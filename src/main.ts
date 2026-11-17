@@ -11,7 +11,7 @@ import {
 } from "./types/settings";
 import { t, initI18n } from "./i18n";
 import { VaultSyncSettingTab } from "./ui/vault-sync-setting-tab";
-import { loadExternalCryptoEngine } from "./encryption/engine-loader";
+import { createCryptoEngine } from "./encryption/engine-loader";
 import { checkPasswordStrength } from "./encryption/password-strength";
 import type { E2EEPluginContext } from "./encryption/interfaces";
 import {
@@ -130,26 +130,18 @@ export default class VaultSync extends Plugin {
         // Establish identity (needed for logging), then parallelize remaining I/O
         await this.syncManager.loadLocalIndex();
 
-        // Transfer history, crypto engine, and shared index load in parallel
-        // (all depend on loadLocalIndex for logging, but are independent of each other)
-        const [, engine] = await Promise.all([
-            this.syncManager.loadTransferHistory(),
-            loadExternalCryptoEngine(
-                this.vaultOps,
-                this.manifest.dir!,
-                (key) => this.syncManager.notify(key),
-            ),
-            this.syncManager.loadIndex(),
-        ]);
+        // Transfer history and shared index load in parallel
+        // (both depend on loadLocalIndex for logging, but are independent of each other)
+        await Promise.all([this.syncManager.loadTransferHistory(), this.syncManager.loadIndex()]);
 
+        // The E2EE engine is bundled; creating it does not enable encryption.
+        const engine = createCryptoEngine();
         if (engine) {
             this.syncManager.cryptoEngine = engine;
-            await this.syncManager.log("External E2EE engine loaded successfully.", "system");
+            await this.syncManager.log("E2EE engine ready.", "system");
         } else {
-            await this.syncManager.log(
-                "External E2EE engine not found or failed to load. E2EE disabled.",
-                "system",
-            );
+            await this.syncManager.log("E2EE engine failed to initialize. E2EE disabled.", "error");
+            await this.syncManager.notify("noticeEngineVerifyFailed");
         }
 
         await this.syncManager.log(

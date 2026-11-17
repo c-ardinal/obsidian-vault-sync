@@ -1,137 +1,61 @@
-import * as obsidianModule from "obsidian";
-import { normalizePath } from "obsidian";
+import { MasterKeyManager } from "../../e2ee-engine/src/encryption/key-manager";
 import { ICryptoEngine } from "./interfaces";
-import { toHex } from "../utils/format";
-import type { IVaultOperations } from "../types/vault-operations";
-
-// SHA-256 hash of the approved e2ee-engine.js file.
-// Update via: npm run hash (in Vault-Sync-E2EE-Engine repo)
-export const APPROVED_ENGINE_HASH: string =
-    "e2b6e3758b768d4dbc2fe896e5830c3cec5bf8d8fd786992f35737661190fa06";
 
 /**
- * Compute SHA-256 hash of content
+ * Methods the sync code calls on the engine. Checked at startup so that a
+ * mismatched engine revision fails loudly instead of halfway through a sync.
  */
-async function computeSHA256(content: string): Promise<string> {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(content);
-    const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-    return toHex(new Uint8Array(hashBuffer));
+export const REQUIRED_ENGINE_METHODS = [
+    "initializeNewVault",
+    "unlockVault",
+    "isUnlocked",
+    "encrypt",
+    "decrypt",
+    "encryptToBlob",
+    "decryptFromBlob",
+    "getOptimalChunkSize",
+    "isChunkedFormat",
+    "encryptChunked",
+    "decryptChunked",
+    "calculateChunkedSize",
+    "buildChunkedHeader",
+    "encryptChunks",
+    "showSetupModal",
+    "showUnlockModal",
+    "getSettingsSections",
+] as const;
+
+/** Returns the names of required methods the engine does not implement. */
+export function findMissingEngineMethods(engine: unknown): string[] {
+    const candidate = engine as Record<string, unknown> | null | undefined;
+    return REQUIRED_ENGINE_METHODS.filter((m) => typeof candidate?.[m] !== "function");
 }
 
 /**
- * Loads the external E2EE engine if available in the plugin directory.
- * Validates the engine hash and interface before loading.
+ * Creates the E2EE engine.
+ *
+ * The engine (c-ardinal/obsidian-vault-sync-e2ee-engine) is bundled into
+ * main.js from the `e2ee-engine` git submodule, pinned to a reviewed commit.
+ * Users no longer copy an `e2ee-engine.js` file into the plugin folder, and
+ * nothing is downloaded or evaluated at runtime. Creating the engine does not
+ * turn encryption on: that still needs the "start encryption" command, or an
+ * existing remote vault-lock file.
  */
-export async function loadExternalCryptoEngine(
-    vault: IVaultOperations,
-    pluginPath: string,
-    onNotify?: (key: string) => Promise<void>,
-): Promise<ICryptoEngine | null> {
-    // 1. Resolve Path candidates
-    // On some platforms, leading dots or different separators can be tricky
-    const variations = [
-        normalizePath(`${pluginPath}/e2ee-engine.js`),
-        normalizePath(pluginPath + "/e2ee-engine.js"),
-        `${pluginPath}/e2ee-engine.js`.replace(/^\.\//, ""),
-    ];
-
-    // Remove duplicates
-    const uniquePaths = [...new Set(variations)];
-    console.log(
-        `Vault-Sync: Attempting to load E2EE engine. Candidates: ${JSON.stringify(uniquePaths)}`,
-    );
-
-    let content: string | null = null;
-    let successfulPath: string | null = null;
-
-    for (const enginePath of uniquePaths) {
-        try {
-            if (await vault.exists(enginePath)) {
-                content = await vault.read(enginePath);
-                successfulPath = enginePath;
-                break;
-            }
-        } catch (e) {
-            // Ignore error for this specific path candidate
-        }
-    }
-
-    if (!content) {
-        console.log("Vault-Sync: E2EE engine file not found at any candidate paths.");
-        return null;
-    }
-
+export function createCryptoEngine(
+    factory: () => unknown = () => new MasterKeyManager(),
+): ICryptoEngine | null {
     try {
-        console.log(`Vault-Sync: Loading engine from [${successfulPath}]...`);
-
-        // Verify engine hash for security (skip in development mode)
-        if (APPROVED_ENGINE_HASH !== "CHANGE_THIS_TO_ACTUAL_HASH_BEFORE_RELEASE") {
-            const actualHash = await computeSHA256(content);
-            if (actualHash !== APPROVED_ENGINE_HASH) {
-                console.error(
-                    `Vault-Sync: E2EE engine hash mismatch! Expected: ${APPROVED_ENGINE_HASH}, Got: ${actualHash}`,
-                );
-                if (onNotify) await onNotify("noticeEngineVerifyFailed");
-                return null;
-            }
-        } else {
-            const actualHash = await computeSHA256(content);
-            console.warn("Vault-Sync: E2EE engine hash verification skipped (development mode)");
-            console.warn(`Vault-Sync: Engine SHA-256: ${actualHash}`);
-        }
-
-        // Dynamic execution of the engine script as CommonJS
-        const engineModule = { exports: {} as any };
-        const execute = new Function("module", "exports", "require", content);
-
-        const customRequire = (name: string) => {
-            if (name === "obsidian") return obsidianModule;
-            const globalRequire = (window as any).require;
-            if (globalRequire) return globalRequire(name);
-            console.warn(`Vault-Sync: Engine required '${name}' but no require available.`);
-            return undefined;
-        };
-
-        execute(engineModule, engineModule.exports, customRequire);
-        const engine = engineModule.exports.default || engineModule.exports;
-
-        // Validate all required methods exist
-        const requiredMethods = [
-            "initializeNewVault",
-            "unlockVault",
-            "isUnlocked",
-            "encrypt",
-            "decrypt",
-            "encryptToBlob",
-            "decryptFromBlob",
-            "getOptimalChunkSize",
-            "isChunkedFormat",
-            "encryptChunked",
-            "decryptChunked",
-            "calculateChunkedSize",
-            "buildChunkedHeader",
-            "encryptChunks",
-            "showSetupModal",
-            "showUnlockModal",
-            "getSettingsSections",
-        ];
-
-        const missingMethods = requiredMethods.filter(
-            (method) => typeof engine?.[method] !== "function",
-        );
-
-        if (missingMethods.length > 0) {
+        const engine = factory();
+        const missing = findMissingEngineMethods(engine);
+        if (missing.length > 0) {
             console.error(
-                `Vault-Sync: E2EE engine missing required methods: ${missingMethods.join(", ")}`,
+                `Vault-Sync: E2EE engine missing required methods: ${missing.join(", ")}`,
             );
             return null;
         }
-
-        console.log("Vault-Sync: External E2EE engine fully verified.");
-        return engine;
+        return engine as ICryptoEngine;
     } catch (e) {
-        console.error("Vault-Sync: Engine execution failed", e);
+        console.error("Vault-Sync: E2EE engine initialization failed", e);
         return null;
     }
 }

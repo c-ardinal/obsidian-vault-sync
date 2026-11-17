@@ -1,0 +1,3 @@
+[submodule "e2ee-engine"]
+	path = e2ee-engine
+	url = https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine.git

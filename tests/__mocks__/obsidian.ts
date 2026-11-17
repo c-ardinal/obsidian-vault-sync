@@ -51,3 +51,20 @@ export function normalizePath(path: string): string {
 
     return res;
 }
+
+// UI base classes used by the bundled E2EE engine (e2ee-engine/src/ui). Tests never
+// open these; the stubs only let the engine module load under Node.
+export class Modal {
+    app: unknown;
+    contentEl = {} as HTMLElement;
+    constructor(app: unknown) {
+        this.app = app;
+    }
+    open(): void {}
+    close(): void {}
+}
+export class Setting {
+    constructor(_containerEl: unknown) {}
+}
+export class ButtonComponent {}
+export class TextAreaComponent {}
