@@ -194,8 +194,8 @@ describe("SmartMergeStrategy branch coverage", () => {
                 baseHash: "abc123",
             });
 
-            // Should have tried multiple margins
-            expect(patchApplySpy).toHaveBeenCalledTimes(2);
+            // Should have moved on to the next margin after the decode error
+            expect(patchApplySpy.mock.calls.length).toBeGreaterThanOrEqual(2);
 
             diffMainSpy.mockRestore();
             patchMakeSpy.mockRestore();
@@ -257,9 +257,10 @@ describe("SmartMergeStrategy branch coverage", () => {
         });
 
         it("should try all margins when validation keeps failing", async () => {
+            // Both sides rewrote the same line: the line-by-line fallback cannot merge it either
             const baseContent = "base";
-            const localContent = "base\nLOCAL_ONLY";
-            const remoteContent = "base\nREMOTE_ONLY";
+            const localContent = "LOCAL_ONLY";
+            const remoteContent = "REMOTE_ONLY";
 
             vi.mocked(historyModule.listRevisions).mockResolvedValue([
                 { id: "rev1", hash: "abc123", modifiedTime: Date.now(), size: 100 },

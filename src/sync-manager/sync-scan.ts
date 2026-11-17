@@ -4,8 +4,11 @@ import {
     isManagedSeparately,
     shouldNotBeOnRemote,
     shouldIgnore,
+    hashContent,
 } from "./file-utils";
+import { md5 } from "../utils/md5";
 import { computeLocalHash } from "./sync-helpers";
+import { markRenamed } from "./state";
 
 /**
  * Scan .obsidian directory for changes
@@ -105,6 +108,8 @@ export async function scanVaultChanges(ctx: SyncContext): Promise<void> {
 
         const files = ctx.vault.getFiles();
         const currentPaths = new Set<string>();
+        const newPaths: string[] = [];
+        const missingPaths: string[] = [];
 
         for (const file of files) {
             if (shouldIgnore(ctx, file.path)) continue;
@@ -126,6 +131,7 @@ export async function scanVaultChanges(ctx: SyncContext): Promise<void> {
                     continue;
                 }
                 ctx.dirtyPaths.set(file.path, Date.now());
+                newPaths.push(file.path);
                 await ctx.log(`[Vault Scan] New: ${file.path}`, "debug");
             } else if (file.stat.mtime > indexEntry.mtime) {
                 try {
@@ -165,6 +171,7 @@ export async function scanVaultChanges(ctx: SyncContext): Promise<void> {
 
             if (isMissing || isIgnored) {
                 if (ctx.index[path]) {
+                    if (isMissing && !isIgnored) missingPaths.push(path);
                     ctx.dirtyPaths.set(path, Date.now());
                     await ctx.log(
                         `[Vault Scan] Marked for remote deletion (${isMissing ? "missing" : "ignored"}): ${path}`,
@@ -177,8 +184,40 @@ export async function scanVaultChanges(ctx: SyncContext): Promise<void> {
             }
         }
 
+        await pairRenames(ctx, missingPaths, newPaths);
+
         await ctx.log(`[Vault Scan] Completed in ${Date.now() - start}ms`, "debug");
     } catch (e) {
         await ctx.log(`[Vault Scan] Error: ${e}`, "error");
+    }
+}
+
+/**
+ * A synced file gone from its path plus a new file with exactly its content: a
+ * rename whose vault event has not arrived (yet). Uploading the new path as a new
+ * file and deleting the old one left two cloud files for one note when the event
+ * came after all, and edits other devices made under the old name stayed there.
+ * Treat it as the rename it is.
+ */
+async function pairRenames(ctx: SyncContext, missing: string[], added: string[]): Promise<void> {
+    if (missing.length === 0 || added.length === 0) return;
+    const byHash = new Map<string, string>();
+    for (const path of added) {
+        try {
+            const content = await ctx.vault.readBinary(path);
+            const localHash = ctx.e2eeEnabled ? await hashContent(content) : md5(content);
+            if (!byHash.has(localHash)) byHash.set(localHash, path);
+        } catch {
+            // unreadable: leave it as a new file
+        }
+    }
+    for (const oldPath of missing) {
+        const entry = ctx.localIndex[oldPath];
+        const known = (ctx.e2eeEnabled ? entry?.plainHash : entry?.hash)?.toLowerCase();
+        const newPath = known ? byHash.get(known) : undefined;
+        if (!newPath || ctx.localIndex[newPath]) continue;
+        byHash.delete(known!);
+        markRenamed(ctx, oldPath, newPath);
+        await ctx.log(`[Vault Scan] ${oldPath} -> ${newPath} is a rename (same content).`, "debug");
     }
 }

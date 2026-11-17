@@ -277,7 +277,11 @@ async function flushLockOps(ctx: SyncContext): Promise<void> {
         for (const op of ops) op.resolve(results.get(op) ?? { acquired: false });
     } catch (e) {
         for (const op of ops) {
-            if (op.kind === "acquire") s.heldLocks.delete(op.path);
+            // A failed release must not leave the lock counted as held: then the next
+            // sync's releaseOrphanedOwnLocks skipped it, and other devices waited on it
+            // until its TTL ran out (their pending merges stalled meanwhile).
+            s.heldLocks.delete(op.path);
+            if (op.kind === "release") s.locksAwaitingPush.delete(op.path);
             op.reject(e);
         }
     }
@@ -737,6 +741,16 @@ export function markRenamed(ctx: SyncContext, oldPath: string, newPath: string):
         ctx.dirtyPaths.set(newPath, Date.now());
         ctx.log(`[Dirty] Removed (renamed before sync): ${oldPath}`, "debug");
         ctx.log(`[Dirty] Marked (renamed before sync): ${newPath}`, "debug");
+        return;
+    }
+
+    // The new name was already synced as a NEW file (a vault scan found it before this
+    // event arrived). Moving the old entry onto it would orphan that upload and leave
+    // two cloud files with one name. Keep it; the old name is a plain deletion now.
+    if (ctx.index[oldPath] && ctx.index[newPath]?.fileId && ctx.index[newPath].fileId !== ctx.index[oldPath].fileId) {
+        setOf(deleteIntents, ctx).add(oldPath);
+        ctx.dirtyPaths.set(oldPath, Date.now());
+        ctx.log(`[Dirty] ${newPath} was already uploaded as a new file. Deleting ${oldPath} instead of moving it.`, "debug");
         return;
     }
 

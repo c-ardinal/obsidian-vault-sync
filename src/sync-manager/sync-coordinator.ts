@@ -10,6 +10,7 @@ import {
 } from "./constants";
 import { smartPull, pullViaChangesAPI } from "./sync-pull";
 import { smartPush } from "./sync-push";
+import { retryOverwriteRepairs } from "./overwrite-recovery";
 
 
 /**
@@ -128,6 +129,7 @@ export async function executeSmartSync(ctx: SyncContext, scanVault: boolean): Pr
         if (pushed) {
             await postPushPull(ctx);
         }
+        await retryOverwriteRepairs(ctx);
 
         if (!pulled && !pushed) {
             await ctx.notify("noticeVaultUpToDate");

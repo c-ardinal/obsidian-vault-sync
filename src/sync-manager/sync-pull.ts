@@ -312,7 +312,7 @@ function buildInlineDownloadTasks(
         plainHash?: string;
         ancestorHash?: string;
     }>,
-    counter: { completed: number },
+    counter: { completed: number; failed?: number },
     total: number,
 ): (() => Promise<void>)[] {
     const tasks: (() => Promise<void>)[] = [];
@@ -338,6 +338,9 @@ function buildInlineDownloadTasks(
                         completedAt: Date.now(),
                         transferMode: "inline",
                     });
+                } else if (!ctx.localIndex[item.path]) {
+                    // Never pulled (e.g. another device's merge lock): nothing will retry it.
+                    counter.failed = (counter.failed ?? 0) + 1;
                 }
             } finally {
                 ctx.backgroundTransferQueue.markInlineEnd(item.path);
@@ -534,6 +537,9 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
                     }
                     let pendingPulled = false;
                     for (const path of unlockedPaths) {
+                        // Renamed (or resolved) locally since the list was made: the entry
+                        // moved on. Pulling the old path recreated the note there as a copy.
+                        if (!ctx.localIndex[path]?.pendingConflict) continue;
                         const fileId =
                             ctx.localIndex[path]?.fileId || ctx.index[path]?.fileId || remoteIndex[path]?.fileId;
                         let meta: Awaited<ReturnType<typeof ctx.adapter.getFileMetadata>> = null;
@@ -674,7 +680,7 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
     // === SIZE-BASED ROUTING: Partition pull items into inline and background ===
     const { inlineDownloads, deferredPullCount } = partitionPullsBySize(ctx, toDownload, remoteIndex);
 
-    const counter = { completed: 0 };
+    const counter: { completed: number; failed?: number } = { completed: 0 };
     const total = inlineDownloads.length + toDeleteLocal.length;
     const tasks: (() => Promise<void>)[] = [
         ...buildInlineDownloadTasks(ctx, inlineDownloads, counter, total),
@@ -691,12 +697,23 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
         }
     }
 
-    ctx.index[ctx.pluginDataPath] = {
-        fileId: remoteIndexMeta.id,
-        mtime: remoteIndexMeta.mtime,
-        size: remoteIndexMeta.size,
-        hash: remoteIndexMeta.hash,
-    };
+    if (counter.failed) {
+        reconcilePending.add(ctx);
+        // Some new files were not pulled (another device was merging them, or an
+        // error). Recording this index as seen meant no later sync looked at it again,
+        // and those files never arrived here. Leave it unseen: the next sync reconciles.
+        await ctx.log(
+            `[Smart Pull] ${counter.failed} new file(s) could not be pulled yet; will retry from the remote index.`,
+            "info",
+        );
+    } else {
+        ctx.index[ctx.pluginDataPath] = {
+            fileId: remoteIndexMeta.id,
+            mtime: remoteIndexMeta.mtime,
+            size: remoteIndexMeta.size,
+            hash: remoteIndexMeta.hash,
+        };
+    }
     await saveIndex(ctx);
 
     if (deferredPullCount > 0) {
@@ -867,7 +884,8 @@ export async function pullViaChangesAPI(
     // Another device published a new index: pick up files it lists that this
     // device has never seen (e.g. uploaded just before this device took its
     // first page token, so no change for them will ever arrive).
-    if (remoteIndexChanged) {
+    if (remoteIndexChanged || reconcilePending.has(ctx)) {
+        reconcilePending.delete(ctx);
         await loadRemoteIndex();
         const recovered = await pullFilesMissingFromIndex(ctx, remoteIndex, seenFileIds, pending);
         if (recovered > 0) {
@@ -960,6 +978,14 @@ export async function pullViaChangesAPI(
 }
 
 /**
+ * Devices with files listed in the remote index that they could not pull yet (another
+ * device was merging them, or an error). The next Changes API sync reconciles against
+ * the remote index even if it did not change: no change for those files may ever come,
+ * and our own index upload marks the remote index as seen.
+ */
+const reconcilePending = new WeakSet<object>();
+
+/**
  * Pull files listed in the remote index that this device has no record of
  * at all (no index entry, fileId unknown, not dirty, not just deleted).
  * Existence is re-checked by id first so a stale index entry of a file that
@@ -1007,7 +1033,9 @@ async function pullFilesMissingFromIndex(
                 "Index Reconcile",
             );
             if (ok) count++;
+            else if (!ctx.localIndex[path]) reconcilePending.add(ctx);
         } catch (e) {
+            reconcilePending.add(ctx);
             await ctx.log(`[Changes API] Index reconcile failed for ${path}: ${e}`, "warn");
         }
     });
@@ -1043,7 +1071,20 @@ async function processChangePage(
         if (entry.fileId) localIdToPath.set(entry.fileId, p);
     }
 
+    // Files this batch moves to a different name. A rename onto a name that one of
+    // them still holds here is not a collision: that file is about to leave the name.
+    // Treating it as one renamed the incoming file to "X (2)", in the cloud too, and
+    // every device did the same with the next batch: an endless chain of "(2)" names.
+    const movingAway = new Set<string>();
     for (const change of changes) {
+        const f = change.file;
+        const prev = f?.id ? localIdToPath.get(f.id) : undefined;
+        if (f && prev && pathKey(prev) !== pathKey(f.path)) movingAway.add(f.id);
+    }
+    const deferred = new Set<(typeof changes)[number]>();
+    const queue = [...changes];
+
+    for (const change of queue) {
         if (change.removed) {
             const pathToDelete = Object.entries(ctx.index).find(
                 ([, entry]) => entry.fileId === change.fileId,
@@ -1118,6 +1159,14 @@ async function processChangePage(
                     const oldPath = prevPathForId;
                     const newPath = cloudFile.path;
 
+                    const holder = findPathCollision(ctx, newPath, cloudFile.id);
+                    const holderId = holder ? ctx.index[holder]?.fileId : undefined;
+                    if (holderId && movingAway.has(holderId) && !deferred.has(change)) {
+                        deferred.add(change);
+                        queue.push(change);
+                        continue;
+                    }
+
                     // Guard: if the user moved this file locally too (pendingMove), skip the
                     // remote rename — our own move is pushed next. A merely DIRTY file (content
                     // edits, or the echo event of our own pull write) must still follow the
@@ -1125,7 +1174,21 @@ async function processChangePage(
                     // leaving the old path behind forever and losing edits made under it. The
                     // dirty flag moves with the file, and the content is reconciled below.
                     const localIndexEntry = ctx.index[oldPath];
-                    if (localIndexEntry?.pendingMove) {
+                    if (localIndexEntry?.pendingMove && !(await ctx.vault.exists(oldPath))) {
+                        // We renamed it and then deleted it, while another device renamed it
+                        // (and maybe edited it). Skipping kept a stale entry that a different
+                        // note later took over under this name, and the file never arrived
+                        // here again. The other device's newer version wins over our delete,
+                        // as for any edit/delete conflict: forget our entry and pull it.
+                        delete ctx.index[oldPath];
+                        delete ctx.localIndex[oldPath];
+                        ctx.dirtyPaths.delete(oldPath);
+                        localIdToPath.delete(cloudFile.id);
+                        await ctx.log(
+                            `[Changes API] ${oldPath} was renamed to ${newPath} on another device after we deleted it here. Keeping their version.`,
+                            "info",
+                        );
+                    } else if (localIndexEntry?.pendingMove) {
                         // Still confirm our own upload (same as the "Sync confirmed" path
                         // below). Otherwise ancestorHash stays at an older version, and the
                         // next merge uses a stale base and reports a conflict that isn't one.
@@ -1312,6 +1375,10 @@ async function processChangePage(
                 if (ctx.localIndex[cloudFile.path]) {
                     ctx.localIndex[cloudFile.path].pendingConflict = true;
                     await saveLocalIndex(ctx);
+                } else {
+                    // A file we don't have yet: no pendingConflict re-check covers it and
+                    // the change is consumed. Retry it on the next syncs instead.
+                    failed.push(cloudFile);
                 }
                 continue; // Skip this file, wait for merge to complete
             }
