@@ -170,7 +170,8 @@
                         <h3><i data-lucide="cloud-upload"></i>Cloud Sync</h3>
                         <p>
                             Sync your vault across desktop and mobile devices. Supports flexible
-                            triggers including startup, periodic, on save, and on file switch.
+                            triggers: on startup, on a timer, on save, after you stop editing, and
+                            on layout changes such as switching tabs.
                         </p>
                     </div>
                     <div class="feature-card" data-reveal style="--i: 1">
@@ -178,23 +179,35 @@
                         <p>
                             Three-way merge automatically resolves conflicts when the same file is
                             edited on multiple devices. Choose from four strategies: smart-merge,
-                            force-local, force-remote, and always-fork.
+                            force-local, force-remote, and always-fork. Notes whose names differ
+                            only in letter case or Unicode form are kept side by side as
+                            <code>name (2).md</code> instead of overwriting each other.
                         </p>
                     </div>
                     <div class="feature-card" data-reveal style="--i: 2">
                         <h3><i data-lucide="shield-check"></i>End-to-End Encryption</h3>
                         <p>
                             Optionally encrypt your entire vault with AES-256-GCM before it leaves
-                            your device. Includes password change, recovery code export, and
-                            streaming encryption for large files. Your password never leaves your
-                            device.
+                            your device. The
+                            <a
+                                href="https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine"
+                                target="_blank"
+                                rel="noopener"
+                                >E2EE Engine</a
+                            >
+                            is a separate, opt-in download that you install from the plugin settings
+                            in a few taps, on desktop or mobile. Includes password change, recovery
+                            code export, and streaming encryption for large files. The key is
+                            derived from your password with PBKDF2, and your password never leaves
+                            your device.
                         </p>
                     </div>
                     <div class="feature-card" data-reveal style="--i: 3">
                         <h3><i data-lucide="file-clock"></i>File History</h3>
                         <p>
                             Browse, compare, and restore past revisions of any file. Supports
-                            unified and split diff views with line-level comparison.
+                            unified and split diff views with character-level highlighting of
+                            changes.
                         </p>
                     </div>
                     <div class="feature-card" data-reveal style="--i: 4">
@@ -335,13 +348,15 @@
                     <div class="feature-card" data-reveal style="--i: 0">
                         <h3><i data-lucide="cloud-upload"></i>クラウド同期</h3>
                         <p>
-                            デスクトップとモバイルの両方でVaultを同期。起動時、定期、保存時、ファイル切替時など、柔軟なトリガー設定に対応。
+                            デスクトップとモバイルの両方でVaultを同期。起動時、タイマー、保存時、編集後、タブ切替などのレイアウト変更時といった、柔軟なトリガー設定に対応。
                         </p>
                     </div>
                     <div class="feature-card" data-reveal style="--i: 1">
                         <h3><i data-lucide="git-merge"></i>スマートマージ</h3>
                         <p>
-                            複数デバイスで同じファイルを編集した場合、自動的に競合を解決。他にもローカル優先、リモート優先、常にフォークといったマージ戦略から選択可能。
+                            複数デバイスで同じファイルを編集した場合、自動的に競合を解決。他にもローカル優先、リモート優先、常にフォークといったマージ戦略から選択可能。大文字・小文字やUnicodeの表記だけが異なる名前のノートは、上書きせず<code
+                                >名前 (2).md</code
+                            >として両方残します。
                         </p>
                     </div>
                     <div class="feature-card" data-reveal style="--i: 2">
@@ -351,14 +366,14 @@
                                 href="https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine"
                                 target="_blank"
                                 rel="noopener"
-                                >オプション</a
-                            >でVault全体をAES-256-GCMで暗号化してからアップロード。パスワード変更、リカバリーコード、大容量ファイルのストリーミング暗号化に対応。パスワードがデバイス外に出ることはありません。
+                                >E2EEエンジン</a
+                            >（任意）を導入すると、Vault全体をAES-256-GCMで暗号化してからアップロード。エンジンは別配布で、プラグインの設定画面からデスクトップでもモバイルでも数タップで導入可能。パスワード変更、リカバリーコード、大容量ファイルのストリーミング暗号化に対応。鍵はパスワードからPBKDF2で導出し、パスワードがデバイス外に出ることはありません。
                         </p>
                     </div>
                     <div class="feature-card" data-reveal style="--i: 3">
                         <h3><i data-lucide="file-clock"></i>ファイル履歴</h3>
                         <p>
-                            過去のリビジョンを閲覧・比較・復元。統合ビューとスプリットビューに対応し、行単位で差分を確認可能。
+                            過去のリビジョンを閲覧・比較・復元。統合ビューとスプリットビューに対応し、変更箇所を文字単位でハイライト表示。
                         </p>
                     </div>
                     <div class="feature-card" data-reveal style="--i: 4">
