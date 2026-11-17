@@ -27,6 +27,8 @@ interface Case {
 }
 
 const NET = { minLatencyMs: 5, maxLatencyMs: 400, failureRate: 0, lostResponseRate: 0 };
+/** Same settings as the clean-network scenario in multi-device.sim.test.ts */
+const CLEAN: Partial<SimConfig> = { profile: "disjoint", devices: 3, actions: 40, network: NET };
 /** Same settings as the flaky-network / e2ee scenarios in multi-device.sim.test.ts */
 const FLAKY: Partial<SimConfig> = {
     profile: "disjoint",
@@ -212,6 +214,78 @@ const FIXED_REGRESSIONS: Case[] = [
         title: "an edit to a note renamed on another device follows the rename instead of being stranded",
         symptom: "A note edited on one device while renamed on another stays forever under its old name",
         config: { seed: 137, ...CROSS_OS },
+        expect: [],
+    },
+    {
+        title: "a note created on macOS is uploaded once, not under both its NFC and NFD names",
+        symptom: "'café.md' made on a Mac shows up twice on other devices",
+        config: { seed: 113, ...CHAOS },
+        expect: [],
+    },
+    {
+        title: "two devices creating the same note name at once keep two notes instead of merging them",
+        symptom: "Lines of one note replaced by another note's lines (e.g. the first line vanished)",
+        config: { seed: 206, ...CHAOS },
+        expect: [],
+    },
+    {
+        title: "same-name creates on two devices: neither upload overwrites the other",
+        symptom: "A brand-new note disappears right after another device creates one with the same name",
+        config: { seed: 192, ...CHAOS },
+        expect: [],
+    },
+    {
+        title: "a late vault event for a rename the sync engine made is not taken for a user rename",
+        symptom: "After a name-collision rename, a different note was moved in the cloud and lost",
+        config: { seed: 202, ...CHAOS },
+        expect: [],
+    },
+    {
+        title: "a note indexed under an old name (from a lagging index) does not stay as a stale copy",
+        symptom: "A renamed note also stays under its old name on a newly synced device",
+        config: { seed: 170, ...CHAOS },
+        expect: [],
+    },
+    {
+        title: "chaos run that used to lose a note (name collisions + renames + lost responses) stays clean",
+        symptom: "A note disappeared from every device",
+        config: { seed: 141, ...CHAOS },
+        expect: [],
+    },
+    {
+        title: "an edit typed while a merged upload is in flight is not dropped",
+        symptom: "Text typed during 'merging' disappears after the sync",
+        config: { seed: 233, ...CLEAN, maxEventDelayMs: 0 },
+        expect: [],
+    },
+    {
+        title: "a first sync from a lagging remote index still follows renames made just before",
+        symptom: "A new device keeps a note under its old name forever",
+        config: { seed: 264, ...CLEAN },
+        expect: [],
+    },
+    {
+        title: "E2EE: a first sync from a lagging index records the version it really downloaded",
+        symptom: "With E2EE, a note pulled on a new device later gets a conflict copy and loses an edit",
+        config: { seed: 112, ...E2EE },
+        expect: [],
+    },
+    {
+        title: "E2EE: a retried pull does not trust a lagging index's plaintext hash",
+        symptom: "After a network error, another device's edit is never pulled (the note stays different)",
+        config: { seed: 174, ...E2EE },
+        expect: [],
+    },
+    {
+        title: "a note renamed just before a sync starts is moved, not deleted, in the cloud",
+        symptom: "Rename a note right as a sync starts: other devices keep it under the old name too",
+        config: { seed: 274, ...E2EE },
+        expect: [],
+    },
+    {
+        title: "a lost-response upload of a note renamed before it synced is moved to the new name",
+        symptom: "On a flaky network, a new note renamed right away exists twice on every device",
+        config: { seed: 193, ...FLAKY },
         expect: [],
     },
 ];
