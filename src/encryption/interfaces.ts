@@ -86,6 +86,11 @@ export interface E2EEPluginContext {
 export interface ICryptoEngine {
     initializeNewVault(password: string): Promise<string>;
     unlockVault(encryptedBlob: string, password: string): Promise<void>;
+    /**
+     * True after unlocking an old (v1) lock file, whose unsalted outer key allows
+     * fast offline password guessing. Re-save it with updatePassword(samePassword).
+     */
+    needsLockMigration?(): boolean;
     updatePassword?(password: string): Promise<string>;
     isUnlocked(): boolean;
 

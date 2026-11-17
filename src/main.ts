@@ -116,6 +116,7 @@ export default class VaultSync extends Plugin {
             backgroundQueue,
         );
         this.syncManager.secureStorage = this.secureStorage;
+        this.syncManager.unicodeInsensitiveFs = Platform.isMacOS || Platform.isIosApp;
 
         this.syncManager.onSettingsUpdated = async () => {
             await this.loadSettings();
@@ -241,6 +242,7 @@ export default class VaultSync extends Plugin {
                                         savedPassword,
                                     );
                                     autoUnlocked = true;
+                                    await this.upgradeVaultLockIfNeeded(savedPassword);
                                     await this.syncManager.log(
                                         "Vault auto-unlocked using saved password.",
                                         "info",
@@ -549,6 +551,22 @@ export default class VaultSync extends Plugin {
 
     setupAutoSyncInterval(): void {
         this.triggerManager.setupAutoSyncInterval();
+    }
+
+    /**
+     * Re-save an old (v1) vault-lock in the v2 key format after a successful unlock.
+     * Non-fatal: on failure the next unlock tries again.
+     */
+    private async upgradeVaultLockIfNeeded(hashedPassword: string): Promise<void> {
+        const engine = this.syncManager.cryptoEngine;
+        if (!engine?.needsLockMigration?.() || !engine.updatePassword) return;
+        try {
+            const upgraded = await engine.updatePassword(hashedPassword);
+            await this.syncManager.vaultLockService.uploadLockFile(upgraded);
+            await this.syncManager.log("E2EE: vault-lock upgraded to the v2 key format.", "info");
+        } catch (e) {
+            await this.syncManager.log(`E2EE: vault-lock upgrade failed, will retry: ${e}`, "warn");
+        }
     }
 
     async loadSettings() {
