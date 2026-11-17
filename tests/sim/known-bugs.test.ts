@@ -28,6 +28,11 @@ interface Case {
 const NET = { minLatencyMs: 5, maxLatencyMs: 400, failureRate: 0, lostResponseRate: 0 };
 
 const KNOWN_BUGS: Case[] = [
+    // Empty: every bug found so far is fixed and lives in FIXED_REGRESSIONS.
+];
+
+/** Former bugs that must stay fixed (move cases here when fixing them) */
+const FIXED_REGRESSIONS: Case[] = [
     {
         title: "remote rename is dropped while the old path is dirty; the old file is stuck forever",
         symptom: "Edits made on another device to a just-renamed note are lost; every sync logs CONFLICT DETECTED",
@@ -42,12 +47,8 @@ const KNOWN_BUGS: Case[] = [
             { t: 20780, dev: "A", kind: "edit", pick: 0, line: "A", value: "A13" },
             { t: 23362, dev: "C", kind: "edit", pick: 0, line: "C", value: "C14" },
         ],
-        expect: ["LOST_UPDATE", "NOT_IDLE"],
+        expect: [],
     },
-];
-
-/** Former bugs that must stay fixed (move cases here when fixing them) */
-const FIXED_REGRESSIONS: Case[] = [
     {
         title: "rename while the first upload of a new note is in flight leaves a duplicate",
         symptom: "Create 'Untitled.md', sync starts, rename it: both names exist on every device forever",
@@ -134,6 +135,9 @@ describe("known multi-device bugs (assert they still reproduce)", () => {
                 ).toContain(k);
             }
         });
+    });
+    it("placeholder so the suite is never empty", () => {
+        expect(KNOWN_BUGS.length).toBeGreaterThanOrEqual(0);
     });
 });
 

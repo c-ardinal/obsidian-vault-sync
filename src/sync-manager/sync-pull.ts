@@ -842,10 +842,14 @@ async function processChangePage(
                     const oldPath = prevPathForId;
                     const newPath = cloudFile.path;
 
-                    // Guard: If local has pending changes on this file (user moved it),
-                    // skip the remote rename — it's likely a stale echo of our own push.
+                    // Guard: if the user moved this file locally too (pendingMove), skip the
+                    // remote rename — our own move is pushed next. A merely DIRTY file (content
+                    // edits, or the echo event of our own pull write) must still follow the
+                    // rename: skipping it dropped the rename for good (the change is consumed),
+                    // leaving the old path behind forever and losing edits made under it. The
+                    // dirty flag moves with the file, and the content is reconciled below.
                     const localIndexEntry = ctx.index[oldPath];
-                    if (localIndexEntry?.pendingMove || ctx.dirtyPaths.has(oldPath)) {
+                    if (localIndexEntry?.pendingMove) {
                         await ctx.log(
                             `[Changes API] Remote Rename skipped: ${oldPath} -> ${newPath} (local has pending move/changes)`,
                             "debug",
