@@ -206,8 +206,15 @@ export default class VaultSync extends Plugin {
 
                     // E2EE Guard: If enabled but locked, show unlock modal
                     if (!this.settings.e2eeEnabled) {
-                        const hasRemoteLock =
-                            await this.syncManager.vaultLockService.checkForLockFile();
+                        const hasRemoteLock = await this.syncManager.vaultLockService
+                            .checkForLockFile()
+                            .catch(async (e) => {
+                                await this.syncManager.log(
+                                    `E2EE status check failed: ${e}`,
+                                    "warn",
+                                );
+                                return false;
+                            });
                         if (hasRemoteLock) {
                             await this.syncManager.log(
                                 "Remote E2EE detected. Enabling E2EE locally.",
