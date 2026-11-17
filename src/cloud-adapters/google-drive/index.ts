@@ -53,17 +53,17 @@ export class GoogleDriveAdapter implements CloudAdapter {
     }
 
     // Callback for fatal auth errors (e.g. invalid grant) — delegated to auth
-    set onAuthFailure(cb: (() => void) | null) {
+    set onAuthFailure(cb: (() => void | Promise<void>) | null) {
         this.auth.onAuthFailure = cb;
     }
-    get onAuthFailure(): (() => void) | null {
+    get onAuthFailure(): (() => void | Promise<void>) | null {
         return this.auth.onAuthFailure;
     }
     // Callback after successful token refresh (to persist new tokens) — delegated to auth
-    set onTokenRefresh(cb: (() => void) | null) {
+    set onTokenRefresh(cb: (() => void | Promise<void>) | null) {
         this.auth.onTokenRefresh = cb;
     }
-    get onTokenRefresh(): (() => void) | null {
+    get onTokenRefresh(): (() => void | Promise<void>) | null {
         return this.auth.onTokenRefresh;
     }
 
@@ -628,7 +628,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
 
         await this.pathResolver.ensureRootFolders();
         const rootId = folderId || this.pathResolver.vaultRootId;
-        console.log(`Vault-Sync: listFiles starting with rootId: ${rootId}`);
+        console.debug(`Vault-Sync: listFiles starting with rootId: ${rootId}`);
         if (!rootId) throw new Error("Vault root not initialized");
 
         const files: CloudFile[] = [];
@@ -641,12 +641,12 @@ export class GoogleDriveAdapter implements CloudAdapter {
                     `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=nextPageToken,files(id,name,mimeType,modifiedTime,size,md5Checksum)&pageSize=1000` +
                     (pageToken ? `&pageToken=${pageToken}` : "");
 
-                console.log(
+                console.debug(
                     `Vault-Sync: listFiles querying folder ${currentFolderId}, prefix: "${currentPathPrefix}"`,
                 );
                 const response = await this.http.fetchWithAuth(url);
                 const data: any = await response.json();
-                console.log(
+                console.debug(
                     `Vault-Sync: listFiles query returned ${data.files?.length || 0} items`,
                 );
                 pageToken = data.nextPageToken;

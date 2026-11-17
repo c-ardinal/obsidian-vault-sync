@@ -76,11 +76,11 @@ export class AddonInstallModal extends Modal {
             type: "file",
             attr: { accept: ".zip,application/zip,application/x-zip-compressed,*/*" },
         });
-        fileInput.style.display = "none";
-        fileInput.addEventListener("change", async () => {
+        fileInput.hide();
+        fileInput.addEventListener("change", () => {
             const file = fileInput.files?.[0];
             fileInput.value = "";
-            if (file) await this.handleFile(file);
+            if (file) void this.handleFile(file);
         });
         new Setting(contentEl).setDesc(t("addonStepChooseDesc")).addButton((btn) => {
             this.pickButton = btn.buttonEl;

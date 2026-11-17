@@ -134,7 +134,7 @@ export class GoogleDriveHttpClient {
     }
 
     private async log(msg: string, level: string = "debug") {
-        console.log(`Vault-Sync: [${level.toUpperCase()}] ${msg}`);
+        console.debug(`Vault-Sync: [${level.toUpperCase()}] ${msg}`);
         if (this.auth.logger) this.auth.logger(msg, level);
     }
 

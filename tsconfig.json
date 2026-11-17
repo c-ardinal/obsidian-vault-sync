@@ -16,5 +16,5 @@
         "outDir": "./dist"
     },
     "include": ["**/*.ts"],
-    "exclude": ["www/functions/**", "node_modules/**", "dist/**"]
+    "exclude": ["www/functions/**", "node_modules/**", "dist/**", "tools/**"]
 }

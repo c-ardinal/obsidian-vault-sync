@@ -89,7 +89,7 @@ Supported cloud storage providers are listed below; others are planned.
 
 1. Open Obsidian Settings > Community Plugins.
 2. Click "Browse" in Community Plugins.
-3. Search for `c-ardinal/obsidian-vault-sync` and click "Install".
+3. Search for "Vault-Sync" and click "Install".
 4. Go back to Settings > Community Plugins and enable "Vault-Sync".
 
 ### Via BRAT
@@ -263,6 +263,20 @@ graph TD
 - **Selective Sync**: Control synchronization of files within `.obsidian/` (plugins, themes, hotkeys, etc.) by category. Device-specific data like `workspace.json` and `cache/` are automatically excluded.
 - **Device Communication**: Merge lock control between devices via `communication.json` prevents overwriting when the same file is edited simultaneously.
 - **Atomic Updates**: Individual index entries are updated upon each file transfer. The index is Gzip-compressed for efficient synchronization.
+
+---
+
+## 📣 Disclosures
+
+As required by Obsidian's developer policies:
+
+- **Account required**: A Google account is needed, because your vault is synced to your own Google Drive.
+- **Network use**: The plugin connects only to the services below, and only to sync your vault or sign you in.
+    - Google Drive API (`www.googleapis.com`): uploads, downloads and lists the files of your vault in your own Google Drive.
+    - Google sign-in (`accounts.google.com`, `oauth2.googleapis.com`): OAuth login and token refresh.
+    - Vault-Sync authentication proxy (`obsidian-vault-sync.pages.dev`, Cloudflare Pages): completes the OAuth login when the default login method is used. It never sees your vault data. You can avoid it with your own Client ID / Secret (Method C) or your own proxy (Method B). See the [Privacy Policy](https://obsidian-vault-sync.pages.dev/privacy/).
+    - GitHub (`github.com`): opened in your browser only when you tap "Open download page" while installing an add-on. The plugin itself never downloads code.
+- **No telemetry, no ads, no payments**: The plugin collects no usage data and shows no ads. It is free and open source (MIT).
 
 ---
 

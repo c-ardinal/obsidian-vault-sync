@@ -89,7 +89,7 @@ Obsidian向けの高速・インテリジェントなクラウドストレージ
 
 1. Obsidianの設定 > コミュニティプラグインを開く。
 2. コミュニティプラグインの「閲覧」をクリックする。
-3. 検索窓に`c-ardinal/obsidian-vault-sync`と入力して、「インストール」をクリックする。
+3. 検索窓に「Vault-Sync」と入力して、「インストール」をクリックする。
 4. 設定 > コミュニティプラグインに戻り、「Vault-Sync」を有効化する。
 
 ### BRAT 経由
@@ -263,6 +263,20 @@ graph TD
 - **選択的同期**: `.obsidian/` 内のファイル（プラグイン、テーマ、ホットキー等）をカテゴリ別に同期制御可能。`workspace.json` や `cache/` など、デバイス固有のデータは自動的に除外される。
 - **デバイス間通信**: `communication.json` を通じてデバイス間でのマージロック制御を行い、同時に同じファイルを編集した際の上書きを防止する。
 - **アトミック更新**: 各ファイル転送完了ごとに個別のインデックスエントリを更新。インデックスはGzip圧縮され、効率的に同期される。
+
+---
+
+## 📣 開示事項
+
+Obsidian の開発者ポリシーに基づく開示:
+
+- **アカウントが必要**: Vault をユーザ自身の Google Drive に同期するため、Google アカウントが必要。
+- **ネットワーク通信**: 通信先は以下のみで、Vault の同期とログインのためだけに使う。
+    - Google Drive API（`www.googleapis.com`）: ユーザ自身の Google Drive 上で Vault のファイルをアップロード・ダウンロード・一覧取得する。
+    - Google ログイン（`accounts.google.com`、`oauth2.googleapis.com`）: OAuth ログインとトークン更新。
+    - Vault-Sync 認証プロキシ（`obsidian-vault-sync.pages.dev`、Cloudflare Pages）: デフォルトのログイン方法で OAuth ログインを完了させる。Vault のデータは通らない。自前の Client ID / Secret（方法C）や自前のプロキシ（方法B）を使えば経由しない。詳しくは[プライバシーポリシー](https://obsidian-vault-sync.pages.dev/privacy/)を参照。
+    - GitHub（`github.com`）: アドオン導入時に「ダウンロードページを開く」を押したときだけブラウザで開く。プラグイン自身がコードをダウンロードすることはない。
+- **テレメトリ・広告・課金なし**: 利用状況の収集や広告表示は行わない。無料のオープンソース（MIT）。
 
 ---
 

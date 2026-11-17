@@ -53,7 +53,7 @@ export default {
         banner,
         inlineDynamicImports: true,
     },
-    external: ["obsidian", "fs", "os", "path", "child_process"],
+    external: ["obsidian"],
     plugins: [
         typescript(),
         nodeResolve({ browser: true }),

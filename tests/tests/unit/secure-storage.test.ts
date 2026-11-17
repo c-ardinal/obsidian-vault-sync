@@ -11,7 +11,6 @@
  * - clearCredentials from both sources
  * - cleanupFiles() method
  * - ensureDir() creating nested directories
- * - hideFile() on Windows/Mac (platform-specific)
  * - Extra secrets (setExtraSecret, getExtraSecret, removeExtraSecret)
  * - Key caching in getKey()
  *
@@ -129,7 +128,7 @@ describe("SecureStorage", () => {
     describe("saveCredentials", () => {
         it("should save to SecretStorage when available", async () => {
             const data = { token: "abc", refresh: "def" };
-            const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+            const consoleSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
 
             await storage.saveCredentials(data);
 
@@ -161,7 +160,7 @@ describe("SecureStorage", () => {
 
         it("should fallback to file when SecretStorage fails", async () => {
             const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-            const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+            const logSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
 
             // Create failing SecretStorage
             const failingStorage = {
@@ -227,36 +226,6 @@ describe("SecureStorage", () => {
 
             errorSpy.mockRestore();
         });
-
-        it("should call hideFile when creating new file", async () => {
-            const vaultOps = new MockVaultOperations(app.vaultAdapter, app.vault);
-            const fileStorage = new SecureStorage(vaultOps, "", SECRET, null);
-
-            const hideFileSpy = vi
-                .spyOn(fileStorage as any, "hideFile")
-                .mockImplementation(() => {});
-
-            await fileStorage.saveCredentials({ test: "data" });
-
-            expect(hideFileSpy).toHaveBeenCalledWith("data/local/.sync-state");
-        });
-
-        it("should not call hideFile when file already exists", async () => {
-            const vaultOps = new MockVaultOperations(app.vaultAdapter, app.vault);
-            const fileStorage = new SecureStorage(vaultOps, "", SECRET, null);
-
-            // Save once to create file
-            await fileStorage.saveCredentials({ test: "data1" });
-
-            const hideFileSpy = vi
-                .spyOn(fileStorage as any, "hideFile")
-                .mockImplementation(() => {});
-
-            // Save again
-            await fileStorage.saveCredentials({ test: "data2" });
-
-            expect(hideFileSpy).not.toHaveBeenCalled();
-        });
     });
 
     describe("loadCredentials", () => {
@@ -264,7 +233,7 @@ describe("SecureStorage", () => {
             const data = { token: "secret" };
             await storage.saveCredentials(data);
 
-            const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+            const logSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
             const loaded = await storage.loadCredentials();
 
             expect(loaded).toEqual(data);
@@ -303,7 +272,7 @@ describe("SecureStorage", () => {
         });
 
         it("should return null when file does not exist", async () => {
-            const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+            const logSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
 
             // No SecretStorage and no file
             (storage as any).secretStorage = null;
@@ -421,7 +390,7 @@ describe("SecureStorage", () => {
             const secretId = (storage as any).secretId;
             expect(app.secretStorage.getSecret(secretId)).not.toBeNull();
 
-            const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+            const logSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
 
             await storage.clearCredentials();
 
@@ -443,7 +412,7 @@ describe("SecureStorage", () => {
             // Restore SecretStorage for clearCredentials
             (storage as any).secretStorage = app.secretStorage;
 
-            const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+            const logSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
 
             await storage.clearCredentials();
 
@@ -492,7 +461,7 @@ describe("SecureStorage", () => {
             await storage.saveCredentials({ test: "data" });
             expect(await app.vaultAdapter.exists("data/local/.sync-state")).toBe(true);
 
-            const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+            const logSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
 
             await (storage as any).cleanupFiles();
 
@@ -546,7 +515,7 @@ describe("SecureStorage", () => {
         });
 
         it("should create nested directories", async () => {
-            const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+            const logSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
 
             await (storage as any).ensureDir("deep/nested/path/file.txt");
 
@@ -563,7 +532,7 @@ describe("SecureStorage", () => {
             // Create only the first level
             await app.vault.createFolder("data");
 
-            const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+            const logSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
 
             await (storage as any).ensureDir("data/local/subdir/file.txt");
 
@@ -587,176 +556,6 @@ describe("SecureStorage", () => {
             expect(debugSpy).toHaveBeenCalled();
 
             debugSpy.mockRestore();
-        });
-    });
-
-    describe("hideFile", () => {
-        let originalPlatform: typeof process.platform;
-
-        beforeEach(() => {
-            originalPlatform = process.platform;
-        });
-
-        afterEach(() => {
-            Object.defineProperty(process, "platform", {
-                value: originalPlatform,
-            });
-            vi.restoreAllMocks();
-        });
-
-        it("should not hide file on mobile platforms", () => {
-            const originalIsDesktop = Platform.isDesktop;
-            Platform.isDesktop = false;
-
-            const spawnSpy = vi.spyOn(require("child_process"), "spawn").mockImplementation(() => ({
-                on: vi.fn(),
-            }));
-
-            // Mock getBasePath
-            (storage as any).vault.getBasePath = () => "/vault/path";
-
-            (storage as any).hideFile("data/local/.sync-state");
-
-            expect(spawnSpy).not.toHaveBeenCalled();
-
-            Platform.isDesktop = originalIsDesktop;
-        });
-
-        it("should not hide file when getBasePath is not available", () => {
-            const spawnSpy = vi.spyOn(require("child_process"), "spawn").mockImplementation(() => ({
-                on: vi.fn(),
-            }));
-
-            // getBasePath returns undefined
-            (storage as any).vault.getBasePath = () => undefined;
-
-            (storage as any).hideFile("data/local/.sync-state");
-
-            expect(spawnSpy).not.toHaveBeenCalled();
-        });
-
-        it("should spawn attrib on Windows", () => {
-            Object.defineProperty(process, "platform", {
-                value: "win32",
-            });
-
-            const onMock = vi.fn();
-            const spawnSpy = vi.spyOn(require("child_process"), "spawn").mockImplementation(() => ({
-                on: onMock,
-            }));
-
-            (storage as any).vault.getBasePath = () => "C:\\vault";
-
-            (storage as any).hideFile("data/local/.sync-state");
-
-            expect(spawnSpy).toHaveBeenCalledWith("attrib", [
-                "+h",
-                "C:\\vault\\data\\local\\.sync-state",
-            ]);
-
-            // Simulate error
-            const errorCallback = onMock.mock.calls.find((call: any[]) => call[0] === "error")?.[1];
-            if (errorCallback) {
-                const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-                errorCallback(new Error("Spawn failed"));
-                expect(errorSpy).toHaveBeenCalledWith(
-                    expect.stringContaining("Failed to hide .sync-state on Windows"),
-                    expect.any(Error),
-                );
-                errorSpy.mockRestore();
-            }
-        });
-
-        it("should spawn chflags on macOS", () => {
-            Object.defineProperty(process, "platform", {
-                value: "darwin",
-            });
-
-            const onMock = vi.fn();
-            const spawnSpy = vi.spyOn(require("child_process"), "spawn").mockImplementation(() => ({
-                on: onMock,
-            }));
-
-            (storage as any).vault.getBasePath = () => "/Users/test/vault";
-
-            (storage as any).hideFile("data/local/.sync-state");
-
-            expect(spawnSpy).toHaveBeenCalledWith("chflags", [
-                "hidden",
-                "/Users/test/vault/data/local/.sync-state",
-            ]);
-
-            // Simulate error
-            const errorCallback = onMock.mock.calls.find((call: any[]) => call[0] === "error")?.[1];
-            if (errorCallback) {
-                const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-                errorCallback(new Error("Spawn failed"));
-                expect(errorSpy).toHaveBeenCalledWith(
-                    expect.stringContaining("Failed to hide .sync-state on Mac"),
-                    expect.any(Error),
-                );
-                errorSpy.mockRestore();
-            }
-        });
-
-        it("should handle child_process import failure", async () => {
-            const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-
-            // Create a new SecureStorage instance with a mocked vault that has getBasePath
-            const vaultOps = new MockVaultOperations(app.vaultAdapter, app.vault);
-            const testStorage = new SecureStorage(vaultOps, "", SECRET, null);
-
-            // Mock getBasePath to return a valid path
-            (vaultOps as any).getBasePath = () => "/vault/path";
-
-            // Override process.platform to trigger the Windows path
-            Object.defineProperty(process, "platform", {
-                value: "win32",
-            });
-
-            // Clear the child_process module from the cache to force re-require
-            const modName = require.resolve("child_process");
-            delete require.cache[modName];
-
-            // Temporarily make the module throw when required
-            require.cache[modName] = {
-                id: modName,
-                filename: modName,
-                loaded: true,
-                get exports() {
-                    throw new Error("Module not found");
-                },
-                set exports(_val) {},
-            } as any;
-
-            // Call hideFile - it should catch the error from require
-            (testStorage as any).hideFile("data/local/.sync-state");
-
-            expect(warnSpy).toHaveBeenCalledWith(
-                expect.stringContaining("Optional file hiding failed"),
-                expect.any(Error),
-            );
-
-            // Restore by clearing the cache again
-            delete require.cache[modName];
-            warnSpy.mockRestore();
-        });
-
-        it("should not spawn anything on Linux", () => {
-            Object.defineProperty(process, "platform", {
-                value: "linux",
-            });
-
-            const spawnSpy = vi.spyOn(require("child_process"), "spawn").mockImplementation(() => ({
-                on: vi.fn(),
-            }));
-
-            (storage as any).vault.getBasePath = () => "/home/user/vault";
-
-            (storage as any).hideFile("data/local/.sync-state");
-
-            // Linux is not handled specifically, so no spawn should happen
-            expect(spawnSpy).not.toHaveBeenCalled();
         });
     });
 

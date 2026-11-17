@@ -78,6 +78,7 @@ export async function runPerf(opts: PerfOptions = DEFAULT_PERF): Promise<PerfRes
     const engineRng = new Rng(1).fork(2);
     const randomSpy = vi.spyOn(Math, "random").mockImplementation(() => engineRng.next());
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
     const phases: PerfPhase[] = [];
     const problems: string[] = [];
     const devices: SimDevice[] = [];
@@ -203,6 +204,7 @@ export async function runPerf(opts: PerfOptions = DEFAULT_PERF): Promise<PerfRes
         for (const d of devices) d.dispose();
         randomSpy.mockRestore();
         logSpy.mockRestore();
+        debugSpy.mockRestore();
         vi.useRealTimers();
     }
 }

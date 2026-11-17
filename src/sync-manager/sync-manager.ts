@@ -246,7 +246,9 @@ export class SyncManager {
             isDeveloperMode: this.settings.isDeveloperMode,
         });
 
-        this.baseAdapter.setLogger((msg, level) => this.log(msg, (level as LogLevel) || "debug"));
+        this.baseAdapter.setLogger((msg, level) => {
+            void this.log(msg, (level as LogLevel) || "debug");
+        });
         this.backgroundTransferQueue.setContext(this as unknown as SyncContext);
     }
 

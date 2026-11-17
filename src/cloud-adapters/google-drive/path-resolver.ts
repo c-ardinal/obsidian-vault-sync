@@ -33,7 +33,7 @@ export class DrivePathResolver {
     }
 
     private async log(msg: string, level: string = "debug") {
-        console.log(`Vault-Sync: [${level.toUpperCase()}] ${msg}`);
+        console.debug(`Vault-Sync: [${level.toUpperCase()}] ${msg}`);
         if (this.logger) this.logger(msg, level);
     }
 
@@ -449,7 +449,7 @@ export class DrivePathResolver {
 
                                 if (data.files && data.files.length > 0) {
                                     currentParentId = data.files[0].id;
-                                    console.log(
+                                    console.debug(
                                         `Vault-Sync: Found existing folder: ${pathAccumulator} (id=${currentParentId})`,
                                     );
                                 } else {
@@ -457,7 +457,7 @@ export class DrivePathResolver {
                                         part,
                                         currentParentId,
                                     );
-                                    console.log(
+                                    console.debug(
                                         `Vault-Sync: Created new folder: ${pathAccumulator} (id=${currentParentId})`,
                                     );
                                 }

@@ -1522,3 +1522,35 @@
 .vault-sync-addon-install-status.mod-error {
     color: var(--text-error);
 }
+
+/* ── Classes replacing former inline styles (Obsidian guideline: no hardcoded styling) ── */
+.vault-sync-prompt-input {
+    width: 100%;
+}
+
+.vault-sync-prompt-error {
+    color: var(--text-error);
+    font-size: 0.85em;
+    margin-top: 4px;
+    min-height: 1.2em;
+}
+
+.revision-size.vault-sync-revision-size-row {
+    display: flex;
+    justify-content: space-between;
+}
+
+.vault-sync-revision-size-row .revision-pin {
+    font-size: 0.9em;
+}
+
+.revision-control-row.vault-sync-revision-control-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.vault-sync-control-spacer {
+    flex: 1;
+}

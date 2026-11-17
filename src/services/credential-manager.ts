@@ -28,7 +28,7 @@ export class CredentialManager {
         const { adapter, getSecureStorage } = this.deps;
 
         adapter.onAuthFailure = async () => {
-            console.log("Vault-Sync: Auth failed (token expired/revoked). Clearing credentials.");
+            console.debug("Vault-Sync: Auth failed (token expired/revoked). Clearing credentials.");
             await getSecureStorage().clearCredentials();
             adapter.setTokens(null, null);
         };

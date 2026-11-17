@@ -128,7 +128,12 @@ export class SyncLogger {
             this.criticalLogged = true;
         }
 
-        console.log(`Vault-Sync: [${level.toUpperCase()}] ${message}`);
+        // Keep the developer console quiet by default (Obsidian plugin guidelines):
+        // only errors and warnings use the visible console levels.
+        const line = `Vault-Sync: [${level.toUpperCase()}] ${message}`;
+        if (level === "error") console.error(line);
+        else if (level === "warn") console.warn(line);
+        else console.debug(line);
 
         if (this.options.isDeveloperMode) {
             await this.writeEntry(entry);

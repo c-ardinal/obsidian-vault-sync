@@ -1,6 +1,7 @@
 // i18n Localization
 // All languages are bundled inline.
 
+import { getLanguage } from "obsidian";
 import ja from "./lang/ja.json";
 
 const languages: Record<string, Record<string, string>> = { ja };
@@ -372,7 +373,7 @@ let activeDict: Record<string, string> = en;
  * Must be called during plugin startup before any UI rendering.
  */
 export function initI18n(): void {
-    const lang = window.localStorage.getItem("language") || "en";
+    const lang = getLanguage() || "en";
     if (lang === "en") return;
 
     if (languages[lang]) {

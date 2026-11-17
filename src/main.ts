@@ -5,16 +5,10 @@ import type { SecureStorage } from "./services/secure-storage";
 import { HistoryModal } from "./ui/history-modal";
 import { TransferStatusModal } from "./ui/transfer-status-modal";
 import { DEFAULT_SETTINGS } from "./constants";
-import {
-    DATA_REMOTE_DIR,
-    VaultSyncSettings,
-} from "./types/settings";
+import { DATA_REMOTE_DIR, VaultSyncSettings } from "./types/settings";
 import { t, initI18n } from "./i18n";
 import { VaultSyncSettingTab } from "./ui/vault-sync-setting-tab";
-import {
-    installEngineFromContent,
-    loadExternalCryptoEngine,
-} from "./encryption/engine-loader";
+import { installEngineFromContent, loadExternalCryptoEngine } from "./encryption/engine-loader";
 import { AddonInstallModal, type AddonInstallOutcome } from "./ui/addon-install-modal";
 import type { AddonPackage } from "./addons/addon-package";
 import { checkPasswordStrength } from "./encryption/password-strength";
@@ -129,7 +123,8 @@ export default class VaultSync extends Plugin {
             secureStorage: this.syncManager.secureStorage,
             migrationService: this.syncManager.migrationService,
             notify: (key: string) => this.syncManager.notify(key),
-            log: (msg: string, level: "system" | "error" | "warn" | "notice" | "info" | "debug") => this.syncManager.log(msg, level),
+            log: (msg: string, level: "system" | "error" | "warn" | "notice" | "info" | "debug") =>
+                this.syncManager.log(msg, level),
             setCurrentTrigger: (trigger: string) => {
                 this.syncManager.currentTrigger = trigger as SyncTrigger;
             },
@@ -194,10 +189,8 @@ export default class VaultSync extends Plugin {
         // (all depend on loadLocalIndex for logging, but are independent of each other)
         const [, engine] = await Promise.all([
             this.syncManager.loadTransferHistory(),
-            loadExternalCryptoEngine(
-                this.vaultOps,
-                this.manifest.dir!,
-                (key) => this.syncManager.notify(key),
+            loadExternalCryptoEngine(this.vaultOps, this.manifest.dir!, (key) =>
+                this.syncManager.notify(key),
             ),
             this.syncManager.loadIndex(),
         ]);
@@ -257,105 +250,115 @@ export default class VaultSync extends Plugin {
             },
         );
 
-        this.app.workspace.onLayoutReady(async () => {
-            if (this.currentTriggers.enableStartupSync) {
-                window.setTimeout(async () => {
-                    await this.syncManager.log(
-                        "Startup grace period ended. Checking E2EE status...",
-                        "system",
-                    );
-
-                    // E2EE Guard: If enabled but locked, show unlock modal
-                    if (!this.settings.e2eeEnabled) {
-                        const hasRemoteLock = await this.syncManager.vaultLockService
-                            .checkForLockFile()
-                            .catch(async (e) => {
-                                await this.syncManager.log(
-                                    `E2EE status check failed: ${e}`,
-                                    "warn",
-                                );
-                                return false;
-                            });
-                        if (hasRemoteLock) {
+        this.app.workspace.onLayoutReady(() => {
+            void (async () => {
+                if (this.currentTriggers.enableStartupSync) {
+                    window.setTimeout(() => {
+                        void (async () => {
                             await this.syncManager.log(
-                                "Remote E2EE detected. Enabling E2EE locally.",
+                                "Startup grace period ended. Checking E2EE status...",
                                 "system",
                             );
-                            this.settings.e2eeEnabled = true;
-                            await this.saveSettings();
-                            await this.syncManager.notify(
-                                this.syncManager.cryptoEngine
-                                    ? "noticeE2EEAutoEnabled"
-                                    : "noticeAddonRequired",
-                            );
-                        }
-                    }
 
-                    if (this.settings.e2eeEnabled && this.syncManager.e2eeLocked) {
-                        let autoUnlocked = false;
-                        // Only attempt auto-unlock if explicitly enabled by user
-                        if (this.settings.e2eeAutoUnlock && this.app.secretStorage) {
-                            const savedPassword =
-                                await this.secureStorage.getExtraSecret("e2ee-password");
-                            if (savedPassword) {
-                                try {
-                                    const blob =
-                                        await this.syncManager.vaultLockService.downloadLockFile();
-                                    await this.syncManager.cryptoEngine?.unlockVault(
-                                        blob,
-                                        savedPassword,
-                                    );
-                                    autoUnlocked = true;
-                                    await this.upgradeVaultLockIfNeeded(savedPassword);
+                            // E2EE Guard: If enabled but locked, show unlock modal
+                            if (!this.settings.e2eeEnabled) {
+                                const hasRemoteLock = await this.syncManager.vaultLockService
+                                    .checkForLockFile()
+                                    .catch(async (e) => {
+                                        await this.syncManager.log(
+                                            `E2EE status check failed: ${e}`,
+                                            "warn",
+                                        );
+                                        return false;
+                                    });
+                                if (hasRemoteLock) {
                                     await this.syncManager.log(
-                                        "Vault auto-unlocked using saved password.",
-                                        "info",
+                                        "Remote E2EE detected. Enabling E2EE locally.",
+                                        "system",
                                     );
-                                } catch (err) {
-                                    await this.syncManager.log(
-                                        "Auto-unlock failed. Manual entry required.",
-                                        "warn",
+                                    this.settings.e2eeEnabled = true;
+                                    await this.saveSettings();
+                                    await this.syncManager.notify(
+                                        this.syncManager.cryptoEngine
+                                            ? "noticeE2EEAutoEnabled"
+                                            : "noticeAddonRequired",
                                     );
-                                    // Clear invalid saved password
-                                    await this.secureStorage.removeExtraSecret("e2ee-password");
                                 }
                             }
-                        }
 
-                        if (!this.syncManager.cryptoEngine) {
-                            // Used on another device, but this device lacks the add-on:
-                            // walk the user through installing it (it then asks for the password).
-                            this.openAddonInstallModal();
-                        } else if (!autoUnlocked) {
-                            this.syncManager.cryptoEngine.showUnlockModal(this.buildE2EEContext());
-                        }
-                    }
+                            if (this.settings.e2eeEnabled && this.syncManager.e2eeLocked) {
+                                let autoUnlocked = false;
+                                // Only attempt auto-unlock if explicitly enabled by user
+                                if (this.settings.e2eeAutoUnlock && this.app.secretStorage) {
+                                    const savedPassword =
+                                        await this.secureStorage.getExtraSecret("e2ee-password");
+                                    if (savedPassword) {
+                                        try {
+                                            const blob =
+                                                await this.syncManager.vaultLockService.downloadLockFile();
+                                            await this.syncManager.cryptoEngine?.unlockVault(
+                                                blob,
+                                                savedPassword,
+                                            );
+                                            autoUnlocked = true;
+                                            await this.upgradeVaultLockIfNeeded(savedPassword);
+                                            await this.syncManager.log(
+                                                "Vault auto-unlocked using saved password.",
+                                                "info",
+                                            );
+                                        } catch (err) {
+                                            await this.syncManager.log(
+                                                "Auto-unlock failed. Manual entry required.",
+                                                "warn",
+                                            );
+                                            // Clear invalid saved password
+                                            await this.secureStorage.removeExtraSecret(
+                                                "e2ee-password",
+                                            );
+                                        }
+                                    }
+                                }
 
-                    // First time sync -> "initial-sync" (loud). Subsequent -> "startup-sync" (quiet).
-                    const isFirstSync = !this.settings.hasCompletedFirstSync;
-                    const trigger: SyncTrigger = isFirstSync ? "initial-sync" : "startup-sync";
+                                if (!this.syncManager.cryptoEngine) {
+                                    // Used on another device, but this device lacks the add-on:
+                                    // walk the user through installing it (it then asks for the password).
+                                    this.openAddonInstallModal();
+                                } else if (!autoUnlocked) {
+                                    this.syncManager.cryptoEngine.showUnlockModal(
+                                        this.buildE2EEContext(),
+                                    );
+                                }
+                            }
 
-                    try {
-                        await this.syncManager.requestSmartSync(trigger, true);
+                            // First time sync -> "initial-sync" (loud). Subsequent -> "startup-sync" (quiet).
+                            const isFirstSync = !this.settings.hasCompletedFirstSync;
+                            const trigger: SyncTrigger = isFirstSync
+                                ? "initial-sync"
+                                : "startup-sync";
 
-                        if (isFirstSync) {
-                            this.settings.hasCompletedFirstSync = true;
-                            await this.saveSettings();
-                        }
-                    } catch {
-                        // Startup sync may fail (e.g. not authenticated yet).
-                        // Don't block the plugin — timer/save/modify syncs must still fire.
-                    } finally {
-                        this.triggerManager.setReady(true);
-                    }
-                }, this.settings.startupDelaySec * 1000);
-            } else {
-                this.triggerManager.setReady(true);
-                await this.syncManager.log(
-                    "Startup sync disabled. Auto-sync hooks enabled.",
-                    "system",
-                );
-            }
+                            try {
+                                await this.syncManager.requestSmartSync(trigger, true);
+
+                                if (isFirstSync) {
+                                    this.settings.hasCompletedFirstSync = true;
+                                    await this.saveSettings();
+                                }
+                            } catch {
+                                // Startup sync may fail (e.g. not authenticated yet).
+                                // Don't block the plugin — timer/save/modify syncs must still fire.
+                            } finally {
+                                this.triggerManager.setReady(true);
+                            }
+                        })();
+                    }, this.settings.startupDelaySec * 1000);
+                } else {
+                    this.triggerManager.setReady(true);
+                    await this.syncManager.log(
+                        "Startup sync disabled. Auto-sync hooks enabled.",
+                        "system",
+                    );
+                }
+            })();
         });
 
         // Ribbon button uses Smart Sync for O(1) performance when no changes
@@ -548,7 +551,7 @@ export default class VaultSync extends Plugin {
         // 3. Mobile Floating Action Button (FAB) -> Fixed Top Center Indicator
         if (Platform.isMobile) {
             this.app.workspace.onLayoutReady(() => {
-                this.mobileSyncFabEl = document.body.createDiv("vault-sync-mobile-fab");
+                this.mobileSyncFabEl = activeDocument.body.createDiv("vault-sync-mobile-fab");
                 setIcon(this.mobileSyncFabEl, "sync");
                 this.mobileSyncFabEl.setAttribute("aria-label", t("labelSyncTooltip"));
             });
@@ -660,20 +663,40 @@ export default class VaultSync extends Plugin {
     }
 
     async saveCredentials(
-        clientId: string, clientSecret: string,
-        accessToken: string | null, refreshToken: string | null, tokenExpiresAt?: number,
+        clientId: string,
+        clientSecret: string,
+        accessToken: string | null,
+        refreshToken: string | null,
+        tokenExpiresAt?: number,
     ): Promise<void> {
-        await this.credentialMgr.saveCredentials(clientId, clientSecret, accessToken, refreshToken, tokenExpiresAt);
+        await this.credentialMgr.saveCredentials(
+            clientId,
+            clientSecret,
+            accessToken,
+            refreshToken,
+            tokenExpiresAt,
+        );
     }
 
-    setAuthConfig(method: "default" | "custom-proxy" | "client-credentials", proxyUrl: string): void {
+    setAuthConfig(
+        method: "default" | "custom-proxy" | "client-credentials",
+        proxyUrl: string,
+    ): void {
         this.credentialMgr.setAuthConfig(method, proxyUrl);
     }
 
-    getClientId(): string { return this.credentialMgr.getClientId(); }
-    getClientSecret(): string { return this.credentialMgr.getClientSecret(); }
-    isAdapterAuthenticated(): boolean { return this.credentialMgr.isAdapterAuthenticated(); }
-    async adapterLogin(): Promise<void> { await this.credentialMgr.adapterLogin(); }
+    getClientId(): string {
+        return this.credentialMgr.getClientId();
+    }
+    getClientSecret(): string {
+        return this.credentialMgr.getClientSecret();
+    }
+    isAdapterAuthenticated(): boolean {
+        return this.credentialMgr.isAdapterAuthenticated();
+    }
+    async adapterLogin(): Promise<void> {
+        await this.credentialMgr.adapterLogin();
+    }
 
     async updateClientCredential(field: "clientId" | "clientSecret", value: string): Promise<void> {
         await this.credentialMgr.updateClientCredential(field, value);
@@ -698,8 +721,9 @@ export default class VaultSync extends Plugin {
         );
     }
 
-    getE2EESettingsSections(): ReturnType<NonNullable<typeof this.syncManager.cryptoEngine>["getSettingsSections"]> {
+    getE2EESettingsSections(): ReturnType<
+        NonNullable<typeof this.syncManager.cryptoEngine>["getSettingsSections"]
+    > {
         return this.syncManager.cryptoEngine?.getSettingsSections(this.buildE2EEContext()) || [];
     }
-
 }

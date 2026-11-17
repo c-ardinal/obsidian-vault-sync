@@ -11,7 +11,8 @@
         "version": "node version-bump.mjs && git add manifest.json versions.json",
         "test": "vitest run",
         "test:watch": "vitest",
-        "test:sim": "vitest run --config vitest.sim.config.ts"
+        "test:sim": "vitest run --config vitest.sim.config.ts",
+        "lint:obsidian": "npm --prefix tools/obsidian-review install --no-audit --no-fund --silent && tools/obsidian-review/node_modules/.bin/eslint -c tools/obsidian-review/eslint.config.mjs ."
     },
     "keywords": [
         "obsidian",

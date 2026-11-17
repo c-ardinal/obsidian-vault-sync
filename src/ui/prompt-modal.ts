@@ -2,7 +2,7 @@ import { App, Modal, Setting, TextComponent, ButtonComponent } from "obsidian";
 
 export class PromptModal extends Modal {
     private result: string | null = null;
-    private onSubmit: (result: string | null) => void;
+    private onSubmit: (result: string | null) => void | Promise<void>;
     private errorEl: HTMLElement | null = null;
     private okBtn: ButtonComponent | null = null;
 
@@ -10,7 +10,7 @@ export class PromptModal extends Modal {
         app: App,
         private title: string,
         private defaultValue: string,
-        onSubmit: (result: string | null) => void,
+        onSubmit: (result: string | null) => void | Promise<void>,
         private validator?: (value: string) => Promise<string | null>,
     ) {
         super(app);
@@ -27,7 +27,7 @@ export class PromptModal extends Modal {
         inputSetting.addText((text) => {
             textComp = text;
             text.setValue(this.defaultValue);
-            text.inputEl.style.width = "100%";
+            text.inputEl.addClass("vault-sync-prompt-input");
 
             text.onChange(async (val) => {
                 await this.validate(val);
@@ -35,10 +35,6 @@ export class PromptModal extends Modal {
         });
 
         this.errorEl = contentEl.createDiv({ cls: "vault-sync-prompt-error" });
-        this.errorEl.style.color = "var(--text-error)";
-        this.errorEl.style.fontSize = "0.85em";
-        this.errorEl.style.marginTop = "4px";
-        this.errorEl.style.minHeight = "1.2em";
 
         const btnSetting = new Setting(contentEl)
             .addButton((btn) => {
@@ -83,7 +79,7 @@ export class PromptModal extends Modal {
     }
 
     onClose() {
-        this.onSubmit(this.result);
+        void this.onSubmit(this.result);
         this.contentEl.empty();
     }
 }

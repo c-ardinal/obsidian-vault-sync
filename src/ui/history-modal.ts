@@ -115,7 +115,7 @@ export class HistoryModal extends Modal {
         } catch (e) {
             contentEl.empty();
             contentEl.createEl("h2", { text: this.syncManager.t("historyError") });
-            const errDiv = contentEl.createEl("div", { cls: "error-text" });
+            const errDiv = contentEl.createDiv({ cls: "error-text" });
             errDiv.setText(
                 `${this.syncManager.t("historyFailedToLoadHistory")}: ${e instanceof Error ? e.message : String(e)}`,
             );
@@ -248,15 +248,12 @@ export class HistoryModal extends Modal {
             authorDiv.setText(rev.author || this.syncManager.t("historyAuthorUnknown"));
 
             // Row 3: Size
-            const sizeDiv = metaDiv.createDiv({ cls: "revision-size" });
-            sizeDiv.style.display = "flex";
-            sizeDiv.style.justifyContent = "space-between";
+            const sizeDiv = metaDiv.createDiv({ cls: "revision-size vault-sync-revision-size-row" });
             sizeDiv.createSpan({ text: this.formatSize(rev.size) });
 
             if (rev.keepForever) {
                 const pin = sizeDiv.createSpan({ cls: "revision-pin", text: "📌" });
                 pin.title = this.syncManager.t("historyProtectedFromDeletion");
-                pin.style.fontSize = "0.9em";
             }
 
             li.addEventListener("click", () => {
@@ -289,11 +286,9 @@ export class HistoryModal extends Modal {
         const header = infoHeader.createDiv({ cls: "revision-actions-header" });
 
         // Row 2: Diff Controls
-        const controlRow = header.createDiv({ cls: "revision-control-row" });
-        controlRow.style.display = "flex";
-        controlRow.style.alignItems = "center";
-        controlRow.style.gap = "8px";
-        controlRow.style.marginTop = "8px";
+        const controlRow = header.createDiv({
+            cls: "revision-control-row vault-sync-revision-control-row",
+        });
 
         controlRow.createSpan({ text: this.syncManager.t("historyCompareWith") });
 
@@ -341,7 +336,7 @@ export class HistoryModal extends Modal {
         });
 
         // Spacer to push subsequent buttons to the right
-        controlRow.createSpan({ cls: "vault-sync-control-spacer" }).style.flex = "1";
+        controlRow.createSpan({ cls: "vault-sync-control-spacer" });
 
         // 1. Context Lines Input (Only if not showing all)
         if (!this.showAllLines) {
@@ -467,7 +462,7 @@ export class HistoryModal extends Modal {
                 menu.addItem((item) => {
                     item.setTitle(this.syncManager.t("historyRestoreAs"))
                         .setIcon("copy")
-                        .onClick(async () => {
+                        .onClick(() => {
                             const ext = this.file.extension;
                             const baseName = this.file.path.substring(
                                 0,
@@ -594,11 +589,11 @@ export class HistoryModal extends Modal {
                     y: rect.bottom,
                 });
                 // Hack: Left-shift the menu
-                const menus = document.body.querySelectorAll(".menu");
+                const menus = activeDocument.body.querySelectorAll(".menu");
                 const latestMenu = menus[menus.length - 1] as HTMLElement;
                 if (latestMenu) {
                     const menuWidth = latestMenu.offsetWidth;
-                    latestMenu.style.left = `${rect.right - menuWidth}px`;
+                    latestMenu.setCssStyles({ left: `${rect.right - menuWidth}px` });
                 }
             });
 

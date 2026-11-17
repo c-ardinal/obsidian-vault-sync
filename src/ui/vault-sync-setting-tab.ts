@@ -41,10 +41,8 @@ export class VaultSyncSettingTab extends PluginSettingTab {
         containerEl.empty();
         containerEl.addClass("vault-sync-settings-container");
 
-        containerEl.createEl("h2", { text: t("settingSettingsTitle") });
-
         // 1. Authentication (Manually handled due to complex UI)
-        containerEl.createEl("h3", { text: t("settingAuthSection") });
+        new Setting(containerEl).setName(t("settingAuthSection")).setHeading();
 
         const authGroupKey = "auth:_subheader_account";
         const authCollapsed = this.closedGroups.has(authGroupKey);
@@ -60,7 +58,7 @@ export class VaultSyncSettingTab extends PluginSettingTab {
 
         const authBody = authGroup.createDiv({ cls: "vault-sync-subheader-body" });
         if (authCollapsed) {
-            authBody.style.display = "none";
+            authBody.hide();
         }
 
         authHeader.addEventListener("click", () => {
@@ -164,7 +162,7 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                 continue;
             }
 
-            containerEl.createEl("h3", { text: section.title });
+            new Setting(containerEl).setName(section.title).setHeading();
             if (section.description) {
                 containerEl.createEl("p", {
                     text: section.description,
@@ -191,7 +189,7 @@ export class VaultSyncSettingTab extends PluginSettingTab {
 
                     groupBody = groupEl.createDiv({ cls: "vault-sync-subheader-body" });
                     if (groupCollapsed) {
-                        groupBody.style.display = "none";
+                        groupBody.hide();
                     }
 
                     headerEl.addEventListener("click", () => {
@@ -386,7 +384,7 @@ export class VaultSyncSettingTab extends PluginSettingTab {
         }
 
         // Add-ons are separate, opt-in downloads with their own terms.
-        containerEl.createEl("h3", { text: t("addonSectionTitle") });
+        new Setting(containerEl).setName(t("addonSectionTitle")).setHeading();
         const agreements = this.plugin.settings.addonAgreements ?? {};
         if (this.plugin.syncManager.cryptoEngine) {
             const names = Object.values(agreements).map((a) => `${a.name} ${a.version}`);
@@ -411,8 +409,7 @@ export class VaultSyncSettingTab extends PluginSettingTab {
     private addUnitAddon(inputEl: HTMLInputElement, unit?: string): void {
         if (!unit) return;
         inputEl.addClass("vault-sync-number-input-with-unit");
-        const wrapper = document.createElement("div");
-        wrapper.addClass("vault-sync-number-wrapper");
+        const wrapper = createDiv({ cls: "vault-sync-number-wrapper" });
         inputEl.parentNode?.insertBefore(wrapper, inputEl);
         wrapper.appendChild(inputEl);
         wrapper.createDiv({ cls: "vault-sync-unit-addon", text: unit });
