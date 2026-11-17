@@ -483,6 +483,7 @@ export async function loadLocalIndex(ctx: SyncContext): Promise<void> {
                 deviceId?: string;
                 attemptedUploads?: unknown;
                 pendingPulls?: unknown;
+                journalSeq?: unknown;
             };
             ctx.localIndex = parsed.index || {};
             ctx.deviceId = parsed.deviceId || "";
