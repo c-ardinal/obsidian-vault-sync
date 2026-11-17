@@ -17,10 +17,18 @@ export async function computeLocalHash(
 }
 
 export async function downloadRemoteIndex(ctx: SyncContext, fileId: string): Promise<LocalFileIndex> {
+    return (await downloadRemoteIndexData(ctx, fileId)).index;
+}
+
+/** The remote index plus the Changes API token its writer had when uploading it. */
+export async function downloadRemoteIndexData(
+    ctx: SyncContext,
+    fileId: string,
+): Promise<{ index: LocalFileIndex; startPageToken: string | null }> {
     const content = await ctx.adapter.downloadFile(fileId);
     const decompressed = await tryDecompress(content);
     const data = JSON.parse(new TextDecoder().decode(decompressed));
-    return data.index || {};
+    return { index: data.index || {}, startPageToken: data.startPageToken || null };
 }
 
 export function getThresholdBytes(ctx: SyncContext): number {

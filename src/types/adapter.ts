@@ -53,6 +53,13 @@ export interface CloudAdapter {
         content: ArrayBuffer,
         mtime: number,
         existingFileId?: string,
+        /**
+         * createOnly: always create a new file, never update one found at `path`.
+         * The caller checked that nothing is there; if another device created the
+         * same name since, both files are kept (and renamed apart by the sync)
+         * instead of this upload silently overwriting the other device's note.
+         */
+        opts?: { createOnly?: boolean },
     ): Promise<CloudFile>;
     /**
      * Upload a file using resumable upload protocol (optional).

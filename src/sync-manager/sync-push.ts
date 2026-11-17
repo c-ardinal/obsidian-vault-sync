@@ -10,9 +10,9 @@ import {
     shouldIgnore,
     hashContent,
 } from "./file-utils";
-import { loadCommunication, saveIndex, releaseLockAfterPush, findForeignLock } from "./state";
+import { loadCommunication, saveIndex, releaseLockAfterPush, findForeignLock, renameLocal, confirmMissingForDeletion, noteDeleteIntent, takeUnsyncedRename } from "./state";
 import { pullFileSafely } from "./merge";
-import { findPathCollision, freeCollisionPath, moveIndexEntry } from "./path-collision";
+import { findPathCollision, freeCollisionPath, moveIndexEntry, pathKey } from "./path-collision";
 import { TransferPriority } from "./transfer-types";
 import { formatSize } from "../utils/format";
 import { basename, dirname } from "../utils/path";
@@ -158,6 +158,20 @@ async function reconcileVanishedAfterUpload(
         await ctx.log(`[Smart Push] ${path} was renamed to ${p} during upload.`, "info");
         return true;
     }
+    // Renamed (and maybe edited since): the rename handler recorded where it went.
+    const renamedTo = takeUnsyncedRename(ctx, path);
+    if (renamedTo && !ctx.index[renamedTo] && (await ctx.vault.exists(renamedTo))) {
+        const moved = { ...entry, forcePush: true, pendingMove: { oldPath: path } };
+        ctx.index[renamedTo] = moved;
+        ctx.localIndex[renamedTo] = { ...moved };
+        ctx.dirtyPaths.delete(path);
+        ctx.dirtyPaths.set(renamedTo, Date.now());
+        await ctx.log(
+            `[Smart Push] ${path} was renamed to ${renamedTo} during upload. Will move the remote file.`,
+            "info",
+        );
+        return true;
+    }
     const uploadedHash = md5(content);
     for (const candidate of ctx.dirtyPaths.keys()) {
         if (candidate === path || ctx.index[candidate]) continue;
@@ -183,6 +197,7 @@ async function reconcileVanishedAfterUpload(
     ctx.index[path] = entry;
     ctx.localIndex[path] = { ...entry };
     ctx.dirtyPaths.set(path, Date.now());
+    noteDeleteIntent(ctx, path);
     await ctx.log(`[Smart Push] ${path} disappeared during upload. Will remove it remotely.`, "info");
     return true;
 }
@@ -274,6 +289,8 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
         hash: string;
     }> = [];
     const deleteQueue: string[] = [];
+
+    await collapseCollidingNewPaths(ctx);
 
     const dirtyPathTasks: (() => Promise<void>)[] = [];
     const dirtyPathsSnapshot = Array.from(ctx.dirtyPaths.keys());
@@ -578,7 +595,18 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                 }
             } else {
                 if (ctx.localIndex[path]) {
-                    deleteQueue.push(path);
+                    if (
+                        path.startsWith(".obsidian/") ||
+                        !ctx.localIndex[path].fileId ||
+                        confirmMissingForDeletion(ctx, path)
+                    ) {
+                        deleteQueue.push(path);
+                    } else {
+                        await ctx.log(
+                            `[Smart Push] ${path} is missing but no deletion was reported yet. Waiting one sync (it may have been renamed).`,
+                            "debug",
+                        );
+                    }
                 } else if (!ctx.index[path]) {
                     // Created (and maybe renamed) then deleted before it was ever synced:
                     // nothing exists anywhere, so the dirty mark would otherwise stay forever
@@ -699,8 +727,12 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                         // without the conflict check below would silently overwrite another
                         // device's newer version (by fileId), or create a second file with
                         // the same name (by path). Leave the file dirty and retry next sync.
-                        if (!params.fileId && file.remoteLookup !== undefined) {
-                            // Already looked up by path moments ago during the hash check
+                        if (!params.fileId && file.remoteLookup) {
+                            // Already looked up by path moments ago during the hash check.
+                            // A "not found" is NOT reused: the queue may have waited a while,
+                            // and if another device created the same name meanwhile, the
+                            // upload (which updates an existing file by path) would overwrite
+                            // that device's new note without any conflict check.
                             remoteMeta = file.remoteLookup;
                         } else if (params.fileId) {
                             remoteMeta = await ctx.adapter.getFileMetadataById(
@@ -765,7 +797,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                         // write the new name next to ours and strand our edit
                                         // under the old one. Follow the rename; the next cycle
                                         // merges the content at the new path.
-                                        await ctx.vault.rename(file.path, remoteMeta.path);
+                                        await renameLocal(ctx, file.path, remoteMeta.path);
                                         moveIndexEntry(ctx, file.path, remoteMeta.path);
                                         ctx.dirtyPaths.set(remoteMeta.path, Date.now());
                                         await ctx.log(
@@ -819,7 +851,17 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                             };
                                             ctx.index[file.path] = mergedEntry;
                                             ctx.localIndex[file.path] = { ...mergedEntry };
-                                            ctx.dirtyPaths.delete(file.path);
+                                            // Typed into the note while the merged version uploaded?
+                                            // (Vault events are suppressed meanwhile.) Keep it dirty
+                                            // so that edit is pushed next, instead of dropping it.
+                                            const latest = await ctx.vault
+                                                .readBinary(file.path)
+                                                .catch(() => null);
+                                            if (latest && md5(latest) !== md5(mergedContent)) {
+                                                ctx.dirtyPaths.set(file.path, Date.now());
+                                            } else {
+                                                ctx.dirtyPaths.delete(file.path);
+                                            }
                                             ctx.logger.markActionTaken();
                                             completed++;
 
@@ -857,6 +899,9 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                         file.content,
                         file.mtime,
                         targetFileId,
+                        // Checked just now that nothing is at this path: never let the
+                        // upload turn into an update of a file another device created since.
+                        targetFileId ? undefined : { createOnly: true },
                     );
 
                     const plainHash = await hashContent(file.content);
@@ -1054,5 +1099,48 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
         }
         return true;
     } finally {
+    }
+}
+
+/**
+ * Two NEW dirty paths that differ only in case / Unicode form. On macOS the same
+ * file is often reported under both spellings (created as NFC, listed as NFD), and
+ * uploading each made two cloud files out of one note; on Linux they are two notes
+ * that would overwrite each other on Windows/macOS. Same content: keep one spelling.
+ * Different content: rename the later one before it reaches the cloud.
+ */
+async function collapseCollidingNewPaths(ctx: SyncContext): Promise<void> {
+    const firstByKey = new Map<string, string>();
+    for (const path of Array.from(ctx.dirtyPaths.keys())) {
+        if (ctx.index[path] || isManagedSeparately(path)) continue;
+        const key = pathKey(path);
+        const first = firstByKey.get(key);
+        if (first === undefined) {
+            firstByKey.set(key, path);
+            continue;
+        }
+        try {
+            if (!(await ctx.vault.exists(path))) continue;
+            if (!(await ctx.vault.exists(first))) {
+                firstByKey.set(key, path);
+                continue;
+            }
+            const [a, b] = [await ctx.vault.readBinary(first), await ctx.vault.readBinary(path)];
+            if (md5(a) === md5(b)) {
+                ctx.dirtyPaths.delete(path);
+                await ctx.log(`[Smart Push] ${path} is the same note as ${first}. Syncing it once.`, "debug");
+                continue;
+            }
+            const newPath = await freeCollisionPath(ctx, path);
+            await ctx.vault.rename(path, newPath);
+            ctx.dirtyPaths.delete(path);
+            ctx.dirtyPaths.set(newPath, Date.now());
+            await ctx.log(
+                `[Smart Push] ${path} has the same name as ${first} on Windows/macOS. Renamed it to ${newPath}.`,
+                "warn",
+            );
+        } catch (e) {
+            await ctx.log(`[Smart Push] Could not check ${path} for a name collision: ${e}`, "warn");
+        }
     }
 }

@@ -84,9 +84,12 @@ export class EncryptedAdapter implements CloudAdapter {
         content: ArrayBuffer,
         mtime: number,
         existingFileId?: string,
+        opts?: { createOnly?: boolean },
     ): Promise<CloudFile> {
         const encrypted = await this.encryptContent(content);
-        const result = await this.baseAdapter.uploadFile(path, encrypted, mtime, existingFileId);
+        const result = opts
+            ? await this.baseAdapter.uploadFile(path, encrypted, mtime, existingFileId, opts)
+            : await this.baseAdapter.uploadFile(path, encrypted, mtime, existingFileId);
         return result;
     }
 

@@ -15,7 +15,7 @@ import {
     moveIndexEntry,
     pathKey,
 } from "../../../src/sync-manager/path-collision";
-import { indexKeyFor } from "../../../src/sync-manager/state";
+import { indexKeyFor, markRenamed, renameLocal } from "../../../src/sync-manager/state";
 
 const NFC = "notes/café.md";
 const NFD = "notes/café.md";
@@ -97,5 +97,22 @@ describe("indexKeyFor", () => {
         expect(indexKeyFor(ctx, "notes/plain.md")).toBe("notes/plain.md");
         // Case is never folded: on a case-sensitive Mac volume these are two files too
         expect(indexKeyFor(ctx, "notes/CAFÉ.md")).toBe("notes/CAFÉ.md");
+    });
+});
+
+describe("renames made by the sync engine itself", () => {
+    it("are not reported back as user renames, even when another note took the old name", async () => {
+        const ctx = makeCtx({ "a.md": { fileId: "f1" } });
+        ctx.vault.rename = async () => {};
+        ctx.log = () => {};
+        ctx.settings = {};
+        moveIndexEntry(ctx, "a.md", "b.md");
+        await renameLocal(ctx, "a.md", "b.md");
+        // Meanwhile a different note was pulled under the old name
+        ctx.index["a.md"] = { fileId: "f2" };
+        markRenamed(ctx, "a.md", "b.md"); // the late vault event
+        expect(ctx.index["a.md"]).toEqual({ fileId: "f2" });
+        expect(ctx.index["b.md"]).toEqual({ fileId: "f1" });
+        expect(ctx.index["b.md"].pendingMove).toBeUndefined();
     });
 });
