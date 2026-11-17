@@ -44,7 +44,7 @@ Supported cloud storage providers are listed below; others are planned.
 - **Background Transfer**:
     - Large files are uploaded and downloaded in the background without blocking the UI. Configurable thresholds and concurrency limits.
 - **End-to-End Encryption (E2EE)**:
-    - Built in, with nothing extra to install. Run the `E2EE: Start Vault Encryption` command to encrypt the vault. Files are encrypted before upload and decrypted after download — no plaintext is stored in the cloud.
+    - By installing the [E2EE Engine](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine) separately, vault data can be encrypted. Files are encrypted before upload and decrypted after download — no plaintext is stored in the cloud.
 
 |               Transfer Status               |                   Selective Sync                   |
 | :-----------------------------------------: | :------------------------------------------------: |
@@ -277,13 +277,13 @@ graph TD
 - **Data Location**:
     - Synced data is stored exclusively in your own cloud storage space (in the root folder you specify).
 - **File Encryption**:
-    - By default, synced data (Markdown files, etc.) is uploaded to cloud storage in **plain text (without encryption)**. While protected by the cloud storage security model (HTTPS transfer, server-side encryption), data is readable on the server side. If End-to-End Encryption is required, turn it on with the built-in E2EE feature. See the section below for details.
+    - By default, synced data (Markdown files, etc.) is uploaded to cloud storage in **plain text (without encryption)**. While protected by the cloud storage security model (HTTPS transfer, server-side encryption), data is readable on the server side. If End-to-End Encryption is required, install the [Vault-Sync E2EE Engine](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine). See the section below for details.
 
 ---
 
 ## 🔑 End-to-End Encryption (E2EE)
 
-Vault-Sync supports optional End-to-End Encryption through its open-source encryption engine, which is bundled into the plugin.
+Vault-Sync supports optional End-to-End Encryption through a separate, open-source encryption engine.
 
 ```mermaid
 flowchart LR
@@ -317,22 +317,16 @@ When E2EE is enabled:
 - Master key can be exported as a Base64 string, enabling **recovery code generation** for password loss recovery
 - Reduces peak memory for files above the configurable threshold with **streaming encryption for large files**
 
-**No separate installation is needed, on desktop or mobile.** Encryption stays off until you turn it on:
+The E2EE Engine is distributed separately as a standalone `e2ee-engine.js` file, so that only people who want encryption install it, by their own choice. Installing it takes a few taps, on desktop or mobile, with no need to open the hidden `.obsidian` folder:
 
-1. On one device, open the command palette and run `E2EE: Start Vault Encryption`, then follow the setup wizard.
-2. On your other devices, just install Vault-Sync. When it finds the encrypted vault in the cloud it turns E2EE on and asks for the password.
+1. Open Vault-Sync's settings and tap **Install...** under "End-to-End Encryption (E2EE)" (or run `E2EE: Install Encryption Engine` from the command palette).
+2. Tap **Open release page** and download `e2ee-engine.js` from the latest release.
+3. Confirm the two statements (your own choice and responsibility; your country's laws on encryption software).
+4. Tap **Choose file** and pick the downloaded file. Vault-Sync checks its SHA-256 hash against the approved version, saves it to the plugin folder, and activates it without a restart.
 
-The engine's source lives in its own repository and is included here as a git submodule (`e2ee-engine/`) pinned to a reviewed commit. It is compiled into `main.js`; nothing is downloaded or evaluated at runtime. A leftover `e2ee-engine.js` file from older versions is ignored and can be deleted.
+Vault-Sync itself never downloads the engine. If the vault is already encrypted on another device, the install dialog opens on startup and then asks for the password. Copying the file into `.obsidian/plugins/obsidian-vault-sync/` by hand still works too.
 
 For details, available commands, build instructions, and the encryption specification, see the **[Vault-Sync E2EE Engine repository](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine)**.
-
----
-
-### Export Control Disclaimer
-
-Vault-Sync contains cryptographic software (the bundled E2EE engine).
-Depending on your country of residence, there may be restrictions on the import, possession, use, and/or re-export of encryption software to other countries.
-Before using the E2EE feature, please check the laws, regulations, and policies of your country regarding encryption software to ensure compliance.
 
 ---
 
@@ -341,14 +335,6 @@ Before using the E2EE feature, please check the laws, regulations, and policies 
 For running in a development environment or building from source:
 
 ### Build
-
-Clone with the E2EE engine submodule:
-
-```bash
-git clone --recurse-submodules https://github.com/c-ardinal/obsidian-vault-sync.git
-# or, in an existing clone:
-git submodule update --init
-```
 
 ```bash
 npm run build

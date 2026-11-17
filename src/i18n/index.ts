@@ -232,6 +232,37 @@ export const en: Record<string, string> = {
     labelE2EEChangePassword: "E2EE: Change Encryption Password",
     labelE2EEShowRecovery: "E2EE: Show Recovery Code",
     labelE2EERecover: "E2EE: Recover Vault with Recovery Code",
+    labelE2EEInstallEngine: "E2EE: Install Encryption Engine",
+    engineSectionTitle: "End-to-End Encryption (E2EE)",
+    engineStatusNotInstalled: "Encryption engine: not installed",
+    engineStatusNotInstalledDesc:
+        "E2EE needs the separate encryption engine. You download and install it yourself, only if you want to use E2EE.",
+    engineInstallButton: "Install...",
+    engineInstallTitle: "Install the E2EE Engine",
+    engineInstallNeededForVault:
+        "This vault is encrypted on another device. Install the engine on this device to unlock it.",
+    engineInstallIntro:
+        "The encryption engine is distributed separately from Vault-Sync. Install it only if you want to use end-to-end encryption, by your own choice.",
+    engineInstallStep1: "1. Download",
+    engineInstallStep1Desc:
+        "Open the release page and download {file} from the latest release. On a phone it goes to your Downloads / Files.",
+    engineInstallOpenReleases: "Open release page",
+    engineInstallStep2: "2. Confirm",
+    engineInstallConsentResponsibility:
+        "I am installing encryption software of my own choice and at my own risk. If I lose both my password and recovery code, my data cannot be recovered, and E2EE cannot be turned off once enabled.",
+    engineInstallConsentLaw:
+        "I have checked that the laws of my country allow me to import, possess and use encryption software.",
+    engineInstallStep3: "3. Choose the file",
+    engineInstallStep3Desc:
+        "Choose the downloaded {file}. Vault-Sync checks it against the approved version before saving it.",
+    engineInstallPickFile: "Choose file",
+    engineInstallVerifying: "Verifying...",
+    engineInstallSuccess: "Engine installed. You can now use the E2EE commands.",
+    engineInstallErrorHash:
+        "This file is not the approved engine version. Download the latest release again. If it still fails, update Vault-Sync.",
+    engineInstallErrorInvalid: "This file is not a valid E2EE engine.",
+    engineInstallErrorWrite:
+        "The engine was verified but could not be saved. Check storage space and try again.",
 
     // Transfer Status
     labelTransferStatus: "Transfer Status (Vault-Sync)",
