@@ -11,7 +11,12 @@ import {
 } from "./types/settings";
 import { t, initI18n } from "./i18n";
 import { VaultSyncSettingTab } from "./ui/vault-sync-setting-tab";
-import { loadExternalCryptoEngine } from "./encryption/engine-loader";
+import {
+    installEngineFromContent,
+    loadExternalCryptoEngine,
+    type EngineInstallResult,
+} from "./encryption/engine-loader";
+import { EngineInstallModal } from "./ui/engine-install-modal";
 import { checkPasswordStrength } from "./encryption/password-strength";
 import type { E2EEPluginContext } from "./encryption/interfaces";
 import {
@@ -49,6 +54,36 @@ export default class VaultSync extends Plugin {
     private settingsMgr!: SettingsManager;
     private credentialMgr!: CredentialManager;
     public t = t;
+
+    /**
+     * Installs an engine file the user picked (see EngineInstallModal) and
+     * activates it immediately, without restarting Obsidian.
+     */
+    public async installEngineFromFile(content: string): Promise<EngineInstallResult> {
+        const result = await installEngineFromContent(this.vaultOps, this.manifest.dir!, content);
+        if (result.ok) {
+            this.syncManager.cryptoEngine = result.engine;
+            await this.syncManager.log("E2EE engine installed from a user-picked file.", "system");
+            this.refreshSettingsUI();
+        } else {
+            await this.syncManager.log(`E2EE engine install rejected: ${result.reason}`, "warn");
+        }
+        return result;
+    }
+
+    public openEngineInstallModal(): void {
+        new EngineInstallModal(
+            this.app,
+            (content) => this.installEngineFromFile(content),
+            () => {
+                // Already encrypted on another device: go straight to the password prompt.
+                if (this.settings.e2eeEnabled && this.syncManager.e2eeLocked) {
+                    this.syncManager.cryptoEngine?.showUnlockModal(this.buildE2EEContext());
+                }
+            },
+            this.settings.e2eeEnabled,
+        ).open();
+    }
 
     public refreshSettingsUI() {
         if (this.settingTab) {
@@ -258,8 +293,12 @@ export default class VaultSync extends Plugin {
                             }
                         }
 
-                        if (!autoUnlocked) {
-                            this.syncManager.cryptoEngine?.showUnlockModal(this.buildE2EEContext());
+                        if (!this.syncManager.cryptoEngine) {
+                            // Encrypted on another device, but this device has no engine yet:
+                            // walk the user through installing it (it then asks for the password).
+                            this.openEngineInstallModal();
+                        } else if (!autoUnlocked) {
+                            this.syncManager.cryptoEngine.showUnlockModal(this.buildE2EEContext());
                         }
                     }
 
@@ -328,6 +367,16 @@ export default class VaultSync extends Plugin {
                 }
                 await this.syncManager.notify("noticeScanningLocalFiles");
                 await this.syncManager.requestBackgroundScan(false);
+            },
+        });
+
+        this.addCommand({
+            id: "e2ee-install-engine",
+            name: t("labelE2EEInstallEngine"),
+            checkCallback: (checking: boolean) => {
+                if (this.syncManager.cryptoEngine) return false;
+                if (!checking) this.openEngineInstallModal();
+                return true;
             },
         });
 

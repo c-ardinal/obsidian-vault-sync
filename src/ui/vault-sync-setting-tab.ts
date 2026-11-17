@@ -385,6 +385,19 @@ export class VaultSyncSettingTab extends PluginSettingTab {
             }
         }
 
+        // E2EE engine is a separate, opt-in download. Offer a guided install when it is missing.
+        if (!this.plugin.syncManager.cryptoEngine) {
+            containerEl.createEl("h3", { text: t("engineSectionTitle") });
+            new Setting(containerEl)
+                .setName(t("engineStatusNotInstalled"))
+                .setDesc(t("engineStatusNotInstalledDesc"))
+                .addButton((btn) =>
+                    btn.setButtonText(t("engineInstallButton")).onClick(() => {
+                        this.plugin.openEngineInstallModal();
+                    }),
+                );
+        }
+
         // Restore scroll position
         containerEl.scrollTop = scrollPos;
     }
