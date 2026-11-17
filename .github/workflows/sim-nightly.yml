@@ -1,0 +1,69 @@
+name: Nightly multi-device simulation
+
+# Explores many more random seeds than the PR job, on every OS, every night.
+# New seeds each night (SIM_SEED_BASE moves with the run number); any failing
+# seed can be replayed locally with the command shown in the job summary.
+
+on:
+    schedule:
+        - cron: "0 18 * * *" # 03:00 JST
+    workflow_dispatch:
+        inputs:
+            seeds:
+                description: "Seeds per scenario"
+                default: "200"
+            scenario:
+                description: "Only this scenario (empty = all)"
+                default: ""
+            minimize:
+                description: "Shrink failing plans (slower)"
+                type: boolean
+                default: false
+
+jobs:
+    simulate:
+        name: ${{ matrix.os }}
+        runs-on: ${{ matrix.os }}
+        timeout-minutes: 60
+        # Report-only until the known bugs are fixed; set repository variable SIM_STRICT=true to turn red on failures.
+        continue-on-error: ${{ vars.SIM_STRICT != 'true' }}
+        strategy:
+            fail-fast: false
+            matrix:
+                os: [ubuntu-latest, macos-latest, windows-latest]
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Use Node.js 20.x
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 20.x
+                  cache: "npm"
+
+            - name: Install dependencies
+              run: npm ci
+
+            - name: Randomized simulation
+              env:
+                  SIM_SEEDS: ${{ inputs.seeds || '200' }}
+                  SIM_SEED_BASE: ${{ github.run_number }}000
+                  SIM_SCENARIO: ${{ inputs.scenario }}
+                  SIM_MINIMIZE: ${{ inputs.minimize && '1' || '0' }}
+              run: npx vitest run --config vitest.sim.config.ts tests/sim/multi-device.sim.test.ts --reporter=dot
+
+            - name: Simulation summary
+              if: ${{ !cancelled() }}
+              shell: bash
+              env:
+                  SIM_SUMMARY_TITLE: "Nightly simulation (${{ matrix.os }})"
+              run: node tests/sim/summarize.mjs >> "$GITHUB_STEP_SUMMARY"
+
+            - name: Upload simulation reports
+              if: ${{ !cancelled() }}
+              uses: actions/upload-artifact@v4
+              with:
+                  name: sim-nightly-${{ matrix.os }}
+                  path: test-results/sim/
+                  if-no-files-found: ignore
+                  retention-days: 30

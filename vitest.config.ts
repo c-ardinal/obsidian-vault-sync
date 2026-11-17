@@ -5,6 +5,8 @@ export default defineConfig({
         globals: true,
         environment: "node",
         include: ["tests/**/*.test.ts"],
+        // Multi-device simulation has its own config / CI job (vitest.sim.config.ts)
+        exclude: ["**/node_modules/**", "tests/sim/**"],
         testTimeout: 30000,
         coverage: {
             reporter: ["text", "lcov"],
