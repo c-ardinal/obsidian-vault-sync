@@ -321,7 +321,7 @@ The E2EE Engine is distributed separately as a standalone `e2ee-engine.js` file,
 
 1. Open Vault-Sync's settings and tap **Install...** under "End-to-End Encryption (E2EE)" (or run `E2EE: Install Encryption Engine` from the command palette).
 2. Tap **Open release page** and download `e2ee-engine.js` from the latest release.
-3. Confirm the two statements (your own choice and responsibility; your country's laws on encryption software).
+3. Agree to the engine's [Additional Terms of Use](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine/blob/main/TERMS.md).
 4. Tap **Choose file** and pick the downloaded file. Vault-Sync checks its SHA-256 hash against the approved version, saves it to the plugin folder, and activates it without a restart.
 
 Vault-Sync itself never downloads the engine. If the vault is already encrypted on another device, the install dialog opens on startup and then asks for the password. Copying the file into `.obsidian/plugins/obsidian-vault-sync/` by hand still works too.

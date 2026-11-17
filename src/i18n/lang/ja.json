@@ -277,9 +277,7 @@
     "engineInstallStep1": "1. ダウンロード",
     "engineInstallStep1Desc": "リリースページを開き、最新リリースの {file} をダウンロードしてください。スマホではダウンロード / ファイルアプリに保存されます。",
     "engineInstallOpenReleases": "リリースページを開く",
-    "engineInstallStep2": "2. 確認",
-    "engineInstallConsentResponsibility": "暗号化ソフトウェアを自分の意思と責任で導入します。パスワードとリカバリーコードの両方を失うとデータは復元できず、一度有効にしたE2EEは無効にできないことを理解しています。",
-    "engineInstallConsentLaw": "居住国の法律で、暗号化ソフトウェアの輸入・所持・使用が認められていることを確認しました。",
+    "engineInstallStep2": "2. 追加利用条件への同意",
     "engineInstallStep3": "3. ファイルを選択",
     "engineInstallStep3Desc": "ダウンロードした {file} を選択してください。Vault-Syncが承認済みのバージョンか検証してから保存します。",
     "engineInstallPickFile": "ファイルを選択",
@@ -287,5 +285,9 @@
     "engineInstallSuccess": "エンジンを導入しました。E2EEのコマンドが使えるようになりました。",
     "engineInstallErrorHash": "このファイルは承認済みのエンジンではありません。最新リリースを再ダウンロードしてください。それでも失敗する場合はVault-Syncを更新してください。",
     "engineInstallErrorInvalid": "このファイルは有効なE2EEエンジンではありません。",
-    "engineInstallErrorWrite": "エンジンの検証には成功しましたが、保存できませんでした。空き容量を確認して再試行してください。"
+    "engineInstallErrorWrite": "エンジンの検証には成功しましたが、保存できませんでした。空き容量を確認して再試行してください。",
+    "engineInstallTermsDesc": "エンジンにはVault-Syncの規約に追加される独自の利用条件があります。自分の意思と責任で導入すること、居住国の暗号化ソフトウェアに関する法令を確認すること、パスワードを失うと復元できないことなどを定めています。",
+    "engineInstallOpenTerms": "追加利用条件を読む",
+    "engineInstallConsentTerms": "E2EEエンジン追加利用条件を読み、同意します。",
+    "engineTermsUrl": "https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine/blob/main/TERMS_ja.md"
 }

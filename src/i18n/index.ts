@@ -247,15 +247,17 @@ export const en: Record<string, string> = {
     engineInstallStep1Desc:
         "Open the release page and download {file} from the latest release. On a phone it goes to your Downloads / Files.",
     engineInstallOpenReleases: "Open release page",
-    engineInstallStep2: "2. Confirm",
-    engineInstallConsentResponsibility:
-        "I am installing encryption software of my own choice and at my own risk. If I lose both my password and recovery code, my data cannot be recovered, and E2EE cannot be turned off once enabled.",
-    engineInstallConsentLaw:
-        "I have checked that the laws of my country allow me to import, possess and use encryption software.",
+    engineInstallStep2: "2. Agree to the Additional Terms",
     engineInstallStep3: "3. Choose the file",
     engineInstallStep3Desc:
         "Choose the downloaded {file}. Vault-Sync checks it against the approved version before saving it.",
     engineInstallPickFile: "Choose file",
+    engineTermsUrl:
+        "https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine/blob/main/TERMS.md",
+    engineInstallConsentTerms: "I have read and agree to the E2EE Engine Additional Terms of Use.",
+    engineInstallOpenTerms: "Read the Additional Terms",
+    engineInstallTermsDesc:
+        "The engine has its own Additional Terms of Use (an addendum to Vault-Sync's terms): you install it by your own choice and at your own risk, you check your country's laws on encryption software, and lost passwords cannot be recovered.",
     engineInstallVerifying: "Verifying...",
     engineInstallSuccess: "Engine installed. You can now use the E2EE commands.",
     engineInstallErrorHash:

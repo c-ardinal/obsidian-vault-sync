@@ -15,7 +15,7 @@ import type { EngineInstallResult } from "../encryption/engine-loader";
  * their own dependencies.
  */
 export class EngineInstallModal extends Modal {
-    private consents = [false, false];
+    private consents = [false];
     private pickButton: HTMLButtonElement | null = null;
     private statusEl: HTMLElement | null = null;
     private busy = false;
@@ -54,8 +54,12 @@ export class EngineInstallModal extends Modal {
 
         // Step 2: consent
         contentEl.createEl("h3", { text: t("engineInstallStep2") });
-        this.addConsent(contentEl, 0, t("engineInstallConsentResponsibility"));
-        this.addConsent(contentEl, 1, t("engineInstallConsentLaw"));
+        new Setting(contentEl).setDesc(t("engineInstallTermsDesc")).addButton((btn) =>
+            btn.setButtonText(t("engineInstallOpenTerms")).onClick(() => {
+                window.open(t("engineTermsUrl"));
+            }),
+        );
+        this.addConsent(contentEl, 0, t("engineInstallConsentTerms"));
 
         // Step 3: pick the file
         contentEl.createEl("h3", { text: t("engineInstallStep3") });
