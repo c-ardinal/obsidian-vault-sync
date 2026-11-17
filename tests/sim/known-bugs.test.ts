@@ -21,6 +21,8 @@ interface Case {
     plan: Action[];
     /** Failure kinds that prove the bug is present */
     expect: string[];
+    /** Fixed cases only: upper bound on 3-way merges in the whole run (catches needless merges) */
+    maxMerges?: number;
 }
 
 const NET = { minLatencyMs: 5, maxLatencyMs: 400, failureRate: 0, lostResponseRate: 0 };
@@ -72,6 +74,10 @@ const KNOWN_BUGS: Case[] = [
         ],
         expect: ["LOST_UPDATE", "NOT_IDLE"],
     },
+];
+
+/** Former bugs that must stay fixed (move cases here when fixing them) */
+const FIXED_REGRESSIONS: Case[] = [
     {
         title: "a binary edited on ONE device produces conflict copies on every other device",
         symptom: "Images/PDFs get '(Conflict ...)' copies although nobody else touched them; copies are never synced",
@@ -88,12 +94,28 @@ const KNOWN_BUGS: Case[] = [
             { t: 6829, dev: "C", kind: "create", fid: "f1", path: "assets/C-1.png", binary: true },
             { t: 10222, dev: "C", kind: "editBinary", pick: 0, version: 7 },
         ],
-        expect: ["FALSE_CONFLICT", "DIVERGED"],
+        expect: [],
+    },
+    {
+        title: "CRLF + BOM note edited on two devices: one merge, no conflict copy",
+        symptom: "Notes written by Windows editors got conflict copies / needless merges on every pull",
+        config: { seed: 1, devices: 2, fs: ["windows", "linux"], windowsLineEndings: true },
+        plan: [
+            { t: 0, dev: "A", kind: "join" },
+            { t: 0, dev: "B", kind: "join" },
+            { t: 1000, dev: "A", kind: "create", fid: "f1", path: "notes/A-1.md" },
+            { t: 2000, dev: "A", kind: "sync", scan: false },
+            { t: 8000, dev: "B", kind: "sync", scan: false },
+            { t: 14000, dev: "A", kind: "edit", pick: 0, line: "A", value: "A1" },
+            { t: 14000, dev: "B", kind: "edit", pick: 0, line: "B", value: "B1" },
+            { t: 15000, dev: "A", kind: "sync", scan: false },
+            { t: 25000, dev: "B", kind: "sync", scan: false },
+        ],
+        expect: [],
+        // Only B (the device that pulls A's concurrent edit) needs to merge; A must just accept.
+        maxMerges: 1,
     },
 ];
-
-/** Former bugs that must stay fixed (move cases here when fixing them) */
-const FIXED_REGRESSIONS: Case[] = [];
 
 function configOf(c: Case, name: string): SimConfig {
     return { ...DEFAULT_CONFIG, seed: 1, ...c.config, name } as SimConfig;
@@ -120,6 +142,10 @@ describe("fixed multi-device bugs (must stay clean)", () => {
         it(c.title, async () => {
             const result = await runSimulation(configOf(c, `fixed-${i + 1}`), c.plan);
             if (!result.ok) expect.fail(formatFailure(result));
+            if (c.maxMerges !== undefined) {
+                const merges = result.timeline.filter((l) => l.includes("[Merge] Attempting 3-way merge"));
+                expect(merges.length, merges.join("\n")).toBeLessThanOrEqual(c.maxMerges);
+            }
         });
     });
     it("placeholder so the suite is never empty", () => {
