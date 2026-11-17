@@ -62,36 +62,66 @@ export async function recoverOverwrittenVersion(
     knownHashes: (string | undefined)[],
 ): Promise<boolean> {
     if (!supportsHistory(ctx)) return false;
-    const known = new Set(knownHashes.filter((h): h is string => !!h).map((h) => h.toLowerCase()));
-    if (known.size === 0) return false;
-    const ours = ourHash.toLowerCase();
+    const check: PendingCheck = {
+        fileId,
+        ourHash: ourHash.toLowerCase(),
+        known: knownHashes.filter((h): h is string => !!h).map((h) => h.toLowerCase()),
+        since: Date.now(),
+    };
+    if (check.known.length === 0) return false;
+    const repair = await detectOverwrite(ctx, path, check);
+    if (!repair) return false;
+    return repairUnderLock(ctx, path, repair, check.ourHash);
+}
 
+/** An overwrite check that could not read the history yet (network error). */
+interface PendingCheck {
+    fileId: string;
+    ourHash: string;
+    known: string[];
+    since: number;
+}
+
+const pendingChecks = new WeakMap<object, Map<string, PendingCheck>>();
+
+/**
+ * Looks for a version our upload replaced. Returns the repair (also queued) or null.
+ * When the history cannot be read, the check itself is queued and retried later:
+ * skipping it lost the overwritten edit for good.
+ */
+async function detectOverwrite(ctx: SyncContext, path: string, check: PendingCheck): Promise<PendingRepair | null> {
+    const known = new Set(check.known);
+    const ours = check.ourHash;
     let repair: PendingRepair;
     try {
-        const revisions = await listRevisions(ctx, path, fileId);
+        const revisions = await listRevisions(ctx, path, check.fileId);
+        pendingChecks.get(ctx)?.delete(path);
         let idx = -1;
         revisions.forEach((r, i) => {
             if (r.hash?.toLowerCase() === ours) idx = i;
         });
-        if (idx <= 0) return false;
+        if (idx <= 0) return null;
         const prev = revisions[idx - 1];
         const prevHash = prev.hash?.toLowerCase();
-        if (!prevHash || prevHash === ours || known.has(prevHash)) return false;
+        if (!prevHash || prevHash === ours || known.has(prevHash)) return null;
         const base = revisions
             .slice(0, idx - 1)
             .reverse()
             .find((r) => !!r.hash && known.has(r.hash.toLowerCase()));
-        if (!base?.hash) return false;
+        if (!base?.hash) return null;
         repair = {
-            fileId,
+            fileId: check.fileId,
             overwrittenId: prev.id,
             overwrittenHash: prevHash,
             baseHash: base.hash.toLowerCase(),
             since: Date.now(),
         };
     } catch (e) {
-        await ctx.log(`[Overwrite Check] Could not read the history of ${path}: ${e}`, "debug");
-        return false;
+        let checks = pendingChecks.get(ctx);
+        if (!checks) pendingChecks.set(ctx, (checks = new Map()));
+        checks.set(path, check);
+        await ctx.log(`[Overwrite Check] Could not read the history of ${path}: ${e}. Checking again later.`, "debug");
+        return null;
     }
 
     await ctx.log(
@@ -99,7 +129,7 @@ export async function recoverOverwrittenVersion(
         "warn",
     );
     pendingFor(ctx).set(path, repair);
-    return repairUnderLock(ctx, path, repair, ours);
+    return repair;
 }
 
 /**
@@ -107,6 +137,14 @@ export async function recoverOverwrittenVersion(
  * the note has had a chance to catch up with the newest version in the cloud.
  */
 export async function retryOverwriteRepairs(ctx: SyncContext): Promise<void> {
+    const checks = pendingChecks.get(ctx);
+    for (const [path, check] of [...(checks ?? [])]) {
+        if (Date.now() - check.since > REPAIR_TIMEOUT_MS) {
+            checks!.delete(path);
+            continue;
+        }
+        await detectOverwrite(ctx, path, check);
+    }
     const pending = pendingRepairs.get(ctx);
     if (!pending || pending.size === 0) return;
     for (const [path, repair] of [...pending]) {

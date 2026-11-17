@@ -12,7 +12,7 @@ import {
     renameLocal,
     takeUnsyncedRename,
 } from "./state";
-import { listRevisions, supportsHistory, TransientHistoryError } from "./history";
+import { getRevisionContent, listRevisions, supportsHistory, TransientHistoryError } from "./history";
 import { claimPullPath, findPathCollision, freeCollisionPath, moveIndexEntry, pathKey } from "./path-collision";
 import { basename, dirname } from "../utils/path";
 import { MERGE_MAX_INLINE_DOWNLOAD_BYTES } from "./constants";
@@ -400,11 +400,85 @@ async function hashOfDownload(
 ): Promise<string> {
     if (!ctx.e2eeEnabled) return md5(content);
     let hash = item.hash || "";
-    if (fileId && item.plainHash && item.plainHash.toLowerCase() !== plainHash.toLowerCase()) {
-        const current = await ctx.adapter.getFileMetadataById(fileId, item.path).catch(() => null);
-        if (current?.hash) hash = current.hash;
+    if (!fileId) return hash;
+    if (item.plainHash) {
+        if (item.plainHash.toLowerCase() !== plainHash.toLowerCase()) {
+            const current = await ctx.adapter.getFileMetadataById(fileId, item.path).catch(() => null);
+            if (current?.hash) hash = current.hash;
+        }
+        return hash;
+    }
+    // No plaintext hash to tell: if the file changed since it was listed, find out
+    // which version we actually got.
+    const current = await ctx.adapter.getFileMetadataById(fileId, item.path).catch(() => null);
+    if (current?.hash && hash && current.hash.toLowerCase() !== hash.toLowerCase() && supportsHistory(ctx)) {
+        const found = await findRevisionByContent(ctx, item.path, fileId, md5(content)).catch(() => null);
+        if (found) hash = found.hash;
     }
     return hash;
+}
+
+/**
+ * The revision holding what we sent in an upload whose response was lost (`sent`
+ * is the md5 of the content we sent). With E2EE the cloud hashes are of the
+ * encrypted bytes, so the (few) revisions are decrypted and compared instead.
+ */
+async function findOwnUploadInHistory(
+    ctx: SyncContext,
+    path: string,
+    fileId: string,
+    sent: string,
+): Promise<{ hash: string; plainHash?: string } | null> {
+    if (!supportsHistory(ctx)) return null;
+    try {
+        const revisions = await listRevisions(ctx, path, fileId);
+        if (!ctx.e2eeEnabled) {
+            return revisions.some((r) => r.hash?.toLowerCase() === sent) ? { hash: sent } : null;
+        }
+        return await findRevisionByContent(ctx, path, fileId, sent);
+    } catch {
+        // history unavailable: no base
+    }
+    return null;
+}
+
+/**
+ * E2EE: the newest revision whose decrypted content has md5 `contentMd5`, with its
+ * (encrypted) cloud hash. Only the last few revisions are checked.
+ */
+async function findRevisionByContent(
+    ctx: SyncContext,
+    path: string,
+    fileId: string,
+    contentMd5: string,
+): Promise<{ hash: string; plainHash: string } | null> {
+    const revisions = await listRevisions(ctx, path, fileId);
+    for (const r of revisions.slice(-10).reverse()) {
+        if (!r.hash) continue;
+        const content = await getRevisionContent(ctx, path, r.id, fileId);
+        if (md5(content) === contentMd5) {
+            return { hash: r.hash.toLowerCase(), plainHash: await hashContent(content) };
+        }
+    }
+    return null;
+}
+
+/**
+ * True (and the record is consumed) when the remote version is exactly what we sent
+ * in an upload whose response was lost. With E2EE the record is the plaintext md5,
+ * so the remote version is decrypted and compared.
+ */
+async function isOurLostUpload(
+    ctx: SyncContext,
+    item: { path: string; hash?: string },
+    fileId: string,
+): Promise<boolean> {
+    if (!ctx.e2eeEnabled) return takeAttemptedUpload(ctx, item.path, item.hash);
+    const sent = peekAttemptedUpload(ctx, item.path);
+    if (!sent || !item.hash || !supportsHistory(ctx)) return false;
+    const found = await findRevisionByContent(ctx, item.path, fileId, sent).catch(() => null);
+    if (!found || found.hash !== item.hash.toLowerCase()) return false;
+    return takeAttemptedUpload(ctx, item.path, sent);
 }
 
 /** Positions (last occurrence) of two versions in the file's history, or null if unknown. */
@@ -499,7 +573,7 @@ async function pullFileUnchecked(
         if (!exists && fileId && !ctx.e2eeEnabled && !ctx.index[item.path]) {
             if (await adoptUploadOfRenamedFile(ctx, item, fileId, logPrefix)) return true;
         }
-        if (exists && fileId && !ctx.e2eeEnabled && takeAttemptedUpload(ctx, item.path, item.hash)) {
+        if (exists && fileId && (await isOurLostUpload(ctx, item, fileId))) {
             // Our own upload of this file: the request "failed" but the server applied
             // it. Adopt it as pushed; the push uploads any later local edits.
             const entry = {
@@ -522,27 +596,23 @@ async function pullFileUnchecked(
             );
             return true;
         }
-        if (exists && fileId && !ctx.e2eeEnabled && !ctx.localIndex[item.path]) {
+        if (exists && fileId && !ctx.localIndex[item.path]) {
             // Our upload of this NEW note "failed" but reached the cloud, other devices
             // edited it since, and we edited it too. Without a base this was a "dual
             // modification": our edit went to a conflict copy. What we sent is the base.
             const sent = peekAttemptedUpload(ctx, item.path);
             // Only when it really reached the cloud: a request lost before the server saw
             // it means the remote file is someone else's note with the same name.
-            const reachedCloud =
-                !!sent &&
-                supportsHistory(ctx) &&
-                (await listRevisions(ctx, item.path, fileId)
-                    .then((revs) => revs.some((r) => r.hash?.toLowerCase() === sent))
-                    .catch(() => false));
-            if (sent && reachedCloud) {
+            const base = sent ? await findOwnUploadInHistory(ctx, item.path, fileId, sent) : null;
+            if (base) {
                 const entry = {
                     fileId,
                     mtime: item.mtime ?? Date.now(),
                     size: item.size ?? 0,
-                    hash: sent,
+                    hash: base.hash,
+                    ...(base.plainHash ? { plainHash: base.plainHash } : {}),
                     lastAction: "pull" as const,
-                    ancestorHash: sent,
+                    ancestorHash: base.hash,
                 };
                 ctx.index[item.path] = { ...entry };
                 ctx.localIndex[item.path] = { ...entry };
@@ -770,6 +840,11 @@ async function pullFileUnchecked(
                             }
                             ctx.syncingPaths.add(item.path);
                             const remoteContent = await ctx.adapter.downloadFile(fileId || "");
+                            // The file may have changed again between the listing and the
+                            // download: record the version we actually got (looked up before
+                            // the edit check below, since the lookup takes a while too).
+                            const plainHash = await hashContent(remoteContent);
+                            const gotHash = await hashOfDownload(ctx, item, fileId, remoteContent, plainHash);
                             // The download takes a while, and vault events for this path are
                             // suppressed meanwhile (syncingPaths). If the user edited the note
                             // during the download, writing now would silently discard the edit.
@@ -804,11 +879,6 @@ async function pullFileUnchecked(
 
                             const stat = await ctx.vault.stat(item.path);
                             // Calculate plainHash for downloaded content
-                            const plainHash = await hashContent(remoteContent);
-                            // The file may have changed again between the listing and the
-                            // download: record the version we actually got, or the next
-                            // push takes this unedited note for a local edit of the older one.
-                            const gotHash = await hashOfDownload(ctx, item, fileId, remoteContent, plainHash);
 
                             const entry = {
                                 fileId: fileId || "",
@@ -854,7 +924,14 @@ async function pullFileUnchecked(
 
                         let baseHash = localBase.ancestorHash;
                         let origin = "ancestorHash";
-                        const attempted = peekAttemptedUpload(ctx, item.path)?.toLowerCase();
+                        let attempted = peekAttemptedUpload(ctx, item.path)?.toLowerCase();
+                        if (attempted && ctx.e2eeEnabled) {
+                            // Recorded as the plaintext md5: find its (encrypted) cloud version.
+                            attempted =
+                                fileId && supportsHistory(ctx)
+                                    ? (await findRevisionByContent(ctx, item.path, fileId, attempted).catch(() => null))?.hash
+                                    : undefined;
+                        }
 
                         // The remote version was built directly on the version we pushed
                         // (e.g. another device merged our push before we saw it confirmed).
@@ -1285,14 +1362,24 @@ async function pullFileUnchecked(
             );
             return false;
         }
-        await ctx.vault.writeBinary(item.path, content);
-
+        // Work out which version we got BEFORE writing: lookups take a while, and an
+        // edit typed after the write must not be mistaken for part of the download.
         const plainHash = await hashContent(content);
         // Record the hash of what we ACTUALLY downloaded. item.hash comes from the remote index
         // (or a Changes API entry) and can be stale relative to the bytes we just fetched; a
         // stale base hash makes the next pull think this unmodified file was edited locally.
         // With E2EE the bytes are decrypted plaintext, so the (encrypted) remote hash is kept.
         const downloadedHash = await hashOfDownload(ctx, item, fileId, content, plainHash);
+        if (!exists && (await ctx.vault.exists(item.path))) {
+            // Created locally during the lookup: same as above.
+            ctx.dirtyPaths.set(item.path, Date.now());
+            await ctx.log(
+                `[${logPrefix}] ${item.path} was created locally during the download. Keeping the local file.`,
+                "info",
+            );
+            return false;
+        }
+        await ctx.vault.writeBinary(item.path, content);
 
         const stat = await ctx.vault.stat(item.path);
         const entry = {

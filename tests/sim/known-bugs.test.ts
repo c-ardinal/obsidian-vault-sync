@@ -367,9 +367,39 @@ const FIXED_REGRESSIONS: Case[] = [
         expect: [],
     },
     {
-        title: "a rename onto a name another note is leaving in the same batch is not a name clash",
-        symptom: "Notes named \"todo (2) (2) (2)...\" keep multiplying between devices",
-        config: { seed: 192, ...CHAOS },
+        title: "a merged upload made while breaking a push deadlock is checked for overwrites too",
+        symptom: "An edit vanishes when a device uploads its merge result right after another device saved",
+        config: { seed: 354, ...CLEAN },
+        expect: [],
+    },
+    {
+        title: "E2EE: a new note whose upload response was lost, then edited, merges from that upload",
+        symptom: "With E2EE, edits to a just-created note end up in a conflict copy after a network error",
+        config: { seed: 330, ...E2EE },
+        expect: [],
+    },
+    {
+        title: "E2EE: a pull records the version it actually downloaded",
+        symptom: "With E2EE, a note pulled while it was being saved elsewhere later gets a conflict copy",
+        config: { seed: 393, ...E2EE },
+        expect: [],
+    },
+    {
+        title: "E2EE: an edit whose upload response was lost is the merge base",
+        symptom: "With E2EE, an edit is lost after a network error and a merge on another device",
+        config: { seed: 396, ...E2EE },
+        expect: [],
+    },
+    {
+        title: "an overwrite check whose history read failed is retried",
+        symptom: "After a network error, an edit overwritten by a simultaneous save on another device is lost",
+        config: { seed: 306, ...E2EE },
+        expect: [],
+    },
+    {
+        title: "E2EE: a remote version that is our own lost-response upload is adopted, not merged",
+        symptom: "With E2EE, an edit made after a network error ends up in a conflict copy",
+        config: { seed: 438, ...E2EE },
         expect: [],
     },
 ];

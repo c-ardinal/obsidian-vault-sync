@@ -880,6 +880,15 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                                 "noticeFilePushed",
                                                 basename(file.path),
                                             );
+                                            if (mergedUploaded.hash && isMergeableText(file.path)) {
+                                                await recoverOverwrittenVersion(
+                                                    ctx,
+                                                    file.path,
+                                                    mergedUploaded.id,
+                                                    mergedUploaded.hash,
+                                                    [previousAncestorHash, remoteMeta.hash],
+                                                );
+                                            }
                                         } catch (uploadErr) {
                                             await ctx.log(
                                                 `[Smart Push] [Deadlock Breaking] Failed to upload merged file: ${file.path} - ${uploadErr}`,
