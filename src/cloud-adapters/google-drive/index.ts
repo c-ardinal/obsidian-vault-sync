@@ -6,6 +6,50 @@ import { DrivePathResolver, isUnreachableFromVault } from "./path-resolver";
 
 export type { AuthMethod };
 
+/** Subset of a Drive v3 `File` resource as returned for the `fields` we request */
+interface DriveFile {
+    id: string;
+    name: string;
+    mimeType?: string;
+    modifiedTime: string;
+    size?: string;
+    md5Checksum?: string;
+    trashed?: boolean;
+    parents?: string[];
+}
+
+interface DriveFileList {
+    files?: DriveFile[];
+    nextPageToken?: string;
+}
+
+interface DriveChange {
+    fileId: string;
+    removed: boolean;
+    file?: DriveFile;
+}
+
+interface DriveChangeList {
+    nextPageToken?: string;
+    newStartPageToken?: string;
+    changes?: DriveChange[];
+}
+
+interface DriveRevision {
+    id: string;
+    modifiedTime: string;
+    size?: string;
+    lastModifyingUser?: { displayName?: string };
+    keepForever?: boolean;
+    md5Checksum?: string;
+}
+
+interface DriveUploadMetadata {
+    name: string;
+    modifiedTime?: string;
+    parents?: string[];
+}
+
 export class GoogleDriveAdapter implements CloudAdapter {
     name = "Google Drive";
 
@@ -176,7 +220,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
             const response = await this.http.fetchWithAuth(
                 `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,mimeType,modifiedTime,size,md5Checksum)`,
             );
-            const data = await response.json();
+            const data = (await response.json()) as DriveFileList;
 
             if (data.files && data.files.length > 0) {
                 const file = data.files[0];
@@ -202,13 +246,13 @@ export class GoogleDriveAdapter implements CloudAdapter {
     }
 
     async getFileMetadataById(fileId: string, knownPath?: string): Promise<CloudFile | null> {
-        let file: any;
+        let file: DriveFile;
         try {
             // Direct ID lookup provides stronger consistency than query search
             const response = await this.http.fetchWithAuth(
                 `https://www.googleapis.com/drive/v3/files/${fileId}?fields=id,name,mimeType,modifiedTime,size,md5Checksum,trashed,parents`,
             );
-            file = await response.json();
+            file = (await response.json()) as DriveFile;
         } catch (e) {
             // Only a real 404 means "gone"; transient errors must not look like a deletion
             if (isNotFound(e)) return null;
@@ -258,7 +302,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
         opts?: { createOnly?: boolean },
     ): Promise<CloudFile> {
         const name = basename(path);
-        const metadata: any = {
+        const metadata: DriveUploadMetadata = {
             name: name,
             modifiedTime: new Date(mtime).toISOString(),
         };
@@ -302,7 +346,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
             body: bodyArray,
         });
 
-        const data = await response.json();
+        const data = (await response.json()) as DriveFile;
         const result: CloudFile = {
             id: data.id,
             path: path,
@@ -354,7 +398,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
         existingFileId?: string,
     ): Promise<string> {
         const name = basename(path);
-        const metadata: any = {
+        const metadata: DriveUploadMetadata = {
             name: name,
             modifiedTime: new Date(mtime).toISOString(),
         };
@@ -424,7 +468,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
                     { okStatuses: [308], retryNetworkErrors: false },
                 );
                 if (uploadResponse.status === 308) return null; // Resume Incomplete
-                return this.resumableResult(await uploadResponse.json(), path, mtime, totalSize);
+                return this.resumableResult((await uploadResponse.json()) as DriveFile, path, mtime, totalSize);
             } catch (e) {
                 if (!(e instanceof TypeError) || attempt >= GoogleDriveAdapter.MAX_CHUNK_RESUMES) throw e;
                 await new Promise((r) => setTimeout(r, Math.min(30_000, 1000 * 2 ** attempt)));
@@ -455,14 +499,14 @@ export class GoogleDriveAdapter implements CloudAdapter {
             { okStatuses: [308] },
         );
         if (res.status !== 308) {
-            return { received: totalSize, done: this.resumableResult(await res.json(), path, mtime, totalSize) };
+            return { received: totalSize, done: this.resumableResult((await res.json()) as DriveFile, path, mtime, totalSize) };
         }
         const range = res.headers?.get?.("Range"); // "bytes=0-12345"
         const m = range ? /bytes=0-(\d+)/.exec(range) : null;
         return { received: m ? Number(m[1]) + 1 : 0 };
     }
 
-    private resumableResult(data: any, path: string, mtime: number, totalSize: number): CloudFile {
+    private resumableResult(data: DriveFile, path: string, mtime: number, totalSize: number): CloudFile {
         const result: CloudFile = {
             id: data.id,
             path: path,
@@ -490,7 +534,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
         const currentMeta = await this.http.fetchWithAuth(
             `https://www.googleapis.com/drive/v3/files/${fileId}?fields=id,name,parents,modifiedTime,size,md5Checksum`,
         );
-        const currentFile = await currentMeta.json();
+        const currentFile = (await currentMeta.json()) as DriveFile;
         const oldParentId = currentFile.parents?.[0];
 
         // 2. 新しい親フォルダの ID を解決（パスが変わる場合のみ）
@@ -509,7 +553,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
             queryParams.push(`removeParents=${oldParentId}`);
         }
 
-        const metadata: any = { name: newName };
+        const metadata: DriveUploadMetadata = { name: newName };
         const url = `https://www.googleapis.com/drive/v3/files/${fileId}?${queryParams.join("&")}`;
         const response = await this.http.fetchWithAuth(url, {
             method: "PATCH",
@@ -517,7 +561,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
             body: JSON.stringify(metadata),
         });
 
-        const data = await response.json();
+        const data = (await response.json()) as DriveFile;
 
         // 4. 新しいパスを構築
         const parentPath = newParentPath !== null ? newParentPath : "";
@@ -541,7 +585,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
             const response = await this.http.fetchWithAuth(
                 `https://www.googleapis.com/drive/v3/files/${fileId}?fields=id,trashed`,
             );
-            const data = await response.json();
+            const data = (await response.json()) as Partial<DriveFile>;
             return !!data.id && !data.trashed;
         } catch (e) {
             if (isNotFound(e)) return false;
@@ -555,7 +599,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
         const response = await this.http.fetchWithAuth(
             "https://www.googleapis.com/drive/v3/changes/startPageToken",
         );
-        const data = await response.json();
+        const data = (await response.json()) as { startPageToken: string };
         return data.startPageToken;
     }
 
@@ -565,13 +609,13 @@ export class GoogleDriveAdapter implements CloudAdapter {
         const response = await this.http.fetchWithAuth(
             `https://www.googleapis.com/drive/v3/changes?pageToken=${pageToken}&pageSize=1000&fields=${fields}`,
         );
-        const data = await response.json();
+        const data = (await response.json()) as DriveChangeList;
 
         return {
             nextPageToken: data.nextPageToken,
             newStartPageToken: data.newStartPageToken,
             changes: await Promise.all(
-                (data.changes || []).map(async (c: any) => {
+                (data.changes || []).map(async (c: DriveChange): Promise<CloudChanges["changes"][number]> => {
                     let fullPath = c.file ? c.file.name : "";
                     if (c.file && !c.removed && c.file.parents && c.file.parents.length > 0) {
                         try {
@@ -600,7 +644,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
 
                     return {
                         fileId: c.fileId,
-                        removed: isRemoved,
+                        removed: isRemoved as boolean,
                         file:
                             c.file && !isRemoved
                                 ? {
@@ -645,7 +689,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
                     `Vault-Sync: listFiles querying folder ${currentFolderId}, prefix: "${currentPathPrefix}"`,
                 );
                 const response = await this.http.fetchWithAuth(url);
-                const data: any = await response.json();
+                const data = (await response.json()) as DriveFileList;
                 console.debug(
                     `Vault-Sync: listFiles query returned ${data.files?.length || 0} items`,
                 );
@@ -698,9 +742,9 @@ export class GoogleDriveAdapter implements CloudAdapter {
         const response = await this.http.fetchWithAuth(
             `https://www.googleapis.com/drive/v3/files/${meta.id}/revisions?fields=revisions(id,modifiedTime,size,lastModifyingUser,keepForever,md5Checksum)`,
         );
-        const data = await response.json();
+        const data = (await response.json()) as { revisions?: DriveRevision[] };
 
-        return (data.revisions || []).map((rev: any) => ({
+        return (data.revisions || []).map((rev) => ({
             id: rev.id,
             modifiedTime: new Date(rev.modifiedTime).getTime(),
             size: parseInt(rev.size || "0"),
@@ -718,7 +762,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
         const metaResponse = await this.http.fetchWithAuth(
             `https://www.googleapis.com/drive/v3/files/${meta.id}/revisions/${revisionId}?fields=md5Checksum`,
         );
-        const metaData = await metaResponse.json();
+        const metaData = (await metaResponse.json()) as { md5Checksum?: string };
         const expectedHash = metaData.md5Checksum;
 
         const response = await this.http.fetchWithAuth(
@@ -772,9 +816,10 @@ export class GoogleDriveAdapter implements CloudAdapter {
 }
 
 /** A 404 from Drive, or our own "folder not found" while resolving a parent path */
-function isNotFound(e: any): boolean {
-    if (!e) return false;
-    if (e.status === 404) return true;
-    const msg: string = e.message ?? "";
+function isNotFound(e: unknown): boolean {
+    if (!e || typeof e !== "object") return false;
+    const err = e as { status?: unknown; message?: string };
+    if (err.status === 404) return true;
+    const msg: string = err.message ?? "";
     return msg.startsWith("Folder not found") || msg.includes("API Error 404") || msg.includes("File not found");
 }

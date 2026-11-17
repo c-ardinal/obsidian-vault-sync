@@ -11,6 +11,13 @@ interface TriggerManagerDeps {
     registerInterval: (id: number) => void;
 }
 
+/** Shape of an Obsidian command entry (internal API) that we hook for save detection. */
+interface HookableCommand {
+    _isVaultSyncHooked?: boolean;
+    callback?: (...args: unknown[]) => unknown;
+    checkCallback?: (checking: boolean) => unknown;
+}
+
 /**
  * Manages sync triggers: save hooks, modify debounce, interval timer,
  * layout-change events, and file create/delete/rename tracking.
@@ -58,7 +65,7 @@ export class TriggerManager {
             this.currentTriggers.autoSyncIntervalSec >= SETTINGS_LIMITS.autoSyncInterval.min
         ) {
             this.autoSyncInterval = window.setInterval(() => {
-                this.triggerSmartSync("interval");
+                void this.triggerSmartSync("interval");
             }, this.currentTriggers.autoSyncIntervalSec * 1000);
             this.deps.registerInterval(this.autoSyncInterval);
         }
@@ -69,7 +76,9 @@ export class TriggerManager {
 
         // Save Trigger (Obsidian Command Hook)
         app.workspace.onLayoutReady(async () => {
-            const commands = (app as any).commands?.commands;
+            const commands = (
+                app as unknown as { commands?: { commands?: Record<string, HookableCommand> } }
+            ).commands?.commands;
             if (!commands) return;
 
             // Broad discovery: catch editor:save and any other custom save commands
@@ -84,7 +93,7 @@ export class TriggerManager {
 
                     if (cmd.callback) {
                         const originalCallback = cmd.callback;
-                        cmd.callback = async (...args: any[]) => {
+                        cmd.callback = async (...args: unknown[]) => {
                             this.lastSaveRequestTime = Date.now();
                             await syncManager.log(
                                 `[Trigger] Manual save detected: ${id}`,
@@ -92,10 +101,10 @@ export class TriggerManager {
                             );
 
                             if (this.currentTriggers.onSaveDelaySec === 0) {
-                                this.triggerSmartSync("save");
+                                void this.triggerSmartSync("save");
                             } else {
                                 window.setTimeout(() => {
-                                    this.triggerSmartSync("save");
+                                    void this.triggerSmartSync("save");
                                 }, this.currentTriggers.onSaveDelaySec * 1000);
                             }
                             return originalCallback.apply(cmd, args);
@@ -111,10 +120,10 @@ export class TriggerManager {
                                 );
 
                                 if (this.currentTriggers.onSaveDelaySec === 0) {
-                                    this.triggerSmartSync("save");
+                                    void this.triggerSmartSync("save");
                                 } else {
                                     window.setTimeout(() => {
-                                        this.triggerSmartSync("save");
+                                        void this.triggerSmartSync("save");
                                     }, this.currentTriggers.onSaveDelaySec * 1000);
                                 }
                             }
@@ -145,7 +154,7 @@ export class TriggerManager {
                         "system",
                     );
                     if (modifyTimeout) window.clearTimeout(modifyTimeout);
-                    this.triggerSmartSync("save");
+                    void this.triggerSmartSync("save");
                     return;
                 }
 
@@ -155,7 +164,7 @@ export class TriggerManager {
                     return;
                 if (modifyTimeout) window.clearTimeout(modifyTimeout);
                 modifyTimeout = window.setTimeout(() => {
-                    this.triggerSmartSync("modify");
+                    void this.triggerSmartSync("modify");
                 }, this.currentTriggers.onModifyDelaySec * 1000);
             }),
         );
@@ -200,10 +209,10 @@ export class TriggerManager {
                 )
                     return;
                 if (this.currentTriggers.onLayoutChangeDelaySec === 0) {
-                    this.triggerSmartSync("layout-change");
+                    void this.triggerSmartSync("layout-change");
                 } else {
                     window.setTimeout(() => {
-                        this.triggerSmartSync("layout-change");
+                        void this.triggerSmartSync("layout-change");
                     }, this.currentTriggers.onLayoutChangeDelaySec * 1000);
                 }
             }),

@@ -2,7 +2,6 @@ import {
     App,
     Modal,
     TFile,
-    ButtonComponent,
     setIcon,
     DropdownComponent,
     ExtraButtonComponent,
@@ -91,13 +90,13 @@ export class HistoryModal extends Modal {
             const timeout = new Promise<never>((_, reject) =>
                 setTimeout(() => reject(new Error("Timeout (15s)")), HISTORY_TIMEOUT_MS),
             );
-            const [revisions, localContent] = (await Promise.race([
+            const [revisions, localContent] = await Promise.race([
                 Promise.all([
                     this.syncManager.listRevisions(this.file.path),
                     this.app.vault.read(this.file),
                 ]),
                 timeout,
-            ])) as [FileRevision[], string];
+            ]);
 
             HistoryModal.revisionCache.set(this.file.path, revisions);
 
@@ -142,6 +141,7 @@ export class HistoryModal extends Modal {
         }
         if (this.baseRevision) {
             if (this.baseRevision.id === "empty") {
+                // keep the synthetic "empty" baseline as-is (not in the revision list)
             } else {
                 const match = this.revisions.find((r) => r.id === this.baseRevision!.id);
                 if (match) this.baseRevision = match;
@@ -355,7 +355,7 @@ export class HistoryModal extends Modal {
                             ".revision-diff-view",
                         ) as HTMLElement;
                         if (diffView && this.selectedRevision) {
-                            this.loadDiff(diffView, this.selectedRevision, this.baseRevision);
+                            void this.loadDiff(diffView, this.selectedRevision, this.baseRevision);
                         }
                     }
                 });
@@ -600,7 +600,7 @@ export class HistoryModal extends Modal {
         // --- [Area: diff] Diff View ---
         const diffContainer = container.createDiv({ cls: "revision-diff-view" });
         diffContainer.createDiv({ text: "Loading diff...", cls: "loading-text" });
-        this.loadDiff(diffContainer, this.selectedRevision, this.baseRevision);
+        void this.loadDiff(diffContainer, this.selectedRevision, this.baseRevision);
     }
 
     async loadDiff(

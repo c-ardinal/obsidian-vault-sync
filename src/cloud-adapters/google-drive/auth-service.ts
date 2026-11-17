@@ -1,7 +1,16 @@
 import { generateCodeChallenge, generateCodeVerifier } from "./pkce";
 import { OAUTH_REDIRECT_URI, AUTH_PROXY_BASE_URL } from "../../constants";
 import { toHex } from "../../utils/format";
-import { Platform, requestUrl } from "obsidian";
+import { requestUrl } from "obsidian";
+
+/** OAuth token endpoint response (success or error body). */
+interface TokenResponse {
+    access_token: string;
+    refresh_token: string;
+    expires_in?: number;
+    error?: string;
+    error_description?: string;
+}
 
 export type AuthMethod = "default" | "custom-proxy" | "client-credentials";
 
@@ -182,7 +191,7 @@ export class GoogleAuthService {
             client_id: this.clientId,
             client_secret: this.clientSecret,
             code: code,
-            code_verifier: this.codeVerifier!,
+            code_verifier: this.codeVerifier,
             grant_type: "authorization_code",
             redirect_uri: this.getRedirectUri(),
         });
@@ -194,7 +203,7 @@ export class GoogleAuthService {
                 headers: { "Content-Type": "application/x-www-form-urlencoded" },
                 body: body.toString(),
             });
-        } catch (e) {
+        } catch {
             throw new Error(
                 `Authentication failed: could not reach Google servers. Check your network connection.`,
             );
@@ -222,10 +231,10 @@ export class GoogleAuthService {
     }
 
     /** Parse JSON safely. Throws a clear error on malformed responses (CDN/WAF HTML pages, truncated body). */
-    private async safeJsonParse(response: Response, context: string): Promise<any> {
+    private async safeJsonParse(response: Response, context: string): Promise<TokenResponse> {
         const text = await response.text();
         try {
-            return JSON.parse(text);
+            return JSON.parse(text) as TokenResponse;
         } catch {
             throw new Error(`Invalid JSON from ${context}: ${text.slice(0, 200)}`);
         }
@@ -280,9 +289,9 @@ export class GoogleAuthService {
             throw new Error("Token refresh failed: proxy unreachable");
         }
 
-        let data: any;
+        let data: TokenResponse;
         try {
-            data = JSON.parse(text);
+            data = JSON.parse(text) as TokenResponse;
         } catch {
             throw new Error(`Invalid JSON from proxy refresh: ${text.slice(0, 200)}`);
         }

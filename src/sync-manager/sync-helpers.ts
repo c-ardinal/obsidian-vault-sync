@@ -27,7 +27,10 @@ export async function downloadRemoteIndexData(
 ): Promise<{ index: LocalFileIndex; startPageToken: string | null }> {
     const content = await ctx.adapter.downloadFile(fileId);
     const decompressed = await tryDecompress(content);
-    const data = JSON.parse(new TextDecoder().decode(decompressed));
+    const data = JSON.parse(new TextDecoder().decode(decompressed)) as {
+        index?: LocalFileIndex;
+        startPageToken?: string | null;
+    };
     return { index: data.index || {}, startPageToken: data.startPageToken || null };
 }
 
@@ -135,7 +138,7 @@ export async function buildRemoteIndexPayload(ctx: SyncContext): Promise<ArrayBu
                         // We may also have moved it ourselves while pulling (a name
                         // collision rename): ask the cloud which name is current.
                         const actual = await ctx.adapter
-                            .getFileMetadataById(entry.fileId!, ourPath)
+                            .getFileMetadataById(entry.fileId, ourPath)
                             .catch(() => null);
                         if (actual?.path === ourPath) continue;
                         delete merged[ourPath];
@@ -173,7 +176,7 @@ export async function buildRemoteIndexPayload(ctx: SyncContext): Promise<ArrayBu
             }
         }
     } catch (e) {
-        await ctx.log(`[Index] Could not merge remote index, uploading local index as-is: ${e}`, "warn");
+        await ctx.log(`[Index] Could not merge remote index, uploading local index as-is: ${String(e)}`, "warn");
     }
     // A local rename not yet applied in the cloud: other devices that sync from this
     // index would pull the file by id under its new name while still holding it under
@@ -186,7 +189,7 @@ export async function buildRemoteIndexPayload(ctx: SyncContext): Promise<ArrayBu
         if (!merged[pendingMove.oldPath]) merged[pendingMove.oldPath] = rest;
     }
     const data = JSON.stringify({ index: merged, startPageToken: ctx.startPageToken });
-    return new TextEncoder().encode(data).buffer as ArrayBuffer;
+    return new TextEncoder().encode(data).buffer;
 }
 
 /**
@@ -202,7 +205,7 @@ const MAX_ATTEMPTS_PER_PATH = 3;
 
 export function recordAttemptedUpload(ctx: SyncContext, path: string, hash: string): void {
     let m = attemptedUploads.get(ctx);
-    if (!m) attemptedUploads.set(ctx, (m = new Map()));
+    if (!m) attemptedUploads.set(ctx, (m = new Map<string, string[]>()));
     const h = hash.toLowerCase();
     const list = (m.get(path) ?? []).filter((x) => x !== h);
     list.push(h);
@@ -257,7 +260,7 @@ export function attemptedUploadsSnapshot(ctx: SyncContext): Record<string, strin
 export function restoreAttemptedUploads(ctx: SyncContext, data: unknown): void {
     if (!data || typeof data !== "object") return;
     let m = attemptedUploads.get(ctx);
-    if (!m) attemptedUploads.set(ctx, (m = new Map()));
+    if (!m) attemptedUploads.set(ctx, (m = new Map<string, string[]>()));
     for (const [path, hashes] of Object.entries(data as Record<string, unknown>)) {
         const list = (Array.isArray(hashes) ? hashes : [hashes]).filter(
             (h): h is string => typeof h === "string",
@@ -274,7 +277,7 @@ export function restoreAttemptedUploads(ctx: SyncContext, data: unknown): void {
  * otherwise kept their old version on this device until they changed again.
  */
 export interface PendingPull {
-    file: { id: string; path: string; hash?: string; size: number; [key: string]: any };
+    file: { id: string; path: string; hash?: string; size: number; [key: string]: unknown };
     attempts: number;
     /** Handed to the background queue (not retried inline while it is queued there) */
     background?: boolean;
@@ -284,7 +287,7 @@ const pendingPulls = new WeakMap<object, Map<string, PendingPull>>();
 
 export function pendingPullsOf(ctx: SyncContext): Map<string, PendingPull> {
     let m = pendingPulls.get(ctx);
-    if (!m) pendingPulls.set(ctx, (m = new Map()));
+    if (!m) pendingPulls.set(ctx, (m = new Map<string, PendingPull>()));
     return m;
 }
 

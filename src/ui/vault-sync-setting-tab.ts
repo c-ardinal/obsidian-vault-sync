@@ -20,7 +20,7 @@ export class VaultSyncSettingTab extends PluginSettingTab {
     private loadClosedGroups(): Set<string> {
         try {
             const stored = window.localStorage.getItem(CLOSED_GROUPS_KEY);
-            if (stored) return new Set(JSON.parse(stored));
+            if (stored) return new Set(JSON.parse(stored) as string[]);
         } catch {
             /* ignore */
         }
@@ -226,7 +226,7 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                         break;
                     case "text":
                         setting.addText((text) => {
-                            text.setValue(String(this.getSettingValue(item.key) || ""))
+                            text.setValue(String((this.getSettingValue(item.key) as string | undefined) || ""))
                                 .setPlaceholder(item.placeholder || "")
                                 .onChange(async (val) => {
                                     if (item.onChange) {
@@ -241,7 +241,7 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                     case "textarea":
                         if (item.key === "exclusionPatterns") {
                             // Render as a button that opens a modal
-                            const patternCount = String(this.getSettingValue(item.key) || "")
+                            const patternCount = String((this.getSettingValue(item.key) as string | undefined) || "")
                                 .split("\n")
                                 .filter((l: string) => l.trim()).length;
                             const summary =
@@ -254,7 +254,7 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                                     const modal = new ExclusionPatternModal(this.app, this.plugin);
                                     modal.onClose = () => {
                                         if (item.onChange)
-                                            item.onChange(
+                                            void item.onChange(
                                                 this.getSettingValue(item.key),
                                                 this.plugin,
                                             );
@@ -265,7 +265,7 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                             });
                         } else {
                             setting.addTextArea((text) => {
-                                text.setValue(String(this.getSettingValue(item.key) || ""))
+                                text.setValue(String((this.getSettingValue(item.key) as string | undefined) || ""))
                                     .setPlaceholder(item.placeholder || "")
                                     .onChange(async (val) => {
                                         this.setSettingValue(item.key, val);

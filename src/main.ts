@@ -328,7 +328,7 @@ export default class VaultSync extends Plugin {
                                                 "Vault auto-unlocked using saved password.",
                                                 "info",
                                             );
-                                        } catch (err) {
+                                        } catch {
                                             await this.syncManager.log(
                                                 "Auto-unlock failed. Manual entry required.",
                                                 "warn",
@@ -670,7 +670,7 @@ export default class VaultSync extends Plugin {
             await this.syncManager.vaultLockService.uploadLockFile(upgraded);
             await this.syncManager.log("E2EE: vault-lock upgraded to the v2 key format.", "info");
         } catch (e) {
-            await this.syncManager.log(`E2EE: vault-lock upgrade failed, will retry: ${e}`, "warn");
+            await this.syncManager.log(`E2EE: vault-lock upgrade failed, will retry: ${String(e)}`, "warn");
         }
     }
 

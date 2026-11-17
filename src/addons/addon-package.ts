@@ -89,7 +89,7 @@ export async function readAddonPackage(
 
     let manifest: AddonManifest;
     try {
-        manifest = JSON.parse(head[MANIFEST_NAME]);
+        manifest = JSON.parse(head[MANIFEST_NAME]) as AddonManifest;
     } catch {
         return { ok: false, reason: "no-manifest" };
     }
