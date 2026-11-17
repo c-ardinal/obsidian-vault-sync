@@ -81,6 +81,11 @@ export class SimCloud {
     /** Optional sink so callers can stream records (e.g. into a timeline) */
     onCall: ((rec: CallRecord) => void) | null = null;
 
+    constructor() {
+        // Like Google Drive: one entry per file with its current state (see MockCloudAdapter)
+        this.store.changesLatestStateOnly = true;
+    }
+
     createDeviceView(
         device: string,
         rng: Rng,

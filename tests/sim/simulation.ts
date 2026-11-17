@@ -262,7 +262,7 @@ const realTick = () => new Promise<void>((r) => setImmediate(r));
  * scheduled any more but the promise is still pending, "timeout" if virtual
  * time exceeded `capMs` (livelock / endless retries).
  */
-async function drive(p: Promise<unknown>, capMs: number): Promise<"ok" | "deadlock" | "timeout"> {
+export async function drive(p: Promise<unknown>, capMs: number): Promise<"ok" | "deadlock" | "timeout"> {
     let done = false;
     p.then(
         () => (done = true),
@@ -288,7 +288,7 @@ async function drive(p: Promise<unknown>, capMs: number): Promise<"ok" | "deadlo
     return "ok";
 }
 
-async function advance(ms: number): Promise<void> {
+export async function advance(ms: number): Promise<void> {
     await vi.advanceTimersByTimeAsync(ms);
     await realTick();
 }

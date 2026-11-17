@@ -57,6 +57,16 @@ SIM_SEED=13 SIM_SCENARIO=cross-os SIM_MINIMIZE=1 npm run test:sim -- tests/sim/m
 - `<scenario>-seed<N>.json` … 設定、操作列、各端末の最終状態（ファイル・index・localIndex・dirty）、クラウドの最終状態
 - `*.min-plan.json` … 最小化した操作列（`SIM_MINIMIZE=1` のとき）
 
+## 性能ベンチマーク（`perf.test.ts`）
+
+ランダムではない固定の作業（新規 60 ノート＋画像 6 枚の push → 2 台目の初回同期 → 30 件の編集 → 15 件を両端末で別の行を編集して自動マージ → アイドル同期）を、
+1 回の API 呼び出しに往復 200ms かかる回線で実行し、フェーズごとの**待ち時間（仮想時間）と API 呼び出し回数（メソッド別）**を
+`test-results/sim/perf.txt` / `perf.json` に出力します。全端末が収束し競合コピーがないこと、呼び出し回数が予算内であることも検査します。
+
+```bash
+npm run test:sim -- tests/sim/perf.test.ts && cat test-results/sim/perf.txt
+```
+
 ## 見つけたバグを固定する
 
 `known-bugs.test.ts` に、最小化した操作列を**決定的な再現テスト**として置いています。
@@ -72,6 +82,6 @@ SIM_SEED=13 SIM_SCENARIO=cross-os SIM_MINIMIZE=1 npm run test:sim -- tests/sim/m
 
 ## 限界
 
-- クラウドは `MockCloudAdapter`（インメモリ）。Google Drive 固有の挙動（同名ファイルの重複作成、Changes API の遅延・ページング、レート制限）はまだ模していません。
+- クラウドは `MockCloudAdapter`（インメモリ）。Changes API は Google Drive と同じく「ファイルごとに最新の状態を 1 件だけ返す」形式です（`changesLatestStateOnly`）。ページングは `changesPageSize` で指定でき、性能ベンチでは 25 件/ページにしています。同名ファイルの重複作成・Changes API の遅延・レート制限はまだ模していません。
 - 時計ずれはファイル mtime のみ。エンジン内部の `Date.now()`（マージロックの期限など）は全端末で共通です。
 - E2EE と大容量ファイルのバックグラウンド転送は未対象です。

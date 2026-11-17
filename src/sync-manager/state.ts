@@ -18,23 +18,131 @@ function generateDeviceId(): string {
     return md5(new TextEncoder().encode(Date.now().toString() + suffix).buffer).substring(0, 8);
 }
 
+// === Per-sync-cycle state (performance) ===
+//
+// communication.json (merge locks) used to be fetched from the cloud for every
+// single pulled file (checkMergeLock) and read-modify-written 2-3 times per
+// merge. With parallel pulls that is the dominant API cost, and parallel merges
+// on ONE device even raced each other on the read-modify-write (a lost lock,
+// then a jittered retry). Within a sync cycle we now
+//   - serve read-only lock checks from a short-lived cache,
+//   - serialize this device's lock updates and coalesce the ones that are
+//     queued at the same time into a single load/save/verify round, and
+//   - defer local-index writes (one JSON dump of the whole index per pulled
+//     file) to periodic checkpoints and the end of the cycle.
+// Outside a cycle (unit tests calling helpers directly) behaviour is unchanged.
+
+/** Max age of the cached communication.json used for read-only lock checks */
+export const COMM_CACHE_MAX_AGE_MS = 10_000;
+/** While deferring, still write the local index after this many skipped saves (crash safety) */
+export const LOCAL_INDEX_CHECKPOINT_EVERY = 50;
+
+interface LockOpResult {
+    acquired: boolean;
+    holder?: string;
+    expiresIn?: number;
+    /** Our write was overwritten by another device (worth retrying) */
+    contended?: boolean;
+}
+
+interface LockOp {
+    kind: "acquire" | "release";
+    path: string;
+    logPrefix?: string;
+    resolve: (r: LockOpResult) => void;
+    reject: (e: unknown) => void;
+}
+
+interface CycleState {
+    active: boolean;
+    comm: { data: CommunicationData; at: number } | null;
+    lockChain: Promise<void>;
+    pendingLockOps: LockOp[];
+    deferDepth: number;
+    localIndexDirty: boolean;
+    skippedLocalIndexSaves: number;
+}
+
+const cycleStates = new WeakMap<object, CycleState>();
+
+function cycleState(ctx: SyncContext): CycleState {
+    let s = cycleStates.get(ctx);
+    if (!s) {
+        s = {
+            active: false,
+            comm: null,
+            lockChain: Promise.resolve(),
+            pendingLockOps: [],
+            deferDepth: 0,
+            localIndexDirty: false,
+            skippedLocalIndexSaves: 0,
+        };
+        cycleStates.set(ctx, s);
+    }
+    return s;
+}
+
+/** Start of a sync cycle: enable caching, defer local-index writes. */
+export function beginSyncCycle(ctx: SyncContext): void {
+    const s = cycleState(ctx);
+    s.active = true;
+    s.comm = null;
+    s.deferDepth++;
+}
+
+/** End of a sync cycle: drop caches and flush deferred local-index writes. */
+export async function endSyncCycle(ctx: SyncContext): Promise<void> {
+    const s = cycleState(ctx);
+    s.active = false;
+    s.comm = null;
+    s.deferDepth = Math.max(0, s.deferDepth - 1);
+    if (s.deferDepth === 0 && s.localIndexDirty) {
+        await saveLocalIndex(ctx);
+    }
+}
+
+function cloneComm(data: CommunicationData): CommunicationData {
+    return { ...data, mergeLocks: { ...data.mergeLocks } };
+}
+
+function dropExpiredLocks(data: CommunicationData): CommunicationData {
+    const now = Date.now();
+    for (const [path, lock] of Object.entries(data.mergeLocks)) {
+        if (lock.expiresAt < now) {
+            delete data.mergeLocks[path];
+        }
+    }
+    return data;
+}
+
 // === Communication.json Management ===
 
-export async function loadCommunication(ctx: SyncContext): Promise<CommunicationData> {
+/**
+ * Load communication.json. Inside a sync cycle a copy cached for up to
+ * COMM_CACHE_MAX_AGE_MS is returned unless `fresh` is set; lock updates
+ * always read fresh data.
+ */
+export async function loadCommunication(
+    ctx: SyncContext,
+    opts: { fresh?: boolean } = {},
+): Promise<CommunicationData> {
+    const s = cycleState(ctx);
+    if (!opts.fresh && s.active && s.comm && Date.now() - s.comm.at < COMM_CACHE_MAX_AGE_MS) {
+        return dropExpiredLocks(cloneComm(s.comm.data));
+    }
     try {
         const meta = await ctx.adapter.getFileMetadata(ctx.communicationPath);
+        let data: CommunicationData;
         if (!meta) {
-            return { mergeLocks: {}, lastUpdated: 0 };
+            data = { mergeLocks: {}, lastUpdated: 0 };
+        } else {
+            const content = await ctx.adapter.downloadFile(meta.id);
+            const text = new TextDecoder().decode(content);
+            data = JSON.parse(text) as CommunicationData;
+            data.mergeLocks ??= {};
         }
-        const content = await ctx.adapter.downloadFile(meta.id);
-        const text = new TextDecoder().decode(content);
-        const data = JSON.parse(text) as CommunicationData;
-        const now = Date.now();
-        for (const [path, lock] of Object.entries(data.mergeLocks)) {
-            if (lock.expiresAt < now) {
-                delete data.mergeLocks[path];
-            }
-        }
+        dropExpiredLocks(data);
+        if (s.active) s.comm = { data: cloneComm(data), at: Date.now() };
         return data;
     } catch (e) {
         await ctx.log(`[Communication] Failed to load: ${e}`, "error");
@@ -51,9 +159,101 @@ export async function saveCommunication(ctx: SyncContext, data: CommunicationDat
             content.buffer as ArrayBuffer,
             Date.now(),
         );
+        const s = cycleState(ctx);
+        if (s.active) s.comm = { data: cloneComm(data), at: Date.now() };
     } catch (e) {
+        const s = cycleState(ctx);
+        s.comm = null;
         await ctx.log(`[Communication] Failed to save: ${e}`, "error");
         throw e;
+    }
+}
+
+/**
+ * Queue a lock update. Updates queued while another round is in flight are
+ * applied together in ONE load -> save -> verify round, so N parallel merges
+ * cost ~5 API calls instead of ~5N, and this device never overwrites its own
+ * concurrent lock writes.
+ */
+function enqueueLockOp(
+    ctx: SyncContext,
+    kind: LockOp["kind"],
+    path: string,
+    logPrefix?: string,
+): Promise<LockOpResult> {
+    const s = cycleState(ctx);
+    return new Promise<LockOpResult>((resolve, reject) => {
+        s.pendingLockOps.push({ kind, path, logPrefix, resolve, reject });
+        s.lockChain = s.lockChain.then(() => flushLockOps(ctx));
+    });
+}
+
+async function flushLockOps(ctx: SyncContext): Promise<void> {
+    const s = cycleState(ctx);
+    const ops = s.pendingLockOps.splice(0);
+    if (ops.length === 0) return;
+    try {
+        const comm = await loadCommunication(ctx, { fresh: true });
+        const now = Date.now();
+        const results = new Map<LockOp, LockOpResult>();
+        let changed = false;
+        const released: LockOp[] = [];
+
+        for (const op of ops) {
+            const existing = comm.mergeLocks[op.path];
+            if (op.kind === "acquire") {
+                if (existing && existing.expiresAt > now && existing.holder !== ctx.deviceId) {
+                    results.set(op, {
+                        acquired: false,
+                        holder: existing.holder,
+                        expiresIn: Math.floor((existing.expiresAt - now) / 1000),
+                    });
+                } else {
+                    comm.mergeLocks[op.path] = {
+                        holder: ctx.deviceId,
+                        expiresAt: now + LOCK_TTL_MS,
+                    };
+                    changed = true;
+                }
+            } else {
+                if (existing && existing.holder === ctx.deviceId) {
+                    delete comm.mergeLocks[op.path];
+                    changed = true;
+                    released.push(op);
+                }
+                results.set(op, { acquired: false });
+            }
+        }
+
+        if (changed) {
+            await saveCommunication(ctx, comm);
+            for (const op of released) {
+                await ctx.log(
+                    `[${op.logPrefix || "Communication"}] Merge lock released for ${op.path}.`,
+                    "debug",
+                );
+            }
+            const toVerify = ops.filter((op) => op.kind === "acquire" && !results.has(op));
+            if (toVerify.length > 0) {
+                const verify = await loadCommunication(ctx, { fresh: true });
+                for (const op of toVerify) {
+                    const lock = verify.mergeLocks[op.path];
+                    if (lock && lock.holder === ctx.deviceId) {
+                        results.set(op, { acquired: true });
+                    } else {
+                        results.set(op, {
+                            acquired: false,
+                            contended: true,
+                            holder: lock?.holder,
+                            expiresIn: lock ? Math.floor((lock.expiresAt - now) / 1000) : 0,
+                        });
+                    }
+                }
+            }
+        }
+        for (const op of ops) op.resolve(results.get(op) ?? { acquired: false });
+    } catch (e) {
+        for (const op of ops) op.reject(e);
     }
 }
 
@@ -62,28 +262,10 @@ export async function acquireMergeLock(
     path: string,
 ): Promise<{ acquired: boolean; holder?: string; expiresIn?: number }> {
     for (let attempt = 0; attempt < LOCK_MAX_ATTEMPTS; attempt++) {
-        const comm = await loadCommunication(ctx);
-        const existing = comm.mergeLocks[path];
-        const now = Date.now();
-
-        if (existing && existing.expiresAt > now && existing.holder !== ctx.deviceId) {
-            return {
-                acquired: false,
-                holder: existing.holder,
-                expiresIn: Math.floor((existing.expiresAt - now) / 1000),
-            };
-        }
-
-        comm.mergeLocks[path] = {
-            holder: ctx.deviceId,
-            expiresAt: now + LOCK_TTL_MS,
-        };
-        await saveCommunication(ctx, comm);
-
-        const verify = await loadCommunication(ctx);
-        const verifyLock = verify.mergeLocks[path];
-        if (verifyLock && verifyLock.holder === ctx.deviceId) {
-            return { acquired: true };
+        const r = await enqueueLockOp(ctx, "acquire", path);
+        if (r.acquired) return { acquired: true };
+        if (!r.contended) {
+            return { acquired: false, holder: r.holder, expiresIn: r.expiresIn };
         }
 
         // Verification failed — another device wrote concurrently. Retry with jitter.
@@ -95,11 +277,7 @@ export async function acquireMergeLock(
             );
             await new Promise((r) => setTimeout(r, jitter));
         } else {
-            return {
-                acquired: false,
-                holder: verifyLock?.holder,
-                expiresIn: verifyLock ? Math.floor((verifyLock.expiresAt - now) / 1000) : 0,
-            };
+            return { acquired: false, holder: r.holder, expiresIn: r.expiresIn };
         }
     }
 
@@ -112,16 +290,7 @@ export async function releaseMergeLock(
     logPrefix?: string,
 ): Promise<void> {
     try {
-        const comm = await loadCommunication(ctx);
-        const existing = comm.mergeLocks[path];
-        if (existing && existing.holder === ctx.deviceId) {
-            delete comm.mergeLocks[path];
-            await saveCommunication(ctx, comm);
-            await ctx.log(
-                `[${logPrefix || "Communication"}] Merge lock released for ${path}.`,
-                "debug",
-            );
-        }
+        await enqueueLockOp(ctx, "release", path, logPrefix);
     } catch (e) {
         await ctx.log(
             `[${logPrefix || "Communication"}] Failed to release lock for ${path}: ${e}`,
@@ -285,6 +454,13 @@ export async function saveIndex(ctx: SyncContext): Promise<void> {
 }
 
 export async function saveLocalIndex(ctx: SyncContext): Promise<void> {
+    const s = cycleState(ctx);
+    if (s.deferDepth > 0) {
+        s.localIndexDirty = true;
+        if (++s.skippedLocalIndexSaves < LOCAL_INDEX_CHECKPOINT_EVERY) return;
+    }
+    s.localIndexDirty = false;
+    s.skippedLocalIndexSaves = 0;
     try {
         const data = JSON.stringify({
             index: ctx.localIndex,

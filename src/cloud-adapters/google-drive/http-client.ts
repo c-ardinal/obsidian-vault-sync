@@ -8,8 +8,68 @@ import type { GoogleAuthService } from "./auth-service";
  */
 export class GoogleDriveHttpClient {
     static readonly ONLINE_TIMEOUT_MS = 60_000;
+    /**
+     * Max requests in flight at once for this client. Sync runs uploads,
+     * downloads and path resolution in parallel; this keeps the combined
+     * burst within Drive's per-user rate limits.
+     */
+    static readonly MAX_IN_FLIGHT = 8;
+    /** Upper bound for a server-requested Retry-After wait */
+    static readonly MAX_RETRY_AFTER_MS = 30_000;
+
+    private inFlight = 0;
+    private waiters: Array<() => void> = [];
 
     constructor(private auth: GoogleAuthService) {}
+
+    private async acquireSlot(): Promise<void> {
+        if (this.inFlight < GoogleDriveHttpClient.MAX_IN_FLIGHT) {
+            this.inFlight++;
+            return;
+        }
+        await new Promise<void>((resolve) => this.waiters.push(resolve));
+    }
+
+    private releaseSlot(): void {
+        const next = this.waiters.shift();
+        if (next) {
+            next(); // hand the slot over directly
+        } else {
+            this.inFlight--;
+        }
+    }
+
+    /** fetch() bounded by MAX_IN_FLIGHT (the slot is NOT held during retry back-off) */
+    private async limitedFetch(url: string, init: RequestInit): Promise<Response> {
+        await this.acquireSlot();
+        try {
+            return await fetch(url, init);
+        } finally {
+            this.releaseSlot();
+        }
+    }
+
+    /** Drive reports per-user rate limiting as 403 with reason (user)RateLimitExceeded */
+    private async isRateLimit403(response: Response): Promise<boolean> {
+        if (response.status !== 403) return false;
+        try {
+            const text = await response.clone().text();
+            return /rateLimitExceeded|userRateLimitExceeded|sharingRateLimitExceeded/.test(text);
+        } catch {
+            return false;
+        }
+    }
+
+    private retryDelayMs(response: Response, retryCount: number): number {
+        const header = response.headers?.get?.("Retry-After");
+        if (header) {
+            const secs = Number(header);
+            if (Number.isFinite(secs) && secs >= 0) {
+                return Math.min(secs * 1000, GoogleDriveHttpClient.MAX_RETRY_AFTER_MS);
+            }
+        }
+        return Math.pow(2, retryCount) * 1000 + Math.random() * 500;
+    }
 
     private async log(msg: string, level: string = "debug") {
         console.log(`Vault-Sync: [${level.toUpperCase()}] ${msg}`);
@@ -43,7 +103,7 @@ export class GoogleDriveHttpClient {
         headers.set("Authorization", `Bearer ${this.auth.accessToken}`);
 
         try {
-            const response = await fetch(url, { ...options, headers });
+            const response = await this.limitedFetch(url, { ...options, headers });
 
             // SEC-004: Limit retries
             const MAX_RETRIES = 3;
@@ -59,15 +119,20 @@ export class GoogleDriveHttpClient {
                 return this.fetchWithAuth(url, options, retryCount + 1);
             }
 
-            // Handle 429 (Too Many Requests) and 5xx (Server Errors) with Exponential Backoff
-            if ((response.status === 429 || response.status >= 500) && retryCount < MAX_RETRIES) {
+            // Handle 429 (Too Many Requests), 403 rate limits and 5xx (Server Errors) with Exponential Backoff
+            if (
+                (response.status === 429 ||
+                    response.status >= 500 ||
+                    (await this.isRateLimit403(response))) &&
+                retryCount < MAX_RETRIES
+            ) {
                 // Check connectivity
                 if (!window.navigator.onLine) {
                     await this.log("Network offline. Waiting for connection...", "warn");
                     await this.waitForOnline();
                 }
 
-                const backoffDelay = Math.pow(2, retryCount) * 1000 + Math.random() * 500;
+                const backoffDelay = this.retryDelayMs(response, retryCount);
                 await this.log(
                     `API Error ${response.status}. Retrying in ${Math.round(backoffDelay)}ms (Attempt ${retryCount + 1}/${MAX_RETRIES})...`,
                     "warn",

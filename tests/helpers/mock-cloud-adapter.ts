@@ -29,6 +29,17 @@ export class MockCloudAdapter implements CloudAdapter {
     readonly supportsHash = true;
     readonly supportsHistory = true;
     readonly vaultName = "MockVault";
+    /**
+     * Max changes returned per getChanges() call. Google Drive pages the
+     * Changes API (nextPageToken); Infinity keeps the old single-page behaviour.
+     */
+    changesPageSize = Infinity;
+    /**
+     * Google Drive's changes.list reports each file ONCE, at the position of its
+     * latest change, with its CURRENT metadata (path, hash) — not one historical
+     * snapshot per change. false keeps the old snapshot-per-change behaviour.
+     */
+    changesLatestStateOnly = false;
 
     private files = new Map<string, StoredFile>();
     private pathToId = new Map<string, string>();
@@ -223,11 +234,32 @@ export class MockCloudAdapter implements CloudAdapter {
 
     async getChanges(pageToken: string): Promise<CloudChanges> {
         const from = parseInt(pageToken, 10) || 0;
-        const changes = this.changeLog.slice(from).map((c) => ({
-            fileId: c.fileId,
-            removed: c.removed,
-            file: c.file,
-        }));
+        const to = Math.min(this.changeLog.length, from + this.changesPageSize);
+        let changes: CloudChanges["changes"];
+        if (this.changesLatestStateOnly) {
+            const lastPos = new Map<string, number>();
+            this.changeLog.forEach((c, i) => lastPos.set(c.fileId, i));
+            changes = [];
+            for (let i = from; i < to; i++) {
+                const c = this.changeLog[i];
+                if (lastPos.get(c.fileId) !== i) continue; // superseded by a later change
+                const current = this.files.get(c.fileId);
+                changes.push(
+                    current
+                        ? { fileId: c.fileId, removed: false, file: this.toCloudFile(current) }
+                        : { fileId: c.fileId, removed: true },
+                );
+            }
+        } else {
+            changes = this.changeLog.slice(from, to).map((c) => ({
+                fileId: c.fileId,
+                removed: c.removed,
+                file: c.file,
+            }));
+        }
+        if (to < this.changeLog.length) {
+            return { nextPageToken: String(to), changes };
+        }
         return {
             newStartPageToken: String(this.changeLog.length),
             changes,

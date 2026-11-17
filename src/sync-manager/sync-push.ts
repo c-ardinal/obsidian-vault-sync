@@ -199,6 +199,10 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
         size: number;
         content: ArrayBuffer;
         dirtyAt: number | undefined;
+        /** Result of the by-path lookup done during the hash check (undefined = not looked up) */
+        remoteLookup?: CloudFile | null;
+        /** md5 of `content`, already computed during the hash check */
+        hash: string;
     }> = [];
     const deleteQueue: string[] = [];
 
@@ -376,15 +380,17 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                         const localIndexEntry = ctx.localIndex[path];
 
                         let alreadyOnRemoteFile: CloudFile | null = null;
+                        let remoteLookup: CloudFile | null | undefined = undefined;
                         if (!localIndexEntry) {
                             try {
                                 alreadyOnRemoteFile = await ctx.adapter.getFileMetadata(path);
+                                remoteLookup = alreadyOnRemoteFile;
                             } catch (e) {
                             }
                         }
 
                         const { localHash: computedHash, compareHash: baseHash } = await computeLocalHash(
-                            ctx, content, localIndexEntry || {},
+                            ctx, content, localIndexEntry || {}, currentHash,
                         );
                         const contentMatches = baseHash
                             ? computedHash === baseHash.toLowerCase()
@@ -432,6 +438,8 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                             size: content.byteLength,
                             content,
                             dirtyAt,
+                            remoteLookup,
+                            hash: currentHash,
                         });
                     } catch (e) {
                         await ctx.log(
@@ -460,7 +468,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
             const isMetadata = file.path === ctx.pluginDataPath;
             const isMergeResult = ctx.localIndex[file.path]?.lastAction === "merge";
             if (!isMetadata && !isMergeResult && file.size > thresholdBytes) {
-                const snapshotHash = md5(file.content);
+                const snapshotHash = file.hash;
                 ctx.backgroundTransferQueue.enqueue({
                     id: generateTransferId("push"),
                     direction: "push",
@@ -542,7 +550,10 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                             fileId: ctx.index[file.path]?.fileId,
                             path: file.path,
                         };
-                        if (params.fileId) {
+                        if (!params.fileId && file.remoteLookup !== undefined) {
+                            // Already looked up by path moments ago during the hash check
+                            remoteMeta = file.remoteLookup;
+                        } else if (params.fileId) {
                             try {
                                 remoteMeta = await ctx.adapter.getFileMetadataById(
                                     params.fileId,

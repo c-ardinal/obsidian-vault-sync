@@ -625,9 +625,30 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
     return false;
 }
 
+/** Upper bound on Changes API pages processed in one sync (pageSize is 1000 on Drive) */
+export const CHANGES_MAX_PAGES_PER_SYNC = 50;
+/** A change whose pull keeps failing is retried on at most this many later syncs */
+export const CHANGES_MAX_PULL_RETRIES = 3;
+
+type ChangedFile = { id: string; path: string; hash?: string; size: number; [key: string]: any };
+
 /**
- * Pull via Changes API (for adapters that support it)
- * @param drainAll If true, process all available pages of changes (useful after initial push)
+ * Changes whose pull failed (network error etc.), keyed by fileId. The page
+ * token still advances (re-reading pages would replay unrelated changes), so
+ * without this list a failed pull was silently lost until the file changed
+ * again. Entries are dropped when a newer change for the same file arrives.
+ */
+const failedChangePulls = new WeakMap<object, Map<string, { file: ChangedFile; attempts: number }>>();
+
+/**
+ * Pull via Changes API (for adapters that support it).
+ *
+ * Processes every available page (up to CHANGES_MAX_PAGES_PER_SYNC) instead of
+ * one page per sync, so a burst of remote changes converges in one sync.
+ * communication.json and the remote index are fetched once per call (the
+ * remote index is re-downloaded only when its hash changed), not per page.
+ * Pulls that fail are retried on the next syncs (see failedChangePulls).
+ * @param drainAll Post-push confirmation mode (shows the "waiting for remote" notice)
  */
 export async function pullViaChangesAPI(
     ctx: SyncContext,
@@ -644,7 +665,41 @@ export async function pullViaChangesAPI(
     let pageCount = 1;
     let totalCompleted = 0;
 
-    do {
+    let commData: Awaited<ReturnType<typeof loadCommunication>> | null = null;
+    let remoteIndex: LocalFileIndex = {};
+    let remoteIndexHash: string | null = null;
+    // Failed pulls from earlier syncs. Updated as pages are processed, so a
+    // newer change for the same file supersedes the retry even if this call
+    // throws half-way.
+    let pendingRetries = failedChangePulls.get(ctx);
+    if (!pendingRetries) {
+        pendingRetries = new Map();
+        failedChangePulls.set(ctx, pendingRetries);
+    }
+    const pending = pendingRetries;
+    const retryCandidates = new Map(pending);
+    let newFailureCount = 0;
+
+    const loadRemoteIndex = async () => {
+        // One metadata call; the body is re-downloaded only when it changed.
+        try {
+            const remoteIndexMeta = await ctx.adapter.getFileMetadata(ctx.pluginDataPath);
+            if (remoteIndexMeta?.id) {
+                const hash = remoteIndexMeta.hash ?? `${remoteIndexMeta.id}:${remoteIndexMeta.mtime}`;
+                if (hash !== remoteIndexHash) {
+                    remoteIndex = await downloadRemoteIndex(ctx, remoteIndexMeta.id);
+                    remoteIndexHash = hash;
+                }
+            }
+        } catch (e) {
+            await ctx.log(
+                `[Smart Pull] [Changes API] Failed to download remote index: ${e}`,
+                "warn",
+            );
+        }
+    };
+
+    for (let page = 0; page < CHANGES_MAX_PAGES_PER_SYNC && currentPageToken; page++) {
         const changes = await ctx.adapter.getChanges(currentPageToken);
 
         if (changes.changes.length === 0) {
@@ -667,41 +722,42 @@ export async function pullViaChangesAPI(
             await ctx.notify("noticeWaitingForRemoteRegistration", `(Page ${pageCount++})...`);
         }
 
-        // Load communication data for mergeLock checks
-        const commData = await loadCommunication(ctx);
-
-        // Load Remote Index for ancestorHash lookups (Safety Guard)
-        let remoteIndex: LocalFileIndex = {};
-        try {
-            const remoteIndexMeta = await ctx.adapter.getFileMetadata(ctx.pluginDataPath);
-            if (remoteIndexMeta?.id) {
-                remoteIndex = await downloadRemoteIndex(ctx, remoteIndexMeta.id);
-            }
-        } catch (e) {
-            await ctx.log(
-                `[Smart Pull] [Changes API] Failed to download remote index: ${e}`,
-                "warn",
-            );
+        // communication.json / remote index are only needed for file changes
+        const hasFileChanges = changes.changes.some(
+            (c) => !c.removed && c.file?.kind === "file" && c.file.path !== ctx.pluginDataPath,
+        );
+        if (hasFileChanges) {
+            // Load communication data for mergeLock checks (once per call)
+            commData ??= await loadCommunication(ctx);
+            // Remote index for ancestorHash lookups (Safety Guard)
+            await loadRemoteIndex();
+        }
+        for (const c of changes.changes) {
+            pending.delete(c.fileId);
+            retryCandidates.delete(c.fileId);
         }
 
-        const { tasks, completed: pageCompleted, confirmedCount } = await processChangePage(
+        const {
+            tasks,
+            completed: pageCompleted,
+            confirmedCount,
+            failed,
+        } = await processChangePage(
             ctx,
             changes.changes,
             remoteIndex,
-            commData,
+            commData ?? { mergeLocks: {} },
         );
 
         if (tasks.length > 0) {
             ctx.startActivity();
-            try {
-                await runParallel(tasks, ctx.settings.concurrency);
-                totalCompleted += pageCompleted.count;
-            } finally {
-                // endActivity is handled by executeSmartSync
-            }
+            await runParallel(tasks, ctx.settings.concurrency);
+            totalCompleted += pageCompleted.count;
         }
 
         confirmedCountTotal += confirmedCount;
+        for (const f of failed) pending.set(f.id, { file: f, attempts: 0 });
+        newFailureCount += failed.length;
 
         if (changes.nextPageToken) {
             currentPageToken = changes.nextPageToken;
@@ -714,9 +770,73 @@ export async function pullViaChangesAPI(
         } else {
             break;
         }
+    }
 
-        if (!drainAll) break; // Only process one page unless drainAll is true
-    } while (currentPageToken);
+    // Retry pulls that failed in earlier syncs and were not superseded by a newer change
+    const retries = [...retryCandidates.values()];
+    if (retries.length > 0) {
+        hasTotalChanges = true;
+        commData ??= await loadCommunication(ctx);
+        await loadRemoteIndex();
+        const retryTasks = retries.map((r) => async () => {
+            let ok = false;
+            try {
+                const meta = await ctx.adapter.getFileMetadataById(r.file.id, r.file.path);
+                const localPathForId = Object.entries(ctx.index).find(
+                    ([, e]) => e.fileId === r.file.id,
+                )?.[0];
+                if (!meta) {
+                    ok = true; // gone remotely: its removal arrives as a change of its own
+                } else if (
+                    basename(meta.path) !== basename(r.file.path) ||
+                    (localPathForId && localPathForId !== r.file.path)
+                ) {
+                    ok = true; // renamed since: the stored path is stale, the rename is its own change
+                } else {
+                    const remoteEntry = remoteIndex[r.file.path];
+                    const item = {
+                        ...r.file,
+                        hash: meta.hash,
+                        size: meta.size,
+                        mtime: meta.mtime,
+                        ancestorHash: remoteEntry?.ancestorHash,
+                        plainHash: remoteEntry?.plainHash,
+                    };
+                    const localHash = ctx.localIndex[r.file.path]?.hash;
+                    if (localHash && meta.hash && localHash.toLowerCase() === meta.hash.toLowerCase()) {
+                        ok = true;
+                    } else {
+                        await ctx.log(`[Changes API] Retrying failed pull: ${r.file.path}`, "info");
+                        ok = await pullFileSafely(ctx, item, "Changes API Retry");
+                        if (ok) totalCompleted++;
+                        else if (ctx.localIndex[r.file.path]?.pendingConflict) ok = true;
+                    }
+                }
+            } catch {
+                ok = false;
+            }
+            if (pending.get(r.file.id) !== r) return; // superseded meanwhile
+            if (ok) {
+                pending.delete(r.file.id);
+            } else if (r.attempts + 1 < CHANGES_MAX_PULL_RETRIES) {
+                pending.set(r.file.id, { file: r.file, attempts: r.attempts + 1 });
+            } else {
+                pending.delete(r.file.id);
+                await ctx.log(
+                    `[Changes API] Giving up retrying ${r.file.path} after ${CHANGES_MAX_PULL_RETRIES} attempts.`,
+                    "warn",
+                );
+            }
+        });
+        ctx.startActivity();
+        await runParallel(retryTasks, ctx.settings.concurrency);
+    }
+    if (newFailureCount > 0) {
+        await ctx.log(
+            `[Smart Pull] ${newFailureCount} change(s) failed to apply; will retry on the next sync.`,
+            "warn",
+        );
+    }
 
     if (hasTotalChanges) {
         if (totalCompleted > 0) {
@@ -741,9 +861,11 @@ async function processChangePage(
     tasks: (() => Promise<void>)[];
     completed: { count: number };
     confirmedCount: number;
+    failed: ChangedFile[];
 }> {
     const tasks: (() => Promise<void>)[] = [];
     const completed = { count: 0 };
+    const failed: ChangedFile[] = [];
     let confirmedCount = 0;
 
     // Pre-calculate ID map for rename detection (Ghost File Check)
@@ -1003,6 +1125,9 @@ async function processChangePage(
                                 completedAt: Date.now(),
                                 transferMode: "inline",
                             });
+                        } else if (!ctx.localIndex[cloudFile.path]?.pendingConflict) {
+                            // Not a merge-lock wait (those are re-checked via pendingConflict)
+                            failed.push(cloudFile);
                         }
                     } finally {
                         ctx.backgroundTransferQueue.markInlineEnd(cloudFile.path);
@@ -1012,5 +1137,5 @@ async function processChangePage(
         }
     }
 
-    return { tasks, completed, confirmedCount };
+    return { tasks, completed, confirmedCount, failed };
 }
