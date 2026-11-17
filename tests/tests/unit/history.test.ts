@@ -93,7 +93,7 @@ describe("listRevisions", () => {
         const ctx = createMockCtx();
         const revisions = await listRevisions(ctx, "test.md");
 
-        expect(ctx.adapter.listRevisions).toHaveBeenCalledWith("test.md");
+        expect(ctx.adapter.listRevisions).toHaveBeenCalledWith("test.md", undefined);
         expect(revisions).toHaveLength(2);
         expect(revisions[0].id).toBe("rev-1");
     });
@@ -129,7 +129,7 @@ describe("getRevisionContent", () => {
         const result = await getRevisionContent(ctx, "test.md", "rev-1");
 
         expect(new TextDecoder().decode(result)).toBe("remote content");
-        expect(ctx.adapter.getRevisionContent).toHaveBeenCalledWith("test.md", "rev-1");
+        expect(ctx.adapter.getRevisionContent).toHaveBeenCalledWith("test.md", "rev-1", undefined);
         expect(ctx.revisionCache.set).toHaveBeenCalledWith(
             "test.md",
             "rev-1",

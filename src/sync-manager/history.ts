@@ -6,16 +6,49 @@ export function supportsHistory(ctx: SyncContext): boolean {
     return ctx.adapter.supportsHistory ?? false;
 }
 
-export async function listRevisions(ctx: SyncContext, path: string): Promise<FileRevision[]> {
+/**
+ * A revision-history request failed for a reason that may go away (network,
+ * rate limit, server error). Merge code must retry later instead of treating
+ * the history as missing, which would turn a mergeable edit into a conflict copy.
+ */
+export class TransientHistoryError extends Error {
+    constructor(readonly cause: unknown) {
+        super(`History request failed: ${cause instanceof Error ? cause.message : String(cause)}`);
+        this.name = "TransientHistoryError";
+    }
+}
+
+function isPermanentHistoryError(e: any): boolean {
+    if (!e) return false;
+    if (e.name === "DecryptionError") return true;
+    if (e.status === 404 || e.status === 410) return true;
+    const msg: string = e.message ?? "";
+    return /not found|API Error 404|API Error 410/i.test(msg);
+}
+
+async function wrapHistoryCall<T>(fn: () => Promise<T>): Promise<T> {
+    try {
+        return await fn();
+    } catch (e) {
+        throw isPermanentHistoryError(e) ? e : new TransientHistoryError(e);
+    }
+}
+
+export async function listRevisions(ctx: SyncContext, path: string, fileId?: string): Promise<FileRevision[]> {
     if (!ctx.adapter.supportsHistory || !ctx.adapter.listRevisions) {
         throw new Error(
             ctx.t("historyNotSupported") || "Cloud adapter does not support history.",
         );
     }
-    return await ctx.adapter.listRevisions(path);
+    return await wrapHistoryCall(() => ctx.adapter.listRevisions!(path, fileId));
 }
 
-export async function getRevisionContent(ctx: SyncContext, path: string, revisionId: string): Promise<ArrayBuffer> {
+export async function getRevisionContent(
+    ctx: SyncContext,
+    path: string,
+    revisionId: string,
+    fileId?: string,
+): Promise<ArrayBuffer> {
     if (!ctx.adapter.supportsHistory || !ctx.adapter.getRevisionContent) {
         throw new Error(
             ctx.t("historyNotSupported") || "Cloud adapter does not support history.",
@@ -27,7 +60,9 @@ export async function getRevisionContent(ctx: SyncContext, path: string, revisio
         return cached;
     }
 
-    const content = await ctx.adapter.getRevisionContent(path, revisionId);
+    const content = await wrapHistoryCall(() =>
+        ctx.adapter.getRevisionContent!(path, revisionId, fileId),
+    );
     await ctx.revisionCache.set(path, revisionId, content);
     return content;
 }

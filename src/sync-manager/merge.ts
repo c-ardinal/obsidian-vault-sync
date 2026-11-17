@@ -2,11 +2,32 @@ import { TFile } from "obsidian";
 import { md5 } from "../utils/md5";
 import type { SyncContext } from "./context";
 import { ensureLocalFolder, hashContent, normalizeLineEndings } from "./file-utils";
-import { checkMergeLock, acquireMergeLock, releaseMergeLock, saveLocalIndex } from "./state";
-import { listRevisions } from "./history";
+import {
+    checkMergeLock,
+    acquireMergeLock,
+    releaseMergeLock,
+    holdsMergeLock,
+    holdMergeLockUntilPush,
+    saveLocalIndex,
+} from "./state";
+import { listRevisions, TransientHistoryError } from "./history";
 import { basename } from "../utils/path";
 import { MERGE_MAX_INLINE_DOWNLOAD_BYTES } from "./constants";
+import { takeAttemptedUpload } from "./sync-helpers";
 import { getMergeStrategy } from "./strategies";
+
+/**
+ * A local file this device never synced that may simply be replaced by the
+ * remote version: anything in the config folder (Obsidian writes defaults on a
+ * fresh device) and empty / "{}" / "[]" placeholders. Anything else is the
+ * user's own data and must not be overwritten silently.
+ */
+function isDisposableUntrackedLocal(path: string, content: ArrayBuffer): boolean {
+    if (path.startsWith(".obsidian/")) return true;
+    if (content.byteLength > 64) return false;
+    const text = new TextDecoder().decode(content).replace(/^\uFEFF/, "").trim();
+    return text === "" || text === "{}" || text === "[]";
+}
 
 function markSettingsUpdatedIfNeeded(ctx: SyncContext, path: string): void {
     if (path.endsWith("/open-data.json")) {
@@ -84,9 +105,10 @@ export async function findCommonAncestorHash(
     path: string,
     localHash: string,
     remoteHash: string,
+    fileId?: string,
 ): Promise<string | null> {
     try {
-        const revisions = await listRevisions(ctx, path);
+        const revisions = await listRevisions(ctx, path, fileId);
 
         await ctx.log(
             `[Merge] Finding common ancestor for ${path}: local=${localHash.substring(0, 8)}, remote=${remoteHash.substring(0, 8)}`,
@@ -126,6 +148,9 @@ export async function findCommonAncestorHash(
         );
         return foundHash || null;
     } catch (e) {
+        // A network failure is not "no common ancestor": retry the pull later
+        // instead of falling back to a conflict copy.
+        if (e instanceof TransientHistoryError) throw e;
         await ctx.log(`[Merge] Error finding common ancestor: ${e}`, "error");
         return null;
     }
@@ -141,6 +166,7 @@ export async function perform3WayMerge(
     localContentStr: string,
     remoteContentStr: string,
     baseHash: string,
+    fileId?: string,
 ): Promise<ArrayBuffer | null> {
     try {
         const strategy = getMergeStrategy(ctx.settings.conflictResolutionStrategy);
@@ -150,8 +176,10 @@ export async function perform3WayMerge(
             localContent: localContentStr,
             remoteContent: remoteContentStr,
             baseHash,
+            fileId,
         });
     } catch (e) {
+        if (e instanceof TransientHistoryError) throw e;
         await ctx.log(`[Merge] Error: ${e}`, "error");
         return null;
     }
@@ -208,6 +236,29 @@ export async function pullFileSafely(
 
     try {
         const exists = await ctx.vault.exists(item.path);
+        if (exists && fileId && !ctx.e2eeEnabled && takeAttemptedUpload(ctx, item.path, item.hash)) {
+            // Our own upload of this file: the request "failed" but the server applied
+            // it. Adopt it as pushed; the push uploads any later local edits.
+            const entry = {
+                ...(ctx.localIndex[item.path] ?? {}),
+                fileId,
+                mtime: item.mtime ?? Date.now(),
+                size: item.size ?? 0,
+                hash: item.hash!.toLowerCase(),
+                lastAction: "push" as const,
+                ancestorHash: item.hash!.toLowerCase(),
+            };
+            delete (entry as { pendingConflict?: boolean }).pendingConflict;
+            ctx.index[item.path] = { ...entry };
+            ctx.localIndex[item.path] = { ...entry };
+            ctx.dirtyPaths.set(item.path, Date.now());
+            await saveLocalIndex(ctx);
+            await ctx.log(
+                `[${logPrefix}] ${item.path}: adopted our own upload whose response was lost.`,
+                "info",
+            );
+            return true;
+        }
         if (exists) {
             ctx.syncingPaths.add(item.path);
             try {
@@ -246,11 +297,25 @@ export async function pullFileSafely(
                     const currentPlainHash = await hashContent(localContent);
                     isActuallyModified = localBase.plainHash !== currentPlainHash;
                 } else {
-                    // No E2EE or no plainHash: use regular hash comparison
-                    // When !localBase (never tracked), the file is not "modified" — it's untracked.
-                    isActuallyModified = localBase
-                        ? (!localBase.hash || localBase.hash.toLowerCase() !== currentHash)
-                        : false;
+                    // No E2EE or no plainHash: use regular hash comparison.
+                    // A local file this device never synced (no base) that differs from the
+                    // remote one is local data in its own right - e.g. both devices created
+                    // a note at the same path. Treating it as "unmodified" accepted the remote
+                    // version and silently overwrote the local note.
+                    if (localBase) {
+                        isActuallyModified =
+                            !localBase.hash || localBase.hash.toLowerCase() !== currentHash;
+                    } else if (isDisposableUntrackedLocal(item.path, localContent)) {
+                        // Empty placeholder / default config on a fresh device: take the remote
+                        isActuallyModified = false;
+                    } else if (ctx.e2eeEnabled) {
+                        // Remote hash is of the ciphertext; compare plaintext hashes instead
+                        isActuallyModified = !(
+                            item.plainHash && item.plainHash === (await hashContent(localContent))
+                        );
+                    } else {
+                        isActuallyModified = !(item.hash && item.hash.toLowerCase() === currentHash);
+                    }
                 }
 
                 let isModifiedLocally = isActuallyModified || ctx.dirtyPaths.has(item.path);
@@ -327,30 +392,17 @@ export async function pullFileSafely(
                                     safeToAcceptRemote = false;
                                 }
                             } else {
-                                // Fallback for adapters/indices that don't provide ancestorHash
+                                // No (current) ancestor annotation - e.g. the remote index lags
+                                // behind the file. Revision ORDER cannot prove descent: when two
+                                // devices upload at nearly the same time, the later upload sits
+                                // after ours in history although it overwrote it. Merge instead
+                                // (base = the version our push was built on): if the remote does
+                                // include our push the merge simply yields the remote version.
                                 await ctx.log(
-                                    `[${logPrefix}] Missing ancestorHash. Searching history for ${localBase.hash.substring(0, 8)}...`,
-                                    "debug",
+                                    `[${logPrefix}] Remote version is not known to include our ${localBase.lastAction}. Forcing merge check.`,
+                                    "warn",
                                 );
-                                const common = await findCommonAncestorHash(
-                                    ctx,
-                                    item.path,
-                                    localBase.hash,
-                                    item.hash,
-                                );
-                                if (common?.toLowerCase() === localBase.hash.toLowerCase()) {
-                                    await ctx.log(
-                                        `[${logPrefix}] Confirmed via history: Remote is a descendant. Safe to pull.`,
-                                        "debug",
-                                    );
-                                    safeToAcceptRemote = true;
-                                } else {
-                                    await ctx.log(
-                                        `[${logPrefix}] Warning: Remote version seems to have overwritten our ${localBase.lastAction}. Forcing merge.`,
-                                        "warn",
-                                    );
-                                    safeToAcceptRemote = false;
-                                }
+                                safeToAcceptRemote = false;
                             }
                         }
 
@@ -372,6 +424,28 @@ export async function pullFileSafely(
                             }
                             ctx.syncingPaths.add(item.path);
                             const remoteContent = await ctx.adapter.downloadFile(fileId || "");
+                            // The download takes a while, and vault events for this path are
+                            // suppressed meanwhile (syncingPaths). If the user edited the note
+                            // during the download, writing now would silently discard the edit.
+                            // Keep it: mark dirty so the push detects the remote change and merges.
+                            const latest = await ctx.vault.readBinary(item.path).catch(() => null);
+                            if (!latest) {
+                                // Renamed or deleted meanwhile: writing would resurrect the old
+                                // path. The rename/delete is pushed next and reconciled then.
+                                await ctx.log(
+                                    `[${logPrefix}] ${item.path} was renamed or deleted during the download. Skipping.`,
+                                    "info",
+                                );
+                                return false;
+                            }
+                            if (md5(latest) !== currentHash) {
+                                ctx.dirtyPaths.set(item.path, Date.now());
+                                await ctx.log(
+                                    `[${logPrefix}] ${item.path} was edited during the download. Keeping the local edit; it will be merged.`,
+                                    "info",
+                                );
+                                return false;
+                            }
                             try {
                                 await ctx.vault.writeBinary(item.path, remoteContent);
                             } catch (writeErr) {
@@ -431,6 +505,21 @@ export async function pullFileSafely(
                         let baseHash = localBase.ancestorHash;
                         let origin = "ancestorHash";
 
+                        // The remote version was built directly on the version we pushed
+                        // (e.g. another device merged our push before we saw it confirmed).
+                        // Our local content also derives from that push, so it is the true
+                        // common ancestor; the older ancestorHash would make our own pushed
+                        // edit look like a conflicting change on both sides.
+                        if (
+                            (localBase.lastAction === "push" || localBase.lastAction === "merge") &&
+                            item.ancestorHash &&
+                            localBase.hash &&
+                            item.ancestorHash.toLowerCase() === localBase.hash.toLowerCase()
+                        ) {
+                            baseHash = localBase.hash;
+                            origin = "remote ancestorHash (our push)";
+                        }
+
                         await ctx.log(
                             `[${logPrefix}] Base selection: ancestorHash=${baseHash?.substring(0, 8) || "null"}, localBase.hash=${localBase.hash?.substring(0, 8) || "null"}, remote.hash=${item.hash?.substring(0, 8) || "null"}`,
                             "debug",
@@ -460,6 +549,7 @@ export async function pullFileSafely(
                                 item.path,
                                 localBase.hash as string,
                                 item.hash || "",
+                                fileId,
                             );
                             if (computedAncestor) {
                                 baseHash = computedAncestor;
@@ -486,6 +576,7 @@ export async function pullFileSafely(
                                 currentContentStr,
                                 remoteContentStr,
                                 baseHashFound,
+                                fileId,
                             );
 
                             // The merge downloads revisions and can take seconds. If the user
@@ -493,8 +584,12 @@ export async function pullFileSafely(
                             // those keystrokes. Re-read and merge again from the newest local
                             // content (bounded, so constant typing cannot stall the sync).
                             let latestLocal = localContent;
+                            let vanished = false;
                             for (let retry = 0; merged && retry < 3; retry++) {
-                                if (!(await ctx.vault.exists(item.path))) break;
+                                if (!(await ctx.vault.exists(item.path))) {
+                                    vanished = true;
+                                    break;
+                                }
                                 const reread = await ctx.vault.readBinary(item.path);
                                 if (md5(reread) === md5(latestLocal)) break;
                                 await ctx.log(
@@ -508,10 +603,24 @@ export async function pullFileSafely(
                                     new TextDecoder().decode(reread),
                                     remoteContentStr,
                                     baseHashFound,
+                                    fileId,
                                 );
                             }
 
+                            if (merged && (vanished || !(await ctx.vault.exists(item.path)))) {
+                                // The user renamed/deleted the note while we merged. Writing the
+                                // result would recreate the old path next to the renamed note.
+                                // The rename is pushed next; that push sees the remote change
+                                // and merges it into the note under its new name.
+                                await ctx.log(
+                                    `[${logPrefix}] ${item.path} was renamed or deleted during the merge. Discarding this merge.`,
+                                    "info",
+                                );
+                                await releaseMergeLock(ctx, item.path, logPrefix);
+                                return false;
+                            }
                             if (merged) {
+                                let heldForPush = false;
                                 const mergedStr = new TextDecoder().decode(merged);
                                 const normalizedMerged = normalizeLineEndings(mergedStr);
                                 const remoteNormForWrite = normalizeLineEndings(remoteContentStr);
@@ -594,6 +703,7 @@ export async function pullFileSafely(
                                             `[${logPrefix}] Merged successfully. Queued for push.`,
                                             "info",
                                         );
+                                        heldForPush = holdMergeLockUntilPush(ctx, item.path);
 
                                         if (localBase?.pendingConflict) {
                                             // Successfully merged our changes on top of a remote merge result from another device
@@ -631,7 +741,9 @@ export async function pullFileSafely(
                                     }
                                 }
 
-                                await releaseMergeLock(ctx, item.path, logPrefix);
+                                if (!heldForPush) {
+                                    await releaseMergeLock(ctx, item.path, logPrefix);
+                                }
                                 ctx.logger.markActionTaken();
                                 return true;
                             }
@@ -736,6 +848,10 @@ export async function pullFileSafely(
                     `[${logPrefix}] Conflict check error for ${item.path}: ${err}`,
                     "error",
                 );
+                // Don't leave our lock blocking other devices until its TTL runs out.
+                if (holdsMergeLock(ctx, item.path)) {
+                    await releaseMergeLock(ctx, item.path, logPrefix).catch(() => {});
+                }
                 return false;
             }
         }

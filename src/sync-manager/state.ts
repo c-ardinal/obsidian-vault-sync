@@ -2,7 +2,7 @@ import { md5 } from "../utils/md5";
 import { toHex } from "../utils/format";
 import { normalizePath, dirname } from "../utils/path";
 import type { SyncContext } from "./context";
-import type { CommunicationData } from "./types";
+import type { CommunicationData, MergeLockEntry } from "./types";
 import { isManagedSeparately, shouldNotBeOnRemote, shouldIgnore } from "./file-utils";
 import {
     LOCK_MAX_ATTEMPTS,
@@ -61,6 +61,10 @@ interface CycleState {
     deferDepth: number;
     localIndexDirty: boolean;
     skippedLocalIndexSaves: number;
+    /** Merge locks this device currently holds (acquired and not yet released) */
+    heldLocks: Set<string>;
+    /** Held locks whose merged result still has to be uploaded (released after the push) */
+    locksAwaitingPush: Set<string>;
 }
 
 const cycleStates = new WeakMap<object, CycleState>();
@@ -76,6 +80,8 @@ function cycleState(ctx: SyncContext): CycleState {
             deferDepth: 0,
             localIndexDirty: false,
             skippedLocalIndexSaves: 0,
+            heldLocks: new Set(),
+            locksAwaitingPush: new Set(),
         };
         cycleStates.set(ctx, s);
     }
@@ -93,6 +99,10 @@ export function beginSyncCycle(ctx: SyncContext): void {
 /** End of a sync cycle: drop caches and flush deferred local-index writes. */
 export async function endSyncCycle(ctx: SyncContext): Promise<void> {
     const s = cycleState(ctx);
+    // A merged result that could not be pushed this cycle: stop blocking other devices.
+    for (const path of [...s.locksAwaitingPush]) {
+        await releaseMergeLock(ctx, path, "Sync");
+    }
     s.active = false;
     s.comm = null;
     s.deferDepth = Math.max(0, s.deferDepth - 1);
@@ -146,6 +156,10 @@ export async function loadCommunication(
         return data;
     } catch (e) {
         await ctx.log(`[Communication] Failed to load: ${e}`, "error");
+        // A fresh read feeds a read-modify-write of the lock map. Returning an
+        // empty map here would make the following save wipe every other
+        // device's locks, so surface the error instead.
+        if (opts.fresh) throw e;
         return { mergeLocks: {}, lastUpdated: 0 };
     }
 }
@@ -202,20 +216,27 @@ async function flushLockOps(ctx: SyncContext): Promise<void> {
         for (const op of ops) {
             const existing = comm.mergeLocks[op.path];
             if (op.kind === "acquire") {
-                if (existing && existing.expiresAt > now && existing.holder !== ctx.deviceId) {
+                const fileId = fileIdOf(ctx, op.path);
+                const foreign = findForeignLock(ctx, comm, op.path, fileId, now);
+                if (foreign) {
                     results.set(op, {
                         acquired: false,
-                        holder: existing.holder,
-                        expiresIn: Math.floor((existing.expiresAt - now) / 1000),
+                        holder: foreign.holder,
+                        expiresIn: Math.floor((foreign.expiresAt - now) / 1000),
                     });
                 } else {
                     comm.mergeLocks[op.path] = {
                         holder: ctx.deviceId,
                         expiresAt: now + LOCK_TTL_MS,
+                        ...(fileId ? { fileId } : {}),
                     };
+                    // Count as held from the moment we write it (releaseOrphanedOwnLocks)
+                    s.heldLocks.add(op.path);
                     changed = true;
                 }
             } else {
+                s.heldLocks.delete(op.path);
+                s.locksAwaitingPush.delete(op.path);
                 if (existing && existing.holder === ctx.deviceId) {
                     delete comm.mergeLocks[op.path];
                     changed = true;
@@ -239,8 +260,10 @@ async function flushLockOps(ctx: SyncContext): Promise<void> {
                 for (const op of toVerify) {
                     const lock = verify.mergeLocks[op.path];
                     if (lock && lock.holder === ctx.deviceId) {
+                        s.heldLocks.add(op.path);
                         results.set(op, { acquired: true });
                     } else {
+                        s.heldLocks.delete(op.path);
                         results.set(op, {
                             acquired: false,
                             contended: true,
@@ -253,7 +276,10 @@ async function flushLockOps(ctx: SyncContext): Promise<void> {
         }
         for (const op of ops) op.resolve(results.get(op) ?? { acquired: false });
     } catch (e) {
-        for (const op of ops) op.reject(e);
+        for (const op of ops) {
+            if (op.kind === "acquire") s.heldLocks.delete(op.path);
+            op.reject(e);
+        }
     }
 }
 
@@ -299,15 +325,84 @@ export async function releaseMergeLock(
     }
 }
 
+/**
+ * Keep the merge lock on `path` until its merged result has been uploaded
+ * (see releaseLockAfterPush). Releasing right after the local merge let other
+ * devices push in the gap, and the merged upload then overwrote their edit.
+ */
+/** True while this device holds the merge lock for `path` in the current cycle. */
+export function holdsMergeLock(ctx: SyncContext, path: string): boolean {
+    return cycleState(ctx).heldLocks.has(path);
+}
+
+export function holdMergeLockUntilPush(ctx: SyncContext, path: string): boolean {
+    const s = cycleState(ctx);
+    // Only inside a sync cycle: its push (or endSyncCycle) is guaranteed to release it
+    if (!s.active || !s.heldLocks.has(path)) return false;
+    s.locksAwaitingPush.add(path);
+    return true;
+}
+
+/** Release a lock kept by holdMergeLockUntilPush once the push of `path` finished (or failed). */
+export async function releaseLockAfterPush(ctx: SyncContext, path: string): Promise<void> {
+    const s = cycleState(ctx);
+    if (!s.locksAwaitingPush.has(path)) return;
+    await releaseMergeLock(ctx, path, "Smart Push");
+}
+
+/**
+ * communication.json is read-modify-written by every device without
+ * compare-and-swap, so another device that read it just before we released a
+ * lock can write our lock back ("ghost lock"); everyone then waits for the
+ * TTL. A lock in our name that we do not hold is always such a ghost (or left
+ * over from a crash): release it.
+ */
+export async function releaseOrphanedOwnLocks(ctx: SyncContext, comm: CommunicationData): Promise<void> {
+    const s = cycleState(ctx);
+    const now = Date.now();
+    for (const [path, lock] of Object.entries(comm.mergeLocks)) {
+        if (lock.holder === ctx.deviceId && lock.expiresAt > now && !s.heldLocks.has(path)) {
+            await ctx.log(`[Communication] Releasing orphaned merge lock on ${path}.`, "debug");
+            await releaseMergeLock(ctx, path, "Communication");
+        }
+    }
+}
+
+function fileIdOf(ctx: SyncContext, path: string): string | undefined {
+    return ctx.index[path]?.fileId || ctx.localIndex[path]?.fileId || undefined;
+}
+
+/**
+ * Another device's live lock on this file: by path, or by file id when the
+ * other device knows the file under a different path (pending rename).
+ */
+export function findForeignLock(
+    ctx: SyncContext,
+    comm: Pick<CommunicationData, "mergeLocks">,
+    path: string,
+    fileId: string | undefined = fileIdOf(ctx, path),
+    now: number = Date.now(),
+): (MergeLockEntry & { path: string }) | null {
+    const live = (l: MergeLockEntry | undefined) =>
+        !!l && l.expiresAt > now && l.holder !== ctx.deviceId;
+    const direct = comm.mergeLocks[path];
+    if (live(direct)) return { ...direct, path };
+    if (!fileId) return null;
+    for (const [p, l] of Object.entries(comm.mergeLocks)) {
+        if (l.fileId === fileId && live(l)) return { ...l, path: p };
+    }
+    return null;
+}
+
 export async function checkMergeLock(
     ctx: SyncContext,
     path: string,
 ): Promise<{ locked: boolean; holder?: string; expiresIn?: number }> {
     const comm = await loadCommunication(ctx);
-    const existing = comm.mergeLocks[path];
     const now = Date.now();
+    const existing = findForeignLock(ctx, comm, path, undefined, now);
 
-    if (existing && existing.expiresAt > now && existing.holder !== ctx.deviceId) {
+    if (existing) {
         return {
             locked: true,
             holder: existing.holder,

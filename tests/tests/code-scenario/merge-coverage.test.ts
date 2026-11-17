@@ -643,7 +643,7 @@ describe("merge.ts additional coverage", () => {
                 adapter: {
                     ...ctx.adapter,
                     listRevisions: async () => {
-                        throw new Error("History API error");
+                        throw new Error("File not found: abc");
                     },
                 },
             };
@@ -656,6 +656,22 @@ describe("merge.ts additional coverage", () => {
             );
 
             expect(result).toBeNull();
+        });
+
+        it("should throw (so the pull is retried) when listRevisions fails transiently", async () => {
+            // Returning null here used to turn a network blip into a conflict copy.
+            const failingCtx = {
+                ...ctx,
+                adapter: {
+                    ...ctx.adapter,
+                    listRevisions: async () => {
+                        throw new Error("Network request failed");
+                    },
+                },
+            };
+            await expect(
+                findCommonAncestorHash(failingCtx as any, FILE_PATH, hashOf("local"), hashOf("remote")),
+            ).rejects.toThrow("History request failed");
         });
     });
 

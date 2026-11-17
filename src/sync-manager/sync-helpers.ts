@@ -70,18 +70,31 @@ export async function buildRemoteIndexPayload(ctx: SyncContext): Promise<ArrayBu
         const lastSeen = ctx.index[ctx.pluginDataPath]?.hash?.toLowerCase() || "";
         if (meta?.id && meta.hash && meta.hash.toLowerCase() !== lastSeen) {
             const remote = await downloadRemoteIndex(ctx, meta.id);
-            const ourFileIds = new Set(
-                Object.values(ctx.index)
-                    .map((e) => e.fileId)
-                    .filter(Boolean),
-            );
+            const ourPathById = new Map<string, string>();
+            for (const [p, e] of Object.entries(ctx.index)) if (e.fileId) ourPathById.set(e.fileId, p);
+            const changedByUs = (e: LocalFileIndex[string] | undefined) =>
+                !!e &&
+                (e.lastAction === "push" || e.lastAction === "merge" || !!e.forcePush || !!e.pendingMove);
             let kept = 0;
             for (const [path, entry] of Object.entries(remote)) {
                 if (path === ctx.pluginDataPath) continue;
                 const mine = ctx.index[path];
                 if (!mine) {
-                    if (entry.fileId && ourFileIds.has(entry.fileId)) continue; // we moved it
-                    if (entry.fileId && !(await ctx.adapter.fileExistsById(entry.fileId))) continue; // deleted
+                    const ourPath = entry.fileId ? ourPathById.get(entry.fileId) : undefined;
+                    if (ourPath !== undefined) {
+                        // Same file under another path. If WE moved it, our path wins. If not,
+                        // ANOTHER device renamed it and our entry is just stale: keeping ours
+                        // (as before) reverted their rename in the shared index, and devices
+                        // doing their first sync from it then created the note at the old path.
+                        if (changedByUs(ctx.index[ourPath])) continue;
+                        delete merged[ourPath];
+                    } else if (
+                        entry.fileId &&
+                        !(await ctx.adapter.fileExistsById(entry.fileId).catch(() => true))
+                    ) {
+                        continue; // deleted (on a lookup error keep the entry: dropping
+                        // it would hide the file from devices doing their first sync)
+                    }
                     merged[path] = entry;
                     kept++;
                 } else if (
@@ -108,4 +121,28 @@ export async function buildRemoteIndexPayload(ctx: SyncContext): Promise<ArrayBu
     }
     const data = JSON.stringify({ index: merged, startPageToken: ctx.startPageToken });
     return new TextEncoder().encode(data).buffer as ArrayBuffer;
+}
+
+/**
+ * Uploads whose outcome is unknown (the request failed, but the server may have
+ * applied it: "response lost"). path -> md5 of what we sent. When that exact
+ * hash later shows up remotely it is our own content, not another device's
+ * edit: adopting it avoids overwriting a new local note with it, or a false
+ * 3-way conflict between our own older and newer edits.
+ */
+const attemptedUploads = new WeakMap<object, Map<string, string>>();
+
+export function recordAttemptedUpload(ctx: SyncContext, path: string, hash: string): void {
+    let m = attemptedUploads.get(ctx);
+    if (!m) attemptedUploads.set(ctx, (m = new Map()));
+    m.set(path, hash.toLowerCase());
+}
+
+/** Returns true (and forgets the record) if `hash` is what we tried to upload to `path`. */
+export function takeAttemptedUpload(ctx: SyncContext, path: string, hash: string | undefined): boolean {
+    const m = attemptedUploads.get(ctx);
+    const rec = m?.get(path);
+    if (!rec || !hash || rec !== hash.toLowerCase()) return false;
+    m!.delete(path);
+    return true;
 }

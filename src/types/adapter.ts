@@ -162,8 +162,13 @@ export interface CloudAdapter {
 
     // === History Support (optional) ===
     readonly supportsHistory: boolean;
-    listRevisions?(path: string): Promise<FileRevision[]>;
-    getRevisionContent?(path: string, revisionId: string): Promise<ArrayBuffer>;
+    /**
+     * @param fileId When known, identifies the file directly. A by-path lookup
+     *   fails once another device renamed the file, which made merges miss
+     *   their base revision and fall back to a conflict copy.
+     */
+    listRevisions?(path: string, fileId?: string): Promise<FileRevision[]>;
+    getRevisionContent?(path: string, revisionId: string, fileId?: string): Promise<ArrayBuffer>;
     setRevisionKeepForever?(path: string, revisionId: string, keepForever: boolean): Promise<void>;
     deleteRevision?(path: string, revisionId: string): Promise<void>;
 }

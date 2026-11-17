@@ -9,6 +9,8 @@ export interface MergeParams {
     localContent: string;
     remoteContent: string;
     baseHash: string;
+    /** Cloud file id, so the base revision is found even after a remote rename */
+    fileId?: string;
 }
 
 /**

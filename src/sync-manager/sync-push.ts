@@ -10,7 +10,7 @@ import {
     shouldIgnore,
     hashContent,
 } from "./file-utils";
-import { loadCommunication, saveIndex } from "./state";
+import { loadCommunication, saveIndex, releaseLockAfterPush, findForeignLock } from "./state";
 import { pullFileSafely } from "./merge";
 import { TransferPriority } from "./transfer-types";
 import { formatSize } from "../utils/format";
@@ -22,6 +22,7 @@ import {
     generateTransferId,
     markPendingTransfer,
     buildRemoteIndexPayload,
+    recordAttemptedUpload,
 } from "./sync-helpers";
 
 
@@ -135,6 +136,27 @@ async function reconcileVanishedAfterUpload(
     entry: LocalFileIndex[string],
 ): Promise<boolean> {
     if (await ctx.vault.exists(path)) return false;
+    // An already-synced file renamed during the upload: the rename handler moved its
+    // index entry (same fileId) to the new path, with a pendingMove from `path`. Record
+    // that the remote now holds what we uploaded; registering `path` for deletion here
+    // made the next push move the file AND delete it by the same fileId (data loss).
+    for (const [p, e] of Object.entries(ctx.index)) {
+        if (p === path || !entry.fileId || e.fileId !== entry.fileId) continue;
+        const updated = { ...e, hash: entry.hash, plainHash: entry.plainHash, size: entry.size };
+        ctx.index[p] = updated;
+        if (ctx.localIndex[p]) {
+            ctx.localIndex[p] = {
+                ...ctx.localIndex[p],
+                hash: entry.hash,
+                plainHash: entry.plainHash,
+                size: entry.size,
+                lastAction: "push",
+            };
+        }
+        ctx.dirtyPaths.delete(path);
+        await ctx.log(`[Smart Push] ${path} was renamed to ${p} during upload.`, "info");
+        return true;
+    }
     const uploadedHash = md5(content);
     for (const candidate of ctx.dirtyPaths.keys()) {
         if (candidate === path || ctx.index[candidate]) continue;
@@ -257,8 +279,8 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
 
     for (const path of dirtyPathsSnapshot) {
         dirtyPathTasks.push(async () => {
-            const mergeLock = commData.mergeLocks[path];
-            if (mergeLock && mergeLock.holder !== ctx.deviceId && mergeLock.expiresAt > now) {
+            const mergeLock = findForeignLock(ctx, commData, path, undefined, now);
+            if (mergeLock) {
                 await ctx.log(
                     `[Smart Push] Skipping: ${path} is being merged by ${mergeLock.holder} (expires in ${Math.round((mergeLock.expiresAt - now) / 1000)}s)`,
                     "debug",
@@ -362,6 +384,20 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                 newParentPath,
                             );
                             ctx.logger.markActionTaken();
+
+                            if (!ctx.index[path]) {
+                                // Renamed again (or deleted) while the move was in flight. The
+                                // rename handler already moved the entry on, with pendingMove
+                                // pointing at this path - which is exactly where the remote file
+                                // is now. Re-creating an entry here would leave a ghost with the
+                                // same fileId, which a later pull resurrects as a duplicate note.
+                                moveCount++;
+                                await ctx.log(
+                                    `[Smart Push] Moved ${moveInfo.oldPath} -> ${path}, which was renamed again meanwhile.`,
+                                    "debug",
+                                );
+                                return;
+                            }
 
                             // Another device may have updated the file since we last synced
                             // it. Adopting moved.hash here would make our (older) local copy
@@ -514,6 +550,12 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
             } else {
                 if (ctx.localIndex[path]) {
                     deleteQueue.push(path);
+                } else if (!ctx.index[path]) {
+                    // Created (and maybe renamed) then deleted before it was ever synced:
+                    // nothing exists anywhere, so the dirty mark would otherwise stay forever
+                    // and every following sync would run a push for it.
+                    ctx.dirtyPaths.delete(path);
+                    await ctx.log(`[Smart Push] Dropped never-synced deleted path: ${path}`, "debug");
                 }
             }
         });
@@ -598,7 +640,18 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                 ctx.backgroundTransferQueue.markInlineStart(file.path, "push", file.size);
                 try {
                     const currentStat = await ctx.vault.stat(file.path);
-                    if (currentStat && currentStat.mtime !== file.mtime) {
+                    if (!currentStat) {
+                        // Renamed or deleted since it was queued. The rename/delete handler
+                        // already moved the index entry and the dirty mark to the new path;
+                        // uploading here would hit a "conflict" (no base any more) and pull
+                        // the file back under its old name, duplicating the note.
+                        await ctx.log(
+                            `[Smart Push] Skipped (renamed or deleted during sync): ${file.path}`,
+                            "debug",
+                        );
+                        return;
+                    }
+                    if (currentStat.mtime !== file.mtime) {
                         ctx.dirtyPaths.set(file.path, Date.now());
                         await ctx.log(
                             `[Smart Push] Skipped (modified during sync): ${file.path}`,
@@ -613,24 +666,20 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                             fileId: ctx.index[file.path]?.fileId,
                             path: file.path,
                         };
+                        // A failed lookup must NOT be treated as "not on remote": uploading
+                        // without the conflict check below would silently overwrite another
+                        // device's newer version (by fileId), or create a second file with
+                        // the same name (by path). Leave the file dirty and retry next sync.
                         if (!params.fileId && file.remoteLookup !== undefined) {
                             // Already looked up by path moments ago during the hash check
                             remoteMeta = file.remoteLookup;
                         } else if (params.fileId) {
-                            try {
-                                remoteMeta = await ctx.adapter.getFileMetadataById(
-                                    params.fileId,
-                                    file.path,
-                                );
-                            } catch {
-                                /* ignore not found */
-                            }
+                            remoteMeta = await ctx.adapter.getFileMetadataById(
+                                params.fileId,
+                                file.path,
+                            );
                         } else {
-                            try {
-                                remoteMeta = await ctx.adapter.getFileMetadata(file.path);
-                            } catch {
-                                /* ignore not found */
-                            }
+                            remoteMeta = await ctx.adapter.getFileMetadata(file.path);
                         }
 
                         if (remoteMeta) {
@@ -642,7 +691,17 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                 (!lastKnownHash ||
                                     lastKnownHash.toLowerCase() !== remoteHash.toLowerCase())
                             ) {
-                                if (ctx.localIndex[file.path]?.lastAction === "merge") {
+                                const mergedOnto = ctx.localIndex[file.path]?.ancestorHash;
+                                if (
+                                    ctx.localIndex[file.path]?.lastAction === "merge" &&
+                                    !!mergedOnto &&
+                                    mergedOnto.toLowerCase() === remoteHash.toLowerCase()
+                                ) {
+                                    // The merge result was built on exactly this remote version.
+                                    // If the remote moved on since (another device pushed after
+                                    // our merge released its lock), uploading would drop that
+                                    // device's edit: take the conflict path below instead, which
+                                    // merges again on top of the newer remote.
                                     await ctx.log(
                                         `[Smart Push] Allowing push of merged file (hash mismatch expected): ${file.path}`,
                                         "debug",
@@ -661,9 +720,24 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                         `[Smart Push] [Deadlock Breaking] Attempting immediate pull/merge for ${file.path}...`,
                                         "debug",
                                     );
-                                    await pullFileSafely(ctx, remoteMeta, "Push Conflict");
+                                    if (!(await ctx.vault.exists(file.path))) {
+                                        // Renamed/deleted while we were checking: pulling now
+                                        // would resurrect the old path next to the new one.
+                                        return;
+                                    }
+                                    const resolved = await pullFileSafely(ctx, remoteMeta, "Push Conflict");
 
-                                    if (ctx.localIndex[file.path]?.lastAction === "merge") {
+                                    // Upload only a merge result built on THIS remote version.
+                                    // lastAction may already have been "merge" before the pull
+                                    // (an older merge); if the pull failed or produced something
+                                    // else, uploading here would overwrite the remote blindly.
+                                    const mergedOntoNow = ctx.localIndex[file.path]?.ancestorHash;
+                                    if (
+                                        resolved &&
+                                        ctx.localIndex[file.path]?.lastAction === "merge" &&
+                                        !!mergedOntoNow &&
+                                        mergedOntoNow.toLowerCase() === remoteHash.toLowerCase()
+                                    ) {
                                         try {
                                             const mergedContent =
                                                 await ctx.vault.readBinary(file.path);
@@ -720,7 +794,11 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                             }
                         }
                     } catch (e) {
-                        await ctx.log(`[Smart Push] Pre-upload validation failed: ${e}`, "warn");
+                        await ctx.log(
+                            `[Smart Push] Pre-upload check failed for ${file.path}, will retry next sync: ${e}`,
+                            "warn",
+                        );
+                        return;
                     }
 
                     const targetFileId = remoteMeta?.id || ctx.index[file.path]?.fileId;
@@ -775,8 +853,11 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                     });
                 } catch (e) {
                     await ctx.log(`[Smart Push] Upload failed: ${file.path} - ${e}`, "error");
+                    // A lost response may still have been applied by the server
+                    recordAttemptedUpload(ctx, file.path, file.hash);
                 } finally {
                     ctx.backgroundTransferQueue.markInlineEnd(file.path);
+                    await releaseLockAfterPush(ctx, file.path);
                 }
             });
         }
@@ -842,8 +923,43 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
             tasks.push(async () => {
                 try {
                     const entry = ctx.index[path];
-                    if (entry) {
-                        await ctx.adapter.deleteFile(entry.fileId);
+                    const sharedBy = entry?.fileId
+                        ? Object.keys(ctx.index).find(
+                              (p) => p !== path && ctx.index[p]?.fileId === entry.fileId,
+                          )
+                        : undefined;
+                    if (entry && sharedBy) {
+                        // Safety net: the remote file is still in use under another local
+                        // path (rename/move). Deleting it by id would delete that note too.
+                        delete ctx.index[path];
+                        delete ctx.localIndex[path];
+                        ctx.dirtyPaths.delete(path);
+                        await ctx.log(
+                            `[Smart Push] Not deleting ${path} remotely: its file is now ${sharedBy}.`,
+                            "warn",
+                        );
+                    } else if (entry) {
+                        // Deleting is by file id, and the id may now hold something else:
+                        // another device may have edited it, or moved another note onto
+                        // it. Check first, and let the newer edit win over our delete.
+                        const remote = await ctx.adapter.getFileMetadataById(entry.fileId, path);
+                        if (
+                            remote &&
+                            entry.hash &&
+                            remote.hash &&
+                            remote.hash.toLowerCase() !== entry.hash.toLowerCase()
+                        ) {
+                            delete ctx.index[path];
+                            delete ctx.localIndex[path];
+                            ctx.dirtyPaths.delete(path);
+                            await ctx.log(
+                                `[Smart Push] Not deleting ${path} remotely: it was changed on another device after our last sync. Restoring ${remote.path}.`,
+                                "warn",
+                            );
+                            await pullFileSafely(ctx, remote, "Smart Push");
+                            return;
+                        }
+                        if (remote) await ctx.adapter.deleteFile(entry.fileId);
                         delete ctx.index[path];
                         delete ctx.localIndex[path];
                         ctx.dirtyPaths.delete(path);

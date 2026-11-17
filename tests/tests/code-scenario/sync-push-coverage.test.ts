@@ -807,9 +807,10 @@ describe("smartPush complete coverage", () => {
             device.editFile("merged.md", "merged content");
             sm.localIndex["merged.md"].lastAction = "merge";
 
-            // Remote changed
+            // Remote changed, and our merge result was built on top of that remote version
             const remoteBuf = new TextEncoder().encode("remote version").buffer as ArrayBuffer;
-            await cloud.uploadFile("merged.md", remoteBuf, Date.now());
+            const remote = await cloud.uploadFile("merged.md", remoteBuf, Date.now());
+            sm.localIndex["merged.md"].ancestorHash = remote.hash;
 
             const ctx = await createTestContext(cloud, device);
             await smartPush(ctx, false);
@@ -818,6 +819,35 @@ describe("smartPush complete coverage", () => {
             expect(device.logs.some((log) => log.includes("Allowing push of merged file"))).toBe(
                 true,
             );
+        });
+
+        it("should NOT blindly push a merged file when the remote moved on after the merge", async () => {
+            const sm = device.syncManager as any;
+
+            device.setupSyncedFile("merged2.md", "base", "file_1");
+            const mergedOnto = await cloud.uploadFile(
+                "merged2.md",
+                new TextEncoder().encode("remote v1").buffer as ArrayBuffer,
+                Date.now(),
+            );
+            device.editFile("merged2.md", "merged content");
+            sm.localIndex["merged2.md"].lastAction = "merge";
+            sm.localIndex["merged2.md"].ancestorHash = mergedOnto.hash;
+
+            // Another device pushed again after our merge (lock already released)
+            await cloud.uploadFile(
+                "merged2.md",
+                new TextEncoder().encode("remote v2 from another device").buffer as ArrayBuffer,
+                Date.now(),
+            );
+
+            const ctx = await createTestContext(cloud, device);
+            await smartPush(ctx, false);
+
+            expect(device.logs.some((log) => log.includes("Allowing push of merged file"))).toBe(false);
+            expect(device.logs.some((log) => log.includes("CONFLICT DETECTED"))).toBe(true);
+            // The other device's version was not overwritten by the stale merge result
+            expect(cloud.getCloudContent("merged2.md")).not.toBe("merged content");
         });
 
         it("should perform immediate pull/merge on conflict (deadlock breaking)", async () => {
@@ -1673,11 +1703,12 @@ describe("coverage gap tests", () => {
 
             // Remote change - different content to trigger conflict
             const remoteBuf = new TextEncoder().encode("remote modified").buffer as ArrayBuffer;
-            await cloud.uploadFile("merge-state.md", remoteBuf, Date.now());
+            const remote = await cloud.uploadFile("merge-state.md", remoteBuf, Date.now());
 
             // Set lastAction to "merge" BEFORE the push
-            // This simulates the state after a merge was performed
+            // This simulates the state after a merge onto the current remote was performed
             sm.localIndex["merge-state.md"].lastAction = "merge";
+            sm.localIndex["merge-state.md"].ancestorHash = remote.hash;
 
             const ctx = await createTestContext(cloud, device);
             await smartPush(ctx, false);

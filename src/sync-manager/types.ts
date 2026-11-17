@@ -83,6 +83,9 @@ export interface FullScanProgress {
 export interface MergeLockEntry {
     holder: string;
     expiresAt: number;
+    /** Cloud file id. Devices can know the same file under different paths
+     *  (one has applied a rename, the other not yet), so locks also match by id. */
+    fileId?: string;
 }
 
 /** Communication data for real-time device-to-device messaging */
