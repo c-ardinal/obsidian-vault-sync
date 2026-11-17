@@ -3,6 +3,7 @@ import type VaultSync from "../main";
 import type { VaultSyncSettings } from "../types/settings";
 import { t } from "../i18n";
 import { matchWildcard } from "../utils/wildcard";
+import { PLUGIN_DIR } from "../sync-manager/file-utils";
 
 interface ToggleExclusion {
     settingKey: keyof VaultSyncSettings;
@@ -10,7 +11,8 @@ interface ToggleExclusion {
     patterns: string[];
 }
 
-const TOGGLE_EXCLUSIONS: ToggleExclusion[] = [
+/** Built when shown: PLUGIN_DIR is known only once the plugin has loaded. */
+const toggleExclusions = (): ToggleExclusion[] => [
     {
         settingKey: "syncCoreConfig",
         label: "settingSyncCoreConfig",
@@ -51,12 +53,12 @@ const TOGGLE_EXCLUSIONS: ToggleExclusion[] = [
     {
         settingKey: "syncFlexibleData",
         label: "settingSyncFlexibleData",
-        patterns: [".obsidian/plugins/obsidian-vault-sync/data/flexible/**"],
+        patterns: [`${PLUGIN_DIR}data/flexible/**`],
     },
     {
         settingKey: "syncDeviceLogs",
         label: "settingSyncDeviceLogs",
-        patterns: [".obsidian/plugins/obsidian-vault-sync/logs/**"],
+        patterns: [`${PLUGIN_DIR}logs/**`],
     },
 ];
 
@@ -269,7 +271,7 @@ export class ExclusionPatternModal extends Modal {
     }
 
     private getActiveToggleExclusions(): ToggleExclusion[] {
-        return TOGGLE_EXCLUSIONS.filter((te) => !this.plugin.settings[te.settingKey]);
+        return toggleExclusions().filter((te) => !this.plugin.settings[te.settingKey]);
     }
 
     private renderToggleExclusions(): void {

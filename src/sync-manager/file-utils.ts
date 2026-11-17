@@ -5,7 +5,28 @@ import type { SyncContext } from "./context";
 
 // === System-level Constants ===
 
-export const PLUGIN_DIR = ".obsidian/plugins/obsidian-vault-sync/";
+/** Plugin ID before the community-directory release (IDs may not contain "obsidian"). */
+export const LEGACY_PLUGIN_ID = "obsidian-vault-sync";
+
+/**
+ * This plugin's folder, vault-relative with a trailing slash. main.ts sets it from
+ * the manifest (the plugin ID and the vault's config folder) before anything syncs;
+ * the default is only used by tests.
+ */
+export let PLUGIN_DIR = `.obsidian/plugins/${LEGACY_PLUGIN_ID}/`;
+
+/**
+ * The folder of the plugin under its old ID when it differs from PLUGIN_DIR, else null.
+ * Devices not yet updated still write their sync data there (and may have the old
+ * copy of the plugin installed), so the sync loop leaves everything in it alone.
+ */
+export let LEGACY_PLUGIN_DIR: string | null = null;
+
+export function setPluginDir(pluginDir: string, configDir: string): void {
+    PLUGIN_DIR = normalizePath(pluginDir) + "/";
+    const legacy = normalizePath(`${configDir}/plugins/${LEGACY_PLUGIN_ID}`) + "/";
+    LEGACY_PLUGIN_DIR = legacy === PLUGIN_DIR ? null : legacy;
+}
 
 export const INTERNAL_LOCAL_ONLY = ["cache/", "data/local/"];
 
@@ -161,6 +182,7 @@ export async function runParallel<T>(
  */
 export function isManagedSeparately(path: string): boolean {
     if (INTERNAL_REMOTE_MANAGED.includes(path)) return true;
+    if (LEGACY_PLUGIN_DIR && path.startsWith(LEGACY_PLUGIN_DIR)) return true;
     if (!path.startsWith(PLUGIN_DIR)) return false;
     const subPath = path.substring(PLUGIN_DIR.length);
     return INTERNAL_REMOTE_MANAGED.includes(subPath);

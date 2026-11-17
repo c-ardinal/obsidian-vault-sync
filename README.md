@@ -104,9 +104,19 @@ BRAT will automatically check for updates and keep the plugin up to date.
 ### Manual Installation
 
 1. Download `main.js`, `manifest.json`, and `styles.css` from the [latest release](https://github.com/c-ardinal/obsidian-vault-sync/releases/latest).
-2. Create a folder named `obsidian-vault-sync` in your vault's `.obsidian/plugins/` directory.
+2. Create a folder named `cardinal-vault-sync` in your vault's `.obsidian/plugins/` directory.
 3. Place the downloaded files into the folder.
 4. Enable "Vault-Sync" in Settings > Community Plugins.
+
+### Updating from an older version (plugin ID `obsidian-vault-sync`)
+
+For the community directory the plugin ID changed from `obsidian-vault-sync` to `cardinal-vault-sync`, so Obsidian installs it into a new folder.
+
+1. Install Vault-Sync from the community browser (or update it with BRAT).
+2. Turn off the old copy (ID `obsidian-vault-sync`) in Settings > Community Plugins and restart the app. While the old copy is on, the new one does not sync, so the two never sync the same vault at once.
+3. On its first start the new copy carries over your settings, sync state and installed add-ons from the old folder. After that you can uninstall the old copy.
+
+Update every device. Until all are updated, devices still on the old copy keep working, but syncs between old and new devices may compare files more slowly.
 
 ---
 
@@ -338,7 +348,7 @@ The E2EE Engine is a separately distributed **add-on** with its own terms of use
 3. Tap **Choose file** and pick the downloaded zip. Vault-Sync checks every file in it against the approved release (SHA-256).
 4. Read the add-on's terms of use shown in the dialog, agree, and tap **Install**. The add-on is active right away, without a restart.
 
-Vault-Sync itself never downloads add-ons. If the vault already uses the add-on on another device, the install dialog opens on startup and then asks for the password. Copying `e2ee-engine.js` into `.obsidian/plugins/obsidian-vault-sync/` by hand still works too.
+Vault-Sync itself never downloads add-ons. If the vault already uses the add-on on another device, the install dialog opens on startup and then asks for the password. Copying `e2ee-engine.js` into `.obsidian/plugins/cardinal-vault-sync/` by hand still works too.
 
 For details, available commands, build instructions, and the encryption specification, see the **[Vault-Sync E2EE Engine repository](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine)**.
 
@@ -354,7 +364,7 @@ For running in a development environment or building from source:
 npm run build
 ```
 
-Build results are output to the `dist/obsidian-vault-sync/` directory as follows.
+Build results are output to the `dist/cardinal-vault-sync/` directory as follows.
 When distributing, copy the contents of this folder to your plugins directory.
 
 - `main.js`

@@ -68,7 +68,7 @@ jobs:
               if: steps.check.outputs.exists == 'false'
               run: |
                   cd dist
-                  zip -r "../obsidian-vault-sync_${{ env.VERSION }}.zip" obsidian-vault-sync
+                  zip -r "../cardinal-vault-sync_${{ env.VERSION }}.zip" cardinal-vault-sync
 
             - name: Create Release
               if: steps.check.outputs.exists == 'false'
@@ -77,9 +77,9 @@ jobs:
                   tag_name: ${{ env.VERSION }}
                   name: Release ${{ env.VERSION }}
                   files: |
-                      obsidian-vault-sync_${{ env.VERSION }}.zip
-                      dist/obsidian-vault-sync/main.js
-                      dist/obsidian-vault-sync/manifest.json
-                      dist/obsidian-vault-sync/styles.css
+                      cardinal-vault-sync_${{ env.VERSION }}.zip
+                      dist/cardinal-vault-sync/main.js
+                      dist/cardinal-vault-sync/manifest.json
+                      dist/cardinal-vault-sync/styles.css
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

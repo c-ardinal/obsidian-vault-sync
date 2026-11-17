@@ -1,4 +1,4 @@
-import { Plugin, TFile, setIcon, Platform } from "obsidian";
+import { Notice, Plugin, TFile, setIcon, Platform } from "obsidian";
 import { GoogleDriveAdapter } from "./cloud-adapters/google-drive";
 import { SyncManager, type SyncTrigger } from "./sync-manager";
 import type { SecureStorage } from "./services/secure-storage";
@@ -28,6 +28,8 @@ import type { IVaultOperations } from "./types/vault-operations";
 import { TriggerManager } from "./services/trigger-manager";
 import { SettingsManager } from "./services/settings-manager";
 import { CredentialManager } from "./services/credential-manager";
+import { setPluginDir } from "./sync-manager/file-utils";
+import { isLegacyCopyEnabled, migrateLegacyPluginData } from "./services/legacy-plugin-migration";
 
 export default class VaultSync extends Plugin {
     settings!: VaultSyncSettings;
@@ -137,6 +139,28 @@ export default class VaultSync extends Plugin {
 
     async onload() {
         // Composition root
+        const configDir = this.app.vault.configDir;
+        const pluginDir = this.manifest.dir || `${configDir}/plugins/${this.manifest.id}`;
+        setPluginDir(pluginDir, configDir);
+        initI18n();
+
+        // The plugin's ID changed for the community directory. While the old copy is
+        // still enabled, both would sync the same vault: stay idle until it is off.
+        if (isLegacyCopyEnabled(this.app)) {
+            new Notice(t("noticeLegacyCopyEnabled"), 0);
+            return;
+        }
+        try {
+            const migrated = await migrateLegacyPluginData(
+                this.app.vault.adapter,
+                configDir,
+                pluginDir,
+            );
+            if (migrated) new Notice(t("noticeLegacyDataMigrated"), 15000);
+        } catch (e) {
+            console.error("Vault-Sync: Could not carry over data from the old plugin folder", e);
+        }
+
         this.vaultOps = new ObsidianVaultOperations(this.app);
 
         this.adapter = new GoogleDriveAdapter(
@@ -153,8 +177,6 @@ export default class VaultSync extends Plugin {
             appSecretStorage: this.app.secretStorage,
         });
 
-        // i18n (synchronous) and settings load
-        initI18n();
         await this.loadSettings();
 
         const revisionCache = new RevisionCache(this.vaultOps, this.manifest.dir || "");
@@ -593,7 +615,7 @@ export default class VaultSync extends Plugin {
     }
 
     onunload() {
-        this.triggerManager.destroy();
+        this.triggerManager?.destroy();
         if (this.mobileSyncFabEl) {
             this.mobileSyncFabEl.remove();
         }

@@ -17,7 +17,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
     VaultLockService,
-    VAULT_LOCK_PATH,
+    vaultLockPath,
     MIGRATION_LOCK_FILENAME,
 } from "../../../src/services/vault-lock-service";
 import type { CloudAdapter, CloudFile } from "../../../src/types/adapter";
@@ -123,14 +123,14 @@ describe("VaultLockService", () => {
         });
 
         it("should return true when vault-lock exists", async () => {
-            adapter._store.set(VAULT_LOCK_PATH, { id: "lock1", content: encode("blob") });
+            adapter._store.set(vaultLockPath(), { id: "lock1", content: encode("blob") });
             expect(await svc.checkForLockFile()).toBe(true);
         });
     });
 
     describe("downloadLockFile", () => {
         it("should return lock file content as string", async () => {
-            adapter._store.set(VAULT_LOCK_PATH, { id: "lock1", content: encode("encrypted-blob") });
+            adapter._store.set(vaultLockPath(), { id: "lock1", content: encode("encrypted-blob") });
             const result = await svc.downloadLockFile();
             expect(result).toBe("encrypted-blob");
         });
@@ -144,13 +144,13 @@ describe("VaultLockService", () => {
         it("should upload lock file to base adapter", async () => {
             await svc.uploadLockFile("new-blob");
             expect(adapter.uploadFile).toHaveBeenCalled();
-            expect(adapter._store.has(VAULT_LOCK_PATH)).toBe(true);
+            expect(adapter._store.has(vaultLockPath())).toBe(true);
         });
 
         it("should update existing lock file", async () => {
-            adapter._store.set(VAULT_LOCK_PATH, { id: "existing", content: encode("old") });
+            adapter._store.set(vaultLockPath(), { id: "existing", content: encode("old") });
             await svc.uploadLockFile("updated-blob");
-            const stored = adapter._store.get(VAULT_LOCK_PATH)!;
+            const stored = adapter._store.get(vaultLockPath())!;
             expect(new TextDecoder().decode(stored.content)).toBe("updated-blob");
         });
     });
@@ -159,8 +159,8 @@ describe("VaultLockService", () => {
         it("should upload to a different adapter", async () => {
             const otherAdapter = createMockAdapter();
             await svc.uploadLockFileToAdapter(otherAdapter, "other-blob");
-            expect(otherAdapter._store.has(VAULT_LOCK_PATH)).toBe(true);
-            expect(adapter._store.has(VAULT_LOCK_PATH)).toBe(false);
+            expect(otherAdapter._store.has(vaultLockPath())).toBe(true);
+            expect(adapter._store.has(vaultLockPath())).toBe(false);
         });
     });
 
