@@ -1,5 +1,16 @@
 import type { GoogleAuthService } from "./auth-service";
 
+export interface FetchExtras {
+    /** Non-2xx statuses that are a normal answer for this request (e.g. 308 Resume Incomplete) */
+    okStatuses?: number[];
+    /**
+     * false: throw network errors at once instead of re-sending the request. For
+     * resumable-upload chunks, whose caller asks the server what arrived and
+     * sends only the rest.
+     */
+    retryNetworkErrors?: boolean;
+}
+
 /**
  * HTTP client for Google Drive API requests.
  *
@@ -16,6 +27,14 @@ export class GoogleDriveHttpClient {
     static readonly MAX_IN_FLIGHT = 8;
     /** Upper bound for a server-requested Retry-After wait */
     static readonly MAX_RETRY_AFTER_MS = 30_000;
+    /**
+     * Time allowed until the response headers arrive. Without a limit, a connection
+     * that silently died (a phone switching networks, a laptop waking from sleep)
+     * kept the sync "running" forever, and every later sync queued behind it.
+     */
+    static readonly REQUEST_TIMEOUT_MS = 90_000;
+    /** Extra time per byte sent: an upload over a slow link must not time out */
+    static readonly MIN_UPLOAD_BYTES_PER_SEC = 16 * 1024;
 
     private inFlight = 0;
     private waiters: Array<() => void> = [];
@@ -39,14 +58,57 @@ export class GoogleDriveHttpClient {
         }
     }
 
-    /** fetch() bounded by MAX_IN_FLIGHT (the slot is NOT held during retry back-off) */
+    private static bodySize(body: RequestInit["body"]): number {
+        if (!body) return 0;
+        if (typeof body === "string") return body.length;
+        if (body instanceof ArrayBuffer) return body.byteLength;
+        if (ArrayBuffer.isView(body)) return body.byteLength;
+        return 0;
+    }
+
+    /** Time limit for one request: base + the time to send its body at a slow rate */
+    static timeoutFor(init: RequestInit): number {
+        const bytes = GoogleDriveHttpClient.bodySize(init.body);
+        return (
+            GoogleDriveHttpClient.REQUEST_TIMEOUT_MS +
+            Math.ceil((bytes / GoogleDriveHttpClient.MIN_UPLOAD_BYTES_PER_SEC) * 1000)
+        );
+    }
+
+    /**
+     * fetch() bounded by MAX_IN_FLIGHT (the slot is NOT held during retry back-off)
+     * and by a time limit until the response arrives (see REQUEST_TIMEOUT_MS).
+     */
     private async limitedFetch(url: string, init: RequestInit): Promise<Response> {
         await this.acquireSlot();
+        const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+        let timedOut = false;
+        const timer =
+            controller && !init.signal
+                ? setTimeout(() => {
+                      timedOut = true;
+                      controller.abort();
+                  }, GoogleDriveHttpClient.timeoutFor(init))
+                : null;
         try {
-            return await fetch(url, init);
+            return await fetch(url, controller && !init.signal ? { ...init, signal: controller.signal } : init);
+        } catch (e) {
+            if (timedOut) throw new TypeError("Network error: request timed out");
+            throw e;
         } finally {
+            if (timer) clearTimeout(timer);
             this.releaseSlot();
         }
+    }
+
+    /**
+     * fetch() rejects with a TypeError for every network-level failure, but the
+     * message differs per engine: "Failed to fetch" (Chromium: desktop, Android),
+     * "Load failed" (WebKit: iOS / iPadOS), "NetworkError when attempting to fetch
+     * resource." (Firefox). Matching only the Chromium text meant iOS never retried.
+     */
+    static isNetworkError(e: unknown): boolean {
+        return e instanceof TypeError;
     }
 
     /** Drive reports per-user rate limiting as 403 with reason (user)RateLimitExceeded */
@@ -80,6 +142,7 @@ export class GoogleDriveHttpClient {
         url: string,
         options: RequestInit = {},
         retryCount: number = 0,
+        extra: FetchExtras = {},
     ): Promise<Response> {
         if (!this.auth.accessToken) throw new Error("Not authenticated");
 
@@ -116,7 +179,7 @@ export class GoogleDriveHttpClient {
                     // Token refresh failed (e.g. proxy unreachable) — don't retry with stale token
                     throw new Error("Authentication failed: unable to refresh access token");
                 }
-                return this.fetchWithAuth(url, options, retryCount + 1);
+                return this.fetchWithAuth(url, options, retryCount + 1, extra);
             }
 
             // Handle 429 (Too Many Requests), 403 rate limits and 5xx (Server Errors) with Exponential Backoff
@@ -138,10 +201,10 @@ export class GoogleDriveHttpClient {
                     "warn",
                 );
                 await new Promise((resolve) => setTimeout(resolve, backoffDelay));
-                return this.fetchWithAuth(url, options, retryCount + 1);
+                return this.fetchWithAuth(url, options, retryCount + 1, extra);
             }
 
-            if (!response.ok) {
+            if (!response.ok && !extra.okStatuses?.includes(response.status)) {
                 let errorMsg = `API Error ${response.status}`;
                 try {
                     const text = await response.text();
@@ -173,8 +236,8 @@ export class GoogleDriveHttpClient {
             return response;
         } catch (e) {
             // Handle network timeouts / offline status
-            const isNetworkError = e instanceof TypeError && e.message === "Failed to fetch";
-            if (isNetworkError && retryCount < 3) {
+            const isNetworkError = GoogleDriveHttpClient.isNetworkError(e);
+            if (isNetworkError && retryCount < 3 && extra.retryNetworkErrors !== false) {
                 if (!window.navigator.onLine) {
                     await this.log(
                         "Network offline during fetch. Waiting for connection...",
@@ -186,7 +249,12 @@ export class GoogleDriveHttpClient {
                 const backoffDelay = Math.pow(2, retryCount) * 2000;
                 await this.log(`Network error. Retrying in ${backoffDelay}ms...`, "warn");
                 await new Promise((resolve) => setTimeout(resolve, backoffDelay));
-                return this.fetchWithAuth(url, options, retryCount + 1);
+                return this.fetchWithAuth(url, options, retryCount + 1, extra);
+            }
+            if (isNetworkError) {
+                // Same wording on every platform, so the user sees the "network" notice
+                const msg = (e as Error).message;
+                throw new TypeError(/network error/i.test(msg) ? msg : `Network error: ${msg}`);
             }
             throw e;
         }
