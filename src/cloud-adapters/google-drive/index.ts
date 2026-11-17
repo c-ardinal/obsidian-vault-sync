@@ -2,7 +2,7 @@ import { CloudAdapter, CloudChanges, CloudFile } from "../../types/adapter";
 import { basename } from "../../utils/path";
 import { GoogleAuthService, type AuthMethod } from "./auth-service";
 import { GoogleDriveHttpClient } from "./http-client";
-import { DrivePathResolver } from "./path-resolver";
+import { DrivePathResolver, isUnreachableFromVault } from "./path-resolver";
 
 export type { AuthMethod };
 
@@ -496,6 +496,15 @@ export class GoogleDriveAdapter implements CloudAdapter {
                             );
                             fullPath = parentPath ? `${parentPath}/${c.file.name}` : c.file.name;
                         } catch (e) {
+                            if (!isUnreachableFromVault(e)) {
+                                // Transient failure (network, 429/5xx after retries, ...).
+                                // Reporting it as "removed" would delete the local file, so
+                                // fail the whole page instead: the page token is not
+                                // advanced and the change is fetched again next sync.
+                                throw e;
+                            }
+                            // Moved out of the vault, or its folder was deleted / is no
+                            // longer accessible: from the vault's point of view it is gone.
                             console.warn(`Failed to resolve parent path for ${c.fileId}:`, e);
                             return { fileId: c.fileId, removed: true };
                         }

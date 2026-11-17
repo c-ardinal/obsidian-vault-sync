@@ -97,8 +97,12 @@ export class GoogleDriveHttpClient {
                 // SEC-007: Sanitize error messages (logging)
                 console.error(`Vault-Sync: API Error ${response.status}: ${errorMsg}`);
 
-                // Throw the actual error message so callers can handle specific cases
-                throw new Error(errorMsg);
+                // Throw the actual error message so callers can handle specific cases.
+                // The HTTP status is kept on the error so callers can tell "not found /
+                // no access" apart from transient failures.
+                const err = new Error(errorMsg) as Error & { status?: number };
+                err.status = response.status;
+                throw err;
             }
 
             return response;

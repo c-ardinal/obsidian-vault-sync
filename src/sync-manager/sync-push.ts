@@ -1,6 +1,7 @@
 import { md5 } from "../utils/md5";
 import type { CloudFile } from "../types/adapter";
 import type { SyncContext } from "./context";
+import type { LocalFileIndex } from "./types";
 import {
     runParallel,
     compress,
@@ -20,6 +21,7 @@ import {
     getThresholdBytes,
     generateTransferId,
     markPendingTransfer,
+    buildRemoteIndexPayload,
 } from "./sync-helpers";
 
 
@@ -118,11 +120,56 @@ async function executeFolderDeletions(ctx: SyncContext): Promise<{ folderDeleted
     return { folderDeletedCount, moveCount };
 }
 
+/**
+ * The user may rename (or delete) a NEW file while its first upload is in flight.
+ * The rename event finds no index entry for the old path yet, so it is treated as
+ * a brand-new file, and the finished upload would then register the old path too:
+ * both names end up on every device. If the uploaded path vanished locally, adopt
+ * the upload under its new name as a pending move (or mark it for remote deletion).
+ * Returns true when the upload was re-homed this way.
+ */
+async function reconcileVanishedAfterUpload(
+    ctx: SyncContext,
+    path: string,
+    content: ArrayBuffer,
+    entry: LocalFileIndex[string],
+): Promise<boolean> {
+    if (await ctx.vault.exists(path)) return false;
+    const uploadedHash = md5(content);
+    for (const candidate of ctx.dirtyPaths.keys()) {
+        if (candidate === path || ctx.index[candidate]) continue;
+        try {
+            if (!(await ctx.vault.exists(candidate))) continue;
+            const stat = await ctx.vault.stat(candidate);
+            if (stat?.type === "folder" || stat?.size !== content.byteLength) continue;
+            if (md5(await ctx.vault.readBinary(candidate)) !== uploadedHash) continue;
+        } catch {
+            continue;
+        }
+        const moved = { ...entry, forcePush: true, pendingMove: { oldPath: path } };
+        ctx.index[candidate] = moved;
+        ctx.localIndex[candidate] = { ...moved };
+        ctx.dirtyPaths.delete(path);
+        await ctx.log(
+            `[Smart Push] ${path} was renamed to ${candidate} during upload. Will move the remote file.`,
+            "info",
+        );
+        return true;
+    }
+    // Deleted (or renamed + edited) during upload: register it so the next push deletes it remotely.
+    ctx.index[path] = entry;
+    ctx.localIndex[path] = { ...entry };
+    ctx.dirtyPaths.set(path, Date.now());
+    await ctx.log(`[Smart Push] ${path} disappeared during upload. Will remove it remotely.`, "info");
+    return true;
+}
+
 /** Upload compressed index + raw backup */
 async function uploadRemoteIndex(ctx: SyncContext): Promise<void> {
     await saveIndex(ctx);
     try {
-        const indexContent = await ctx.vault.readBinary(ctx.pluginDataPath);
+        // Merge with entries other devices wrote since our last pull (no last-writer-wins loss)
+        const indexContent = await buildRemoteIndexPayload(ctx);
         const compressedIndex = await compress(indexContent);
         const uploadedIndex = await ctx.adapter.uploadFile(
             ctx.pluginDataPath,
@@ -140,8 +187,7 @@ async function uploadRemoteIndex(ctx: SyncContext): Promise<void> {
         const rawPath = ctx.pluginDataPath.replace(".json", "_raw.json");
         try {
             if (await ctx.vault.exists(rawPath)) {
-                const rawContent = await ctx.vault.readBinary(rawPath);
-                await ctx.adapter.uploadFile(rawPath, rawContent, Date.now());
+                await ctx.adapter.uploadFile(rawPath, indexContent, Date.now());
                 await ctx.log(`[Smart Push] Raw index backup uploaded.`, "debug");
             }
         } catch (rawErr) {
@@ -313,12 +359,29 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                             );
                             ctx.logger.markActionTaken();
 
+                            // Another device may have updated the file since we last synced
+                            // it. Adopting moved.hash here would make our (older) local copy
+                            // look like it is based on that newer version, and the following
+                            // upload would silently overwrite the other device's edit. Keep
+                            // our known base hash so the push/pull sees the remote change and
+                            // merges it.
+                            const knownHash = ctx.index[path]?.hash;
+                            const remoteChangedMeanwhile =
+                                !!knownHash &&
+                                !!moved.hash &&
+                                knownHash.toLowerCase() !== moved.hash.toLowerCase();
+                            if (remoteChangedMeanwhile) {
+                                await ctx.log(
+                                    `[Smart Push] ${path} changed on another device before the move. Keeping base hash so the change is merged.`,
+                                    "info",
+                                );
+                            }
                             const updatedEntry = {
                                 ...ctx.index[path],
                                 fileId: moved.id,
                                 mtime: moved.mtime,
                                 size: moved.size,
-                                hash: moved.hash,
+                                hash: remoteChangedMeanwhile ? knownHash : moved.hash,
                                 lastAction: "pull" as const,
                                 ancestorHash: ctx.localIndex[path]?.ancestorHash || moved.hash,
                                 forcePush: false,
@@ -670,11 +733,15 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                         lastAction: "push" as const,
                         ancestorHash: previousAncestorHash || uploaded.hash,
                     };
-                    ctx.index[file.path] = entry;
-                    ctx.localIndex[file.path] = { ...entry };
+                    if (await reconcileVanishedAfterUpload(ctx, file.path, file.content, entry)) {
+                        // handled as a rename/delete that happened while uploading
+                    } else {
+                        ctx.index[file.path] = entry;
+                        ctx.localIndex[file.path] = { ...entry };
 
-                    if (ctx.dirtyPaths.get(file.path) === file.dirtyAt) {
-                        ctx.dirtyPaths.delete(file.path);
+                        if (ctx.dirtyPaths.get(file.path) === file.dirtyAt) {
+                            ctx.dirtyPaths.delete(file.path);
+                        }
                     }
 
                     ctx.logger.markActionTaken();

@@ -842,10 +842,35 @@ async function processChangePage(
                     const oldPath = prevPathForId;
                     const newPath = cloudFile.path;
 
-                    // Guard: If local has pending changes on this file (user moved it),
-                    // skip the remote rename — it's likely a stale echo of our own push.
+                    // Guard: if the user moved this file locally too (pendingMove), skip the
+                    // remote rename — our own move is pushed next. A merely DIRTY file (content
+                    // edits, or the echo event of our own pull write) must still follow the
+                    // rename: skipping it dropped the rename for good (the change is consumed),
+                    // leaving the old path behind forever and losing edits made under it. The
+                    // dirty flag moves with the file, and the content is reconciled below.
                     const localIndexEntry = ctx.index[oldPath];
-                    if (localIndexEntry?.pendingMove || ctx.dirtyPaths.has(oldPath)) {
+                    if (localIndexEntry?.pendingMove) {
+                        // Still confirm our own upload (same as the "Sync confirmed" path
+                        // below). Otherwise ancestorHash stays at an older version, and the
+                        // next merge uses a stale base and reports a conflict that isn't one.
+                        const lastAction = ctx.localIndex[oldPath]?.lastAction;
+                        if (
+                            (lastAction === "push" || lastAction === "merge") &&
+                            localIndexEntry.hash &&
+                            cloudFile.hash &&
+                            localIndexEntry.hash.toLowerCase() === cloudFile.hash.toLowerCase()
+                        ) {
+                            const confirmed = cloudFile.hash.toLowerCase();
+                            localIndexEntry.ancestorHash = confirmed;
+                            if (ctx.localIndex[oldPath]) {
+                                ctx.localIndex[oldPath].ancestorHash = confirmed;
+                                ctx.localIndex[oldPath].lastAction = "pull";
+                            }
+                            await ctx.log(
+                                `[Smart Pull] Sync confirmed for ${oldPath} (pending move). ancestorHash updated to ${confirmed.substring(0, 8)}`,
+                                "debug",
+                            );
+                        }
                         await ctx.log(
                             `[Changes API] Remote Rename skipped: ${oldPath} -> ${newPath} (local has pending move/changes)`,
                             "debug",

@@ -554,11 +554,12 @@ describe("GoogleDriveAdapter - Full Coverage", () => {
             expect(result.changes[0].removed).toBe(true);
         });
 
-        it("should handle path resolution failure gracefully", async () => {
-            pathResolver.resolveFullPath.mockRejectedValue(new Error("Resolution failed"));
+        it("should mark a change as removed when its parent is outside the vault", async () => {
+            pathResolver.resolveFullPath.mockRejectedValue(
+                new Error("File is outside the vault root"),
+            );
 
-            mockFetch.mockResolvedValueOnce(
-                jsonResponse({
+            mockFetch.mockResolvedValueOnce(jsonResponse({
                     newStartPageToken: "next-token",
                     changes: [
                         {
@@ -574,14 +575,64 @@ describe("GoogleDriveAdapter - Full Coverage", () => {
                             },
                         },
                     ],
-                }),
-            );
+                }));
 
             const result = await adapter.getChanges("page-token");
             expect(result.changes).toHaveLength(1);
-            // Should mark as removed when path resolution fails
             expect(result.changes[0].removed).toBe(true);
             expect(result.changes[0].file).toBeUndefined();
+        });
+
+        it("should mark a change as removed when its parent folder is gone (404)", async () => {
+            const err = Object.assign(new Error("Not Found"), { status: 404 });
+            pathResolver.resolveFullPath.mockRejectedValue(err);
+
+            mockFetch.mockResolvedValueOnce(jsonResponse({
+                    newStartPageToken: "next-token",
+                    changes: [
+                        {
+                            fileId: "bad-file",
+                            removed: false,
+                            file: {
+                                id: "bad-file",
+                                name: "bad.md",
+                                mimeType: "text/plain",
+                                modifiedTime: "2026-01-01T00:00:00Z",
+                                size: "200",
+                                parents: ["parent-1"],
+                            },
+                        },
+                    ],
+                }));
+
+            const result = await adapter.getChanges("page-token");
+            expect(result.changes[0].removed).toBe(true);
+        });
+
+        it("should NOT report a transient path resolution failure as a deletion", async () => {
+            // e.g. network error / 5xx after retries: reporting "removed" would delete
+            // the local file. The page must fail so it is fetched again next sync.
+            pathResolver.resolveFullPath.mockRejectedValue(new Error("Resolution failed"));
+
+            mockFetch.mockResolvedValueOnce(jsonResponse({
+                    newStartPageToken: "next-token",
+                    changes: [
+                        {
+                            fileId: "bad-file",
+                            removed: false,
+                            file: {
+                                id: "bad-file",
+                                name: "bad.md",
+                                mimeType: "text/plain",
+                                modifiedTime: "2026-01-01T00:00:00Z",
+                                size: "200",
+                                parents: ["parent-1"],
+                            },
+                        },
+                    ],
+                }));
+
+            await expect(adapter.getChanges("page-token")).rejects.toThrow("Resolution failed");
         });
 
         it("should handle trashed files as removed", async () => {

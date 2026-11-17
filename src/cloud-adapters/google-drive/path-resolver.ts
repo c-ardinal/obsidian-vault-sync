@@ -360,11 +360,7 @@ export class DrivePathResolver {
             } catch (error: any) {
                 // If it's a 403/404 or our own "outside" error, abort resolution
                 // SyncManager will catch this at the getChanges level and mark as removed/ignored.
-                if (
-                    error.message?.includes("outside") ||
-                    error.message?.includes("404") ||
-                    error.message?.includes("403")
-                ) {
+                if (isUnreachableFromVault(error)) {
                     encounteredIds.forEach((id) => this.outsideFolderIds.add(id));
                 }
                 throw error;
@@ -503,4 +499,22 @@ export class DrivePathResolver {
         const data = await resp.json();
         return data.files?.[0]?.id || null;
     }
+}
+
+/**
+ * True when a path-resolution error means the item is genuinely not part of the
+ * vault (outside the vault root, deleted, or not accessible), as opposed to a
+ * transient failure (network, rate limit, 5xx) that must not be mistaken for a
+ * deletion.
+ */
+export function isUnreachableFromVault(error: any): boolean {
+    if (!error) return false;
+    if (error.status === 404 || error.status === 403) return true;
+    const msg: string = error.message ?? "";
+    return (
+        msg.includes("outside") ||
+        msg.includes("404") ||
+        msg.includes("403") ||
+        msg.startsWith("File not found")
+    );
 }

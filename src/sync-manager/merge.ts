@@ -212,10 +212,10 @@ export async function pullFileSafely(
             ctx.syncingPaths.add(item.path);
             try {
                 const localContent = await ctx.vault.readBinary(item.path);
-                // Normalize line endings for consistent hash calculation across platforms
-                const localContentStr = new TextDecoder().decode(localContent);
-                const normalizedContent = normalizeLineEndings(localContentStr);
-                const currentHash = md5(new TextEncoder().encode(normalizedContent).buffer);
+                // Compare RAW bytes: localBase.hash / item.hash are raw-byte MD5s (Drive md5Checksum,
+                // and push hashes raw content). Hashing a line-ending-normalized UTF-8 decode here
+                // made every CRLF / BOM / binary file look "locally modified" -> false conflicts.
+                const currentHash = md5(localContent);
                 const localBase = ctx.localIndex[item.path];
 
                 await ctx.log(
@@ -480,7 +480,7 @@ export async function pullFileSafely(
                             const remoteContentStr = new TextDecoder().decode(remoteContentBuffer);
                             const currentContentStr = new TextDecoder().decode(localContent);
 
-                            const merged = await perform3WayMerge(
+                            let merged = await perform3WayMerge(
                                 ctx,
                                 item.path,
                                 currentContentStr,
@@ -488,12 +488,39 @@ export async function pullFileSafely(
                                 baseHashFound,
                             );
 
+                            // The merge downloads revisions and can take seconds. If the user
+                            // kept typing meanwhile, writing `merged` would silently discard
+                            // those keystrokes. Re-read and merge again from the newest local
+                            // content (bounded, so constant typing cannot stall the sync).
+                            let latestLocal = localContent;
+                            for (let retry = 0; merged && retry < 3; retry++) {
+                                if (!(await ctx.vault.exists(item.path))) break;
+                                const reread = await ctx.vault.readBinary(item.path);
+                                if (md5(reread) === md5(latestLocal)) break;
+                                await ctx.log(
+                                    `[${logPrefix}] ${item.path} was edited during the merge. Re-merging with the latest local content.`,
+                                    "info",
+                                );
+                                latestLocal = reread;
+                                merged = await perform3WayMerge(
+                                    ctx,
+                                    item.path,
+                                    new TextDecoder().decode(reread),
+                                    remoteContentStr,
+                                    baseHashFound,
+                                );
+                            }
+
                             if (merged) {
                                 const mergedStr = new TextDecoder().decode(merged);
                                 const normalizedMerged = normalizeLineEndings(mergedStr);
-                                const normalizedBuffer = new TextEncoder().encode(
-                                    normalizedMerged,
-                                ).buffer;
+                                const remoteNormForWrite = normalizeLineEndings(remoteContentStr);
+                                // If the merge result is the remote content (modulo line endings),
+                                // keep the remote bytes so every device ends up byte-identical.
+                                const normalizedBuffer =
+                                    normalizedMerged === remoteNormForWrite
+                                        ? remoteContentBuffer
+                                        : new TextEncoder().encode(normalizedMerged).buffer;
                                 try {
                                     await ctx.vault.writeBinary(
                                         item.path,
@@ -501,7 +528,7 @@ export async function pullFileSafely(
                                     );
                                 } catch (writeErr) {
                                     await ctx.log(`[${logPrefix}] Merge write failed for ${item.path}, restoring original content`, "error");
-                                    try { await ctx.vault.writeBinary(item.path, localContent); } catch { /* best effort */ }
+                                    try { await ctx.vault.writeBinary(item.path, latestLocal); } catch { /* best effort */ }
                                     throw writeErr;
                                 }
 
@@ -720,16 +747,21 @@ export async function pullFileSafely(
         await ctx.vault.writeBinary(item.path, content);
 
         const plainHash = await hashContent(content);
+        // Record the hash of what we ACTUALLY downloaded. item.hash comes from the remote index
+        // (or a Changes API entry) and can be stale relative to the bytes we just fetched; a
+        // stale base hash makes the next pull think this unmodified file was edited locally.
+        // With E2EE the bytes are decrypted plaintext, so the (encrypted) remote hash is kept.
+        const downloadedHash = ctx.e2eeEnabled ? item.hash || "" : md5(content);
 
         const stat = await ctx.vault.stat(item.path);
         const entry = {
             fileId: fileId || "",
             mtime: stat?.mtime || item.mtime || Date.now(),
             size: stat?.size || item.size || content.byteLength,
-            hash: item.hash || "",
+            hash: downloadedHash,
             plainHash: plainHash,
             lastAction: "pull" as const,
-            ancestorHash: item.hash || "",
+            ancestorHash: downloadedHash,
         };
         ctx.index[item.path] = entry;
         ctx.localIndex[item.path] = { ...entry };

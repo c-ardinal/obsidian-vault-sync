@@ -18,14 +18,38 @@ interface Case {
     /** What a user would see */
     symptom: string;
     config: Partial<SimConfig>;
-    plan: Action[];
+    /** Omit to replay the full plan generated from config.seed */
+    plan?: Action[];
     /** Failure kinds that prove the bug is present */
     expect: string[];
+    /** Fixed cases only: upper bound on 3-way merges in the whole run (catches needless merges) */
+    maxMerges?: number;
 }
 
 const NET = { minLatencyMs: 5, maxLatencyMs: 400, failureRate: 0, lostResponseRate: 0 };
 
 const KNOWN_BUGS: Case[] = [
+    // Empty: every bug found so far is fixed and lives in FIXED_REGRESSIONS.
+];
+
+/** Former bugs that must stay fixed (move cases here when fixing them) */
+const FIXED_REGRESSIONS: Case[] = [
+    {
+        title: "remote rename is dropped while the old path is dirty; the old file is stuck forever",
+        symptom: "Edits made on another device to a just-renamed note are lost; every sync logs CONFLICT DETECTED",
+        config: { seed: 12, maxEventDelayMs: 0, network: NET },
+        plan: [
+            { t: 0, dev: "A", kind: "join" },
+            { t: 5743, dev: "A", kind: "create", fid: "f1", path: "notes/A-1.md" },
+            { t: 8950, dev: "A", kind: "sync", scan: false },
+            { t: 10664, dev: "B", kind: "join" },
+            { t: 13243, dev: "C", kind: "join" },
+            { t: 18209, dev: "A", kind: "rename", pick: 0, to: "archive/A-r12.md" },
+            { t: 20780, dev: "A", kind: "edit", pick: 0, line: "A", value: "A13" },
+            { t: 23362, dev: "C", kind: "edit", pick: 0, line: "C", value: "C14" },
+        ],
+        expect: [],
+    },
     {
         title: "rename while the first upload of a new note is in flight leaves a duplicate",
         symptom: "Create 'Untitled.md', sync starts, rename it: both names exist on every device forever",
@@ -38,7 +62,7 @@ const KNOWN_BUGS: Case[] = [
             { t: 13778, dev: "B", kind: "sync", scan: true },
             { t: 16509, dev: "B", kind: "rename", pick: 0, to: "notes/B-r8.md" },
         ],
-        expect: ["DUPLICATE"],
+        expect: [],
     },
     {
         title: "two devices pushing at the same time overwrite each other's sync-index entries",
@@ -54,23 +78,7 @@ const KNOWN_BUGS: Case[] = [
             { t: 44948, dev: "A", kind: "create", fid: "f7", path: "notes/A-3.md" },
             { t: 45948, dev: "A", kind: "sync", scan: false },
         ],
-        expect: ["DIVERGED"],
-    },
-    {
-        title: "remote rename is dropped while the old path is dirty; the old file is stuck forever",
-        symptom: "Edits made on another device to a just-renamed note are lost; every sync logs CONFLICT DETECTED",
-        config: { seed: 12, maxEventDelayMs: 0, network: NET },
-        plan: [
-            { t: 0, dev: "A", kind: "join" },
-            { t: 5743, dev: "A", kind: "create", fid: "f1", path: "notes/A-1.md" },
-            { t: 8950, dev: "A", kind: "sync", scan: false },
-            { t: 10664, dev: "B", kind: "join" },
-            { t: 13243, dev: "C", kind: "join" },
-            { t: 18209, dev: "A", kind: "rename", pick: 0, to: "archive/A-r12.md" },
-            { t: 20780, dev: "A", kind: "edit", pick: 0, line: "A", value: "A13" },
-            { t: 23362, dev: "C", kind: "edit", pick: 0, line: "C", value: "C14" },
-        ],
-        expect: ["LOST_UPDATE", "NOT_IDLE"],
+        expect: [],
     },
     {
         title: "a binary edited on ONE device produces conflict copies on every other device",
@@ -88,12 +96,37 @@ const KNOWN_BUGS: Case[] = [
             { t: 6829, dev: "C", kind: "create", fid: "f1", path: "assets/C-1.png", binary: true },
             { t: 10222, dev: "C", kind: "editBinary", pick: 0, version: 7 },
         ],
-        expect: ["FALSE_CONFLICT", "DIVERGED"],
+        expect: [],
+    },
+    {
+        title: "CRLF + BOM note edited on two devices: one merge, no conflict copy",
+        symptom: "Notes written by Windows editors got conflict copies / needless merges on every pull",
+        config: { seed: 1, devices: 2, fs: ["windows", "linux"], windowsLineEndings: true },
+        plan: [
+            { t: 0, dev: "A", kind: "join" },
+            { t: 0, dev: "B", kind: "join" },
+            { t: 1000, dev: "A", kind: "create", fid: "f1", path: "notes/A-1.md" },
+            { t: 2000, dev: "A", kind: "sync", scan: false },
+            { t: 8000, dev: "B", kind: "sync", scan: false },
+            { t: 14000, dev: "A", kind: "edit", pick: 0, line: "A", value: "A1" },
+            { t: 14000, dev: "B", kind: "edit", pick: 0, line: "B", value: "B1" },
+            { t: 15000, dev: "A", kind: "sync", scan: false },
+            { t: 25000, dev: "B", kind: "sync", scan: false },
+        ],
+        expect: [],
+        // Only B (the device that pulls A's concurrent edit) needs to merge; A must just accept.
+        maxMerges: 1,
+    },
+    {
+        title: "edits made during a merge, and edits to a note renamed on another device, are kept",
+        symptom:
+            "A line typed while 'merging' was shown disappeared; a renamed note lost another device's edit",
+        // Full clean-network seed 12 run: C types while its merge downloads revisions, and A
+        // renames + edits the note C just merged into.
+        config: { seed: 12, profile: "disjoint", devices: 3, actions: 40, network: NET },
+        expect: [],
     },
 ];
-
-/** Former bugs that must stay fixed (move cases here when fixing them) */
-const FIXED_REGRESSIONS: Case[] = [];
 
 function configOf(c: Case, name: string): SimConfig {
     return { ...DEFAULT_CONFIG, seed: 1, ...c.config, name } as SimConfig;
@@ -113,6 +146,9 @@ describe("known multi-device bugs (assert they still reproduce)", () => {
             }
         });
     });
+    it("placeholder so the suite is never empty", () => {
+        expect(KNOWN_BUGS.length).toBeGreaterThanOrEqual(0);
+    });
 });
 
 describe("fixed multi-device bugs (must stay clean)", () => {
@@ -120,6 +156,10 @@ describe("fixed multi-device bugs (must stay clean)", () => {
         it(c.title, async () => {
             const result = await runSimulation(configOf(c, `fixed-${i + 1}`), c.plan);
             if (!result.ok) expect.fail(formatFailure(result));
+            if (c.maxMerges !== undefined) {
+                const merges = result.timeline.filter((l) => l.includes("[Merge] Attempting 3-way merge"));
+                expect(merges.length, merges.join("\n")).toBeLessThanOrEqual(c.maxMerges);
+            }
         });
     });
     it("placeholder so the suite is never empty", () => {
