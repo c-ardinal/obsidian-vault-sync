@@ -276,3 +276,34 @@ describe("renames survive a restart", () => {
         expect(takeUnsyncedRename(ctx, "draft.md")).toBe("final.md");
     });
 });
+
+describe("local index journal", () => {
+    it("entries changed between batched writes survive a restart", async () => {
+        const before = makeCtx();
+        await saveLocalIndex(before); // full write (seq 1)
+        beginSyncCycle(before);
+        before.localIndex["pulled.md"] = { fileId: "p", hash: "h", mtime: 1, size: 1, lastAction: "pull" } as any;
+        await saveLocalIndex(before); // batched: only the journal is written
+        expect(persistedLocal(before).index["pulled.md"]).toBeUndefined();
+
+        const after = makeCtx();
+        for (const [p, d] of before.files) after.files.set(p, d);
+        await loadLocalIndex(after);
+        expect(after.localIndex["pulled.md"]?.hash).toBe("h");
+    });
+
+    it("a journal older than the last full write is ignored", async () => {
+        const before = makeCtx();
+        await saveLocalIndex(before);
+        beginSyncCycle(before);
+        before.localIndex["x.md"] = { fileId: "x", hash: "old", mtime: 1, size: 1 } as any;
+        await saveLocalIndex(before); // journal: x = old
+        before.localIndex["x.md"] = { fileId: "x", hash: "new", mtime: 1, size: 1 } as any;
+        await saveLocalIndex(before, true); // full write: x = new (journal now stale)
+
+        const after = makeCtx();
+        for (const [p, d] of before.files) after.files.set(p, d);
+        await loadLocalIndex(after);
+        expect(after.localIndex["x.md"]?.hash).toBe("new");
+    });
+});

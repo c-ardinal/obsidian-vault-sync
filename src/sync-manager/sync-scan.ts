@@ -194,6 +194,16 @@ export async function scanVaultChanges(ctx: SyncContext): Promise<void> {
             ctx.dirtyPaths.set(path, Date.now());
             await ctx.log(`[Vault Scan] Unpushed ${entry.pendingMove ? "move" : "change"}: ${path}`, "debug");
         }
+        // A merge result written locally but not pushed yet: the local file already
+        // matches the local index, so the scan saw nothing to do and the other device's
+        // half of the merge never reached the cloud.
+        for (const [path, entry] of Object.entries(ctx.localIndex)) {
+            if (entry.lastAction !== "merge") continue;
+            if (path === ctx.pluginDataPath || ctx.dirtyPaths.has(path)) continue;
+            if (!currentPaths.has(path)) continue;
+            ctx.dirtyPaths.set(path, Date.now());
+            await ctx.log(`[Vault Scan] Unpushed merge: ${path}`, "debug");
+        }
 
         await pairRenames(ctx, missingPaths, newPaths);
 

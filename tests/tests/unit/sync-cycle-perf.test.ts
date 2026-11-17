@@ -158,9 +158,12 @@ describe("deferred local-index writes", () => {
             ctx.localIndex[`f${i}.md`] = { fileId: `id${i}`, mtime: 0, size: 0, hash: "h" };
             await saveLocalIndex(ctx);
         }
-        expect(ctx.vault.write).not.toHaveBeenCalled();
+        // Only the small journal (changed entries) is written in between
+        const fullWrites = () =>
+            (ctx.vault.write as any).mock.calls.filter((c: unknown[]) => c[0] === ctx.localIndexPath).length;
+        expect(fullWrites()).toBe(0);
         await endSyncCycle(ctx);
-        expect(ctx.vault.write).toHaveBeenCalledTimes(1);
+        expect(fullWrites()).toBe(1);
         const saved = JSON.parse(await ctx.vault.read(ctx.localIndexPath));
         expect(Object.keys(saved.index)).toHaveLength(10);
     });

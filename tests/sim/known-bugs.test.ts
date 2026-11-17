@@ -437,6 +437,30 @@ const FIXED_REGRESSIONS: Case[] = [
         config: { seed: 278, ...RESTART },
         expect: [],
     },
+    {
+        title: "restart: a lost background upload of a file renamed before the retry is moved, not orphaned",
+        symptom: "A stray copy of an attachment under its old name stays in the cloud and on no device",
+        config: { seed: 306, ...RESTART },
+        expect: [],
+    },
+    {
+        title: "restart: files still being pulled are listed in the uploaded index",
+        symptom: "A device that joins later never receives a file another device was still downloading",
+        config: { seed: 333, ...RESTART },
+        expect: [],
+    },
+    {
+        title: "restart: index entries changed between batched writes survive (journal)",
+        symptom: "A note pulled and then edited around a restart becomes a conflict copy",
+        config: { seed: 356, ...RESTART },
+        expect: [],
+    },
+    {
+        title: "restart: a merge result not pushed before the app was closed is pushed after the restart",
+        symptom: "Another device's edit merged here never reaches the cloud",
+        config: { seed: 393, ...RESTART },
+        expect: [],
+    },
 ];
 
 function configOf(c: Case, name: string): SimConfig {

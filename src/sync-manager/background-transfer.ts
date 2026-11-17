@@ -1,16 +1,18 @@
 import { md5 } from "../utils/md5";
 import { formatSize } from "../utils/format";
-import { basename } from "../utils/path";
+import { basename, dirname } from "../utils/path";
 import type { CloudFile } from "../types/adapter";
 import type { SyncContext } from "./context";
 import { hashContent } from "./file-utils";
 import { pullFileSafely } from "./merge";
 import { reconcileVanishedAfterUpload } from "./sync-push";
-import { saveIndex, saveLocalIndex } from "./state";
+import { saveIndex, saveLocalIndex, takeUnsyncedRename } from "./state";
 import { compress } from "./file-utils";
 import {
     buildRemoteIndexPayload,
     forgetAttemptedUpload,
+    isAttemptedUpload,
+    peekAttemptedUpload,
     recordAttemptedUpload,
     releasePendingPull,
     settlePendingPull,
@@ -308,6 +310,44 @@ export class BackgroundTransferQueue {
 
     // === Push execution ===
 
+    /**
+     * An earlier attempt of this upload "failed" but reached the cloud, and the file was
+     * renamed or deleted before the retry. The cloud copy under the old name was tracked
+     * by nobody: every device saw it as a stray file (or never saw it at all). Move it to
+     * the new name, or delete it if the file is gone.
+     */
+    private async settleOrphanedUpload(ctx: SyncContext, path: string): Promise<void> {
+        if (!peekAttemptedUpload(ctx, path) || ctx.index[path]) return;
+        try {
+            const meta = await ctx.adapter.getFileMetadata(path);
+            if (!meta || !isAttemptedUpload(ctx, path, meta.hash)) return;
+            const now = takeUnsyncedRename(ctx, path);
+            if (now && !ctx.index[now] && (await ctx.vault.exists(now))) {
+                await ctx.adapter.moveFile(meta.id, basename(now), dirname(now) || null);
+                const hash = meta.hash!.toLowerCase();
+                const entry = {
+                    fileId: meta.id,
+                    mtime: meta.mtime ?? Date.now(),
+                    size: meta.size,
+                    hash,
+                    lastAction: "push" as const,
+                    ancestorHash: hash,
+                };
+                ctx.index[now] = { ...entry };
+                ctx.localIndex[now] = { ...entry };
+                ctx.dirtyPaths.set(now, ctx.dirtyPaths.get(now) ?? Date.now());
+                await ctx.log(`[Background Transfer] Moved our earlier upload of ${path} to ${now}.`, "info");
+            } else {
+                await ctx.adapter.deleteFile(meta.id);
+                await ctx.log(`[Background Transfer] Removed our earlier upload of deleted ${path}.`, "info");
+            }
+            forgetAttemptedUpload(ctx, path);
+            await saveIndex(ctx);
+        } catch (e) {
+            await ctx.log(`[Background Transfer] Could not settle earlier upload of ${path}: ${e}`, "warn");
+        }
+    }
+
     private async executePush(ctx: SyncContext, item: TransferItem): Promise<void> {
         // Capture dirty timestamp before any async work so we can detect
         // if markDirty() was called again during our async operations
@@ -320,6 +360,7 @@ export class BackgroundTransferQueue {
                 `[Background Transfer] File deleted since enqueue: ${item.path}`,
                 "warn",
             );
+            await this.settleOrphanedUpload(ctx, item.path);
             this.completeItem(item, "cancelled");
             return;
         }
