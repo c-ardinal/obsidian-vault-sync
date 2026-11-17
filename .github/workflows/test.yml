@@ -2,9 +2,9 @@ name: Pull Request Test
 
 on:
     push:
-        branches: [main, master]
+        branches: [main, master, develop]
     pull_request:
-        branches: [main, master]
+        branches: [main, master, develop]
 
 jobs:
     test:
@@ -43,3 +43,55 @@ jobs:
                   token: ${{ secrets.CODECOV_TOKEN }}
                   files: test-report.junit.xml
                   report_type: test_results
+
+    simulation:
+        name: Multi-device simulation on ${{ matrix.os }}
+        runs-on: ${{ matrix.os }}
+        strategy:
+            fail-fast: false
+            matrix:
+                os: [ubuntu-latest, macos-latest, windows-latest]
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Use Node.js 20.x
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 20.x
+                  cache: "npm"
+
+            - name: Install dependencies
+              run: npm ci
+
+            # Deterministic, minimized reproductions of known multi-device bugs.
+            # Fails when a bug stops reproducing (= fixed) so it gets promoted to a regression test.
+            - name: Harness self-tests and known-bug scenarios
+              run: npx vitest run --config vitest.sim.config.ts tests/sim/harness.test.ts tests/sim/known-bugs.test.ts
+
+            # Randomized multi-device runs. Non-blocking until the known bugs are fixed:
+            # results are shown in the job summary and uploaded as an artifact.
+            # Set the repository variable SIM_STRICT=true to make failures block the PR.
+            - name: Randomized simulation (10 seeds per scenario)
+              id: sim
+              continue-on-error: ${{ vars.SIM_STRICT != 'true' }}
+              env:
+                  SIM_SEEDS: 10
+                  SIM_SEED_BASE: 1
+              run: npx vitest run --config vitest.sim.config.ts tests/sim/multi-device.sim.test.ts --reporter=dot
+
+            - name: Simulation summary
+              if: ${{ !cancelled() }}
+              shell: bash
+              env:
+                  SIM_SUMMARY_TITLE: "Multi-device simulation (${{ matrix.os }})"
+              run: node tests/sim/summarize.mjs >> "$GITHUB_STEP_SUMMARY"
+
+            - name: Upload simulation reports
+              if: ${{ !cancelled() }}
+              uses: actions/upload-artifact@v4
+              with:
+                  name: sim-reports-${{ matrix.os }}
+                  path: test-results/sim/
+                  if-no-files-found: ignore
+                  retention-days: 14

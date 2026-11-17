@@ -196,7 +196,12 @@ export class MockVault {
     }
 
     getAbstractFileByPath(path: string): TAbstractFile | null {
-        if (this.tfiles.has(path)) return this.tfiles.get(path)!;
+        if (this.tfiles.has(path)) {
+            // Drop stale handles for files that were removed behind our back
+            // (Obsidian never returns a TFile for a path that no longer exists).
+            if (this.adapter.hasFile(path)) return this.tfiles.get(path)!;
+            this.tfiles.delete(path);
+        }
         // Auto-create if file exists in adapter
         if (this.adapter.hasFile(path)) {
             const tf = new TFile();

@@ -151,3 +151,5 @@ CLAUDE.md
 *.diff
 build.ps1
 e2ee-engine.js
+# Multi-device simulation reports
+test-results/
