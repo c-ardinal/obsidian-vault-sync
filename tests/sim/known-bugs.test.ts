@@ -43,22 +43,6 @@ const KNOWN_BUGS: Case[] = [
         expect: ["DUPLICATE"],
     },
     {
-        title: "two devices pushing at the same time overwrite each other's sync-index entries",
-        symptom:
-            "A note is missing on a device that syncs from sync-index.json (e.g. a newly added device) and never arrives",
-        config: { seed: 18, maxEventDelayMs: 0, network: NET },
-        plan: [
-            { t: 0, dev: "A", kind: "join" },
-            { t: 5499, dev: "B", kind: "join" },
-            { t: 16172, dev: "C", kind: "join" },
-            { t: 41972, dev: "B", kind: "create", fid: "f6", path: "notes/sub/B-3.md" },
-            { t: 44148, dev: "B", kind: "sync", scan: false },
-            { t: 44948, dev: "A", kind: "create", fid: "f7", path: "notes/A-3.md" },
-            { t: 45948, dev: "A", kind: "sync", scan: false },
-        ],
-        expect: ["DIVERGED"],
-    },
-    {
         title: "remote rename is dropped while the old path is dirty; the old file is stuck forever",
         symptom: "Edits made on another device to a just-renamed note are lost; every sync logs CONFLICT DETECTED",
         config: { seed: 12, maxEventDelayMs: 0, network: NET },
@@ -78,6 +62,22 @@ const KNOWN_BUGS: Case[] = [
 
 /** Former bugs that must stay fixed (move cases here when fixing them) */
 const FIXED_REGRESSIONS: Case[] = [
+    {
+        title: "two devices pushing at the same time overwrite each other's sync-index entries",
+        symptom:
+            "A note is missing on a device that syncs from sync-index.json (e.g. a newly added device) and never arrives",
+        config: { seed: 18, maxEventDelayMs: 0, network: NET },
+        plan: [
+            { t: 0, dev: "A", kind: "join" },
+            { t: 5499, dev: "B", kind: "join" },
+            { t: 16172, dev: "C", kind: "join" },
+            { t: 41972, dev: "B", kind: "create", fid: "f6", path: "notes/sub/B-3.md" },
+            { t: 44148, dev: "B", kind: "sync", scan: false },
+            { t: 44948, dev: "A", kind: "create", fid: "f7", path: "notes/A-3.md" },
+            { t: 45948, dev: "A", kind: "sync", scan: false },
+        ],
+        expect: [],
+    },
     {
         title: "a binary edited on ONE device produces conflict copies on every other device",
         symptom: "Images/PDFs get '(Conflict ...)' copies although nobody else touched them; copies are never synced",

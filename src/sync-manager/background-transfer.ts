@@ -7,6 +7,7 @@ import { hashContent } from "./file-utils";
 import { pullFileSafely } from "./merge";
 import { saveIndex } from "./state";
 import { compress } from "./file-utils";
+import { buildRemoteIndexPayload } from "./sync-helpers";
 import type {
     TransferItem,
     TransferRecord,
@@ -632,7 +633,7 @@ export class BackgroundTransferQueue {
     private async uploadIndex(ctx: SyncContext): Promise<void> {
         try {
             await saveIndex(ctx);
-            const indexContent = await ctx.vault.readBinary(ctx.pluginDataPath);
+            const indexContent = await buildRemoteIndexPayload(ctx);
             const compressedIndex = await compress(indexContent);
             const uploadedIndex = await ctx.adapter.uploadFile(
                 ctx.pluginDataPath,

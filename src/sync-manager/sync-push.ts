@@ -20,6 +20,7 @@ import {
     getThresholdBytes,
     generateTransferId,
     markPendingTransfer,
+    buildRemoteIndexPayload,
 } from "./sync-helpers";
 
 
@@ -122,7 +123,8 @@ async function executeFolderDeletions(ctx: SyncContext): Promise<{ folderDeleted
 async function uploadRemoteIndex(ctx: SyncContext): Promise<void> {
     await saveIndex(ctx);
     try {
-        const indexContent = await ctx.vault.readBinary(ctx.pluginDataPath);
+        // Merge with entries other devices wrote since our last pull (no last-writer-wins loss)
+        const indexContent = await buildRemoteIndexPayload(ctx);
         const compressedIndex = await compress(indexContent);
         const uploadedIndex = await ctx.adapter.uploadFile(
             ctx.pluginDataPath,
@@ -140,8 +142,7 @@ async function uploadRemoteIndex(ctx: SyncContext): Promise<void> {
         const rawPath = ctx.pluginDataPath.replace(".json", "_raw.json");
         try {
             if (await ctx.vault.exists(rawPath)) {
-                const rawContent = await ctx.vault.readBinary(rawPath);
-                await ctx.adapter.uploadFile(rawPath, rawContent, Date.now());
+                await ctx.adapter.uploadFile(rawPath, indexContent, Date.now());
                 await ctx.log(`[Smart Push] Raw index backup uploaded.`, "debug");
             }
         } catch (rawErr) {
