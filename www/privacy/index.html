@@ -83,7 +83,7 @@
                 <h2>Data Storage</h2>
                 <ul>
                     <li>
-                        <strong>Authentication credentials</strong> (tokens, encryption secrets) are
+                        <strong>Authentication credentials</strong> (tokens and other secrets) are
                         stored via Obsidian's SecretStorage API. In environments where SecretStorage
                         is unavailable, the Plugin automatically falls back to local file storage
                         encrypted with a device-specific key (AES-GCM). Credentials are used only to
@@ -91,8 +91,7 @@
                     </li>
                     <li>
                         <strong>Vault files</strong> are synchronized between your local device and
-                        your cloud storage. If End-to-End Encryption (E2EE) is enabled, files are
-                        encrypted locally before being uploaded.
+                        your cloud storage.
                     </li>
                     <li>
                         <strong>Sync metadata</strong> (file hashes, timestamps) is stored locally
@@ -100,23 +99,12 @@
                     </li>
                 </ul>
 
-                <h2>End-to-End Encryption (E2EE)</h2>
+                <h2>Add-ons</h2>
                 <p>
-                    When E2EE is enabled, all vault content is encrypted on your device before
-                    upload using AES-256-GCM. The encryption password is never transmitted or stored
-                    remotely. Only encrypted data is stored on your cloud storage, and decryption
-                    occurs exclusively on your local device.
-                </p>
-                <p>
-                    Large files exceeding a configurable threshold are encrypted and uploaded in
-                    chunks (streamed transfer). All chunks are fully encrypted before leaving your
-                    device; no plaintext data is transmitted at any point.
-                </p>
-                <p>
-                    Password changes re-wrap the master key locally without re-encrypting data.
-                    Recovery codes (Base64-encoded master key) are generated and displayed
-                    exclusively on your device and are never transmitted to any server. Key
-                    fingerprints are computed locally for visual verification.
+                    Optional add-ons that are distributed separately from the Plugin and installed
+                    into it may handle vault data in additional ways. How an add-on handles data is
+                    described in its own additional terms, which you are asked to accept when you
+                    install it.
                 </p>
 
                 <h2>Third-Party Services</h2>
@@ -175,7 +163,7 @@
                     >.
                 </p>
 
-                <p class="updated">Last updated: March 4, 2026</p>
+                <p class="updated">Last updated: November 17, 2026</p>
             </div>
 
             <!-- Japanese -->
@@ -224,13 +212,12 @@
                 <h2>データの保存</h2>
                 <ul>
                     <li>
-                        <strong>認証情報</strong
-                        >（トークン、暗号化シークレット）はObsidianのSecretStorage
+                        <strong>認証情報</strong>（トークンなどの秘密情報）はObsidianのSecretStorage
                         APIを介して保管します。SecretStorageが利用できない環境では、デバイス固有の鍵（AES-GCM）で暗号化したローカルファイルに自動的にフォールバックします。認証情報はクラウドストレージプロバイダとの認証にのみ使用します。
                     </li>
                     <li>
                         <strong>Vaultファイル</strong
-                        >はローカルデバイスとクラウドストレージ間で同期します。エンドツーエンド暗号化（E2EE）が有効な場合、ファイルはアップロード前にローカルで暗号化します。
+                        >はローカルデバイスとクラウドストレージ間で同期します。
                     </li>
                     <li>
                         <strong>同期メタデータ</strong
@@ -238,19 +225,9 @@
                     </li>
                 </ul>
 
-                <h2>エンドツーエンド暗号化（E2EE）</h2>
+                <h2>アドオン</h2>
                 <p>
-                    E2EEが有効な場合、すべてのVaultコンテンツはアップロード前にAES-256-GCMでデバイス上にて暗号化されます。
-                    暗号化パスワードがクラウドストレージに送信・保存されることはありません。
-                    クラウドストレージには暗号化されたデータのみが保存され、復号化はローカルデバイス上でのみ行われます。
-                </p>
-                <p>
-                    設定可能な閾値を超える大容量ファイルは、チャンク分割で暗号化・アップロード（ストリーミング転送）されます。すべてのチャンクはデバイス上で暗号化された状態で送信され、平文データが外部に送信されることはありません。
-                </p>
-                <p>
-                    パスワード変更時はデータの再暗号化を行わず、マスターキーのローカルでの再ラッピングのみ実施します。
-                    リカバリーコード（Base64エンコードされたマスターキー）はデバイス上でのみ生成・表示され、外部サーバーに送信されることはありません。
-                    鍵フィンガープリントもローカルで計算されます。
+                    本プラグインとは別に配布され、本プラグインに導入する任意のアドオンは、Vaultデータを追加の方法で扱う場合があります。その取り扱いは各アドオンの追加条件に記載され、導入時に同意を求められます。
                 </p>
 
                 <h2>第三者サービス</h2>
@@ -307,7 +284,7 @@
                     >でIssueを作成してください。
                 </p>
 
-                <p class="updated">最終更新日: 2026年3月4日</p>
+                <p class="updated">最終更新日: 2026年11月17日</p>
             </div>
         </div>
 
