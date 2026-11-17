@@ -1125,7 +1125,21 @@ async function processChangePage(
                     // leaving the old path behind forever and losing edits made under it. The
                     // dirty flag moves with the file, and the content is reconciled below.
                     const localIndexEntry = ctx.index[oldPath];
-                    if (localIndexEntry?.pendingMove) {
+                    if (localIndexEntry?.pendingMove && !(await ctx.vault.exists(oldPath))) {
+                        // We renamed it and then deleted it, while another device renamed it
+                        // (and maybe edited it). Skipping kept a stale entry that a different
+                        // note later took over under this name, and the file never arrived
+                        // here again. The other device's newer version wins over our delete,
+                        // as for any edit/delete conflict: forget our entry and pull it.
+                        delete ctx.index[oldPath];
+                        delete ctx.localIndex[oldPath];
+                        ctx.dirtyPaths.delete(oldPath);
+                        localIdToPath.delete(cloudFile.id);
+                        await ctx.log(
+                            `[Changes API] ${oldPath} was renamed to ${newPath} on another device after we deleted it here. Keeping their version.`,
+                            "info",
+                        );
+                    } else if (localIndexEntry?.pendingMove) {
                         // Still confirm our own upload (same as the "Sync confirmed" path
                         // below). Otherwise ancestorHash stays at an older version, and the
                         // next merge uses a stale base and reports a conflict that isn't one.

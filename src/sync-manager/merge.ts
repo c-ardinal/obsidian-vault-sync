@@ -12,11 +12,11 @@ import {
     renameLocal,
     takeUnsyncedRename,
 } from "./state";
-import { listRevisions, TransientHistoryError } from "./history";
+import { listRevisions, supportsHistory, TransientHistoryError } from "./history";
 import { claimPullPath, findPathCollision, freeCollisionPath, moveIndexEntry, pathKey } from "./path-collision";
 import { basename, dirname } from "../utils/path";
 import { MERGE_MAX_INLINE_DOWNLOAD_BYTES } from "./constants";
-import { takeAttemptedUpload } from "./sync-helpers";
+import { peekAttemptedUpload, takeAttemptedUpload } from "./sync-helpers";
 import { getMergeStrategy } from "./strategies";
 
 /**
@@ -481,6 +481,36 @@ async function pullFileUnchecked(
             );
             return true;
         }
+        if (exists && fileId && !ctx.e2eeEnabled && !ctx.localIndex[item.path]) {
+            // Our upload of this NEW note "failed" but reached the cloud, other devices
+            // edited it since, and we edited it too. Without a base this was a "dual
+            // modification": our edit went to a conflict copy. What we sent is the base.
+            const sent = peekAttemptedUpload(ctx, item.path);
+            // Only when it really reached the cloud: a request lost before the server saw
+            // it means the remote file is someone else's note with the same name.
+            const reachedCloud =
+                !!sent &&
+                supportsHistory(ctx) &&
+                (await listRevisions(ctx, item.path, fileId)
+                    .then((revs) => revs.some((r) => r.hash?.toLowerCase() === sent))
+                    .catch(() => false));
+            if (sent && reachedCloud) {
+                const entry = {
+                    fileId,
+                    mtime: item.mtime ?? Date.now(),
+                    size: item.size ?? 0,
+                    hash: sent,
+                    lastAction: "pull" as const,
+                    ancestorHash: sent,
+                };
+                ctx.index[item.path] = { ...entry };
+                ctx.localIndex[item.path] = { ...entry };
+                await ctx.log(
+                    `[${logPrefix}] ${item.path}: our earlier upload (response lost) is the common base.`,
+                    "info",
+                );
+            }
+        }
         if (exists) {
             ctx.syncingPaths.add(item.path);
             try {
@@ -532,9 +562,22 @@ async function pullFileUnchecked(
                         isActuallyModified = false;
                     } else if (ctx.e2eeEnabled) {
                         // Remote hash is of the ciphertext; compare plaintext hashes instead
-                        isActuallyModified = !(
-                            item.plainHash && item.plainHash === (await hashContent(localContent))
-                        );
+                        const localPlain = await hashContent(localContent);
+                        if (item.plainHash) {
+                            isActuallyModified = item.plainHash !== localPlain;
+                        } else if (fileId) {
+                            // No plaintext hash in the index (e.g. our own upload whose response
+                            // was lost, before our index was written): compare the content
+                            // itself, or our own file came back as a "conflict" with itself.
+                            const remotePlain = await ctx.adapter
+                                .downloadFile(fileId)
+                                .then((b) => hashContent(b))
+                                .catch(() => undefined);
+                            isActuallyModified = remotePlain !== localPlain;
+                            if (!isActuallyModified) item = { ...item, plainHash: remotePlain };
+                        } else {
+                            isActuallyModified = true;
+                        }
                     } else {
                         isActuallyModified = !(item.hash && item.hash.toLowerCase() === currentHash);
                     }
@@ -552,8 +595,16 @@ async function pullFileUnchecked(
                         contentMatches = currentPlainHash === item.plainHash;
                     } else if (!ctx.e2eeEnabled) {
                         contentMatches = !!(item.hash && currentHash === item.hash.toLowerCase());
+                    } else if (fileId && hasRemoteConflict && isActuallyModified) {
+                        // E2EE without a plaintext hash (the index does not describe this
+                        // version yet, e.g. our own upload whose response was lost): compare
+                        // the decrypted content, or our own upload comes back as a conflict.
+                        const remotePlain = await ctx.adapter
+                            .downloadFile(fileId)
+                            .then((b) => hashContent(b))
+                            .catch(() => undefined);
+                        contentMatches = !!remotePlain && remotePlain === (await hashContent(localContent));
                     }
-                    // E2EE without item.plainHash: can't detect content match pre-download
 
                     if (contentMatches) {
                         const stat = await ctx.vault.stat(item.path);
@@ -584,6 +635,23 @@ async function pullFileUnchecked(
                             await ctx.notify("noticeSyncConfirmed", basename(item.path));
                         }
                         await ctx.log(`[${logPrefix}] Skipped (content match): ${item.path}`, "debug");
+                        return true;
+                    }
+
+                    if (!hasRemoteConflict && !isRemoteDeleted && localBase?.hash && item.hash) {
+                        // The remote is exactly the version we last synced: it has nothing we
+                        // lack. Only our local edit is new, and the push uploads it. Merging
+                        // here (e.g. a pending-conflict re-check) used an older base and
+                        // turned our own edit into a conflict.
+                        ctx.dirtyPaths.set(item.path, ctx.dirtyPaths.get(item.path) ?? Date.now());
+                        if (localBase.pendingConflict) {
+                            delete ctx.localIndex[item.path].pendingConflict;
+                            await saveLocalIndex(ctx);
+                        }
+                        await ctx.log(
+                            `[${logPrefix}] ${item.path}: remote unchanged, keeping the local edit for upload.`,
+                            "debug",
+                        );
                         return true;
                     }
 
@@ -781,6 +849,8 @@ async function pullFileUnchecked(
                             item.ancestorHash &&
                             localBase.hash &&
                             item.ancestorHash.toLowerCase() !== localBase.hash.toLowerCase() &&
+                            !!item.hash &&
+                            item.hash.toLowerCase() !== localBase.hash.toLowerCase() &&
                             (await builtOnEarlierVersion(
                                 ctx,
                                 item.path,

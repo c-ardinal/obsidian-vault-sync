@@ -133,6 +133,16 @@ export async function buildRemoteIndexPayload(ctx: SyncContext): Promise<ArrayBu
     } catch (e) {
         await ctx.log(`[Index] Could not merge remote index, uploading local index as-is: ${e}`, "warn");
     }
+    // A local rename not yet applied in the cloud: other devices that sync from this
+    // index would pull the file by id under its new name while still holding it under
+    // the old one (two copies, and the real move then finds its target taken). List it
+    // under the name it still has in the cloud until the move is pushed.
+    for (const [p, e] of Object.entries(merged)) {
+        if (!e.pendingMove) continue;
+        delete merged[p];
+        const { pendingMove, forcePush: _f, ...rest } = e;
+        if (!merged[pendingMove.oldPath]) merged[pendingMove.oldPath] = rest;
+    }
     const data = JSON.stringify({ index: merged, startPageToken: ctx.startPageToken });
     return new TextEncoder().encode(data).buffer as ArrayBuffer;
 }
@@ -159,4 +169,9 @@ export function takeAttemptedUpload(ctx: SyncContext, path: string, hash: string
     if (!rec || !hash || rec !== hash.toLowerCase()) return false;
     m!.delete(path);
     return true;
+}
+
+/** The hash we last tried to upload to `path` with an unknown outcome, if any. */
+export function peekAttemptedUpload(ctx: SyncContext, path: string): string | undefined {
+    return attemptedUploads.get(ctx)?.get(path);
 }
