@@ -3,7 +3,7 @@ import type { SyncContext } from "./context";
 import type { SyncState } from "./types";
 import { ALWAYS_SHOW_ACTIVITY, TRIGGER_PRIORITY } from "./notification-matrix";
 import { getLocalFiles, shouldIgnore } from "./file-utils";
-import { saveIndex } from "./state";
+import { saveIndex, beginSyncCycle, endSyncCycle } from "./state";
 import {
     SYNC_POST_PUSH_PULL_MAX_RETRIES,
     SCAN_FULL_SCAN_CHUNK_SIZE,
@@ -101,6 +101,7 @@ export async function executeSmartSync(ctx: SyncContext, scanVault: boolean): Pr
         ctx.startActivity();
     }
     ctx.backgroundTransferQueue.pause();
+    beginSyncCycle(ctx);
     try {
         await ctx.log("=== SMART SYNC START ===", "info");
         await ctx.notify("noticeSyncing");
@@ -152,6 +153,7 @@ export async function executeSmartSync(ctx: SyncContext, scanVault: boolean): Pr
         }
         throw e;
     } finally {
+        await endSyncCycle(ctx);
         ctx.adapter.clearDownloadCache?.();
         await ctx.logger.endCycle();
         ctx.endActivity();
