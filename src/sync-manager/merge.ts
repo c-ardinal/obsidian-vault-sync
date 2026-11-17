@@ -480,13 +480,36 @@ export async function pullFileSafely(
                             const remoteContentStr = new TextDecoder().decode(remoteContentBuffer);
                             const currentContentStr = new TextDecoder().decode(localContent);
 
-                            const merged = await perform3WayMerge(
+                            let merged = await perform3WayMerge(
                                 ctx,
                                 item.path,
                                 currentContentStr,
                                 remoteContentStr,
                                 baseHashFound,
                             );
+
+                            // The merge downloads revisions and can take seconds. If the user
+                            // kept typing meanwhile, writing `merged` would silently discard
+                            // those keystrokes. Re-read and merge again from the newest local
+                            // content (bounded, so constant typing cannot stall the sync).
+                            let latestLocal = localContent;
+                            for (let retry = 0; merged && retry < 3; retry++) {
+                                if (!(await ctx.vault.exists(item.path))) break;
+                                const reread = await ctx.vault.readBinary(item.path);
+                                if (md5(reread) === md5(latestLocal)) break;
+                                await ctx.log(
+                                    `[${logPrefix}] ${item.path} was edited during the merge. Re-merging with the latest local content.`,
+                                    "info",
+                                );
+                                latestLocal = reread;
+                                merged = await perform3WayMerge(
+                                    ctx,
+                                    item.path,
+                                    new TextDecoder().decode(reread),
+                                    remoteContentStr,
+                                    baseHashFound,
+                                );
+                            }
 
                             if (merged) {
                                 const mergedStr = new TextDecoder().decode(merged);
@@ -505,7 +528,7 @@ export async function pullFileSafely(
                                     );
                                 } catch (writeErr) {
                                     await ctx.log(`[${logPrefix}] Merge write failed for ${item.path}, restoring original content`, "error");
-                                    try { await ctx.vault.writeBinary(item.path, localContent); } catch { /* best effort */ }
+                                    try { await ctx.vault.writeBinary(item.path, latestLocal); } catch { /* best effort */ }
                                     throw writeErr;
                                 }
 
