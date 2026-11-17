@@ -8,35 +8,10 @@
         <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
         <style>
             header {
-                position: relative;
                 text-align: center;
                 padding: 2.5rem 0 0;
                 margin-bottom: 0;
                 border-bottom: none;
-            }
-            /* Soft halo behind the logotype */
-            header::before {
-                content: "";
-                position: absolute;
-                left: 50%;
-                top: 45%;
-                width: min(520px, 90vw);
-                height: 220px;
-                transform: translate(-50%, -50%);
-                background: radial-gradient(closest-side, rgba(124, 58, 237, 0.35), transparent);
-                filter: blur(30px);
-                z-index: -1;
-                animation: halo 6s ease-in-out infinite alternate;
-            }
-            @keyframes halo {
-                from {
-                    opacity: 0.6;
-                    transform: translate(-50%, -50%) scale(0.95);
-                }
-                to {
-                    opacity: 1;
-                    transform: translate(-50%, -50%) scale(1.05);
-                }
             }
             header .logo {
                 display: block;
@@ -44,21 +19,17 @@
                 width: 100%;
                 height: auto;
                 margin: 0 auto 1.1rem;
-                filter: drop-shadow(0 6px 24px rgba(124, 58, 237, 0.35));
             }
             header .tagline {
                 display: inline-block;
-                color: var(--text);
+                color: var(--text-muted);
                 font-size: 0.88rem;
                 font-weight: 500;
                 letter-spacing: 0.02em;
                 margin: 0;
                 padding: 4px 14px;
                 border-radius: 999px;
-                background: var(--surface);
-                border: 1px solid var(--border-strong);
-                backdrop-filter: blur(8px);
-                -webkit-backdrop-filter: blur(8px);
+                border: 1px solid var(--border);
             }
             .intro {
                 text-align: center;
@@ -76,19 +47,17 @@
             }
             /* Staggered entrance for the hero */
             .lang.active .hero-item {
-                animation: hero-in 0.8s var(--ease-out) both;
-                animation-delay: calc(var(--d, 0) * 110ms + 80ms);
+                animation: hero-in 0.7s var(--ease-out) both;
+                animation-delay: calc(var(--d, 0) * 90ms + 60ms);
             }
             @keyframes hero-in {
                 from {
                     opacity: 0;
-                    transform: translateY(14px);
-                    filter: blur(4px);
+                    transform: translateY(10px);
                 }
                 to {
                     opacity: 1;
                     transform: none;
-                    filter: none;
                 }
             }
             /* The hero has its own entrance; skip the generic page fade */
@@ -462,7 +431,7 @@
 
             if (window.lucide) lucide.createIcons();
 
-            // Motion: scroll reveal + card spotlight. Skipped entirely when the
+            // Motion: scroll reveal. Skipped entirely when the
             // visitor prefers reduced motion or the browser lacks the APIs.
             (function () {
                 var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -482,14 +451,6 @@
                 );
                 document.querySelectorAll("[data-reveal]").forEach(function (el) {
                     io.observe(el);
-                });
-
-                document.querySelectorAll(".feature-card").forEach(function (card) {
-                    card.addEventListener("pointermove", function (ev) {
-                        var r = card.getBoundingClientRect();
-                        card.style.setProperty("--mx", ev.clientX - r.left + "px");
-                        card.style.setProperty("--my", ev.clientY - r.top + "px");
-                    });
                 });
             })();
         </script>
