@@ -9,6 +9,13 @@ import type { IVaultOperations } from "../types/vault-operations";
 export const APPROVED_ENGINE_HASH: string =
     "e2b6e3758b768d4dbc2fe896e5830c3cec5bf8d8fd786992f35737661190fa06";
 
+/** File name of the engine inside the plugin folder. */
+export const ENGINE_FILE_NAME = "e2ee-engine.js";
+
+/** Where users download the engine themselves (opened from the install dialog). */
+export const ENGINE_RELEASE_URL =
+    "https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine/releases/latest";
+
 /**
  * Compute SHA-256 hash of content
  */
@@ -31,9 +38,9 @@ export async function loadExternalCryptoEngine(
     // 1. Resolve Path candidates
     // On some platforms, leading dots or different separators can be tricky
     const variations = [
-        normalizePath(`${pluginPath}/e2ee-engine.js`),
-        normalizePath(pluginPath + "/e2ee-engine.js"),
-        `${pluginPath}/e2ee-engine.js`.replace(/^\.\//, ""),
+        normalizePath(`${pluginPath}/${ENGINE_FILE_NAME}`),
+        normalizePath(pluginPath + "/" + ENGINE_FILE_NAME),
+        `${pluginPath}/${ENGINE_FILE_NAME}`.replace(/^\.\//, ""),
     ];
 
     // Remove duplicates
@@ -62,9 +69,19 @@ export async function loadExternalCryptoEngine(
         return null;
     }
 
-    try {
-        console.log(`Vault-Sync: Loading engine from [${successfulPath}]...`);
+    console.log(`Vault-Sync: Loading engine from [${successfulPath}]...`);
+    return evaluateEngine(content, onNotify);
+}
 
+/**
+ * Verifies the engine source against APPROVED_ENGINE_HASH, runs it, and checks
+ * that it implements every required method. Returns null on any failure.
+ */
+export async function evaluateEngine(
+    content: string,
+    onNotify?: (key: string) => Promise<void>,
+): Promise<ICryptoEngine | null> {
+    try {
         // Verify engine hash for security (skip in development mode)
         if (APPROVED_ENGINE_HASH !== "CHANGE_THIS_TO_ACTUAL_HASH_BEFORE_RELEASE") {
             const actualHash = await computeSHA256(content);
@@ -134,4 +151,43 @@ export async function loadExternalCryptoEngine(
         console.error("Vault-Sync: Engine execution failed", e);
         return null;
     }
+}
+
+export type EngineInstallResult =
+    | { ok: true; engine: ICryptoEngine }
+    | { ok: false; reason: "hash-mismatch" | "invalid" | "write-failed" };
+
+/**
+ * Installs an engine file the user picked themselves.
+ *
+ * The file is only written to the plugin folder after it matches
+ * APPROVED_ENGINE_HASH and loads correctly, so a wrong or tampered file never
+ * lands on disk. Nothing is downloaded here: the user downloads the engine on
+ * their own and chooses to install it, which keeps E2EE an explicit opt-in.
+ */
+export async function installEngineFromContent(
+    vault: IVaultOperations,
+    pluginPath: string,
+    content: string,
+): Promise<EngineInstallResult> {
+    if (APPROVED_ENGINE_HASH !== "CHANGE_THIS_TO_ACTUAL_HASH_BEFORE_RELEASE") {
+        const actualHash = await computeSHA256(content);
+        if (actualHash !== APPROVED_ENGINE_HASH) {
+            console.error(
+                `Vault-Sync: Picked engine file hash mismatch. Expected: ${APPROVED_ENGINE_HASH}, Got: ${actualHash}`,
+            );
+            return { ok: false, reason: "hash-mismatch" };
+        }
+    }
+
+    const engine = await evaluateEngine(content);
+    if (!engine) return { ok: false, reason: "invalid" };
+
+    try {
+        await vault.write(normalizePath(`${pluginPath}/${ENGINE_FILE_NAME}`), content);
+    } catch (e) {
+        console.error("Vault-Sync: Failed to save the engine file", e);
+        return { ok: false, reason: "write-failed" };
+    }
+    return { ok: true, engine };
 }

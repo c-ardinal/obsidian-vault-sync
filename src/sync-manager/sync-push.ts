@@ -12,6 +12,7 @@ import {
 } from "./file-utils";
 import { loadCommunication, saveIndex, releaseLockAfterPush, findForeignLock, renameLocal, confirmMissingForDeletion, noteDeleteIntent, takeUnsyncedRename } from "./state";
 import { pullFileSafely } from "./merge";
+import { isMergeableText, recoverOverwrittenVersion } from "./overwrite-recovery";
 import { findPathCollision, freeCollisionPath, moveIndexEntry, pathKey } from "./path-collision";
 import { TransferPriority } from "./transfer-types";
 import { formatSize } from "../utils/format";
@@ -24,6 +25,7 @@ import {
     markPendingTransfer,
     buildRemoteIndexPayload,
     recordAttemptedUpload,
+    forgetAttemptedUpload,
 } from "./sync-helpers";
 
 
@@ -468,7 +470,12 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                 mtime: moved.mtime,
                                 size: moved.size,
                                 hash: remoteChangedMeanwhile ? knownHash : moved.hash,
-                                lastAction: "pull" as const,
+                                // Keep "push" when the known hash is our own upload: the merge
+                                // then knows the newer remote may have been built on it.
+                                lastAction:
+                                    remoteChangedMeanwhile && ctx.localIndex[path]?.lastAction === "push"
+                                        ? ("push" as const)
+                                        : ("pull" as const),
                                 ancestorHash: ctx.localIndex[path]?.ancestorHash || moved.hash,
                                 forcePush: false,
                                 pendingMove: undefined,
@@ -873,6 +880,15 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                                 "noticeFilePushed",
                                                 basename(file.path),
                                             );
+                                            if (mergedUploaded.hash && isMergeableText(file.path)) {
+                                                await recoverOverwrittenVersion(
+                                                    ctx,
+                                                    file.path,
+                                                    mergedUploaded.id,
+                                                    mergedUploaded.hash,
+                                                    [previousAncestorHash, remoteMeta.hash],
+                                                );
+                                            }
                                         } catch (uploadErr) {
                                             await ctx.log(
                                                 `[Smart Push] [Deadlock Breaking] Failed to upload merged file: ${file.path} - ${uploadErr}`,
@@ -907,6 +923,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                     const plainHash = await hashContent(file.content);
 
                     const previousAncestorHash = ctx.localIndex[file.path]?.ancestorHash;
+                    const previousHash = ctx.localIndex[file.path]?.hash;
                     const entry = {
                         fileId: uploaded.id,
                         mtime: file.mtime,
@@ -921,9 +938,16 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                     } else {
                         ctx.index[file.path] = entry;
                         ctx.localIndex[file.path] = { ...entry };
+                        forgetAttemptedUpload(ctx, file.path);
 
                         if (ctx.dirtyPaths.get(file.path) === file.dirtyAt) {
                             ctx.dirtyPaths.delete(file.path);
+                        }
+                        if (targetFileId && uploaded.hash && isMergeableText(file.path)) {
+                            await recoverOverwrittenVersion(ctx, file.path, uploaded.id, uploaded.hash, [
+                                previousAncestorHash,
+                                previousHash,
+                            ]);
                         }
                     }
 

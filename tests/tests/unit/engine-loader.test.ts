@@ -17,6 +17,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
     loadExternalCryptoEngine,
+    installEngineFromContent,
     APPROVED_ENGINE_HASH,
 } from "../../../src/encryption/engine-loader";
 import type { IVaultOperations } from "../../../src/types/vault-operations";
@@ -759,5 +760,92 @@ ${REQUIRED_METHODS.map((m) => `exports.${m} = function() { return "${m}"; };`).j
 
         expect(result).not.toBeNull();
         expect(typeof result!.encrypt).toBe("function");
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+
+describe("installEngineFromContent (user-picked file)", () => {
+    const enginePath = `${PLUGIN_PATH}/e2ee-engine.js`;
+
+    beforeEach(() => {
+        vi.restoreAllMocks();
+        (global as any).window = global;
+    });
+
+    afterEach(() => {
+        delete (global as any).window;
+    });
+
+    function approveAnyContent(): void {
+        vi.spyOn(crypto.subtle, "digest").mockResolvedValue(hexToArrayBuffer(APPROVED_HASH));
+    }
+
+    it("rejects a file whose hash is not the approved one and writes nothing", async () => {
+        const vault = createMockVault();
+        const result = await installEngineFromContent(vault, PLUGIN_PATH, makeValidEngineScript());
+        expect(result).toEqual({ ok: false, reason: "hash-mismatch" });
+        expect(vault.write).not.toHaveBeenCalled();
+    });
+
+    it("saves the approved engine into the plugin folder and returns it ready to use", async () => {
+        approveAnyContent();
+        const vault = createMockVault();
+        const script = makeValidEngineScript();
+
+        const result = await installEngineFromContent(vault, PLUGIN_PATH, script);
+
+        expect(result.ok).toBe(true);
+        if (result.ok) expect(result.engine.isUnlocked()).toBe("isUnlocked");
+        expect(vault.write).toHaveBeenCalledWith(enginePath, script);
+    });
+
+    it("rejects an approved-hash file that lacks required methods, without writing", async () => {
+        approveAnyContent();
+        vi.spyOn(console, "error").mockImplementation(() => {});
+        const vault = createMockVault();
+        const result = await installEngineFromContent(
+            vault,
+            PLUGIN_PATH,
+            makePartialEngineScript(["encrypt"]),
+        );
+        expect(result).toEqual({ ok: false, reason: "invalid" });
+        expect(vault.write).not.toHaveBeenCalled();
+    });
+
+    it("rejects a file that throws when run, without writing", async () => {
+        approveAnyContent();
+        vi.spyOn(console, "error").mockImplementation(() => {});
+        const vault = createMockVault();
+        const result = await installEngineFromContent(
+            vault,
+            PLUGIN_PATH,
+            makeThrowingEngineScript(),
+        );
+        expect(result).toEqual({ ok: false, reason: "invalid" });
+        expect(vault.write).not.toHaveBeenCalled();
+    });
+
+    it("reports write-failed when saving fails", async () => {
+        approveAnyContent();
+        vi.spyOn(console, "error").mockImplementation(() => {});
+        const vault = createMockVault();
+        (vault.write as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("disk full"));
+        const result = await installEngineFromContent(vault, PLUGIN_PATH, makeValidEngineScript());
+        expect(result).toEqual({ ok: false, reason: "write-failed" });
+    });
+
+    it("the saved file is found by the startup loader", async () => {
+        approveAnyContent();
+        const files: Record<string, string> = {};
+        const vault = createMockVault(files);
+        (vault.write as ReturnType<typeof vi.fn>).mockImplementation(
+            async (p: string, c: string) => {
+                files[p] = c;
+            },
+        );
+        await installEngineFromContent(vault, PLUGIN_PATH, makeValidEngineScript());
+        const reloaded = await loadExternalCryptoEngine(vault, PLUGIN_PATH);
+        expect(reloaded).not.toBeNull();
     });
 });

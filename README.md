@@ -317,8 +317,14 @@ When E2EE is enabled:
 - Master key can be exported as a Base64 string, enabling **recovery code generation** for password loss recovery
 - Reduces peak memory for files above the configurable threshold with **streaming encryption for large files**
 
-The E2EE Engine is provided as a standalone `e2ee-engine.js` file.
-Place it in the Vault-Sync plugin directory (`.obsidian/plugins/obsidian-vault-sync/`). Vault-Sync will automatically detect and load the engine on startup, verifying its integrity via SHA-256 hash before activation.
+The E2EE Engine is distributed separately as a standalone `e2ee-engine.js` file, so that only people who want encryption install it, by their own choice. Installing it takes a few taps, on desktop or mobile, with no need to open the hidden `.obsidian` folder:
+
+1. Open Vault-Sync's settings and tap **Install...** under "End-to-End Encryption (E2EE)" (or run `E2EE: Install Encryption Engine` from the command palette).
+2. Tap **Open release page** and download `e2ee-engine.js` from the latest release.
+3. Confirm the two statements (your own choice and responsibility; your country's laws on encryption software).
+4. Tap **Choose file** and pick the downloaded file. Vault-Sync checks its SHA-256 hash against the approved version, saves it to the plugin folder, and activates it without a restart.
+
+Vault-Sync itself never downloads the engine. If the vault is already encrypted on another device, the install dialog opens on startup and then asks for the password. Copying the file into `.obsidian/plugins/obsidian-vault-sync/` by hand still works too.
 
 For details, available commands, build instructions, and the encryption specification, see the **[Vault-Sync E2EE Engine repository](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine)**.
 

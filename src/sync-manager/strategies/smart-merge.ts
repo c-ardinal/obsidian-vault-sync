@@ -9,6 +9,7 @@ import {
     MERGE_PATCH_MARGINS,
 } from "../constants";
 import type { IMergeStrategy, MergeParams } from "./merge-strategy";
+import { mergeLines3 } from "./diff3";
 
 export class SmartMergeStrategy implements IMergeStrategy {
     async merge({
@@ -88,6 +89,35 @@ export class SmartMergeStrategy implements IMergeStrategy {
             return lines.filter((l) => !baseLines.has(l));
         };
         const localAddedLines = getUniqueLines(localNorm, baseNorm);
+        const countLines = (t: string) => {
+            const m = new Map<string, number>();
+            for (const raw of t.split("\n")) {
+                const l = raw.trim();
+                if (l.length > 0) m.set(l, (m.get(l) ?? 0) + 1);
+            }
+            return m;
+        };
+        // Lines neither side removed must survive the merge too: the fuzzy patch
+        // matching could put a hunk in the wrong place and drop them. A base line that
+        // local kept cL times and remote cR times (of cB) is still wanted cL + cR - cB times.
+        const baseCounts = countLines(baseNorm);
+        const localCounts = countLines(localNorm);
+        const remoteCounts = countLines(remoteNorm);
+        const keptLines: [string, number][] = [];
+        for (const [line, cB] of baseCounts) {
+            const need = (localCounts.get(line) ?? 0) + (remoteCounts.get(line) ?? 0) - cB;
+            if (need > 0) keptLines.push([line, need]);
+        }
+        const findLostLine = (mergedText: string): string | null => {
+            const merged = countLines(mergedText);
+            for (const line of localAddedLines) {
+                if (!merged.has(line)) return `Local line was lost: "${line.substring(0, 40)}..."`;
+            }
+            for (const [line, need] of keptLines) {
+                if ((merged.get(line) ?? 0) < need) return `Unchanged line was lost: "${line.substring(0, 40)}..."`;
+            }
+            return null;
+        };
 
         for (const margin of MERGE_PATCH_MARGINS) {
             await ctx.log(`[Merge] Attempting merge with Patch_Margin=${margin}...`, "debug");
@@ -135,30 +165,26 @@ export class SmartMergeStrategy implements IMergeStrategy {
                 "debug",
             );
 
-            let validationFailed = false;
-            if (localAddedLines.length > 0) {
-                const mergedLines = new Set(
-                    mergedText
-                        .split("\n")
-                        .map((l) => l.trim())
-                        .filter((l) => l.length > 0),
-                );
-                for (const line of localAddedLines) {
-                    if (!mergedLines.has(line)) {
-                        await ctx.log(
-                            `[Merge] VALIDATION FAILED (margin=${margin}): Local line was lost: "${line.substring(0, 40)}..."`,
-                            "warn",
-                        );
-                        validationFailed = true;
-                        break;
-                    }
-                }
+            const lost = findLostLine(mergedText);
+            const validationFailed = lost !== null;
+            if (lost) {
+                await ctx.log(`[Merge] VALIDATION FAILED (margin=${margin}): ${lost}`, "warn");
             }
 
             if (!validationFailed) {
                 await ctx.log(`[Merge] SUCCESS: Auto-merged ${path} with Patch_Margin=${margin}`, "info");
                 return new TextEncoder().encode(mergedText).buffer;
             }
+        }
+
+        const lineMerged = mergeLines3(baseNorm, localNorm, remoteNorm);
+        if (lineMerged !== null) {
+            const lost = findLostLine(lineMerged);
+            if (!lost) {
+                await ctx.log(`[Merge] SUCCESS: Auto-merged ${path} line by line.`, "info");
+                return new TextEncoder().encode(lineMerged).buffer;
+            }
+            await ctx.log(`[Merge] Line merge rejected: ${lost}`, "warn");
         }
 
         await ctx.log(
