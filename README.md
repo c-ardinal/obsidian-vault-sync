@@ -328,6 +328,14 @@ For details, available commands, build instructions, and the encryption specific
 
 ---
 
+### Export Control Disclaimer
+
+Vault-Sync contains cryptographic software (the bundled E2EE engine).
+Depending on your country of residence, there may be restrictions on the import, possession, use, and/or re-export of encryption software to other countries.
+Before using the E2EE feature, please check the laws, regulations, and policies of your country regarding encryption software to ensure compliance.
+
+---
+
 ## 🛠 Development and Build
 
 For running in a development environment or building from source:
