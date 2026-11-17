@@ -4,23 +4,66 @@
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>Vault-Sync - Obsidian Cloud Sync Plugin</title>
+        <script src="site.js"></script>
         <link rel="stylesheet" href="style.css" />
-        <script src="https://unpkg.com/lucide@latest"></script>
+        <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
         <style>
             header {
                 text-align: center;
-                padding-bottom: 1.5rem;
+                padding: 2.5rem 0 0;
+                margin-bottom: 0;
+                border-bottom: none;
             }
             header .logo {
-                max-width: 320px;
+                display: block;
+                max-width: 340px;
                 width: 100%;
                 height: auto;
-                margin-bottom: 0.5rem;
+                margin: 0 auto 1.1rem;
             }
             header .tagline {
-                color: #72767d;
-                font-size: 1rem;
+                display: inline-block;
+                color: var(--text-muted);
+                font-size: 0.88rem;
+                font-weight: 500;
+                letter-spacing: 0.02em;
                 margin: 0;
+                padding: 4px 14px;
+                border-radius: 999px;
+                border: 1px solid var(--border);
+            }
+            .intro {
+                text-align: center;
+                font-size: 1.05rem;
+                line-height: 1.85;
+                color: var(--text-muted);
+                max-width: 600px;
+                margin: 1.75rem auto 0;
+            }
+            @media (max-width: 600px) {
+                .intro {
+                    text-align: left;
+                    font-size: 1rem;
+                }
+            }
+            /* Staggered entrance for the hero */
+            .lang.active .hero-item {
+                animation: hero-in 0.7s var(--ease-out) both;
+                animation-delay: calc(var(--d, 0) * 90ms + 60ms);
+            }
+            @keyframes hero-in {
+                from {
+                    opacity: 0;
+                    transform: translateY(10px);
+                }
+                to {
+                    opacity: 1;
+                    transform: none;
+                }
+            }
+            /* The hero has its own entrance; skip the generic page fade */
+            .container {
+                animation: none;
             }
         </style>
     </head>
@@ -36,46 +79,46 @@
             <!-- English -->
             <div id="en" class="lang active">
                 <header>
-                    <img src="img/vaultsync_logotype_v2.webp" alt="Vault-Sync" class="logo" />
-                    <p class="tagline">Cloud sync plugin for Obsidian</p>
+                    <img
+                        src="img/vaultsync_logotype_v2.webp"
+                        alt="Vault-Sync"
+                        class="logo hero-item"
+                        style="--d: 0"
+                        width="1221"
+                        height="301"
+                    />
+                    <p class="tagline hero-item" style="--d: 1">Cloud sync plugin for Obsidian</p>
                 </header>
 
-                <p>
+                <p class="intro hero-item" style="--d: 2">
                     Vault-Sync seamlessly synchronizes your Obsidian vault across multiple devices
                     through cloud storage. All sync operations run directly between your device and
                     your cloud storage account &mdash; no intermediary servers involved.
                 </p>
 
-                <div class="links">
+                <div class="links hero-item" style="--d: 3">
                     <a
                         href="https://github.com/c-ardinal/obsidian-vault-sync"
                         class="primary"
                         target="_blank"
                         rel="noopener"
-                        style="display: flex; align-items: center; gap: 0.25em"
-                        ><i data-lucide="github" style="width: 18px"></i>View on GitHub</a
+                        ><i data-lucide="github"></i>View on GitHub</a
                     >
-                    <a
-                        href="tos/"
-                        class="secondary"
-                        style="display: flex; align-items: center; gap: 0.25em"
-                        ><i data-lucide="file-text" style="width: 18px"></i>Terms of Service</a
+                    <a href="tos/" class="secondary"
+                        ><i data-lucide="file-text"></i>Terms of Service</a
                     >
-                    <a
-                        href="privacy/"
-                        class="secondary"
-                        style="display: flex; align-items: center; gap: 0.25em"
-                        ><i data-lucide="lock" style="width: 18px"></i>Privacy Policy</a
+                    <a href="privacy/" class="secondary"
+                        ><i data-lucide="lock"></i>Privacy Policy</a
                     >
                 </div>
 
                 <div class="getting-started">
-                    <h2 style="display: flex; align-items: center; gap: 0.5em">
+                    <h2 class="section-title" data-reveal>
                         <i data-lucide="rocket"></i>
                         Getting Started
                     </h2>
                     <div class="steps">
-                        <div class="step">
+                        <div class="step" data-reveal style="--i: 0">
                             <span class="step-number">1</span>
                             <div class="step-content">
                                 <h3>Install the Plugin</h3>
@@ -86,7 +129,7 @@
                                 </p>
                             </div>
                         </div>
-                        <div class="step">
+                        <div class="step" data-reveal style="--i: 1">
                             <span class="step-number">2</span>
                             <div class="step-content">
                                 <h3>Login to Cloud Service</h3>
@@ -100,7 +143,7 @@
                                 </p>
                             </div>
                         </div>
-                        <div class="step">
+                        <div class="step" data-reveal style="--i: 2">
                             <span class="step-number">3</span>
                             <div class="step-content">
                                 <h3>Sync</h3>
@@ -117,65 +160,78 @@
                     </div>
                 </div>
 
-                <h2 style="display: flex; align-items: center; gap: 0.5em">
+                <h2 class="section-title" data-reveal>
                     <i data-lucide="star"></i>
                     Key Features
                 </h2>
 
                 <div class="feature-grid">
-                    <div class="feature-card">
+                    <div class="feature-card" data-reveal style="--i: 0">
                         <h3><i data-lucide="cloud-upload"></i>Cloud Sync</h3>
                         <p>
                             Sync your vault across desktop and mobile devices. Supports flexible
-                            triggers including startup, periodic, on save, and on file switch.
+                            triggers: on startup, on a timer, on save, after you stop editing, and
+                            on layout changes such as switching tabs.
                         </p>
                     </div>
-                    <div class="feature-card">
+                    <div class="feature-card" data-reveal style="--i: 1">
                         <h3><i data-lucide="git-merge"></i>Smart Merge</h3>
                         <p>
                             Three-way merge automatically resolves conflicts when the same file is
                             edited on multiple devices. Choose from four strategies: smart-merge,
-                            force-local, force-remote, and always-fork.
+                            force-local, force-remote, and always-fork. Notes whose names differ
+                            only in letter case or Unicode form are kept side by side as
+                            <code>name (2).md</code> instead of overwriting each other.
                         </p>
                     </div>
-                    <div class="feature-card">
+                    <div class="feature-card" data-reveal style="--i: 2">
                         <h3><i data-lucide="shield-check"></i>End-to-End Encryption</h3>
                         <p>
                             Optionally encrypt your entire vault with AES-256-GCM before it leaves
-                            your device. Includes password change, recovery code export, and
-                            streaming encryption for large files. Your password never leaves your
-                            device.
+                            your device. The
+                            <a
+                                href="https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine"
+                                target="_blank"
+                                rel="noopener"
+                                >E2EE Engine</a
+                            >
+                            is a separate, opt-in add-on that you install from the plugin settings
+                            in a few taps, on desktop or mobile. Includes password change, recovery
+                            code export, and streaming encryption for large files. The key is
+                            derived from your password with PBKDF2, and your password never leaves
+                            your device.
                         </p>
                     </div>
-                    <div class="feature-card">
+                    <div class="feature-card" data-reveal style="--i: 3">
                         <h3><i data-lucide="file-clock"></i>File History</h3>
                         <p>
                             Browse, compare, and restore past revisions of any file. Supports
-                            unified and split diff views with line-level comparison.
+                            unified and split diff views with character-level highlighting of
+                            changes.
                         </p>
                     </div>
-                    <div class="feature-card">
+                    <div class="feature-card" data-reveal style="--i: 4">
                         <h3><i data-lucide="sliders-horizontal"></i>Granular Sync Control</h3>
                         <p>
                             Choose exactly what to sync: themes, plugins, core settings, media
                             files, dotfiles, and more. Exclude files with glob patterns.
                         </p>
                     </div>
-                    <div class="feature-card">
+                    <div class="feature-card" data-reveal style="--i: 5">
                         <h3><i data-lucide="monitor-smartphone"></i>Per-Platform Settings</h3>
                         <p>
                             Configure sync triggers independently for desktop and mobile, or use
                             unified settings across all devices.
                         </p>
                     </div>
-                    <div class="feature-card">
+                    <div class="feature-card" data-reveal style="--i: 6">
                         <h3><i data-lucide="hard-drive-upload"></i>Background Transfer</h3>
                         <p>
                             Large files are uploaded and downloaded in the background without
                             blocking the UI. Configurable thresholds and concurrency limits.
                         </p>
                     </div>
-                    <div class="feature-card">
+                    <div class="feature-card" data-reveal style="--i: 7">
                         <h3><i data-lucide="key-round"></i>Secure Authentication</h3>
                         <p>
                             OAuth2 with PKCE via a built-in proxy or your own credentials. Tokens
@@ -184,17 +240,19 @@
                     </div>
                 </div>
 
-                <h2 style="display: flex; align-items: center; gap: 0.5em">
+                <h2 class="section-title" data-reveal>
                     <i data-lucide="cloud"></i>
                     Supported Cloud Storage
                 </h2>
-                <ul>
+                <ul class="providers" data-reveal>
                     <li>
                         <strong>Google Drive</strong> &mdash; Uses the <code>drive.file</code> scope
                         for minimal, app-only access
                     </li>
                 </ul>
-                <p class="muted">Additional providers are planned for future releases.</p>
+                <p class="muted" data-reveal>
+                    Additional providers are planned for future releases.
+                </p>
 
                 <footer>
                     &copy; 2026 c-ardinal &middot;
@@ -214,44 +272,42 @@
             <!-- Japanese -->
             <div id="ja" class="lang">
                 <header>
-                    <img src="img/vaultsync_logotype_v2.webp" alt="Vault-Sync" class="logo" />
-                    <p class="tagline">Obsidian用クラウド同期プラグイン</p>
+                    <img
+                        src="img/vaultsync_logotype_v2.webp"
+                        alt="Vault-Sync"
+                        class="logo hero-item"
+                        style="--d: 0"
+                        width="1221"
+                        height="301"
+                    />
+                    <p class="tagline hero-item" style="--d: 1">Obsidian用クラウド同期プラグイン</p>
                 </header>
 
-                <p>
+                <p class="intro hero-item" style="--d: 2">
                     Vault-Syncは、クラウドストレージを介してObsidianのVaultを複数デバイス間でシームレスに同期するプラグインです。すべての同期処理はデバイスとクラウドストレージ間で直接行われ、中間サーバーを経由しません。
                 </p>
 
-                <div class="links">
+                <div class="links hero-item" style="--d: 3">
                     <a
                         href="https://github.com/c-ardinal/obsidian-vault-sync"
                         class="primary"
                         target="_blank"
                         rel="noopener"
-                        style="display: flex; align-items: center; gap: 0.25em"
-                        ><i data-lucide="github" style="width: 18px"></i>GitHubで見る</a
+                        ><i data-lucide="github"></i>GitHubで見る</a
                     >
-                    <a
-                        href="tos/#ja"
-                        class="secondary"
-                        style="display: flex; align-items: center; gap: 0.25em"
-                        ><i data-lucide="file-text" style="width: 18px"></i>利用規約</a
-                    >
-                    <a
-                        href="privacy/#ja"
-                        class="secondary"
-                        style="display: flex; align-items: center; gap: 0.25em"
-                        ><i data-lucide="lock" style="width: 18px"></i>プライバシーポリシー</a
+                    <a href="tos/#ja" class="secondary"><i data-lucide="file-text"></i>利用規約</a>
+                    <a href="privacy/#ja" class="secondary"
+                        ><i data-lucide="lock"></i>プライバシーポリシー</a
                     >
                 </div>
 
                 <div class="getting-started">
-                    <h2 style="display: flex; align-items: center; gap: 0.5em">
+                    <h2 class="section-title" data-reveal>
                         <i data-lucide="rocket"></i>
                         はじめかた
                     </h2>
                     <div class="steps">
-                        <div class="step">
+                        <div class="step" data-reveal style="--i: 0">
                             <span class="step-number">1</span>
                             <div class="step-content">
                                 <h3>プラグインをインストール</h3>
@@ -261,7 +317,7 @@
                                 </p>
                             </div>
                         </div>
-                        <div class="step">
+                        <div class="step" data-reveal style="--i: 1">
                             <span class="step-number">2</span>
                             <div class="step-content">
                                 <h3>クラウドサービスへログイン</h3>
@@ -273,7 +329,7 @@
                                 </p>
                             </div>
                         </div>
-                        <div class="step">
+                        <div class="step" data-reveal style="--i: 2">
                             <span class="step-number">3</span>
                             <div class="step-content">
                                 <h3>同期開始</h3>
@@ -283,60 +339,62 @@
                         </div>
                     </div>
                 </div>
-                <h2 style="display: flex; align-items: center; gap: 0.5em">
+                <h2 class="section-title" data-reveal>
                     <i data-lucide="star"></i>
                     主な機能
                 </h2>
 
                 <div class="feature-grid">
-                    <div class="feature-card">
+                    <div class="feature-card" data-reveal style="--i: 0">
                         <h3><i data-lucide="cloud-upload"></i>クラウド同期</h3>
                         <p>
-                            デスクトップとモバイルの両方でVaultを同期。起動時、定期、保存時、ファイル切替時など、柔軟なトリガー設定に対応。
+                            デスクトップとモバイルの両方でVaultを同期。起動時、タイマー、保存時、編集後、タブ切替などのレイアウト変更時といった、柔軟なトリガー設定に対応。
                         </p>
                     </div>
-                    <div class="feature-card">
+                    <div class="feature-card" data-reveal style="--i: 1">
                         <h3><i data-lucide="git-merge"></i>スマートマージ</h3>
                         <p>
-                            複数デバイスで同じファイルを編集した場合、自動的に競合を解決。他にもローカル優先、リモート優先、常にフォークといったマージ戦略から選択可能。
+                            複数デバイスで同じファイルを編集した場合、自動的に競合を解決。他にもローカル優先、リモート優先、常にフォークといったマージ戦略から選択可能。大文字・小文字やUnicodeの表記だけが異なる名前のノートは、上書きせず<code
+                                >名前 (2).md</code
+                            >として両方残します。
                         </p>
                     </div>
-                    <div class="feature-card">
+                    <div class="feature-card" data-reveal style="--i: 2">
                         <h3><i data-lucide="shield-check"></i>エンドツーエンド暗号化</h3>
                         <p>
                             <a
                                 href="https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine"
                                 target="_blank"
                                 rel="noopener"
-                                >オプション</a
-                            >でVault全体をAES-256-GCMで暗号化してからアップロード。パスワード変更、リカバリーコード、大容量ファイルのストリーミング暗号化に対応。パスワードがデバイス外に出ることはありません。
+                                >E2EEエンジン</a
+                            >（任意）を導入すると、Vault全体をAES-256-GCMで暗号化してからアップロード。エンジンは別配布のアドオンで、プラグインの設定画面からデスクトップでもモバイルでも数タップで導入可能。パスワード変更、リカバリーコード、大容量ファイルのストリーミング暗号化に対応。鍵はパスワードからPBKDF2で導出し、パスワードがデバイス外に出ることはありません。
                         </p>
                     </div>
-                    <div class="feature-card">
+                    <div class="feature-card" data-reveal style="--i: 3">
                         <h3><i data-lucide="file-clock"></i>ファイル履歴</h3>
                         <p>
-                            過去のリビジョンを閲覧・比較・復元。統合ビューとスプリットビューに対応し、行単位で差分を確認可能。
+                            過去のリビジョンを閲覧・比較・復元。統合ビューとスプリットビューに対応し、変更箇所を文字単位でハイライト表示。
                         </p>
                     </div>
-                    <div class="feature-card">
+                    <div class="feature-card" data-reveal style="--i: 4">
                         <h3><i data-lucide="sliders-horizontal"></i>きめ細かな同期制御</h3>
                         <p>
                             テーマ、プラグイン、コア設定、メディアファイル、ドットファイルなど、同期対象を細かく選択可能。globパターンを用いた除外設定にも対応。
                         </p>
                     </div>
-                    <div class="feature-card">
+                    <div class="feature-card" data-reveal style="--i: 5">
                         <h3><i data-lucide="monitor-smartphone"></i>プラットフォーム別設定</h3>
                         <p>
                             デスクトップとモバイルで同期トリガーを個別に設定可能。全デバイス統一設定にも切替可能。
                         </p>
                     </div>
-                    <div class="feature-card">
+                    <div class="feature-card" data-reveal style="--i: 6">
                         <h3><i data-lucide="hard-drive-upload"></i>バックグラウンド転送</h3>
                         <p>
                             大容量ファイルはバックグラウンドでアップロード・ダウンロードし、UIをブロックしません。しきい値と同時接続数を設定可能。
                         </p>
                     </div>
-                    <div class="feature-card">
+                    <div class="feature-card" data-reveal style="--i: 7">
                         <h3><i data-lucide="key-round"></i>安全な認証</h3>
                         <p>
                             PKCEベースのOAuth2認証。組み込みプロキシまたは独自の認証情報を選択可能。トークンはObsidianのSecretStorageに保存。
@@ -344,17 +402,17 @@
                     </div>
                 </div>
 
-                <h2 style="display: flex; align-items: center; gap: 0.5em">
+                <h2 class="section-title" data-reveal>
                     <i data-lucide="cloud"></i>
                     対応クラウドストレージ
                 </h2>
-                <ul>
+                <ul class="providers" data-reveal>
                     <li>
                         <strong>Google Drive</strong> &mdash;
                         <code>drive.file</code>スコープを使用し、アプリ専用ファイルのみにアクセス
                     </li>
                 </ul>
-                <p class="muted">今後のリリースで他のプロバイダにも対応予定です。</p>
+                <p class="muted" data-reveal>今後のリリースで他のプロバイダにも対応予定です。</p>
 
                 <footer>
                     &copy; 2026 c-ardinal &middot;
@@ -387,7 +445,30 @@
                 switchLang(hash);
             }
 
-            lucide.createIcons();
+            if (window.lucide) lucide.createIcons();
+
+            // Motion: scroll reveal. Skipped entirely when the
+            // visitor prefers reduced motion or the browser lacks the APIs.
+            (function () {
+                var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+                if (reduce || !("IntersectionObserver" in window)) return;
+
+                document.documentElement.classList.add("js-reveal");
+                var io = new IntersectionObserver(
+                    function (entries) {
+                        entries.forEach(function (e) {
+                            if (e.isIntersecting) {
+                                e.target.classList.add("is-visible");
+                                io.unobserve(e.target);
+                            }
+                        });
+                    },
+                    { rootMargin: "0px 0px -8% 0px", threshold: 0.1 },
+                );
+                document.querySelectorAll("[data-reveal]").forEach(function (el) {
+                    io.observe(el);
+                });
+            })();
         </script>
     </body>
 </html>
