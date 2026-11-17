@@ -233,7 +233,7 @@ describe("hashing", () => {
         expect(md5(big.buffer)).toBe(createHash("md5").update(big).digest("hex"));
     });
 
-    it("hashContent's fast path gives exactly the previous results", async () => {
+    it("hashContent's fast path gives exactly the previous results for text", async () => {
         const enc = (s: string) => new TextEncoder().encode(s).buffer as ArrayBuffer;
         const cases: ArrayBuffer[] = [
             enc(""),
@@ -250,7 +250,16 @@ describe("hashing", () => {
             const b = new Uint8Array(n % 40).map(() => (Math.random() < 0.6 ? 0x61 : Math.floor(Math.random() * 256)));
             cases.push(b.buffer);
         }
-        for (const c of cases) expect(await hashContent(c)).toBe(legacyHashContent(c));
+        // Valid UTF-8 keeps its old hash; other bytes are hashed raw (see plain-hash-migration.test.ts).
+        const isUtf8 = (c: ArrayBuffer) => {
+            try {
+                new TextDecoder("utf-8", { fatal: true }).decode(c);
+                return true;
+            } catch {
+                return false;
+            }
+        };
+        for (const c of cases) expect(await hashContent(c)).toBe(isUtf8(c) ? legacyHashContent(c) : md5(c));
     });
 });
 

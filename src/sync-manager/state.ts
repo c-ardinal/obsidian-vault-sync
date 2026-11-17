@@ -1,3 +1,4 @@
+import { plainHashVersion, restorePlainHashVersion } from "./plain-hash-migration";
 import { md5 } from "../utils/md5";
 import { toHex } from "../utils/format";
 import { normalizePath, dirname } from "../utils/path";
@@ -487,6 +488,7 @@ export async function loadLocalIndex(ctx: SyncContext): Promise<void> {
             rememberWritten(ctx);
             restoreAttemptedUploads(ctx, parsed.attemptedUploads);
             restorePendingPulls(ctx, parsed.pendingPulls);
+            restorePlainHashVersion(ctx, parsed.plainHashVersion, false);
             // The background queue does not survive a restart. Its owed pulls are in
             // pendingPulls (retried by the next sync) and unpushed files are found by
             // the startup scan, so the markers only kept the device "busy" forever.
@@ -517,6 +519,7 @@ export async function loadLocalIndex(ctx: SyncContext): Promise<void> {
             // Copying ctx.index would make the plugin think all remote files
             // exist locally, preventing full pull on a fresh device.
             ctx.localIndex = {};
+            restorePlainHashVersion(ctx, undefined, true);
             ctx.deviceId = generateDeviceId();
 
             const isAlreadyLogged = ctx.logFolder === `${ctx.pluginDir}/logs/${ctx.deviceId}`;
@@ -543,6 +546,7 @@ export async function loadLocalIndex(ctx: SyncContext): Promise<void> {
             await ctx.log(`[Local Index] Load failed: ${e}`, "error");
         }
         ctx.localIndex = {};
+        restorePlainHashVersion(ctx, undefined, true);
     }
 }
 
@@ -664,6 +668,7 @@ export async function saveLocalIndex(ctx: SyncContext, immediate = false): Promi
             attemptedUploads: attemptedUploadsSnapshot(ctx),
             pendingPulls: pendingPullsSnapshot(ctx),
             journalSeq: j.seq,
+            plainHashVersion: plainHashVersion(ctx),
         });
         await ctx.vault.write(ctx.localIndexPath, data);
         rememberWritten(ctx);
@@ -675,6 +680,7 @@ export async function saveLocalIndex(ctx: SyncContext, immediate = false): Promi
 export async function resetIndex(ctx: SyncContext): Promise<void> {
     ctx.index = {};
     ctx.localIndex = {};
+    restorePlainHashVersion(ctx, undefined, true);
     ctx.startPageToken = null;
     ctx.adapter.clearDownloadCache?.();
     await saveIndex(ctx);

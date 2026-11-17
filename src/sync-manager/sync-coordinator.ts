@@ -11,6 +11,7 @@ import {
 import { smartPull, pullViaChangesAPI } from "./sync-pull";
 import { smartPush } from "./sync-push";
 import { retryOverwriteRepairs } from "./overwrite-recovery";
+import { migratePlainHashes } from "./plain-hash-migration";
 
 
 /**
@@ -128,6 +129,8 @@ export async function executeSmartSync(ctx: SyncContext, scanVault: boolean): Pr
         if (ctx.adapter.initialize) {
             await ctx.adapter.initialize();
         }
+
+        if ((await migratePlainHashes(ctx)) > 0) await saveIndex(ctx);
 
         // Call via ctx so vi.spyOn on SyncManager instance methods works in tests
         const pulled = await ctx.smartPull();
