@@ -462,7 +462,7 @@ export async function hashContent(content: ArrayBuffer): Promise<string> {
     const hasBom = bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf;
     if (!hasBom && bytes.indexOf(0x0d) === -1) return md5(content);
     // The decoder already dropped the BOM; normalize line endings.
-    return md5(new TextEncoder().encode(normalizeLineEndings(text)).buffer as ArrayBuffer);
+    return md5(new TextEncoder().encode(normalizeLineEndings(text)).buffer);
 }
 
 /**
@@ -473,7 +473,7 @@ export async function hashContent(content: ArrayBuffer): Promise<string> {
 export function legacyHashContent(content: ArrayBuffer): string | null {
     if (decodeUtf8(new Uint8Array(content)) !== null) return null;
     const lossy = normalizeLineEndings(new TextDecoder().decode(content));
-    return md5(new TextEncoder().encode(lossy).buffer as ArrayBuffer);
+    return md5(new TextEncoder().encode(lossy).buffer);
 }
 
 /**

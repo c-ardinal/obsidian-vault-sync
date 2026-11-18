@@ -486,6 +486,7 @@ export async function loadLocalIndex(ctx: SyncContext): Promise<void> {
                 attemptedUploads?: unknown;
                 pendingPulls?: unknown;
                 journalSeq?: unknown;
+                plainHashVersion?: unknown;
             };
             ctx.localIndex = parsed.index || {};
             ctx.deviceId = parsed.deviceId || "";
@@ -642,10 +643,13 @@ async function applyJournal(ctx: SyncContext, seq: number): Promise<void> {
     const path = localIndexJournalPath(ctx);
     try {
         if (!(await ctx.vault.exists(path))) return;
-        const parsed = JSON.parse(await ctx.vault.read(path));
+        const parsed = JSON.parse(await ctx.vault.read(path)) as {
+            seq?: unknown;
+            entries?: Record<string, unknown>;
+        } | null;
         // Written before the last full write: already contained in it
         if (parsed?.seq !== seq || !parsed.entries) return;
-        for (const [p, e] of Object.entries(parsed.entries as Record<string, unknown>)) {
+        for (const [p, e] of Object.entries(parsed.entries)) {
             if (e === null) delete ctx.localIndex[p];
             else ctx.localIndex[p] = e as SyncContext["localIndex"][string];
         }

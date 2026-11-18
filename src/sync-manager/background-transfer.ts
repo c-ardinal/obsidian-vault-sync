@@ -344,7 +344,7 @@ export class BackgroundTransferQueue {
             forgetAttemptedUpload(ctx, path);
             await saveIndex(ctx);
         } catch (e) {
-            await ctx.log(`[Background Transfer] Could not settle earlier upload of ${path}: ${e}`, "warn");
+            await ctx.log(`[Background Transfer] Could not settle earlier upload of ${path}: ${String(e)}`, "warn");
         }
     }
 
@@ -423,7 +423,7 @@ export class BackgroundTransferQueue {
                 // deferred it back here, forever.
                 const entry = {
                     fileId: remoteMeta.id,
-                    mtime: item.mtime!,
+                    mtime: item.mtime,
                     size: remoteMeta.size,
                     hash: remoteHash.toLowerCase(),
                     plainHash: await hashContent(item.content!),
