@@ -35,6 +35,12 @@ export class App {
     vault: any;
 }
 
+/** Obsidian's UI language; like the app, reads the "language" key of localStorage. */
+export function getLanguage(): string {
+    const w = (globalThis as { window?: { localStorage?: Storage } }).window;
+    return w?.localStorage?.getItem("language") || "en";
+}
+
 export function normalizePath(path: string): string {
     // Simple mock implementation
     // 1. Replace backslashes with forward slashes

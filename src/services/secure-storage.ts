@@ -1,4 +1,4 @@
-import { Platform, normalizePath } from "obsidian";
+import { normalizePath } from "obsidian";
 import { toHex } from "../utils/format";
 import type { IVaultOperations } from "../types/vault-operations";
 
@@ -91,7 +91,7 @@ export class SecureStorage {
             try {
                 if (await this.vault.exists(path)) {
                     await this.vault.remove(path);
-                    console.log(`[SecureStorage] Deleted redundant credential file: ${path}`);
+                    console.debug(`[SecureStorage] Deleted redundant credential file: ${path}`);
                 }
             } catch (e) {
                 console.warn(`[SecureStorage] Failed to delete ${path}:`, e);
@@ -106,7 +106,7 @@ export class SecureStorage {
 
         if (await this.vault.exists(dir)) return;
 
-        console.log(`[SecureStorage] Creating directory structure for: ${dir}`);
+        console.debug(`[SecureStorage] Creating directory structure for: ${dir}`);
 
         let currentPath = "";
         for (const part of parts.slice(0, -1)) {
@@ -115,49 +115,12 @@ export class SecureStorage {
             if (!exists) {
                 try {
                     await this.vault.createFolder(currentPath);
-                    console.log(`[SecureStorage] Created folder: ${currentPath}`);
+                    console.debug(`[SecureStorage] Created folder: ${currentPath}`);
                 } catch (e) {
                     // Ignore error if folder already exists (race condition)
                     // But log others
                     console.debug(`[SecureStorage] Note: Create folder ${currentPath} result:`, e);
                 }
-            }
-        }
-    }
-
-    private hideFile(relativePath: string) {
-        // Dot-files are automatically hidden on Linux/Android/Mac.
-        // However, we apply system attributes where possible for extra safety.
-        if (!Platform.isDesktop) return;
-
-        const basePath = this.vault.getBasePath?.();
-        if (basePath) {
-            // Dynamic import to avoid bundling issues on mobile
-            // Use try-catch to prevent crashes if module resolution fails
-            try {
-                // @ts-ignore
-                const cp = require("child_process");
-                // SEC-006: Use spawn instead of exec to prevent command injection
-                if (process.platform === "win32") {
-                    // Windows: attrib +h
-                    const fullPath = `${basePath}/${relativePath}`.replace(/\//g, "\\");
-                    const child = cp.spawn("attrib", ["+h", fullPath]);
-                    child.on("error", (err: any) => {
-                        console.error("Vault-Sync: Failed to hide .sync-state on Windows", err);
-                    });
-                } else if (process.platform === "darwin") {
-                    // MacOS: chflags hidden (adds redundancy to dot-prefix)
-                    const fullPath = `${basePath}/${relativePath}`;
-                    const child = cp.spawn("chflags", ["hidden", fullPath]);
-                    child.on("error", (err: any) => {
-                        console.error("Vault-Sync: Failed to hide .sync-state on Mac", err);
-                    });
-                }
-            } catch (e) {
-                console.warn(
-                    "Vault-Sync: Optional file hiding failed (child_process not available)",
-                    e,
-                );
             }
         }
     }
@@ -197,7 +160,7 @@ export class SecureStorage {
             try {
                 const id = this.secretId;
                 this.secretStorage.setSecret(id, JSON.stringify(data));
-                console.log(`[SecureStorage] Saved credentials to SecretStorage: ${id}`);
+                console.debug(`[SecureStorage] Saved credentials to SecretStorage: ${id}`);
                 secretStorageSuccess = true;
 
                 // SEC-008: Once we have SecretStorage, we should no longer keep any local files
@@ -212,7 +175,7 @@ export class SecureStorage {
 
         // 2. Save to file (Legacy/Fallback) - ONLY if SecretStorage is not available or failed
         if (!secretStorageSuccess) {
-            console.log(`[SecureStorage] Saving credentials to ${this.filePath} (fallback)`);
+            console.debug(`[SecureStorage] Saving credentials to ${this.filePath} (fallback)`);
             try {
                 const salt = window.crypto.getRandomValues(new Uint8Array(SALT_LENGTH));
                 const key = await this.getKey(salt);
@@ -238,13 +201,9 @@ export class SecureStorage {
 
                 await this.ensureDir(this.filePath);
 
-                const exists = await this.vault.exists(this.filePath);
+                // The file name starts with a dot, so file browsers hide it already.
                 await this.vault.writeBinary(this.filePath, buffer.buffer);
-                console.log(`[SecureStorage] Successfully wrote to ${this.filePath}`);
-
-                if (!exists) {
-                    this.hideFile(this.filePath);
-                }
+                console.debug(`[SecureStorage] Successfully wrote to ${this.filePath}`);
             } catch (e) {
                 console.error(`[SecureStorage] Failed to save credentials to file:`, e);
                 throw e;
@@ -259,7 +218,7 @@ export class SecureStorage {
                 const id = this.secretId;
                 const secret = this.secretStorage.getSecret(id);
                 if (secret && secret.trim().length > 0) {
-                    console.log(`[SecureStorage] Loaded credentials from SecretStorage: ${id}`);
+                    console.debug(`[SecureStorage] Loaded credentials from SecretStorage: ${id}`);
 
                     // SEC-009: Even if loaded from SecretStorage, lingering files might exist.
                     // Clean them up now to satisfy the "migration complete -> delete" rule.
@@ -274,7 +233,7 @@ export class SecureStorage {
 
         // 2. Fallback to file storage
         if (!(await this.vault.exists(this.filePath))) {
-            console.log(`[SecureStorage] No credentials file found at ${this.filePath}`);
+            console.debug(`[SecureStorage] No credentials file found at ${this.filePath}`);
             return null;
         }
 
@@ -303,7 +262,7 @@ export class SecureStorage {
             );
 
             const decoded = new TextDecoder().decode(decrypted);
-            console.log(`[SecureStorage] Successfully loaded credentials from file.`);
+            console.debug(`[SecureStorage] Successfully loaded credentials from file.`);
 
             return JSON.parse(decoded);
         } catch (e) {
@@ -320,13 +279,13 @@ export class SecureStorage {
             try {
                 const id = this.secretId;
                 this.secretStorage.setSecret(id, "");
-                console.log(`[SecureStorage] Cleared credentials from SecretStorage.`);
+                console.debug(`[SecureStorage] Cleared credentials from SecretStorage.`);
             } catch (e) {
                 console.warn("[SecureStorage] Failed to clear SecretStorage", e);
             }
         }
 
         await this.cleanupFiles();
-        console.log(`[SecureStorage] Cleared credentials from local files.`);
+        console.debug(`[SecureStorage] Cleared credentials from local files.`);
     }
 }

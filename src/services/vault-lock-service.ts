@@ -1,7 +1,17 @@
 import { CloudAdapter, CloudFile } from "../types/adapter";
-import { PLUGIN_DIR } from "../sync-manager/file-utils";
+import { LEGACY_PLUGIN_DIR, PLUGIN_DIR } from "../sync-manager/file-utils";
 
-export const VAULT_LOCK_PATH = PLUGIN_DIR + "data/remote/vault-lock.vault";
+const VAULT_LOCK_SUBPATH = "data/remote/vault-lock.vault";
+
+/** Cloud path of the vault-lock (inside this plugin's folder). */
+export function vaultLockPath(): string {
+    return PLUGIN_DIR + VAULT_LOCK_SUBPATH;
+}
+
+/** Where devices still on the old plugin ID keep the vault-lock, if that differs. */
+function legacyVaultLockPath(): string | null {
+    return LEGACY_PLUGIN_DIR ? LEGACY_PLUGIN_DIR + VAULT_LOCK_SUBPATH : null;
+}
 export const MIGRATION_LOCK_FILENAME = "migration.lock";
 
 /**
@@ -14,12 +24,26 @@ export const MIGRATION_LOCK_FILENAME = "migration.lock";
 export class VaultLockService {
     constructor(private baseAdapter: CloudAdapter) {}
 
+    /**
+     * The vault-lock to use: the one at this plugin's path or the one at the old
+     * plugin ID's path, whichever is newer (a device not yet updated may have changed
+     * the password). Missing a lock would make this device treat an add-on vault as a
+     * plain one, so both places are checked.
+     */
+    private async findLockFile(): Promise<CloudFile | null> {
+        const current = await this.baseAdapter.getFileMetadata(vaultLockPath());
+        const legacyPath = legacyVaultLockPath();
+        const legacy = legacyPath ? await this.baseAdapter.getFileMetadata(legacyPath) : null;
+        if (current && legacy) return legacy.mtime > current.mtime ? legacy : current;
+        return current ?? legacy;
+    }
+
     async checkForLockFile(): Promise<boolean> {
-        return (await this.baseAdapter.getFileMetadata(VAULT_LOCK_PATH)) !== null;
+        return (await this.findLockFile()) !== null;
     }
 
     async downloadLockFile(): Promise<string> {
-        const meta = await this.baseAdapter.getFileMetadata(VAULT_LOCK_PATH);
+        const meta = await this.findLockFile();
         if (!meta) throw new Error("vault-lock.vault not found.");
         const content = await this.baseAdapter.downloadFile(meta.id);
         return new TextDecoder().decode(content);
@@ -27,8 +51,15 @@ export class VaultLockService {
 
     async uploadLockFileToAdapter(adapter: CloudAdapter, blob: string): Promise<void> {
         const content = new TextEncoder().encode(blob).buffer;
-        const existing = await adapter.getFileMetadata(VAULT_LOCK_PATH);
-        await adapter.uploadFile(VAULT_LOCK_PATH, content, Date.now(), existing?.id);
+        // Devices still on the old plugin ID read the lock from the old path: keep it
+        // there too, so they never miss that the vault uses the add-on.
+        const paths = [vaultLockPath(), legacyVaultLockPath()].filter(
+            (p): p is string => p !== null,
+        );
+        for (const path of paths) {
+            const existing = await adapter.getFileMetadata(path);
+            await adapter.uploadFile(path, content.slice(0), Date.now(), existing?.id);
+        }
     }
 
     async uploadLockFile(blob: string): Promise<void> {

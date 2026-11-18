@@ -77,7 +77,7 @@ export class RevisionCache {
                 const stat = await this.vault.stat(filePath);
                 if (stat && now - stat.mtime > this.TTL_MS) {
                     await this.vault.remove(filePath);
-                    console.log(`[Cache] Removed expired: ${filePath}`);
+                    console.debug(`[Cache] Removed expired: ${filePath}`);
                 }
             }
         } catch (e) {

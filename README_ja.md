@@ -89,7 +89,7 @@ Obsidian向けの高速・インテリジェントなクラウドストレージ
 
 1. Obsidianの設定 > コミュニティプラグインを開く。
 2. コミュニティプラグインの「閲覧」をクリックする。
-3. 検索窓に`c-ardinal/obsidian-vault-sync`と入力して、「インストール」をクリックする。
+3. 検索窓に「Vault-Sync」と入力して、「インストール」をクリックする。
 4. 設定 > コミュニティプラグインに戻り、「Vault-Sync」を有効化する。
 
 ### BRAT 経由
@@ -104,9 +104,19 @@ BRAT が自動的にアップデートを確認し、プラグインを最新の
 ### 手動インストール
 
 1. [最新リリース](https://github.com/c-ardinal/obsidian-vault-sync/releases/latest)から `main.js`、`manifest.json`、`styles.css` をダウンロードする。
-2. Vault の `.obsidian/plugins/` ディレクトリに `obsidian-vault-sync` フォルダを作成する。
+2. Vault の `.obsidian/plugins/` ディレクトリに `cardinal-vault-sync` フォルダを作成する。
 3. ダウンロードしたファイルをフォルダに配置する。
 4. 設定 > コミュニティプラグインから「Vault-Sync」を有効化する。
+
+### 旧バージョン（プラグインID `obsidian-vault-sync`）からの更新
+
+コミュニティディレクトリへの登録に合わせて、プラグインIDを `obsidian-vault-sync` から `cardinal-vault-sync` に変更した。このため Obsidian は新しいフォルダにインストールする。
+
+1. コミュニティプラグインの閲覧から Vault-Sync をインストールする（BRAT の場合は更新する）。
+2. 設定 > コミュニティプラグインで旧版（ID `obsidian-vault-sync`）を無効化し、アプリを再起動する。旧版が有効な間は新版は同期しないので、2つが同時に同じ Vault を同期することはない。
+3. 新版は初回起動時に、旧フォルダから設定・同期状態・導入済みアドオンを引き継ぐ。その後は旧版をアンインストールしてよい。
+
+すべてのデバイスを更新すること。更新が済むまでは旧版のデバイスもそのまま動くが、旧版と新版のデバイス間ではファイルの照合に時間がかかることがある。
 
 ---
 
@@ -266,6 +276,20 @@ graph TD
 
 ---
 
+## 📣 開示事項
+
+Obsidian の開発者ポリシーに基づく開示:
+
+- **アカウントが必要**: Vault をユーザ自身の Google Drive に同期するため、Google アカウントが必要。
+- **ネットワーク通信**: 通信先は以下のみで、Vault の同期とログインのためだけに使う。
+    - Google Drive API（`www.googleapis.com`）: ユーザ自身の Google Drive 上で Vault のファイルをアップロード・ダウンロード・一覧取得する。
+    - Google ログイン（`accounts.google.com`、`oauth2.googleapis.com`）: OAuth ログインとトークン更新。
+    - Vault-Sync 認証プロキシ（`obsidian-vault-sync.pages.dev`、Cloudflare Pages）: デフォルトのログイン方法で OAuth ログインを完了させる。Vault のデータは通らない。自前の Client ID / Secret（方法C）や自前のプロキシ（方法B）を使えば経由しない。詳しくは[プライバシーポリシー](https://obsidian-vault-sync.pages.dev/privacy/)を参照。
+    - GitHub（`github.com`）: アドオン導入時に「ダウンロードページを開く」を押したときだけブラウザで開く。プラグイン自身がコードをダウンロードすることはない。
+- **テレメトリ・広告・課金なし**: 利用状況の収集や広告表示は行わない。無料のオープンソース（MIT）。
+
+---
+
 ## 🔒 プライバシーとセキュリティ
 
 - **直接通信**:
@@ -324,7 +348,7 @@ E2EE Engineは、暗号化を使いたい人だけが自分の意思で導入で
 3. **ファイルを選択** でダウンロードしたzipを選ぶ。Vault-Syncが中の全ファイルを承認済みリリースと照合する（SHA-256）。
 4. ダイアログに表示されるアドオンの利用条件を読んで同意し、**導入する** をタップする。再起動なしで有効になる。
 
-Vault-Sync自身がアドオンをダウンロードすることはない。他のデバイスでアドオンを使っているVaultでは、起動時に導入ダイアログが開き、導入後そのままパスワード入力に進む。従来どおり `e2ee-engine.js` を `.obsidian/plugins/obsidian-vault-sync/` へ手動でコピーする方法も使える。
+Vault-Sync自身がアドオンをダウンロードすることはない。他のデバイスでアドオンを使っているVaultでは、起動時に導入ダイアログが開き、導入後そのままパスワード入力に進む。従来どおり `e2ee-engine.js` を `.obsidian/plugins/cardinal-vault-sync/` へ手動でコピーする方法も使える。
 
 詳細、利用可能なコマンド、ビルド手順、暗号化仕様については **[Vault-Sync E2EE Engine リポジトリ](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine)** を参照。
 
@@ -340,7 +364,7 @@ Vault-Sync自身がアドオンをダウンロードすることはない。他�
 npm run build
 ```
 
-ビルド結果は `dist/obsidian-vault-sync/` ディレクトリ配下に以下の形式で出力される。
+ビルド結果は `dist/cardinal-vault-sync/` ディレクトリ配下に以下の形式で出力される。
 配布時はこのフォルダの中身をプラグインフォルダへコピーする。
 
 - `main.js`

@@ -74,7 +74,7 @@ export class MigrationService {
             `${this.baseAdapter.vaultName}-Temp-Encrypted`,
         );
 
-        tempAdapter.setLogger((msg: string) => console.log(`[Migration] ${msg}`));
+        tempAdapter.setLogger((msg: string) => console.debug(`[Migration] ${msg}`));
         if (tempAdapter.initialize) {
             await tempAdapter.initialize();
         }

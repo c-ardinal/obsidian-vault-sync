@@ -44,7 +44,7 @@ export async function loadExternalCryptoEngine(
 
     // Remove duplicates
     const uniquePaths = [...new Set(variations)];
-    console.log(
+    console.debug(
         `Vault-Sync: Attempting to load E2EE engine. Candidates: ${JSON.stringify(uniquePaths)}`,
     );
 
@@ -64,11 +64,11 @@ export async function loadExternalCryptoEngine(
     }
 
     if (!content) {
-        console.log("Vault-Sync: E2EE engine file not found at any candidate paths.");
+        console.debug("Vault-Sync: E2EE engine file not found at any candidate paths.");
         return null;
     }
 
-    console.log(`Vault-Sync: Loading engine from [${successfulPath}]...`);
+    console.debug(`Vault-Sync: Loading engine from [${successfulPath}]...`);
     return evaluateEngine(content, onNotify);
 }
 
@@ -144,7 +144,7 @@ export async function evaluateEngine(
             return null;
         }
 
-        console.log("Vault-Sync: External E2EE engine fully verified.");
+        console.debug("Vault-Sync: External E2EE engine fully verified.");
         return engine;
     } catch (e) {
         console.error("Vault-Sync: Engine execution failed", e);

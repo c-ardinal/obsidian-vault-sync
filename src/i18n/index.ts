@@ -1,6 +1,7 @@
 // i18n Localization
 // All languages are bundled inline.
 
+import { getLanguage } from "obsidian";
 import ja from "./lang/ja.json";
 
 const languages: Record<string, Record<string, string>> = { ja };
@@ -50,7 +51,7 @@ export const en: Record<string, string> = {
     settingDetailedNotifications: "Show Detailed Notifications",
     settingDetailedNotificationsDesc: "Show progress notifications for each file pushed/pulled.",
     settingEnableLogging: "Enable Detailed Logging",
-    settingEnableLoggingDesc: "Developer: Write detailed logs to obsidian-vault-sync/logs folder.",
+    settingEnableLoggingDesc: "Developer: Write detailed logs to the logs folder inside this plugin's folder.",
     settingCloudRootFolder: "Cloud Root Folder",
     settingCloudRootFolderDesc: "Root folder name on Cloud.\n(default: ObsidianVaultSync)",
 
@@ -227,6 +228,10 @@ export const en: Record<string, string> = {
     labelSyncCommand: "Sync with Cloud",
     labelFullAudit: "Audit & Fix Consistency (Full Scan)",
     labelViewHistory: "View History in Cloud (Vault-Sync)",
+    noticeLegacyCopyEnabled:
+        "Vault-Sync: An older copy of this plugin (ID obsidian-vault-sync) is still enabled. Turn it off or uninstall it in Settings → Community plugins, then restart the app. Syncing is paused until then.",
+    noticeLegacyDataMigrated:
+        "Vault-Sync: Settings and sync data were carried over from the older copy of the plugin. You can uninstall the older copy (ID obsidian-vault-sync).",
     labelE2EESetup: "E2EE: Start Vault Encryption",
     labelE2EEUnlock: "E2EE: Unlock Vault",
     labelE2EEChangePassword: "E2EE: Change Encryption Password",
@@ -372,7 +377,7 @@ let activeDict: Record<string, string> = en;
  * Must be called during plugin startup before any UI rendering.
  */
 export function initI18n(): void {
-    const lang = window.localStorage.getItem("language") || "en";
+    const lang = getLanguage() || "en";
     if (lang === "en") return;
 
     if (languages[lang]) {

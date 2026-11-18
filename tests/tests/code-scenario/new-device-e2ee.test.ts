@@ -21,7 +21,7 @@ import { describe, it, expect, vi } from "vitest";
 import { DeviceSimulator, hashOf } from "../../helpers/device-simulator";
 import { MockCloudAdapter } from "../../helpers/mock-cloud-adapter";
 import { loadLocalIndex, resetIndex, saveCommunication } from "../../../src/sync-manager/state";
-import { VAULT_LOCK_PATH } from "../../../src/services/vault-lock-service";
+import { vaultLockPath } from "../../../src/services/vault-lock-service";
 
 const SYNC_INDEX_PATH = ".obsidian/plugins/obsidian-vault-sync/data/remote/sync-index.json";
 
@@ -66,7 +66,7 @@ describe("Bug 1: E2EE auto-detection in requestSmartSync", () => {
 
         // Simulate: remote has vault-lock.vault (another device set up E2EE)
         await cloud.uploadFile(
-            VAULT_LOCK_PATH,
+            vaultLockPath(),
             new TextEncoder().encode("encrypted-lock-blob").buffer as ArrayBuffer,
             Date.now(),
         );
@@ -157,7 +157,7 @@ describe("Bug 1: E2EE auto-detection in requestSmartSync", () => {
         const cloud = new MockCloudAdapter();
         const device = new DeviceSimulator("NewDevice", cloud);
         await cloud.uploadFile(
-            VAULT_LOCK_PATH,
+            vaultLockPath(),
             new TextEncoder().encode("encrypted-lock-blob").buffer as ArrayBuffer,
             Date.now(),
         );

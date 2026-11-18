@@ -21,9 +21,9 @@ export class GoogleAuthService {
     private _clientSecret: string;
 
     // Callback for fatal auth errors (e.g. invalid grant)
-    public onAuthFailure: (() => void) | null = null;
+    public onAuthFailure: (() => void | Promise<void>) | null = null;
     // Callback after successful token refresh (to persist new tokens)
-    public onTokenRefresh: (() => void) | null = null;
+    public onTokenRefresh: (() => void | Promise<void>) | null = null;
 
     /** Exposed for HttpClient logging. */
     logger: ((msg: string, level?: string) => void) | null = null;
@@ -53,7 +53,7 @@ export class GoogleAuthService {
     }
 
     private async log(msg: string, level: string = "debug") {
-        console.log(`Vault-Sync: [${level.toUpperCase()}] ${msg}`);
+        console.debug(`Vault-Sync: [${level.toUpperCase()}] ${msg}`);
         if (this.logger) this.logger(msg, level);
     }
 
@@ -293,7 +293,7 @@ export class GoogleAuthService {
             if (data.error === "invalid_grant" || data.error === "unauthorized_client") {
                 this.accessToken = null;
                 this.refreshToken = null;
-                if (this.onAuthFailure) this.onAuthFailure();
+                if (this.onAuthFailure) void this.onAuthFailure();
                 throw new Error(`Token revoked: ${err}`);
             }
             // Non-fatal proxy error (e.g. 500) — don't clear tokens, don't throw.
@@ -310,7 +310,7 @@ export class GoogleAuthService {
         if (data.refresh_token) this.refreshToken = data.refresh_token;
         if (data.expires_in) this.tokenExpiresAt = Date.now() + data.expires_in * 1000;
         await this.log("Token refresh via proxy successful.", "system");
-        if (this.onTokenRefresh) this.onTokenRefresh();
+        if (this.onTokenRefresh) void this.onTokenRefresh();
     }
 
     private async refreshTokensDirect() {
@@ -352,7 +352,7 @@ export class GoogleAuthService {
             if (data.error === "invalid_grant" || data.error === "unauthorized_client") {
                 this.accessToken = null;
                 this.refreshToken = null;
-                if (this.onAuthFailure) this.onAuthFailure();
+                if (this.onAuthFailure) void this.onAuthFailure();
                 throw new Error(`Token revoked: ${err}`);
             }
             // Non-fatal error (e.g. 500) — don't clear tokens, don't throw.
@@ -363,6 +363,6 @@ export class GoogleAuthService {
         if (data.refresh_token) this.refreshToken = data.refresh_token;
         if (data.expires_in) this.tokenExpiresAt = Date.now() + data.expires_in * 1000;
         await this.log("Token refresh successful.", "system");
-        if (this.onTokenRefresh) this.onTokenRefresh();
+        if (this.onTokenRefresh) void this.onTokenRefresh();
     }
 }

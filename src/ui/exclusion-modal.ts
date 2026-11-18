@@ -3,6 +3,7 @@ import type VaultSync from "../main";
 import type { VaultSyncSettings } from "../types/settings";
 import { t } from "../i18n";
 import { matchWildcard } from "../utils/wildcard";
+import { PLUGIN_DIR } from "../sync-manager/file-utils";
 
 interface ToggleExclusion {
     settingKey: keyof VaultSyncSettings;
@@ -10,7 +11,8 @@ interface ToggleExclusion {
     patterns: string[];
 }
 
-const TOGGLE_EXCLUSIONS: ToggleExclusion[] = [
+/** Built when shown: PLUGIN_DIR is known only once the plugin has loaded. */
+const toggleExclusions = (): ToggleExclusion[] => [
     {
         settingKey: "syncCoreConfig",
         label: "settingSyncCoreConfig",
@@ -51,12 +53,12 @@ const TOGGLE_EXCLUSIONS: ToggleExclusion[] = [
     {
         settingKey: "syncFlexibleData",
         label: "settingSyncFlexibleData",
-        patterns: [".obsidian/plugins/obsidian-vault-sync/data/flexible/**"],
+        patterns: [`${PLUGIN_DIR}data/flexible/**`],
     },
     {
         settingKey: "syncDeviceLogs",
         label: "settingSyncDeviceLogs",
-        patterns: [".obsidian/plugins/obsidian-vault-sync/logs/**"],
+        patterns: [`${PLUGIN_DIR}logs/**`],
     },
 ];
 
@@ -111,11 +113,11 @@ export class ExclusionPatternModal extends Modal {
 
         // Suggest dropdown
         this.suggestEl = addRow.createDiv({ cls: "vault-sync-exclusion-suggest" });
-        this.suggestEl.style.display = "none";
+        this.suggestEl.hide();
 
         // Error message
         this.errorEl = contentEl.createDiv({ cls: "vault-sync-exclusion-error" });
-        this.errorEl.style.display = "none";
+        this.errorEl.hide();
 
         // Pattern list (below the input)
         this.listEl = contentEl.createDiv({ cls: "vault-sync-exclusion-list" });
@@ -269,7 +271,7 @@ export class ExclusionPatternModal extends Modal {
     }
 
     private getActiveToggleExclusions(): ToggleExclusion[] {
-        return TOGGLE_EXCLUSIONS.filter((te) => !this.plugin.settings[te.settingKey]);
+        return toggleExclusions().filter((te) => !this.plugin.settings[te.settingKey]);
     }
 
     private renderToggleExclusions(): void {
@@ -315,7 +317,7 @@ export class ExclusionPatternModal extends Modal {
 
     private onInputChange(): void {
         const query = this.inputComp.getValue().trim();
-        this.errorEl.style.display = "none";
+        this.errorEl.hide();
 
         if (!query) {
             this.hideSuggest();
@@ -350,7 +352,7 @@ export class ExclusionPatternModal extends Modal {
         }
 
         if (suggestions.length === 0) {
-            this.suggestEl.style.display = "none";
+            this.suggestEl.hide();
             return;
         }
 
@@ -367,11 +369,11 @@ export class ExclusionPatternModal extends Modal {
             });
         }
 
-        this.suggestEl.style.display = "";
+        this.suggestEl.show();
     }
 
     private hideSuggest(): void {
-        this.suggestEl.style.display = "none";
+        this.suggestEl.hide();
     }
 
     private addCurrentPattern(): void {
@@ -381,14 +383,14 @@ export class ExclusionPatternModal extends Modal {
         // Check duplicate
         if (this.patterns.includes(pattern)) {
             this.errorEl.setText(t("settingExclusionModalDuplicate"));
-            this.errorEl.style.display = "";
+            this.errorEl.show();
             return;
         }
 
         // Validate glob syntax
         if (!this.isValidPattern(pattern)) {
             this.errorEl.setText(t("settingExclusionPatternsInvalid"));
-            this.errorEl.style.display = "";
+            this.errorEl.show();
             return;
         }
 
@@ -397,7 +399,7 @@ export class ExclusionPatternModal extends Modal {
         this.renderList();
         this.inputComp.setValue("");
         this.hideSuggest();
-        this.errorEl.style.display = "none";
+        this.errorEl.hide();
     }
 
     private isValidPattern(pattern: string): boolean {

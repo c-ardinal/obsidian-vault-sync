@@ -21,35 +21,65 @@ jobs:
               with:
                   node-version: "20"
 
-            - name: Install dependencies
-              run: npm ci
-
-            - name: Run Build
-              run: npm run build:release
-              env:
-                  CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-
             - name: Get Version
               id: get_version
               run: |
                   VERSION=$(node -p "require('./manifest.json').version")
                   echo "VERSION=$VERSION" >> $GITHUB_ENV
                   echo "Detected version: $VERSION"
+                  # Obsidian installs the release whose tag equals manifest.json's version,
+                  # which must be plain x.y.z.
+                  if ! echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+                      echo "::error::manifest.json version '$VERSION' is not x.y.z"
+                      exit 1
+                  fi
+                  if [ "$(node -p "require('./package.json').version")" != "$VERSION" ]; then
+                      echo "::error::package.json and manifest.json versions differ"
+                      exit 1
+                  fi
+                  if [ "$(node -p "require('./versions.json')['$VERSION'] || ''")" = "" ]; then
+                      echo "::error::versions.json has no entry for $VERSION"
+                      exit 1
+                  fi
+
+            - name: Skip if this version is already released
+              id: check
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  if gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+                      echo "Release $VERSION already exists; bump the version to publish a new one."
+                      echo "exists=true" >> $GITHUB_OUTPUT
+                  else
+                      echo "exists=false" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Install dependencies
+              if: steps.check.outputs.exists == 'false'
+              run: npm ci
+
+            - name: Run Build
+              if: steps.check.outputs.exists == 'false'
+              run: npm run build:release
+              env:
+                  CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
             - name: Archive Production Artifact
+              if: steps.check.outputs.exists == 'false'
               run: |
                   cd dist
-                  zip -r "../obsidian-vault-sync_${{ env.VERSION }}.zip" obsidian-vault-sync
+                  zip -r "../cardinal-vault-sync_${{ env.VERSION }}.zip" cardinal-vault-sync
 
             - name: Create Release
+              if: steps.check.outputs.exists == 'false'
               uses: softprops/action-gh-release@v1
               with:
                   tag_name: ${{ env.VERSION }}
                   name: Release ${{ env.VERSION }}
                   files: |
-                      obsidian-vault-sync_${{ env.VERSION }}.zip
-                      dist/obsidian-vault-sync/main.js
-                      dist/obsidian-vault-sync/manifest.json
-                      dist/obsidian-vault-sync/styles.css
+                      cardinal-vault-sync_${{ env.VERSION }}.zip
+                      dist/cardinal-vault-sync/main.js
+                      dist/cardinal-vault-sync/manifest.json
+                      dist/cardinal-vault-sync/styles.css
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
