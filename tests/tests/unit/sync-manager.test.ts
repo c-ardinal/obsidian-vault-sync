@@ -650,6 +650,21 @@ describe("SyncManager - Sync Operations", () => {
         expect(sm.syncState).not.toBe("MIGRATING");
     });
 
+    it("tells the user when a manual sync stops because the remote check failed", async () => {
+        const sm = device.syncManager as any;
+        sm.baseAdapter.isAuthenticated = () => true;
+        sm.vaultLockService.checkForLockFile = vi.fn().mockRejectedValue(new Error("Network error"));
+        const notifySpy = vi.spyOn(sm, "notify");
+
+        await sm.requestSmartSync("manual-sync", false);
+        expect(notifySpy).toHaveBeenCalledWith("noticeSyncFailedNetwork");
+
+        // Automatic triggers stay quiet: they retry soon
+        notifySpy.mockClear();
+        await sm.requestSmartSync("timer-sync", false);
+        expect(notifySpy).not.toHaveBeenCalled();
+    });
+
     it("should skip sync when E2EE is locked and trigger is user action", async () => {
         const sm = device.syncManager as any;
         sm.settings.e2eeEnabled = true;

@@ -83,12 +83,43 @@ describe("i18n", () => {
             "noticeSyncing",
             "noticeAuthSuccess",
             "settingConflictStrategy",
-            "e2eeSetupTitle",
             "historyTitle",
         ];
         for (const key of essentialKeys) {
             expect(en[key]).toBeDefined();
             expect(en[key].length).toBeGreaterThan(0);
         }
+    });
+
+    it("has no add-on specific wording in Vault-Sync's own dictionaries", async () => {
+        const { en } = await import("../../../src/i18n/index");
+        const ja = (await import("../../../src/i18n/lang/ja.json")).default as Record<string, string>;
+        const banned = /e2ee|encrypt|decrypt|暗号|復号/i;
+        for (const dict of [en, ja]) {
+            for (const [key, text] of Object.entries(dict)) {
+                expect(banned.test(text), `${key}: ${text}`).toBe(false);
+            }
+        }
+    });
+
+    it("t() falls back to the add-on's text, own text first", async () => {
+        localStorageMock["language"] = "ja";
+        const { initI18n, t, setAddonStrings, hasAddonStrings } = await import(
+            "../../../src/i18n/index"
+        );
+        initI18n();
+        const dicts: Record<string, Record<string, string>> = {
+            en: { addonKey: "Add-on text", onlyEn: "English only", settingLogin: "Hijack" },
+            ja: { addonKey: "アドオン文言" },
+        };
+        expect(t("addonKey")).toBe("addonKey");
+        setAddonStrings((lang) => dicts[lang] ?? {});
+        expect(hasAddonStrings()).toBe(true);
+        expect(t("addonKey")).toBe("アドオン文言");
+        expect(t("onlyEn")).toBe("English only");
+        expect(t("settingLogin")).not.toBe("Hijack");
+        setAddonStrings(null);
+        expect(hasAddonStrings()).toBe(false);
+        expect(t("addonKey")).toBe("addonKey");
     });
 });

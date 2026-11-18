@@ -15,7 +15,7 @@
  * - MATRIX定数が全35通知キーを網羅していること
  * - 全MATRIXキーがi18n辞書(ja/en両方)に存在すること
  * - 各レベル×トリガーの組み合わせでShow/Hideが仕様通りであること
- * - errorレベルでは全通知が抑制されること
+ * - errorレベルでは重要通知（同期失敗・競合ファイル作成・同期停止）以外が抑制されること
  * - i18n値がコロン":"で終わらないこと (ファイル名結合時の二重コロン防止)
  * - クリーン同期時に競合/認証/履歴系通知が発火しないこと
  */
@@ -28,6 +28,21 @@ import { Notice } from "obsidian";
 import { en } from "../../../src/i18n";
 import ja from "../../../src/i18n/lang/ja.json";
 const i18nDict = { en, ja: ja as Record<string, string> };
+/**
+ * Keys whose text the installed add-on supplies (Vault-Sync's dictionaries hold
+ * no add-on specific wording). Their text is tested in the add-on's repository.
+ */
+const ADDON_SUPPLIED_KEYS = new Set([
+    "noticeMigrationStarted",
+    "noticeMigrationComplete",
+    "noticeMigrationFailed",
+    "noticeVaultLocked",
+    "noticeE2EEAutoEnabled",
+    "e2eeUnlockSuccess",
+    "e2eeUnlockFailed",
+    "e2eeSetupKeychainFailed",
+    "e2eeInterruptedDone",
+]);
 import { RevisionCache } from "../../../src/services/revision-cache";
 import { BackgroundTransferQueue } from "../../../src/sync-manager/background-transfer";
 import type { INotificationService } from "../../../src/services/notification-service";
@@ -675,39 +690,17 @@ const FORMAT_SPECS: FormatSpec[] = [
     { key: "noticeFileRestored", specJa: "💾 [履歴] ファイルを復元しました" },
     { key: "noticeHistoryRestoreAs", specJa: "💾 [履歴] 別名で復元しました: {0}" },
     { key: "noticeRevisionDeleted", specJa: "🗑️ [履歴] リビジョンを削除しました" },
-    // ═══ Migration Notifications ═══
-    {
-        key: "noticeMigrationStarted",
-        specJa: "🚀 [E2EE] 移行を開始しました。Obsidianを終了しないでください。",
-    },
-    { key: "noticeMigrationComplete", specJa: "✅ [E2EE] 移行完了！Vaultが暗号化されました。" },
-    { key: "noticeMigrationFailed", specJa: "❌ [E2EE] 移行失敗。ログを確認してください。" },
-    // ═══ E2EE Notifications ═══
-    {
-        key: "noticeVaultLocked",
-        specJa: "🔒 [E2EE] Vaultがロック中のため同期を一時停止しています。コマンドパレットから「E2EE: ロック解除」を実行してください。",
-    },
     {
         key: "noticeAddonRequired",
         specJa: "⚠️ このVaultでは、このデバイスに未導入のアドオンが使用されています。設定 → アドオン から導入してください。同期を一時停止しています。",
     },
     {
-        key: "noticeE2EEAutoEnabled",
-        specJa: "🔒 [E2EE] このVaultは他デバイスで暗号化されています。パスワードを入力してロックを解除してください。",
-    },
-    {
         key: "noticeEngineVerifyFailed",
-        specJa: "❌ アドオンの検証に失敗しました。アドオンを再導入してください。",
-    },
-    { key: "e2eeUnlockSuccess", specJa: "ロック解除しました！" },
-    { key: "e2eeUnlockFailed", specJa: "パスワードが一致しません。" },
-    {
-        key: "e2eeSetupKeychainFailed",
-        specJa: "警告: SecretStorageへのパスワード保存に失敗しました。\n次回起動時にパスワードの再入力が必要です。",
+        specJa: "❌ アドオンの検証に失敗しました。承認済みリリースと不一致です。最新パッケージを再ダウンロードして再導入してください。",
     },
     {
-        key: "e2eeInterruptedDone",
-        specJa: "クリーンアップ完了。このモーダルを再表示してください。",
+        key: "noticeAddonUpdateRequired",
+        specJa: "⚠️ 導入済みのアドオンは、本バージョンのVault-Syncに非対応の旧版です。最新パッケージをダウンロードし、設定 → アドオン から導入してください。同期を一時停止しています。",
     },
 ];
 
@@ -804,6 +797,7 @@ describe("Notification Visibility Matrix", () => {
     // Verify all i18n keys used in MATRIX exist in the Japanese dictionary
     it("all MATRIX keys exist in i18n.ja", () => {
         for (const entry of MATRIX) {
+            if (ADDON_SUPPLIED_KEYS.has(entry.key)) continue;
             expect(i18nDict.ja[entry.key], `i18n.ja missing key: ${entry.key}`).toBeDefined();
         }
     });
@@ -843,13 +837,29 @@ describe("Notification Visibility Matrix", () => {
         });
     });
 
-    /** errorレベルでの全通知抑制 */
+    /** errorレベルでの通知抑制（重要通知を除く） */
     describe("Level: error", () => {
-        it("suppresses all notifications regardless of trigger", async () => {
+        // Shown even at "errors only": sync failures, local-only conflict copies,
+        // and states where syncing is paused until the user acts.
+        const ALWAYS_SHOWN_KEYS = [
+            "noticeSyncFailedAuth",
+            "noticeSyncFailedNetwork",
+            "noticeSyncFailed",
+            "noticeConflictSaved",
+            "noticeConflictRemoteSaved",
+            "noticeCheckOtherDevice",
+            "noticeAddonRequired",
+            "noticeAddonUpdateRequired",
+            "noticeEngineVerifyFailed",
+            "noticeVaultLocked",
+        ];
+
+        it("suppresses non-critical notifications regardless of trigger", async () => {
             syncManager["settings"].notificationLevel = "error" as any;
             syncManager.currentTrigger = "manual-sync";
 
             for (const entry of MATRIX) {
+                if (ALWAYS_SHOWN_KEYS.includes(entry.key)) continue;
                 (Notice as any).mockClear();
                 await syncManager.notify(entry.key);
                 expect(
@@ -863,13 +873,7 @@ describe("Notification Visibility Matrix", () => {
             syncManager["settings"].notificationLevel = "error" as any;
             syncManager.currentTrigger = "manual-sync";
 
-            const alwaysShowKeys = [
-                "noticeSyncFailedAuth",
-                "noticeSyncFailedNetwork",
-                "noticeSyncFailed",
-            ];
-
-            for (const key of alwaysShowKeys) {
+            for (const key of ALWAYS_SHOWN_KEYS) {
                 (Notice as any).mockClear();
                 await syncManager.notify(key);
                 expect(
@@ -978,7 +982,9 @@ describe("Notification Message Format Validation", () => {
 
     // Verify all notification i18n keys exist in both dictionaries
     describe("i18n key consistency between en and ja", () => {
-        const allNotificationKeys = MATRIX.map((e) => e.key);
+        const allNotificationKeys = MATRIX.map((e) => e.key).filter(
+            (k) => !ADDON_SUPPLIED_KEYS.has(k),
+        );
 
         for (const key of allNotificationKeys) {
             it(`${key} exists in both en and ja`, () => {

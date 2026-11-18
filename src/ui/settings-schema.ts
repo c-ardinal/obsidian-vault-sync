@@ -1,4 +1,6 @@
-import { Platform } from "obsidian";
+import { Notice, Platform } from "obsidian";
+import { ConfirmModal } from "./confirm-modal";
+import { isValidCloudRootFolder } from "../utils/cloud-root";
 import { VaultSyncSettings } from "../types/settings";
 import { SETTINGS_LIMITS } from "../constants";
 import { t } from "../i18n";
@@ -23,6 +25,8 @@ export interface SettingItem {
     };
     // Custom behaviors
     onChange?: (value: unknown, plugin: VaultSync) => Promise<void>;
+    /** Text only: run onChange when the field is committed (blur / Enter), then show the saved value. */
+    commitOnBlur?: boolean;
     isHidden?: (settings: VaultSyncSettings, plugin: VaultSync) => boolean;
     getDesc?: (settings: VaultSyncSettings, plugin: VaultSync) => string;
 }
@@ -34,6 +38,8 @@ export interface SettingSection {
     items: SettingItem[];
     isHidden?: (settings: VaultSyncSettings, plugin: VaultSync) => boolean;
 }
+
+const DEFAULT_CLOUD_ROOT = "ObsidianVaultSync";
 
 const getTriggerItems = (prefix: string): SettingItem[] => [
     // ── Startup ──
@@ -54,7 +60,7 @@ const getTriggerItems = (prefix: string): SettingItem[] => [
         label: t("settingAutoSyncInterval"),
         desc: t("settingAutoSyncIntervalDesc"),
         limits: SETTINGS_LIMITS.autoSyncInterval,
-        unit: "SEC",
+        unit: t("unitSec"),
         onChange: async (val, p) => {
             p.settings.enableAutoSyncInInterval = val !== SETTINGS_LIMITS.autoSyncInterval.disabled;
             await p.saveSettings();
@@ -73,7 +79,7 @@ const getTriggerItems = (prefix: string): SettingItem[] => [
         label: t("settingTriggerSave"),
         desc: t("settingTriggerSaveDesc"),
         limits: SETTINGS_LIMITS.onSaveDelay,
-        unit: "SEC",
+        unit: t("unitSec"),
     },
     {
         key: `${prefix}.onModifyDelaySec`,
@@ -81,7 +87,7 @@ const getTriggerItems = (prefix: string): SettingItem[] => [
         label: t("settingModify"),
         desc: t("settingModifyDesc"),
         limits: SETTINGS_LIMITS.onModifyDelay,
-        unit: "SEC",
+        unit: t("unitSec"),
     },
     {
         key: `${prefix}.onLayoutChangeDelaySec`,
@@ -89,7 +95,7 @@ const getTriggerItems = (prefix: string): SettingItem[] => [
         label: t("settingTriggerLayout"),
         desc: t("settingTriggerLayoutDesc"),
         limits: SETTINGS_LIMITS.onLayoutChangeDelay,
-        unit: "SEC",
+        unit: t("unitSec"),
     },
 ];
 
@@ -140,7 +146,7 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                     label: t("settingConcurrency"),
                     desc: t("settingConcurrencyDesc"),
                     limits: SETTINGS_LIMITS.concurrency,
-                    unit: "FILES",
+                    unit: t("unitFiles"),
                 },
                 {
                     key: "largeFileThresholdMB",
@@ -148,7 +154,7 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                     label: t("settingLargeFileThreshold"),
                     desc: t("settingLargeFileThresholdDesc"),
                     limits: SETTINGS_LIMITS.largeFileThresholdMB,
-                    unit: "MB",
+                    unit: t("unitMB"),
                 },
                 {
                     key: "bgTransferIntervalSec",
@@ -156,7 +162,7 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                     label: t("settingBgTransferInterval"),
                     desc: t("settingBgTransferIntervalDesc"),
                     limits: SETTINGS_LIMITS.bgTransferIntervalSec,
-                    unit: "SEC",
+                    unit: t("unitSec"),
                 },
             ],
         },
@@ -226,31 +232,31 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                     label: t("settingCloudRootFolder"),
                     desc: t("settingCloudRootFolderDesc"),
                     placeholder: "ObsidianVaultSync",
+                    // Validate and confirm only once the field is committed (blur / Enter),
+                    // never per keystroke: a half-typed name must not be saved.
+                    commitOnBlur: true,
                     onChange: async (val, p) => {
-                        // Sanitize
                         const sanitized = String(val).trim();
-                        if (
-                            !sanitized ||
-                            sanitized.startsWith("/") ||
-                            sanitized.includes("\\") ||
-                            sanitized.length > 255 ||
-                            /[<>:"|?*]/.test(sanitized)
-                        ) {
-                            // Invalid input - revert to default if empty, or just ignore
-                            if (!sanitized) {
-                                p.settings.cloudRootFolder = "ObsidianVaultSync";
-                                await p.saveSettings();
-                            }
+                        const oldFolder = p.settings.cloudRootFolder;
+                        if (sanitized === oldFolder) return;
+                        if (!sanitized) {
+                            // Empty means "back to default"
+                            if (oldFolder === DEFAULT_CLOUD_ROOT) return;
+                        } else if (!isValidCloudRootFolder(sanitized)) {
+                            new Notice(t("settingCloudRootFolderInvalid"));
                             return;
                         }
-                        // Warn user if changing from existing folder
-                        const oldFolder = p.settings.cloudRootFolder;
-                        if (sanitized !== oldFolder && oldFolder) {
-                            if (!confirm(p.t("settingCloudRootFolderWarning"))) {
-                                return;
-                            }
+                        const next = sanitized || DEFAULT_CLOUD_ROOT;
+                        if (oldFolder) {
+                            const ok = await new ConfirmModal(
+                                p.app,
+                                t("settingCloudRootFolderWarning"),
+                                t("settingCloudRootFolderChange"),
+                                true,
+                            ).ask();
+                            if (!ok) return;
                         }
-                        p.settings.cloudRootFolder = sanitized;
+                        p.settings.cloudRootFolder = next;
                         await p.saveSettings();
                         p.updateAdapterCloudRoot();
                         p.triggerFullCleanup();
@@ -391,7 +397,7 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                     label: t("settingStartupDelay"),
                     desc: t("settingStartupDelayDesc"),
                     limits: SETTINGS_LIMITS.startupDelay,
-                    unit: "SEC",
+                    unit: t("unitSec"),
                 },
             ],
         },

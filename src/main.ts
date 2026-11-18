@@ -6,9 +6,14 @@ import { HistoryModal } from "./ui/history-modal";
 import { TransferStatusModal } from "./ui/transfer-status-modal";
 import { DEFAULT_SETTINGS } from "./constants";
 import { DATA_REMOTE_DIR, VaultSyncSettings } from "./types/settings";
-import { t, initI18n } from "./i18n";
+import { t, initI18n, setAddonStrings } from "./i18n";
+import type { ICryptoEngine } from "./encryption/interfaces";
 import { VaultSyncSettingTab } from "./ui/vault-sync-setting-tab";
-import { installEngineFromContent, loadExternalCryptoEngine } from "./encryption/engine-loader";
+import {
+    installEngineFromContent,
+    loadExternalCryptoEngine,
+    removeInstalledEngine,
+} from "./encryption/engine-loader";
 import { AddonInstallModal, type AddonInstallOutcome } from "./ui/addon-install-modal";
 import type { AddonPackage } from "./addons/addon-package";
 import { checkPasswordStrength } from "./encryption/password-strength";
@@ -73,7 +78,7 @@ export default class VaultSync extends Plugin {
             };
         }
 
-        this.syncManager.cryptoEngine = result.engine;
+        this.attachCryptoEngine(result.engine);
         this.settings.addonAgreements = {
             ...(this.settings.addonAgreements ?? {}),
             [pkg.addon.id]: {
@@ -90,6 +95,112 @@ export default class VaultSync extends Plugin {
         );
         this.refreshSettingsUI();
         return { ok: true };
+    }
+
+    /**
+     * Removes the installed add-on from this device. If this vault uses it,
+     * syncing pauses on this device until it is installed again.
+     */
+    public async removeAddon(): Promise<boolean> {
+        if (this.syncManager.isSyncing()) {
+            new Notice(t("addonRemoveBusy"));
+            return false;
+        }
+        try {
+            await removeInstalledEngine(this.vaultOps, this.manifest.dir!);
+        } catch (e) {
+            await this.syncManager.log(`Add-on removal failed: ${String(e)}`, "error");
+            new Notice(t("addonRemoveFailed"));
+            return false;
+        }
+        this.attachCryptoEngine(null);
+        this.settings.addonAgreements = {};
+        await this.saveSettings();
+        await this.syncManager.log("Add-on removed from this device.", "system");
+        new Notice(t("addonRemoved"));
+        this.refreshSettingsUI();
+        return true;
+    }
+
+    private addonCommandsRegistered = false;
+
+    /**
+     * Activate (or with null, remove) the add-on engine: hand it to the sync
+     * manager, take its display text, and register its commands. Commands are
+     * registered on first activation so their names come from the add-on; they
+     * hide themselves while no add-on is present.
+     */
+    private attachCryptoEngine(engine: ICryptoEngine | null): void {
+        this.syncManager.setCryptoEngine(engine);
+        setAddonStrings(engine?.getStrings ? (lang) => engine.getStrings!(lang) : null);
+        if (engine && !this.addonCommandsRegistered) {
+            this.addonCommandsRegistered = true;
+            this.registerAddonCommands();
+        }
+    }
+
+    private registerAddonCommands(): void {
+        this.addCommand({
+            id: "e2ee-setup",
+            name: t("labelE2EESetup"),
+            checkCallback: (checking: boolean) => {
+                if (!this.syncManager.cryptoEngine || this.settings.e2eeEnabled) return false;
+                if (!checking) {
+                    this.syncManager.cryptoEngine.showSetupModal(this.buildE2EEContext());
+                }
+                return true;
+            },
+        });
+
+        this.addCommand({
+            id: "e2ee-unlock",
+            name: t("labelE2EEUnlock"),
+            checkCallback: (checking: boolean) => {
+                const isLocked =
+                    this.settings.e2eeEnabled &&
+                    this.syncManager.cryptoEngine &&
+                    !this.syncManager.cryptoEngine.isUnlocked();
+                if (!isLocked) return false;
+                if (!checking) {
+                    this.syncManager.cryptoEngine?.showUnlockModal(this.buildE2EEContext());
+                }
+                return true;
+            },
+        });
+
+        this.addCommand({
+            id: "e2ee-change-password",
+            name: t("labelE2EEChangePassword"),
+            checkCallback: (checking: boolean) => {
+                const engine = this.syncManager.cryptoEngine;
+                if (!engine?.showPasswordChangeModal || !engine.isUnlocked()) return false;
+                if (!checking) engine.showPasswordChangeModal(this.buildE2EEContext());
+                return true;
+            },
+        });
+
+        this.addCommand({
+            id: "e2ee-show-recovery",
+            name: t("labelE2EEShowRecovery"),
+            checkCallback: (checking: boolean) => {
+                const engine = this.syncManager.cryptoEngine;
+                if (!engine?.showRecoveryExportModal || !engine.isUnlocked()) return false;
+                if (!checking) engine.showRecoveryExportModal(this.buildE2EEContext());
+                return true;
+            },
+        });
+
+        this.addCommand({
+            id: "e2ee-recover",
+            name: t("labelE2EERecover"),
+            checkCallback: (checking: boolean) => {
+                const engine = this.syncManager.cryptoEngine;
+                if (!engine?.showRecoveryImportModal || !this.settings.e2eeEnabled) return false;
+                if (engine.isUnlocked()) return false;
+                if (!checking) engine.showRecoveryImportModal(this.buildE2EEContext());
+                return true;
+            },
+        });
     }
 
     public openAddonInstallModal(): void {
@@ -188,7 +299,9 @@ export default class VaultSync extends Plugin {
             this.settings,
             this.manifest.dir || "",
             t,
-            new ObsidianNotificationService(),
+            new ObsidianNotificationService((path) => {
+                void this.app.workspace.openLinkText(path, "", true);
+            }),
             revisionCache,
             backgroundQueue,
         );
@@ -218,7 +331,7 @@ export default class VaultSync extends Plugin {
         ]);
 
         if (engine) {
-            this.syncManager.cryptoEngine = engine;
+            this.attachCryptoEngine(engine);
             await this.syncManager.log("External E2EE engine loaded successfully.", "system");
         } else {
             await this.syncManager.log(
@@ -429,73 +542,8 @@ export default class VaultSync extends Plugin {
         this.addCommand({
             id: "install-addon",
             name: t("labelInstallAddon"),
-            checkCallback: (checking: boolean) => {
-                if (this.syncManager.cryptoEngine) return false;
-                if (!checking) this.openAddonInstallModal();
-                return true;
-            },
-        });
-
-        this.addCommand({
-            id: "e2ee-setup",
-            name: t("labelE2EESetup"),
-            checkCallback: (checking: boolean) => {
-                if (!this.syncManager.cryptoEngine || this.settings.e2eeEnabled) return false;
-                if (!checking) {
-                    this.syncManager.cryptoEngine.showSetupModal(this.buildE2EEContext());
-                }
-                return true;
-            },
-        });
-
-        this.addCommand({
-            id: "e2ee-unlock",
-            name: t("labelE2EEUnlock"),
-            checkCallback: (checking: boolean) => {
-                const isLocked =
-                    this.settings.e2eeEnabled &&
-                    this.syncManager.cryptoEngine &&
-                    !this.syncManager.cryptoEngine.isUnlocked();
-                if (!isLocked) return false;
-                if (!checking) {
-                    this.syncManager.cryptoEngine?.showUnlockModal(this.buildE2EEContext());
-                }
-                return true;
-            },
-        });
-
-        this.addCommand({
-            id: "e2ee-change-password",
-            name: t("labelE2EEChangePassword"),
-            checkCallback: (checking: boolean) => {
-                const engine = this.syncManager.cryptoEngine;
-                if (!engine?.showPasswordChangeModal || !engine.isUnlocked()) return false;
-                if (!checking) engine.showPasswordChangeModal(this.buildE2EEContext());
-                return true;
-            },
-        });
-
-        this.addCommand({
-            id: "e2ee-show-recovery",
-            name: t("labelE2EEShowRecovery"),
-            checkCallback: (checking: boolean) => {
-                const engine = this.syncManager.cryptoEngine;
-                if (!engine?.showRecoveryExportModal || !engine.isUnlocked()) return false;
-                if (!checking) engine.showRecoveryExportModal(this.buildE2EEContext());
-                return true;
-            },
-        });
-
-        this.addCommand({
-            id: "e2ee-recover",
-            name: t("labelE2EERecover"),
-            checkCallback: (checking: boolean) => {
-                const engine = this.syncManager.cryptoEngine;
-                if (!engine?.showRecoveryImportModal || !this.settings.e2eeEnabled) return false;
-                if (engine.isUnlocked()) return false;
-                if (!checking) engine.showRecoveryImportModal(this.buildE2EEContext());
-                return true;
-            },
+            // Also used to update or reinstall an installed add-on
+            callback: () => this.openAddonInstallModal(),
         });
 
         this.addRibbonIcon("arrow-up-down", t("labelTransferStatus"), () => {
@@ -718,6 +766,18 @@ export default class VaultSync extends Plugin {
     }
     async adapterLogin(): Promise<void> {
         await this.credentialMgr.adapterLogin();
+    }
+
+    /** Sign out of the cloud account on this device. Returns false if refused. */
+    async adapterLogout(): Promise<boolean> {
+        if (this.syncManager.isSyncing()) {
+            new Notice(t("noticeLogoutBusy"));
+            return false;
+        }
+        await this.credentialMgr.adapterLogout();
+        await this.syncManager.log("Signed out of the cloud account.", "system");
+        new Notice(t("noticeLoggedOut"));
+        return true;
     }
 
     async updateClientCredential(field: "clientId" | "clientSecret", value: string): Promise<void> {

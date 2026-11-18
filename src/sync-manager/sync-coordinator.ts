@@ -157,15 +157,9 @@ export async function executeSmartSync(ctx: SyncContext, scanVault: boolean): Pr
         await ctx.log("=== SMART SYNC COMPLETED ===", "info");
     } catch (e) {
         await ctx.log(`Smart Sync failed: ${String(e)}`, "error");
-        const msg = e instanceof Error ? e.message : String(e);
-        const msgLower = msg.toLowerCase();
-        if (msgLower.includes("not authenticated") || msgLower.includes("authentication failed") || msgLower.includes("token revoked")) {
-            await ctx.notify("noticeSyncFailedAuth");
-        } else if (msgLower.includes("network error") || msgLower.includes("failed to fetch") || msgLower.includes("unreachable")) {
-            await ctx.notify("noticeSyncFailedNetwork");
-        } else {
-            await ctx.notify("noticeSyncFailed", msg.slice(0, 80));
-        }
+        const notice = syncErrorNotice(e);
+        if (notice.suffix === undefined) await ctx.notify(notice.key);
+        else await ctx.notify(notice.key, notice.suffix);
         throw e;
     } finally {
         await endSyncCycle(ctx);
@@ -177,6 +171,28 @@ export async function executeSmartSync(ctx: SyncContext, scanVault: boolean): Pr
     }
 }
 
+
+/** Pick the user-facing notice for a failed sync. */
+export function syncErrorNotice(e: unknown): { key: string; suffix?: string } {
+    const msg = e instanceof Error ? e.message : String(e);
+    const msgLower = msg.toLowerCase();
+    if (
+        msgLower.includes("not authenticated") ||
+        msgLower.includes("authentication failed") ||
+        msgLower.includes("token revoked")
+    ) {
+        return { key: "noticeSyncFailedAuth" };
+    }
+    if (
+        msgLower.includes("network error") ||
+        msgLower.includes("failed to fetch") ||
+        msgLower.includes("unreachable") ||
+        (typeof navigator !== "undefined" && navigator.onLine === false)
+    ) {
+        return { key: "noticeSyncFailedNetwork" };
+    }
+    return { key: "noticeSyncFailed", suffix: msg.slice(0, 80) };
+}
 
 /**
  * Execute a pull after push to immediately detect conflicts and confirm sync state.

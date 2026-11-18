@@ -1310,7 +1310,12 @@ async function pullFileUnchecked(
                         await releaseMergeLock(ctx, item.path, logPrefix);
                     }
 
-                    await ctx.notify("noticeConflictSaved", basename(conflictPath));
+                    // Conflict copies stay local (never synced), so this notice is the only
+                    // pointer to them: keep it until dismissed, and open the copy on click.
+                    await ctx.notify("noticeConflictSaved", basename(conflictPath), {
+                        sticky: true,
+                        openPath: conflictPath,
+                    });
                     ctx.logger.markActionTaken();
                     return true;
                 } else {

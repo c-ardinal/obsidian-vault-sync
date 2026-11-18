@@ -151,6 +151,20 @@ export class CredentialManager {
         return this.deps.adapter.isAuthenticated();
     }
 
+    /** Sign out: revoke the tokens and remove them (Client ID / Secret are kept). */
+    async adapterLogout(): Promise<void> {
+        const { adapter, getSecureStorage } = this.deps;
+        await adapter.logout();
+        adapter.setTokens(null, null);
+        await getSecureStorage().saveCredentials({
+            clientId: adapter.clientId,
+            clientSecret: adapter.clientSecret,
+            accessToken: null,
+            refreshToken: null,
+            tokenExpiresAt: 0,
+        });
+    }
+
     async adapterLogin(): Promise<void> {
         await this.deps.adapter.login();
     }

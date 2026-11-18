@@ -22,6 +22,13 @@ export interface ApprovedAddon {
     downloadUrl: string;
     /** SHA-256 (hex) of every file the package must contain, by file name. */
     files: Record<string, string>;
+    /**
+     * SHA-256 of the entry file from earlier approved releases. Such a file is
+     * still refused, but the user is told to update instead of being warned
+     * about a failed check. When you pin a new release, move the old entry
+     * hash here.
+     */
+    retiredEntryHashes?: string[];
 }
 
 export const APPROVED_ADDONS: ApprovedAddon[] = [
@@ -31,10 +38,23 @@ export const APPROVED_ADDONS: ApprovedAddon[] = [
         installAs: "e2ee-engine.js",
         downloadUrl: "https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine/releases/latest",
         files: {
-            "addon.json": "d2821788664657982ca9bc99a0b743238c5f4687003517071fcfd210c86866c4",
-            "e2ee-engine.js": "e2b6e3758b768d4dbc2fe896e5830c3cec5bf8d8fd786992f35737661190fa06",
+            "addon.json": "068deb1100ca7cf1fc44cbd4527067c61c2bfe2d9b092d4ff748ee6f056b7d79",
+            "e2ee-engine.js": "fc3525012589fee6fca63fe06219b6baddcfdc6bb83a0c35b2dc9af7d285e23c",
             "TERMS.md": "4b8eb81c12094b937a2899718d646f8e0bdd75e060ea391030d5e622fadfb48f",
-            "TERMS_ja.md": "bc19f75e5cc41907b0e23246fb2ba4f337074a13a745ebcb629197013bd73956",
+            "TERMS_ja.md": "23d6da4dca54e907ac85625a6d258ced178f04c513c9b9941ef0518d90edaf79",
         },
+        retiredEntryHashes: [
+            // 0.16.0
+            "e2b6e3758b768d4dbc2fe896e5830c3cec5bf8d8fd786992f35737661190fa06",
+            // earlier releases
+            "0d24c256338beeb31c9aad1dd674bc4559e12caa5f2ba31f85896b5cfe107310",
+            "ab485f5f80f1b0e8226b9d59ab571463b97e7a326b36eed2b68fc904093fc71b",
+            "b4744eb21b7a33e879acb9b26b2db62894911fc869a892c4961912aebb6e083c",
+            "b59efbdf2574d545ff359e3598c157969d1ea57e4be3c0138645f3388f0a7cd0",
+            "c08b6d879f5a729dc7eefbdb7425d545b2526332c29ae82d3e86e1ef08f71b32",
+            "ceb308f41e3660254de0a678059b41ca877fee457a244e13a214bd6305c2b965",
+            "e8bea90180efdbc5f109510c3ce4f64cbcbcf459375ab20bd669ee63b68dd1f8",
+            "f62d9a9d2f82ffa1672c091fdf1d82fc171dca2c532491ce2e8b8322c6bed815",
+        ],
     },
 ];

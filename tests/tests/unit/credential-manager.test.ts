@@ -31,6 +31,7 @@ function createMockDeps() {
         setCredentials: vi.fn(),
         isAuthenticated: vi.fn().mockReturnValue(true),
         login: vi.fn().mockResolvedValue(undefined),
+        logout: vi.fn().mockResolvedValue(undefined),
         verifyState: vi.fn().mockReturnValue(true),
         exchangeCodeForToken: vi.fn().mockResolvedValue(undefined),
         setAuthConfig: vi.fn(),
@@ -84,6 +85,21 @@ describe("CredentialManager", () => {
         secureStorage = mocks.secureStorage;
         syncManager = mocks.syncManager;
         manager = new CredentialManager(mocks.deps as any);
+    });
+
+    describe("adapterLogout", () => {
+        it("revokes, drops the tokens and keeps the Client ID / Secret", async () => {
+            await manager.adapterLogout();
+            expect(adapter.logout).toHaveBeenCalled();
+            expect(adapter.setTokens).toHaveBeenCalledWith(null, null);
+            expect(secureStorage.saveCredentials).toHaveBeenCalledWith({
+                clientId: "test-client-id",
+                clientSecret: "test-secret",
+                accessToken: null,
+                refreshToken: null,
+                tokenExpiresAt: 0,
+            });
+        });
     });
 
     describe("setupAdapterCallbacks", () => {

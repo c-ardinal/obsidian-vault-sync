@@ -226,8 +226,32 @@ export class GoogleAuthService {
         if (code) await this.exchangeCodeForToken(code);
     }
 
+    /**
+     * Forget the tokens and ask Google to revoke them. Revoking the refresh token
+     * also revokes its access tokens. Revocation is best effort: the tokens are
+     * dropped locally even when it fails (e.g. offline).
+     */
     async logout(): Promise<void> {
-        // TODO: Implement logout
+        const token = this.refreshToken || this.accessToken;
+        this.accessToken = null;
+        this.refreshToken = null;
+        this.tokenExpiresAt = 0;
+        this.refreshPromise = null;
+        if (!token) return;
+        try {
+            const res = await requestUrl({
+                url: "https://oauth2.googleapis.com/revoke",
+                method: "POST",
+                contentType: "application/x-www-form-urlencoded",
+                body: `token=${encodeURIComponent(token)}`,
+                throw: false,
+            });
+            if (res.status >= 400) {
+                await this.log(`Token revoke returned ${res.status}`, "warn");
+            }
+        } catch (e) {
+            await this.log(`Token revoke failed: ${String(e)}`, "warn");
+        }
     }
 
     /** Parse JSON safely. Throws a clear error on malformed responses (CDN/WAF HTML pages, truncated body). */
