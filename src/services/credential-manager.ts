@@ -76,8 +76,11 @@ export class CredentialManager {
                 await syncManager.notify("noticeAuthSuccess");
                 window.localStorage.removeItem("vault-sync-state");
                 syncManager.requestSmartSync("manual-sync").catch(() => {});
-            } catch (e: any) {
-                await syncManager.notify("noticeAuthFailed", e.message);
+            } catch (e) {
+                await syncManager.notify(
+                    "noticeAuthFailed",
+                    e instanceof Error ? e.message : String(e),
+                );
                 console.error("Vault-Sync: Auth failed via proxy protocol handler", e);
             }
         } else if (params.code) {
@@ -95,8 +98,11 @@ export class CredentialManager {
                 window.localStorage.removeItem("vault-sync-verifier");
                 window.localStorage.removeItem("vault-sync-state");
                 syncManager.requestSmartSync("manual-sync").catch(() => {});
-            } catch (e: any) {
-                await syncManager.notify("noticeAuthFailed", e.message);
+            } catch (e) {
+                await syncManager.notify(
+                    "noticeAuthFailed",
+                    e instanceof Error ? e.message : String(e),
+                );
                 console.error("Vault-Sync: Auth failed via protocol handler", e);
             }
         } else if (params.error) {

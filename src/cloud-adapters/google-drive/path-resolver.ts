@@ -1,5 +1,18 @@
 import type { GoogleDriveHttpClient } from "./http-client";
 
+/** Subset of a Drive v3 file resource used here. */
+interface DriveFile {
+    id: string;
+    name: string;
+    parents?: string[];
+    modifiedTime: string;
+}
+
+/** Drive v3 files.list response. */
+interface DriveFileList {
+    files?: DriveFile[];
+}
+
 /**
  * Manages Google Drive folder resolution, path caching, and root folder discovery.
  *
@@ -118,7 +131,7 @@ export class DrivePathResolver {
                     const response = await this.http.fetchWithAuth(
                         `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,parents)`,
                     );
-                    const data: any = await response.json();
+                    const data = (await response.json()) as DriveFileList;
 
                     if (data.files && data.files.length > 0) {
                         this.appRootId = data.files[0].id;
@@ -141,7 +154,7 @@ export class DrivePathResolver {
                 const response = await this.http.fetchWithAuth(
                     `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,modifiedTime)`,
                 );
-                const data: any = await response.json();
+                const data = (await response.json()) as DriveFileList;
 
                 await this.log(
                     `Vault folder search for "${this.vaultName}" returned ${data.files?.length || 0} items`,
@@ -151,11 +164,11 @@ export class DrivePathResolver {
                 if (data.files && data.files.length > 0) {
                     if (data.files.length > 1) {
                         await this.log(
-                            `WARNING! Multiple Vault folders detected in app root: ${data.files.map((f: any) => f.id).join(", ")}`,
+                            `WARNING! Multiple Vault folders detected in app root: ${data.files.map((f) => f.id).join(", ")}`,
                             "warn",
                         );
                         data.files.sort(
-                            (a: any, b: any) =>
+                            (a, b) =>
                                 new Date(b.modifiedTime).getTime() -
                                 new Date(a.modifiedTime).getTime(),
                         );
@@ -174,7 +187,7 @@ export class DrivePathResolver {
                     const globalResp = await this.http.fetchWithAuth(
                         `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(globalQuery)}&fields=files(id,name,parents,modifiedTime)`,
                     );
-                    const globalData: any = await globalResp.json();
+                    const globalData = (await globalResp.json()) as DriveFileList;
 
                     if (globalData.files && globalData.files.length > 0) {
                         await this.log(
@@ -182,7 +195,7 @@ export class DrivePathResolver {
                             "system",
                         );
                         globalData.files.sort(
-                            (a: any, b: any) =>
+                            (a, b) =>
                                 new Date(b.modifiedTime).getTime() -
                                 new Date(a.modifiedTime).getTime(),
                         );
@@ -209,7 +222,7 @@ export class DrivePathResolver {
                             }
                         } catch (e) {
                             await this.log(
-                                `Failed to move vault to app root (ignoring): ${e}`,
+                                `Failed to move vault to app root (ignoring): ${String(e)}`,
                                 "warn",
                             );
                         }
@@ -218,7 +231,7 @@ export class DrivePathResolver {
                             "No existing vault found anywhere. Creating new vault folder in app root...",
                             "info",
                         );
-                        this.vaultRootId = await this.createFolder(this.vaultName, this.appRootId!);
+                        this.vaultRootId = await this.createFolder(this.vaultName, this.appRootId);
                         await this.log(`Created new vault root: ${this.vaultRootId}`, "system");
                     }
                 }
@@ -233,7 +246,7 @@ export class DrivePathResolver {
             }
         })();
 
-        return this.initPromise!;
+        return this.initPromise;
     }
 
     async resolveParentId(path: string, create: boolean = true): Promise<string> {
@@ -276,7 +289,7 @@ export class DrivePathResolver {
                 const response = await this.http.fetchWithAuth(
                     `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}`,
                 );
-                const data = await response.json();
+                const data = (await response.json()) as DriveFileList;
 
                 if (data.files && data.files.length > 0) {
                     currentParentId = data.files[0].id;
@@ -343,7 +356,7 @@ export class DrivePathResolver {
                 const response = await this.http.fetchWithAuth(
                     `https://www.googleapis.com/drive/v3/files/${currentId}?fields=id,name,parents`,
                 );
-                const file = await response.json();
+                const file = (await response.json()) as { id?: string; name: string; parents?: string[] };
 
                 if (!file.id) throw new Error(`File not found: ${currentId}`);
 
@@ -357,7 +370,7 @@ export class DrivePathResolver {
                     throw new Error("File is outside the vault root");
                 }
                 currentId = file.parents[0];
-            } catch (error: any) {
+            } catch (error) {
                 // If it's a 403/404 or our own "outside" error, abort resolution
                 // SyncManager will catch this at the getChanges level and mark as removed/ignored.
                 if (isUnreachableFromVault(error)) {
@@ -373,7 +386,7 @@ export class DrivePathResolver {
     }
 
     async createFolder(name: string, parentId?: string): Promise<string> {
-        const metadata: any = {
+        const metadata: { name: string; mimeType: string; parents?: string[] } = {
             name: name,
             mimeType: "application/vnd.google-apps.folder",
         };
@@ -388,7 +401,7 @@ export class DrivePathResolver {
             },
         );
 
-        const data = await response.json();
+        const data = (await response.json()) as { id: string };
         return data.id;
     }
 
@@ -445,7 +458,7 @@ export class DrivePathResolver {
                                 const response = await this.http.fetchWithAuth(
                                     `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name)`,
                                 );
-                                const data = await response.json();
+                                const data = (await response.json()) as DriveFileList;
 
                                 if (data.files && data.files.length > 0) {
                                     currentParentId = data.files[0].id;
@@ -496,7 +509,7 @@ export class DrivePathResolver {
         const resp = await this.http.fetchWithAuth(
             `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name)`,
         );
-        const data = await resp.json();
+        const data = (await resp.json()) as DriveFileList;
         return data.files?.[0]?.id || null;
     }
 }
@@ -507,10 +520,11 @@ export class DrivePathResolver {
  * transient failure (network, rate limit, 5xx) that must not be mistaken for a
  * deletion.
  */
-export function isUnreachableFromVault(error: any): boolean {
+export function isUnreachableFromVault(error: unknown): boolean {
     if (!error) return false;
-    if (error.status === 404 || error.status === 403) return true;
-    const msg: string = error.message ?? "";
+    const err = error as { status?: number; message?: string };
+    if (err.status === 404 || err.status === 403) return true;
+    const msg: string = err.message ?? "";
     return (
         msg.includes("outside") ||
         msg.includes("404") ||

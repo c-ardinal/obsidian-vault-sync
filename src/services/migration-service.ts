@@ -1,4 +1,3 @@
-import { TFile } from "obsidian";
 import { CloudAdapter } from "../types/adapter";
 import { ICryptoEngine } from "../encryption/interfaces";
 import { VaultLockService } from "./vault-lock-service";
@@ -167,9 +166,9 @@ export class MigrationService {
 
                 await this.ctx.log(`[Migration] Verified integrity: ${sample.path}`, "debug");
             } catch (e) {
-                await this.ctx.log(`[Migration] Integrity verification failed: ${e}`, "error");
+                await this.ctx.log(`[Migration] Integrity verification failed: ${String(e)}`, "error");
                 throw new Error(
-                    `Migration aborted: Encryption/decryption integrity check failed. ${e}`,
+                    `Migration aborted: Encryption/decryption integrity check failed. ${String(e)}`,
                 );
             }
         }
@@ -226,7 +225,7 @@ export class MigrationService {
             await this.ctx.log(`[Migration] Renamed temp to ${vaultName}`, "info");
         } catch (error) {
             await this.ctx.log(
-                `[Migration] Folder swap failed: ${error}. Attempting recovery...`,
+                `[Migration] Folder swap failed: ${String(error)}. Attempting recovery...`,
                 "error",
             );
 
@@ -241,7 +240,7 @@ export class MigrationService {
                         "info",
                     );
                 } catch (recoveryError) {
-                    await this.ctx.log(`[Migration] Recovery failed: ${recoveryError}`, "error");
+                    await this.ctx.log(`[Migration] Recovery failed: ${String(recoveryError)}`, "error");
                 }
             }
             throw error; // Re-throw to signal migration failure
@@ -252,7 +251,7 @@ export class MigrationService {
                 await this.baseAdapter.deleteFile(originalId);
                 await this.ctx.log(`[Migration] Deleted backup folder: ${backupName}`, "info");
             } catch (e) {
-                await this.ctx.log(`[Migration] Failed to delete backup folder: ${e}`, "warn");
+                await this.ctx.log(`[Migration] Failed to delete backup folder: ${String(e)}`, "warn");
             }
         }
 
@@ -313,13 +312,13 @@ export class MigrationService {
                     );
                     return false; // Migration is now complete
                 } catch (e) {
-                    await this.ctx.log(`[Migration] Auto-recovery failed: ${e}`, "error");
+                    await this.ctx.log(`[Migration] Auto-recovery failed: ${String(e)}`, "error");
                     // Fall through to check temp folder existence
                 }
             }
 
             return !!tempId;
-        } catch (e) {
+        } catch {
             return false;
         }
     }

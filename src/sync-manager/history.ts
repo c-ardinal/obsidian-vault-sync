@@ -18,11 +18,12 @@ export class TransientHistoryError extends Error {
     }
 }
 
-function isPermanentHistoryError(e: any): boolean {
+function isPermanentHistoryError(e: unknown): boolean {
     if (!e) return false;
-    if (e.name === "DecryptionError") return true;
-    if (e.status === 404 || e.status === 410) return true;
-    const msg: string = e.message ?? "";
+    const err = e as { name?: unknown; status?: unknown; message?: unknown };
+    if (err.name === "DecryptionError") return true;
+    if (err.status === 404 || err.status === 410) return true;
+    const msg = typeof err.message === "string" ? err.message : "";
     return /not found|API Error 404|API Error 410/i.test(msg);
 }
 
@@ -116,7 +117,7 @@ export async function restoreRevision(
 
         await ctx.notify("noticeFileRestored");
     } catch (e) {
-        await ctx.log(`[History] Rollback failed: ${e}`, "error");
+        await ctx.log(`[History] Rollback failed: ${String(e)}`, "error");
         throw e;
     }
 }
