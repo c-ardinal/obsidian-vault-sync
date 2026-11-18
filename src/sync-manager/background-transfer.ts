@@ -1,14 +1,22 @@
 import { md5 } from "../utils/md5";
 import { formatSize } from "../utils/format";
-import { basename } from "../utils/path";
+import { basename, dirname } from "../utils/path";
 import type { CloudFile } from "../types/adapter";
 import type { SyncContext } from "./context";
 import { hashContent } from "./file-utils";
 import { pullFileSafely } from "./merge";
 import { reconcileVanishedAfterUpload } from "./sync-push";
-import { saveIndex } from "./state";
+import { saveIndex, saveLocalIndex, takeUnsyncedRename } from "./state";
 import { compress } from "./file-utils";
-import { buildRemoteIndexPayload, releasePendingPull, settlePendingPull } from "./sync-helpers";
+import {
+    buildRemoteIndexPayload,
+    forgetAttemptedUpload,
+    isAttemptedUpload,
+    peekAttemptedUpload,
+    recordAttemptedUpload,
+    releasePendingPull,
+    settlePendingPull,
+} from "./sync-helpers";
 import type {
     TransferItem,
     TransferRecord,
@@ -302,6 +310,44 @@ export class BackgroundTransferQueue {
 
     // === Push execution ===
 
+    /**
+     * An earlier attempt of this upload "failed" but reached the cloud, and the file was
+     * renamed or deleted before the retry. The cloud copy under the old name was tracked
+     * by nobody: every device saw it as a stray file (or never saw it at all). Move it to
+     * the new name, or delete it if the file is gone.
+     */
+    private async settleOrphanedUpload(ctx: SyncContext, path: string): Promise<void> {
+        if (!peekAttemptedUpload(ctx, path) || ctx.index[path]) return;
+        try {
+            const meta = await ctx.adapter.getFileMetadata(path);
+            if (!meta || !isAttemptedUpload(ctx, path, meta.hash)) return;
+            const now = takeUnsyncedRename(ctx, path);
+            if (now && !ctx.index[now] && (await ctx.vault.exists(now))) {
+                await ctx.adapter.moveFile(meta.id, basename(now), dirname(now) || null);
+                const hash = meta.hash!.toLowerCase();
+                const entry = {
+                    fileId: meta.id,
+                    mtime: meta.mtime ?? Date.now(),
+                    size: meta.size,
+                    hash,
+                    lastAction: "push" as const,
+                    ancestorHash: hash,
+                };
+                ctx.index[now] = { ...entry };
+                ctx.localIndex[now] = { ...entry };
+                ctx.dirtyPaths.set(now, ctx.dirtyPaths.get(now) ?? Date.now());
+                await ctx.log(`[Background Transfer] Moved our earlier upload of ${path} to ${now}.`, "info");
+            } else {
+                await ctx.adapter.deleteFile(meta.id);
+                await ctx.log(`[Background Transfer] Removed our earlier upload of deleted ${path}.`, "info");
+            }
+            forgetAttemptedUpload(ctx, path);
+            await saveIndex(ctx);
+        } catch (e) {
+            await ctx.log(`[Background Transfer] Could not settle earlier upload of ${path}: ${e}`, "warn");
+        }
+    }
+
     private async executePush(ctx: SyncContext, item: TransferItem): Promise<void> {
         // Capture dirty timestamp before any async work so we can detect
         // if markDirty() was called again during our async operations
@@ -314,6 +360,7 @@ export class BackgroundTransferQueue {
                 `[Background Transfer] File deleted since enqueue: ${item.path}`,
                 "warn",
             );
+            await this.settleOrphanedUpload(ctx, item.path);
             this.completeItem(item, "cancelled");
             return;
         }
@@ -366,6 +413,37 @@ export class BackgroundTransferQueue {
             const remoteHash = remoteMeta.hash;
             if (
                 remoteHash &&
+                (!lastKnownHash || lastKnownHash.toLowerCase() !== remoteHash.toLowerCase()) &&
+                !ctx.e2eeEnabled &&
+                remoteHash.toLowerCase() === md5(item.content!)
+            ) {
+                // The cloud already has exactly this content: our own earlier upload whose
+                // result was never recorded (the app was closed while it was in flight).
+                // Treating it as a conflict deferred the file to the sync cycle, which
+                // deferred it back here, forever.
+                const entry = {
+                    fileId: remoteMeta.id,
+                    mtime: item.mtime!,
+                    size: remoteMeta.size,
+                    hash: remoteHash.toLowerCase(),
+                    plainHash: await hashContent(item.content!),
+                    lastAction: "push" as const,
+                    ancestorHash: remoteHash.toLowerCase(),
+                };
+                ctx.index[item.path] = entry;
+                ctx.localIndex[item.path] = { ...entry };
+                forgetAttemptedUpload(ctx, item.path);
+                if (ctx.dirtyPaths.get(item.path) === dirtyAt) ctx.dirtyPaths.delete(item.path);
+                await ctx.log(
+                    `[Background Transfer] ${item.path} is already in the cloud (our own earlier upload).`,
+                    "info",
+                );
+                await this.uploadIndex(ctx);
+                this.completeItem(item, "completed");
+                return;
+            }
+            if (
+                remoteHash &&
                 (!lastKnownHash || lastKnownHash.toLowerCase() !== remoteHash.toLowerCase())
             ) {
                 await ctx.log(
@@ -382,6 +460,10 @@ export class BackgroundTransferQueue {
         }
 
         const targetFileId = remoteMeta?.id || ctx.index[item.path]?.fileId;
+        // Write-ahead record (as for inline uploads): if the app is closed while this
+        // upload is in flight, the next start recognises the cloud version as ours.
+        recordAttemptedUpload(ctx, item.path, md5(item.content!));
+        await saveLocalIndex(ctx, true);
         let uploaded: CloudFile;
         if (ctx.adapter.uploadFileResumable) {
             uploaded = await ctx.adapter.uploadFileResumable(
@@ -399,6 +481,7 @@ export class BackgroundTransferQueue {
             );
         }
 
+        forgetAttemptedUpload(ctx, item.path);
         const plainHash = await hashContent(item.content!);
 
         const previousAncestorHash = ctx.localIndex[item.path]?.ancestorHash;

@@ -740,7 +740,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                     let remoteMeta: CloudFile | null = null;
                     try {
                         const params = {
-                            fileId: ctx.index[file.path]?.fileId,
+                            fileId: ctx.index[file.path]?.fileId ?? ctx.localIndex[file.path]?.fileId,
                             path: file.path,
                         };
                         // A failed lookup must NOT be treated as "not on remote": uploading

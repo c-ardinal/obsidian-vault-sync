@@ -175,6 +175,20 @@ export async function buildRemoteIndexPayload(ctx: SyncContext): Promise<ArrayBu
     } catch (e) {
         await ctx.log(`[Index] Could not merge remote index, uploading local index as-is: ${e}`, "warn");
     }
+    // Cloud files we know of but have not pulled yet (deferred to the background queue,
+    // or failed). The index carries our Changes token, which is already past them: a
+    // device doing its first sync from this index read changes only after that token,
+    // so a file missing here was never pulled there at all.
+    for (const { file } of pendingPullsOf(ctx).values()) {
+        if (!file.path || merged[file.path] || file.path === ctx.pluginDataPath) continue;
+        if (Object.values(merged).some((e) => e.fileId === file.id)) continue;
+        merged[file.path] = {
+            fileId: file.id,
+            mtime: file.mtime ?? 0,
+            size: file.size,
+            hash: file.hash,
+        } as LocalFileIndex[string];
+    }
     // A local rename not yet applied in the cloud: other devices that sync from this
     // index would pull the file by id under its new name while still holding it under
     // the old one (two copies, and the real move then finds its target taken). List it

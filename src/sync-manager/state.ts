@@ -15,6 +15,7 @@ import {
     restoreAttemptedUploads,
     pendingPullsSnapshot,
     restorePendingPulls,
+    peekAttemptedUpload,
 } from "./sync-helpers";
 
 function generateDeviceId(): string {
@@ -481,6 +482,9 @@ export async function loadLocalIndex(ctx: SyncContext): Promise<void> {
             const parsed = JSON.parse(data);
             ctx.localIndex = parsed.index || {};
             ctx.deviceId = parsed.deviceId || "";
+            journalOf(ctx).seq = typeof parsed.journalSeq === "number" ? parsed.journalSeq : 0;
+            await applyJournal(ctx, journalOf(ctx).seq);
+            rememberWritten(ctx);
             restoreAttemptedUploads(ctx, parsed.attemptedUploads);
             restorePendingPulls(ctx, parsed.pendingPulls);
             // The background queue does not survive a restart. Its owed pulls are in
@@ -569,22 +573,100 @@ export async function saveIndex(ctx: SyncContext): Promise<void> {
     await saveLocalIndex(ctx, true);
 }
 
+/**
+ * Local-index journal. Inside a sync cycle full writes of the local index are batched
+ * (one per LOCAL_INDEX_CHECKPOINT_EVERY changes). If the app was closed in between,
+ * files pulled since the last write had no entry after the restart, and the next pull
+ * of such a file found "no base" and made a conflict copy. Between full writes only
+ * the entries that changed are written, to a small journal applied on load.
+ */
+interface JournalState {
+    /** Entry objects as last written in full (compared by identity) */
+    written: Map<string, unknown>;
+    seq: number;
+    journalDirty: boolean;
+}
+const journals = new WeakMap<object, JournalState>();
+
+function journalOf(ctx: SyncContext): JournalState {
+    let j = journals.get(ctx);
+    if (!j) journals.set(ctx, (j = { written: new Map(), seq: 0, journalDirty: false }));
+    return j;
+}
+
+export function localIndexJournalPath(ctx: SyncContext): string {
+    return ctx.localIndexPath.replace(/\.json$/, "") + "-journal.json";
+}
+
+function rememberWritten(ctx: SyncContext): void {
+    const j = journalOf(ctx);
+    j.written = new Map(Object.entries(ctx.localIndex));
+}
+
+async function writeJournal(ctx: SyncContext): Promise<void> {
+    const j = journalOf(ctx);
+    const changed: Record<string, unknown> = {};
+    let n = 0;
+    for (const [p, e] of Object.entries(ctx.localIndex)) {
+        if (j.written.get(p) !== e) {
+            changed[p] = e;
+            n++;
+        }
+    }
+    for (const p of j.written.keys()) {
+        if (!(p in ctx.localIndex)) {
+            changed[p] = null;
+            n++;
+        }
+    }
+    if (n === 0 && !j.journalDirty) return;
+    try {
+        await ctx.vault.write(localIndexJournalPath(ctx), JSON.stringify({ seq: j.seq, entries: changed }));
+        j.journalDirty = n > 0;
+    } catch (e) {
+        console.error("Vault-Sync: Failed to write local index journal", e);
+    }
+}
+
+async function applyJournal(ctx: SyncContext, seq: number): Promise<void> {
+    const path = localIndexJournalPath(ctx);
+    try {
+        if (!(await ctx.vault.exists(path))) return;
+        const parsed = JSON.parse(await ctx.vault.read(path));
+        // Written before the last full write: already contained in it
+        if (parsed?.seq !== seq || !parsed.entries) return;
+        for (const [p, e] of Object.entries(parsed.entries as Record<string, unknown>)) {
+            if (e === null) delete ctx.localIndex[p];
+            else ctx.localIndex[p] = e as SyncContext["localIndex"][string];
+        }
+    } catch {
+        // a torn journal is ignored: the full index is still consistent
+    }
+}
+
 export async function saveLocalIndex(ctx: SyncContext, immediate = false): Promise<void> {
     const s = cycleState(ctx);
     if (s.deferDepth > 0 && !immediate) {
         s.localIndexDirty = true;
-        if (++s.skippedLocalIndexSaves < LOCAL_INDEX_CHECKPOINT_EVERY) return;
+        if (++s.skippedLocalIndexSaves < LOCAL_INDEX_CHECKPOINT_EVERY) {
+            await writeJournal(ctx);
+            return;
+        }
     }
     s.localIndexDirty = false;
     s.skippedLocalIndexSaves = 0;
+    const j = journalOf(ctx);
     try {
+        j.seq++;
         const data = JSON.stringify({
             index: ctx.localIndex,
             deviceId: ctx.deviceId,
             attemptedUploads: attemptedUploadsSnapshot(ctx),
             pendingPulls: pendingPullsSnapshot(ctx),
+            journalSeq: j.seq,
         });
         await ctx.vault.write(ctx.localIndexPath, data);
+        rememberWritten(ctx);
     } catch (e) {
         console.error("Vault-Sync: Failed to save local index", e);
     }
@@ -754,7 +836,9 @@ export function markRenamed(ctx: SyncContext, oldPath: string, newPath: string):
     const isMove = oldDir !== newDir;
 
     // 未同期ファイルのリネーム/移動（oldPath がインデックスになく dirtyPaths にある）
-    if (ctx.dirtyPaths.has(oldPath) && !ctx.index[oldPath]) {
+    // After a restart the dirty set is empty, but a saved upload record still says the
+    // file was never confirmed: its lost upload may be in the cloud under the old name.
+    if (!ctx.index[oldPath] && (ctx.dirtyPaths.has(oldPath) || peekAttemptedUpload(ctx, oldPath))) {
         noteUnsyncedRename(ctx, oldPath, newPath);
         ctx.dirtyPaths.delete(oldPath);
         ctx.dirtyPaths.set(newPath, Date.now());
@@ -799,6 +883,16 @@ export function markRenamed(ctx: SyncContext, oldPath: string, newPath: string):
         `[Dirty] Marked (${isMove ? "moved" : "renamed"}): ${newPath} (Migrated ID from ${oldPath})`,
         "debug",
     );
+    persistMove(ctx);
+}
+
+/**
+ * Save a rename at once: it lives only in memory until the next push, and if the app
+ * was closed before that, the next start saw the old name as deleted and the new one
+ * as a new note, so the note ended up twice in the cloud.
+ */
+function persistMove(ctx: SyncContext): void {
+    void saveIndex(ctx).catch((e) => console.error("Vault-Sync: Failed to save index after a rename", e));
 }
 
 export function markFolderRenamed(
@@ -850,6 +944,7 @@ export function markFolderRenamed(
             );
         }
     }
+    persistMove(ctx);
 }
 
 // === State Queries ===

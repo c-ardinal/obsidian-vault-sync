@@ -620,6 +620,34 @@ async function pullFileUnchecked(
                     `[${logPrefix}] ${item.path}: our earlier upload (response lost) is the common base.`,
                     "info",
                 );
+            } else if (!sent && !ctx.dirtyPaths.has(item.path) && supportsHistory(ctx)) {
+                // (A note the user is writing is dirty: it is not an old pulled copy.)
+                // No record at all, but the local file may be an older version of this very
+                // cloud file: we pulled it and the app was closed before our index was saved.
+                // Then it is the base and the remote version simply replaces it; without
+                // this, an untouched note came back as a conflict copy of itself.
+                const local = md5(await ctx.vault.readBinary(item.path));
+                const older =
+                    item.hash && local !== item.hash.toLowerCase()
+                        ? await findOwnUploadInHistory(ctx, item.path, fileId, local)
+                        : null;
+                if (older) {
+                    const entry = {
+                        fileId,
+                        mtime: item.mtime ?? Date.now(),
+                        size: item.size ?? 0,
+                        hash: older.hash,
+                        plainHash: older.plainHash ?? (await hashContent(await ctx.vault.readBinary(item.path))),
+                        lastAction: "pull" as const,
+                        ancestorHash: older.hash,
+                    };
+                    ctx.index[item.path] = { ...entry };
+                    ctx.localIndex[item.path] = { ...entry };
+                    await ctx.log(
+                        `[${logPrefix}] ${item.path}: local copy is an earlier version of the cloud file; using it as the base.`,
+                        "info",
+                    );
+                }
             }
         }
         if (exists) {
