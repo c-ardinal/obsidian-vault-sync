@@ -406,33 +406,68 @@ export function shouldIgnore(ctx: SyncContext, path: string): boolean {
     return isManagedSeparately(path) || shouldNotBeOnRemote(ctx, path);
 }
 
-/**
- * Calculate MD5 hash of content (for plaintext comparison in E2EE scenarios)
- * @param content - ArrayBuffer containing the file content
- * @returns MD5 hash of the content as a lowercase hex string
- */
 export function normalizeLineEndings(s: string): string {
     return s.replace(/\r\n/g, "\n");
 }
 
 const strictUtf8 = new TextDecoder("utf-8", { fatal: true });
 
-export async function hashContent(content: ArrayBuffer): Promise<string> {
-    // Fast path: valid UTF-8 without CR and without BOM decodes and re-encodes to the
-    // very same bytes, so hash them directly (no string copy of a large file).
-    const bytes = new Uint8Array(content);
-    const hasBom = bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf;
-    if (!hasBom && bytes.indexOf(0x0d) === -1) {
-        try {
-            strictUtf8.decode(bytes);
-            return md5(content);
-        } catch {
-            // not UTF-8 (binary): fall through to the original computation
-        }
+/** The text of `bytes`, or null if they are not valid UTF-8 (a binary file). */
+function decodeUtf8(bytes: Uint8Array): string | null {
+    try {
+        return strictUtf8.decode(bytes);
+    } catch {
+        return null;
     }
-    // Normalize line endings for consistent hash calculation across platforms
-    const contentStr = new TextDecoder().decode(content);
-    const normalizedContent = normalizeLineEndings(contentStr);
-    const normalizedBuffer = new TextEncoder().encode(normalizedContent).buffer;
-    return md5(normalizedBuffer);
+}
+
+/**
+ * Hash of a file's content, used to tell whether the plaintext changed (with an
+ * add-on whose cloud hashes are not of the plaintext).
+ *
+ * UTF-8 text is hashed with CRLF folded to LF and without a BOM, so the same note
+ * saved on different platforms has one hash. Anything else is hashed as raw bytes:
+ * decoding it as text replaced every invalid byte with U+FFFD, so two files that
+ * differed only in such bytes had the same hash and an edit could go unnoticed.
+ * Hashes stored before that change are handled by plain-hash-migration.ts.
+ */
+export async function hashContent(content: ArrayBuffer): Promise<string> {
+    const bytes = new Uint8Array(content);
+    const text = decodeUtf8(bytes);
+    if (text === null) return md5(content);
+    // Fast path: valid UTF-8 without CR and without BOM decodes and re-encodes to the
+    // very same bytes, so hash them directly.
+    const hasBom = bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf;
+    if (!hasBom && bytes.indexOf(0x0d) === -1) return md5(content);
+    // The decoder already dropped the BOM; normalize line endings.
+    return md5(new TextEncoder().encode(normalizeLineEndings(text)).buffer as ArrayBuffer);
+}
+
+/**
+ * The hash older versions stored for `content`, when it differs from hashContent's:
+ * only for content that is not valid UTF-8, which they decoded lossily as text.
+ * Returns null when both are the same.
+ */
+export function legacyHashContent(content: ArrayBuffer): string | null {
+    if (decodeUtf8(new Uint8Array(content)) !== null) return null;
+    const lossy = normalizeLineEndings(new TextDecoder().decode(content));
+    return md5(new TextEncoder().encode(lossy).buffer as ArrayBuffer);
+}
+
+/**
+ * Whether a plaintext hash taken from an index describes `content`. Index entries
+ * written by an older version (another device not yet updated, or an entry the
+ * one-time migration could not convert) hold the old hash for non-UTF-8 files;
+ * those are accepted too, or every such file would look changed and be merged or
+ * uploaded again. `current` is hashContent(content) if the caller already has it.
+ */
+export async function plainHashMatches(
+    stored: string | undefined,
+    content: ArrayBuffer,
+    current?: string,
+): Promise<boolean> {
+    if (!stored) return false;
+    const s = stored.toLowerCase();
+    if ((current ?? (await hashContent(content))) === s) return true;
+    return legacyHashContent(content) === s;
 }

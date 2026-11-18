@@ -1,7 +1,7 @@
 import { TFile } from "obsidian";
 import { md5 } from "../utils/md5";
 import type { SyncContext } from "./context";
-import { ensureLocalFolder, hashContent, normalizeLineEndings } from "./file-utils";
+import { ensureLocalFolder, hashContent, normalizeLineEndings, plainHashMatches } from "./file-utils";
 import {
     checkMergeLock,
     acquireMergeLock,
@@ -402,7 +402,7 @@ async function hashOfDownload(
     let hash = item.hash || "";
     if (!fileId) return hash;
     if (item.plainHash) {
-        if (item.plainHash.toLowerCase() !== plainHash.toLowerCase()) {
+        if (!(await plainHashMatches(item.plainHash, content, plainHash.toLowerCase()))) {
             const current = await ctx.adapter.getFileMetadataById(fileId, item.path).catch(() => null);
             if (current?.hash) hash = current.hash;
         }
@@ -703,7 +703,7 @@ async function pullFileUnchecked(
                         // Remote hash is of the ciphertext; compare plaintext hashes instead
                         const localPlain = await hashContent(localContent);
                         if (item.plainHash) {
-                            isActuallyModified = item.plainHash !== localPlain;
+                            isActuallyModified = !(await plainHashMatches(item.plainHash, localContent, localPlain));
                         } else if (fileId) {
                             // No plaintext hash in the index (e.g. our own upload whose response
                             // was lost, before our index was written): compare the content
@@ -730,8 +730,7 @@ async function pullFileUnchecked(
                     let contentMatches = false;
                     if (ctx.e2eeEnabled && item.plainHash) {
                         // E2EE with remote plainHash: compare plaintext hashes
-                        const currentPlainHash = await hashContent(localContent);
-                        contentMatches = currentPlainHash === item.plainHash;
+                        contentMatches = await plainHashMatches(item.plainHash, localContent);
                     } else if (!ctx.e2eeEnabled) {
                         contentMatches = !!(item.hash && currentHash === item.hash.toLowerCase());
                     } else if (fileId && hasRemoteConflict && isActuallyModified) {
