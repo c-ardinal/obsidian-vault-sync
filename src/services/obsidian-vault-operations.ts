@@ -15,11 +15,7 @@ export class ObsidianVaultOperations implements IVaultOperations {
     }
 
     stat(path: string): Promise<{ ctime: number; mtime: number; size: number } | null> {
-        return this.app.vault.adapter.stat(path) as Promise<{
-            ctime: number;
-            mtime: number;
-            size: number;
-        } | null>;
+        return this.app.vault.adapter.stat(path);
     }
 
     read(path: string): Promise<string> {
@@ -99,7 +95,7 @@ export class ObsidianVaultOperations implements IVaultOperations {
     // ── Optional platform-specific ───────────────────────────────────
 
     getBasePath(): string | null {
-        const adapter = this.app.vault.adapter as any;
+        const adapter = this.app.vault.adapter as { getBasePath?: () => string };
         return typeof adapter.getBasePath === "function" ? adapter.getBasePath() : null;
     }
 }

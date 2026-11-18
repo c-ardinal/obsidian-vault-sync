@@ -302,13 +302,13 @@ function createHistoryProxy(real: SyncManager): SyncManager {
                 case "notify":
                     return async () => {};
                 default:
-                    return (target as any)[prop];
+                    return (target as unknown as Record<string | symbol, unknown>)[prop];
             }
         },
         set() {
             return true; // silently ignore writes (e.g. currentTrigger)
         },
-    }) as SyncManager;
+    });
 }
 
 function createTransferProxy(real: SyncManager): SyncManager {
@@ -320,10 +320,10 @@ function createTransferProxy(real: SyncManager): SyncManager {
                 case "getTransferHistory":
                     return () => [...DEMO_TRANSFER_HISTORY];
                 default:
-                    return (target as any)[prop];
+                    return (target as unknown as Record<string | symbol, unknown>)[prop];
             }
         },
-    }) as SyncManager;
+    });
 }
 
 function createAppProxyForHistory(real: App): App {
@@ -335,13 +335,13 @@ function createAppProxyForHistory(real: App): App {
                         if (vp === "read") {
                             return async () => DEMO_LOCAL_CONTENT;
                         }
-                        return (vt as any)[vp];
+                        return (vt as unknown as Record<string | symbol, unknown>)[vp];
                     },
                 });
             }
-            return (target as any)[prop];
+            return (target as unknown as Record<string | symbol, unknown>)[prop];
         },
-    }) as App;
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -364,7 +364,7 @@ export function openDemoHistoryModal(app: App, syncManager: SyncManager): void {
         vault: app.vault,
         parent: null,
     };
-    new HistoryModal(mockApp, mockSM, mockFile as any).open();
+    new HistoryModal(mockApp, mockSM, mockFile).open();
 }
 
 /**

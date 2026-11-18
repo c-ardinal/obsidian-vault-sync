@@ -78,8 +78,11 @@ export class VaultLockService {
         if (!meta) return null;
         try {
             const content = await this.baseAdapter.downloadFile(meta.id);
-            return JSON.parse(new TextDecoder().decode(content));
-        } catch (e) {
+            return JSON.parse(new TextDecoder().decode(content)) as {
+                deviceId: string;
+                timestamp: number;
+            };
+        } catch {
             return null;
         }
     }

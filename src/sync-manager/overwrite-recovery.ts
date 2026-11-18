@@ -118,9 +118,9 @@ async function detectOverwrite(ctx: SyncContext, path: string, check: PendingChe
         };
     } catch (e) {
         let checks = pendingChecks.get(ctx);
-        if (!checks) pendingChecks.set(ctx, (checks = new Map()));
+        if (!checks) pendingChecks.set(ctx, (checks = new Map<string, PendingCheck>()));
         checks.set(path, check);
-        await ctx.log(`[Overwrite Check] Could not read the history of ${path}: ${e}. Checking again later.`, "debug");
+        await ctx.log(`[Overwrite Check] Could not read the history of ${path}: ${String(e)}. Checking again later.`, "debug");
         return null;
     }
 
@@ -250,7 +250,7 @@ async function repairUnderLock(
         await ctx.log(`[Overwrite Check] Merged the overwritten edits back into ${path} and uploaded it.`, "info");
         return true;
     } catch (e) {
-        await ctx.log(`[Overwrite Check] Repair of ${path} failed: ${e}`, "warn");
+        await ctx.log(`[Overwrite Check] Repair of ${path} failed: ${String(e)}`, "warn");
         return false;
     } finally {
         await releaseMergeLock(ctx, path, "Overwrite Check");

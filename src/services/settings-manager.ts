@@ -1,6 +1,6 @@
 import type { IVaultOperations } from "../types/vault-operations";
 import type { GoogleDriveAdapter } from "../cloud-adapters/google-drive";
-import { SecureStorage } from "./secure-storage";
+import { SecureStorage, type SecretStorage } from "./secure-storage";
 import { DEFAULT_SETTINGS } from "../constants";
 import {
     DATA_LOCAL_DIR,
@@ -14,7 +14,7 @@ interface SettingsManagerDeps {
     vaultOps: IVaultOperations;
     manifestDir: string;
     adapter: GoogleDriveAdapter;
-    appSecretStorage: any;
+    appSecretStorage: SecretStorage | null | undefined;
 }
 
 /**
@@ -40,7 +40,9 @@ export class SettingsManager {
 
         if (await vaultOps.exists(openDataPath)) {
             try {
-                const openData = JSON.parse(await vaultOps.read(openDataPath));
+                const openData = JSON.parse(
+                    await vaultOps.read(openDataPath),
+                ) as Partial<VaultSyncSettings>;
                 loadedSettings = { ...loadedSettings, ...openData };
             } catch (e) {
                 console.error("Vault-Sync: Failed to load open-data.json", e);
@@ -49,7 +51,9 @@ export class SettingsManager {
 
         if (await vaultOps.exists(localDataPath)) {
             try {
-                const localData = JSON.parse(await vaultOps.read(localDataPath));
+                const localData = JSON.parse(
+                    await vaultOps.read(localDataPath),
+                ) as Partial<VaultSyncSettings>;
                 loadedSettings = { ...loadedSettings, ...localData };
             } catch (e) {
                 console.error("Vault-Sync: Failed to load local-data.json", e);
