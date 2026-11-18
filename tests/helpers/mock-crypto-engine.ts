@@ -151,14 +151,15 @@ export function createMockEngine(overrides?: Partial<ICryptoEngine>): ICryptoEng
             return header;
         },
 
-        async *encryptChunks(data: ArrayBuffer) {
+        async *encryptChunks(data: ArrayBuffer, header?: Uint8Array) {
             const chunkSize = this.getOptimalChunkSize();
             const totalChunks = Math.max(1, Math.ceil(data.byteLength / chunkSize));
+            header ??= this.buildChunkedHeader(data.byteLength);
             for (let i = 0; i < totalChunks; i++) {
                 const start = i * chunkSize;
                 const end = Math.min(start + chunkSize, data.byteLength);
                 const { iv, ciphertext } = await this.encrypt(data.slice(start, end));
-                yield { iv, ciphertext, index: i, totalChunks };
+                yield { iv, ciphertext, index: i, totalChunks, header };
             }
         },
 

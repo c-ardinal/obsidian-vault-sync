@@ -667,6 +667,20 @@ describe("EncryptedAdapter streaming upload (Phase 2)", () => {
         expect(arraysEqual(decrypted, original)).toBe(true);
     });
 
+    it("passes the header it writes to encryptChunks (the engine binds chunks to it)", async () => {
+        const baseAdapter = createChunkedMockBaseAdapter();
+        const chunksSpy = vi.spyOn(engine, "encryptChunks");
+        const adapter = new EncryptedAdapter(baseAdapter, engine, 100);
+
+        const result = await adapter.uploadFileResumable("test.md", makePatternBuffer(3000), Date.now());
+
+        expect(chunksSpy).toHaveBeenCalledOnce();
+        const passed = chunksSpy.mock.calls[0][1] as Uint8Array;
+        expect(passed).toBeInstanceOf(Uint8Array);
+        const raw = new Uint8Array(baseAdapter.getStoredContent(result.id)!);
+        expect(raw.slice(0, passed.byteLength)).toEqual(passed);
+    });
+
     it("small file does NOT use streaming path", async () => {
         const baseAdapter = createChunkedMockBaseAdapter();
         const initSpy = vi.spyOn(baseAdapter, "initiateResumableSession" as any);

@@ -108,23 +108,32 @@ export interface ICryptoEngine {
     /** Return the optimal plaintext chunk size so encrypted chunks align to 256 KiB boundaries. */
     getOptimalChunkSize(): number;
 
-    // Chunked encryption (VSC2)
-    /** Check whether data starts with the VSC2 chunked format magic header. */
+    // Chunked encryption (large files)
+    /** Check whether data starts with a chunked-format magic header. */
     isChunkedFormat(data: ArrayBuffer): boolean;
-    /** Encrypt data into VSC2 chunked format. */
+    /** Encrypt data into the chunked format. */
     encryptChunked(data: ArrayBuffer): Promise<ArrayBuffer>;
-    /** Decrypt VSC2 chunked-format data back to plaintext. */
+    /** Decrypt chunked-format data back to plaintext. */
     decryptChunked(data: ArrayBuffer): Promise<ArrayBuffer>;
-    /** Calculate the total encrypted size for a given plaintext size in VSC2 format. */
+    /** Calculate the total encrypted size for a given plaintext size in the chunked format. */
     calculateChunkedSize(plaintextSize: number): number;
-    /** Build the VSC2 header for a given plaintext size. */
+    /** Build the chunked-format header for a given plaintext size. */
     buildChunkedHeader(plaintextSize: number): Uint8Array;
-    /** Encrypt data as a stream of chunks for use with resumable uploads. */
-    encryptChunks(data: ArrayBuffer): AsyncGenerator<{
+    /**
+     * Encrypt data as a stream of chunks for use with resumable uploads.
+     * `header` is the one from buildChunkedHeader that is written in front of the
+     * chunks: newer engines bind every chunk to it (and to its position), so the
+     * same header must be passed here. Older engines ignore it.
+     */
+    encryptChunks(
+        data: ArrayBuffer,
+        header?: Uint8Array,
+    ): AsyncGenerator<{
         iv: Uint8Array;
         ciphertext: ArrayBuffer;
         index: number;
         totalChunks: number;
+        header?: Uint8Array;
     }>;
 
     // Recovery
