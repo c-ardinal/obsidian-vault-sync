@@ -6,7 +6,7 @@
 
 ## 1. 設計思想
 
-特定のクラウドストレージAPIに依存しない汎用的な同期エンジン。`sync-index.json` をコア機構として高速差分検知を行い、Changes API等の拡張機能がある場合はさらに高速化する。
+特定のクラウドストレージAPIに依存しない汎用的な同期エンジン。`sync-index.json` をコア機構として高速差分検知を行い、Changes API等の拡張機能が存在する際はさらに高速化する。
 
 ## 2. 同期モード
 
@@ -37,9 +37,9 @@ flowchart TD
     L --> M[Smart Sync 完了]
 ```
 
-#### 高速化の仕組み
+#### 高速化の機構
 
-| 処理                     | API呼び出し             | 計算量    |
+| 処理                     | APIコール             | 計算量    |
 | :----------------------- | :---------------------- | :-------- |
 | Changes API使用時        | `getChanges(token)` 1回 | O(変更数) |
 | ハッシュ比較（変更なし） | `getFileInfo` 1回       | O(1)      |
@@ -92,7 +92,7 @@ sequenceDiagram
 ### 3.3 イベントキューイング
 
 - 同期中の新イベントは1つに統合される（重複排除）
-- `Silent=true`（バックグラウンド）と`Silent=false`（手動）が競合した場合、Non-silent（通知表示）が優先される
+- `Silent=true`（バックグラウンド）と`Silent=false`（手動）が競合した際は、Non-silent（通知表示）が優先される
 - 同期が完了した直後に統合されたイベントで再同期が開始される
 
 ## 4. 同期トリガー
@@ -103,7 +103,7 @@ sequenceDiagram
 | **Auto Sync**     | 定期インターバル | `autoSyncIntervalSec` で設定         |
 | **File Modify**   | ファイル編集     | `onModifyDelaySec` でDebounce        |
 | **Ctrl+S (Save)** | 手動保存         | `onSaveDelaySec` で遅延設定          |
-| **Layout Change** | ファイル切替     | `onLayoutChangeDelaySec` で遅延設定  |
+| **Layout Change** | 表示ファイル変更 | `onLayoutChangeDelaySec` で遅延設定  |
 
 ## 5. Index管理
 
@@ -126,7 +126,7 @@ type SyncIndex = Record<string, SyncIndexEntry>;
 
 ### 5.2 Index Shortcut
 
-リモートの `sync-index.json` のハッシュ（またはETag）とローカルの記録が一致する場合、変更なしと見なしてPull全体をスキップする。
+リモートの `sync-index.json` のハッシュ（またはETag）とローカルの記録が一致する際は、変更なしと判断してPull全体をスキップする。
 
 ### 5.3 Adoption Logic
 
@@ -139,14 +139,14 @@ type SyncIndex = Record<string, SyncIndexEntry>;
 1. リモートの変更を検知（Changes API or Index比較）
 2. 変更ファイルのダウンロード
 3. ダウンロード前にローカルの変更有無をMD5で検証
-4. 変更がある場合 → 競合解決（[競合解決仕様](conflict-resolution.md) 参照）
+4. 変更が存在する際 → 競合解決（[競合解決仕様](conflict-resolution.md) 参照）
 5. ローカルインデックス更新
 
 ### 6.2 Push（ローカル → リモート）
 
 1. Dirty Listから変更ファイルを抽出
 2. リモートフォルダの一括作成（深さ順、レースコンディション回避）
-3. 並列アップロード（`concurrency` 設定に基づく）
+3. 並列アップロード（`concurrency` 設定に準拠）
 4. アップロード直前にリモートハッシュを検証（楽観的ロック）
     - 競合検知時は `pullFileSafely` でマージし、**同一サイクル内でマージ済みファイルを即座にアップロード**（Deadlock Breaking Immediate Upload）
 5. マスターインデックスをクラウドへ保存
@@ -164,12 +164,12 @@ type SyncIndex = Record<string, SyncIndexEntry>;
 | **401 Unauthorized**      | トークンリフレッシュ後にリトライ（実装済み）                                          |
 | **ネットワーク切断**      | `window.addEventListener('online', ...)` でオフライン時は待機し、復帰と同時にリトライ |
 
-- モバイル環境ではバックグラウンド復帰時に `online` イベントが発火しない場合があるため、`window.onfocus` でのチェックも併用する
-- Backoffによる定期的な再試行と組み合わせ、全プラットフォームでの確実な復帰を実現する
+- モバイル環境ではバックグラウンド復帰時に `online` イベントが発火しない可能性があるため、`window.onfocus` でのチェックも併用する
+- Backoffによる定期的な再試行と併用し、全プラットフォームでの確実な復帰を実現する
 
 ### 7.2 フォルダ作成の中断
 
-`ensureFoldersExist` は複数フォルダを再帰的に作成するが、途中でエラーが発生した場合はフォルダ構造が不完全な状態となりうる。次回の同期で再作成されるため特別なロールバックは不要だが、エラーログを明確に残す。
+`ensureFoldersExist` は複数フォルダを再帰的に作成するが、途中でエラーが発生した際はフォルダ構造が不完全な状態となりうる。次回の同期で再作成されるため特別なロールバックは不要だが、エラーログを明確に記録する。
 
 詳細なログの記録レベルおよび永続化ポリシーについては、[ログ出力仕様](logging.md) を参照。
 
@@ -200,9 +200,9 @@ fullScanProgress: {
 } | null;
 
 // Changes API用（対応アダプターのみ）
-changesToken?: string;            // 次回getChanges()に渡すトークン
+changesToken?: string;            // 次回getChanges()の引数トークン
 
-// 割り込み制御
+// インタラプト制御
 isInterrupted: boolean;           // Full Scan中断フラグ
 ```
 

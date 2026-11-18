@@ -284,7 +284,7 @@
                 </header>
 
                 <p class="intro hero-item" style="--d: 2">
-                    Vault-Syncは、クラウドストレージを介してObsidianのVaultを複数デバイス間でシームレスに同期するプラグインです。すべての同期処理はデバイスとクラウドストレージ間で直接行われ、中間サーバーを経由しません。
+                    Vault-Syncは、クラウドストレージを介してObsidianのVaultを複数デバイス間でシームレスに同期するプラグインです。全同期処理はデバイスとクラウドストレージ間で直接実行され、中間サーバーを経由しません。
                 </p>
 
                 <div class="links hero-item" style="--d: 3">
@@ -293,7 +293,7 @@
                         class="primary"
                         target="_blank"
                         rel="noopener"
-                        ><i data-lucide="github"></i>GitHubで見る</a
+                        ><i data-lucide="github"></i>GitHubで表示</a
                     >
                     <a href="tos/#ja" class="secondary"><i data-lucide="file-text"></i>利用規約</a>
                     <a href="privacy/#ja" class="secondary"
@@ -304,7 +304,7 @@
                 <div class="getting-started">
                     <h2 class="section-title" data-reveal>
                         <i data-lucide="rocket"></i>
-                        はじめかた
+                        導入手順
                     </h2>
                     <div class="steps">
                         <div class="step" data-reveal style="--i: 0">
@@ -322,10 +322,10 @@
                             <div class="step-content">
                                 <h3>クラウドサービスへログイン</h3>
                                 <p>
-                                    Vault-Syncの設定タブを開き、<strong>ログイン</strong>をクリック。
+                                    Vault-Syncの設定タブを表示し、<strong>ログイン</strong>をクリック。
                                 </p>
                                 <p>
-                                    ブラウザで認証画面が開くのでアクセスを許可すると自動的にObsidianに戻る。
+                                    ブラウザに表示される認証画面でアクセスを許可すると、自動的にObsidianへ復帰。
                                 </p>
                             </div>
                         </div>
@@ -333,7 +333,7 @@
                             <span class="step-number">3</span>
                             <div class="step-content">
                                 <h3>同期開始</h3>
-                                <p>起動時と一定間隔で自動的にVaultが同期される。</p>
+                                <p>起動時と一定間隔でVaultを自動同期。</p>
                                 <p>リボンアイコンまたはコマンドパレットから手動同期も可能。</p>
                             </div>
                         </div>
@@ -348,15 +348,15 @@
                     <div class="feature-card" data-reveal style="--i: 0">
                         <h3><i data-lucide="cloud-upload"></i>クラウド同期</h3>
                         <p>
-                            デスクトップとモバイルの両方でVaultを同期。起動時、タイマー、保存時、編集後、タブ切替などのレイアウト変更時といった、柔軟なトリガー設定に対応。
+                            デスクトップとモバイルの両方でVaultを同期。起動時、タイマー、保存時、編集後、タブ移動などのレイアウト変更時といった、柔軟なトリガー設定に対応。
                         </p>
                     </div>
                     <div class="feature-card" data-reveal style="--i: 1">
                         <h3><i data-lucide="git-merge"></i>スマートマージ</h3>
                         <p>
-                            複数デバイスで同じファイルを編集した場合、自動的に競合を解決。他にもローカル優先、リモート優先、常にフォークといったマージ戦略から選択可能。大文字・小文字やUnicodeの表記だけが異なる名前のノートは、上書きせず<code
+                            複数デバイスで同一ファイルを編集した際も、自動的に競合を解決。ローカル優先、リモート優先、常時フォークといったマージ戦略も選択可能。大文字・小文字やUnicodeの表記のみが相違する名前のノートは、上書きせず<code
                                 >名前 (2).md</code
-                            >として両方残します。
+                            >として両方を保持します。
                         </p>
                     </div>
                     <div class="feature-card" data-reveal style="--i: 2">
@@ -367,7 +367,7 @@
                                 target="_blank"
                                 rel="noopener"
                                 >E2EEエンジン</a
-                            >（任意）を導入すると、Vault全体をAES-256-GCMで暗号化してからアップロード。エンジンは別配布のアドオンで、プラグインの設定画面からデスクトップでもモバイルでも数タップで導入可能。パスワード変更、リカバリーコード、大容量ファイルのストリーミング暗号化に対応。鍵はパスワードからPBKDF2で導出し、パスワードがデバイス外に出ることはありません。
+                            >（任意）を導入すると、Vault全体をAES-256-GCMで暗号化した上でアップロード。エンジンは別途配布のアドオンで、プラグインの設定画面から、デスクトップ・モバイルとも数タップで導入可能。パスワード変更、リカバリーコード、大容量ファイルのストリーミング暗号化に対応。暗号鍵はパスワードからPBKDF2で導出し、パスワードがデバイス外部に送信されることはありません。
                         </p>
                     </div>
                     <div class="feature-card" data-reveal style="--i: 3">
@@ -377,27 +377,27 @@
                         </p>
                     </div>
                     <div class="feature-card" data-reveal style="--i: 4">
-                        <h3><i data-lucide="sliders-horizontal"></i>きめ細かな同期制御</h3>
+                        <h3><i data-lucide="sliders-horizontal"></i>詳細な同期制御</h3>
                         <p>
-                            テーマ、プラグイン、コア設定、メディアファイル、ドットファイルなど、同期対象を細かく選択可能。globパターンを用いた除外設定にも対応。
+                            テーマ、プラグイン、コア設定、メディアファイル、ドットファイルなど、同期対象を詳細に選択可能。globパターンによる除外設定にも対応。
                         </p>
                     </div>
                     <div class="feature-card" data-reveal style="--i: 5">
                         <h3><i data-lucide="monitor-smartphone"></i>プラットフォーム別設定</h3>
                         <p>
-                            デスクトップとモバイルで同期トリガーを個別に設定可能。全デバイス統一設定にも切替可能。
+                            デスクトップとモバイルで同期トリガーを個別に設定可能。全デバイス統一設定への変更も可能。
                         </p>
                     </div>
                     <div class="feature-card" data-reveal style="--i: 6">
                         <h3><i data-lucide="hard-drive-upload"></i>バックグラウンド転送</h3>
                         <p>
-                            大容量ファイルはバックグラウンドでアップロード・ダウンロードし、UIをブロックしません。しきい値と同時接続数を設定可能。
+                            大容量ファイルはバックグラウンドでアップロード・ダウンロードし、UIをブロックしません。閾値と同時接続数を設定可能。
                         </p>
                     </div>
                     <div class="feature-card" data-reveal style="--i: 7">
                         <h3><i data-lucide="key-round"></i>安全な認証</h3>
                         <p>
-                            PKCEベースのOAuth2認証。組み込みプロキシまたは独自の認証情報を選択可能。トークンはObsidianのSecretStorageに保存。
+                            PKCEベースのOAuth2認証。内蔵プロキシまたは独自の認証情報を選択可能。トークンはObsidianのSecretStorageに保存。
                         </p>
                     </div>
                 </div>
@@ -412,7 +412,7 @@
                         <code>drive.file</code>スコープを使用し、アプリ専用ファイルのみにアクセス
                     </li>
                 </ul>
-                <p class="muted" data-reveal>今後のリリースで他のプロバイダにも対応予定です。</p>
+                <p class="muted" data-reveal>今後のリリースで他プロバイダにも対応予定です。</p>
 
                 <footer>
                     &copy; 2026 c-ardinal &middot;

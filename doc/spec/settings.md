@@ -12,7 +12,7 @@
 | :------------------------- | :----- | :---------- | :------ | :--------------------------------------------------------------------------------------------- |
 | `triggerConfigStrategy`    | enum   | `"unified"` | -       | `"unified"`: 全プラットフォーム共通設定 / `"per-platform"`: デスクトップ・モバイル個別設定      |
 
-`triggerConfigStrategy` が `"unified"` の場合、以下のトリガー設定は `unifiedTriggers` オブジェクトから読み取られる。`"per-platform"` の場合は `desktopTriggers` / `mobileTriggers` から読み取られる。
+`triggerConfigStrategy` が `"unified"` では、以下のトリガー設定は `unifiedTriggers` オブジェクトから参照される。`"per-platform"` では `desktopTriggers` / `mobileTriggers` から参照される。
 
 | 設定キー                   | 型      | デフォルト | 範囲    | 説明                           |
 | :------------------------- | :------ | :--------- | :------ | :----------------------------- |
@@ -21,14 +21,14 @@
 | `autoSyncIntervalSec`      | number  | `1800`     | 1-86400 | 自動同期間隔（秒）             |
 | `onSaveDelaySec`           | number  | `0`        | 0-60    | Ctrl+S保存後の遅延（秒）       |
 | `onModifyDelaySec`         | number  | `5`        | 0-60    | ファイル編集後のDebounce（秒） |
-| `onLayoutChangeDelaySec`   | number  | `0`        | 0-60    | ファイル切替後の遅延（秒）     |
+| `onLayoutChangeDelaySec`   | number  | `0`        | 0-60    | 表示ファイル変更後の遅延（秒）     |
 
 ### 1.2 パフォーマンス
 
 | 設定キー                | 型     | デフォルト | 範囲   | 説明                                                                 |
 | :---------------------- | :----- | :--------- | :----- | :------------------------------------------------------------------- |
 | `concurrency`           | number | `5`        | 1-10   | 並列アップロード/ダウンロード数                                     |
-| `largeFileThresholdMB`  | number | `5`        | 0-100  | この閾値(MB)以上のファイルはバックグラウンド転送キューに送る。E2EE有効時はVSC2チャンク分割暗号化を適用 |
+| `largeFileThresholdMB`  | number | `5`        | 0-100  | この閾値(MB)以上のファイルはバックグラウンド転送キューに投入する。E2EE有効時はVSC2チャンク分割暗号化を適用 |
 | `bgTransferIntervalSec` | number | `0`        | 0-60   | バックグラウンド転送間の待機秒数（帯域スロットリング。0で即時）      |
 
 ### 1.3 通知
@@ -87,7 +87,7 @@
 
 | 設定キー          | 型      | デフォルト | 説明                                                             |
 | :---------------- | :------ | :--------- | :--------------------------------------------------------------- |
-| `isDeveloperMode` | boolean | `false`    | 開発者モード表示切替(UI上には一切表示せず、隠しフラグとして扱う) |
+| `isDeveloperMode` | boolean | `false`    | 開発者モードの表示可否(UI上には一切表示せず、非公開フラグとして処理する) |
 | `startupDelaySec` | number  | `0`        | 起動同期の猶予期間（秒、0-600）                                  |
 
 ### 1.11 内部状態
@@ -100,11 +100,11 @@
 
 ### 2.1 認証情報の同期
 
-認証情報（`.sync-state`）および暗号化シークレット（`encryptionSecret`）の同期はセキュリティリスクのため**対応しない**。これらの機密情報は Obsidian SecretStorage APIを優先して保存され、Vault内には平文で残らない設計とする。SecretStorage未対応時は `data/local/.sync-state` に暗号化保存されるが、これも常に同期対象外とする。
+認証情報（`.sync-state`）および暗号化シークレット（`encryptionSecret`）の同期はセキュリティリスクのため**対応しない**。これらの機密情報は Obsidian SecretStorage APIを優先して保存され、Vault内には平文で残存しない設計とする。SecretStorage未対応時は `data/local/.sync-state` に暗号化保存されるが、これも常に同期対象外とする。
 
 ### 2.2 本プラグインの同期除外
 
-`syncCommunityPlugins` が ON の場合でも、本プラグイン自体（`obsidian-vault-sync/`）のバイナリやランタイムデータは同期対象外とする。プラグイン設定のみ `data/flexible/open-data.json` を通じて同期可能。
+`syncCommunityPlugins` が ON の際も、本プラグイン自体（`obsidian-vault-sync/`）のバイナリやランタイムデータは同期対象外とする。プラグイン設定のみ `data/flexible/open-data.json` を通じて同期可能。
 
 ## 3. データディレクトリ構造
 
@@ -124,7 +124,7 @@
 
 ## 4. 強制除外ルール
 
-以下のファイルは設定に関わらず常に同期対象外。
+以下のファイルは設定に関係なく常に同期対象外。
 
 | カテゴリ                 | 対象                                                   |
 | :----------------------- | :----------------------------------------------------- |
