@@ -27,6 +27,31 @@ describe("ObsidianNotificationService", () => {
         vi.restoreAllMocks();
     });
 
+    describe("options", () => {
+        it("keeps a sticky notice until dismissed (duration 0)", () => {
+            service.show("Conflict", { sticky: true });
+            expect(Notice).toHaveBeenCalledWith("Conflict", 0);
+        });
+
+        it("opens the given path when the notice is clicked", () => {
+            const listeners: Record<string, () => void> = {};
+            const messageEl = {
+                addClass: vi.fn(),
+                addEventListener: vi.fn((ev: string, fn: () => void) => {
+                    listeners[ev] = fn;
+                }),
+            };
+            (Notice as any).mockImplementationOnce(function () {
+                return { messageEl };
+            });
+            const open = vi.fn();
+            const svc = new ObsidianNotificationService(open);
+            svc.show("Conflict", { sticky: true, openPath: "a/b (Conflict 1).md" });
+            listeners.click();
+            expect(open).toHaveBeenCalledWith("a/b (Conflict 1).md");
+        });
+    });
+
     describe("show", () => {
         it("should display a notice with the given message", () => {
             const message = "Test notification";

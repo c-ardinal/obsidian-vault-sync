@@ -1,6 +1,6 @@
 import { CloudAdapter } from "../types/adapter";
 import type { IVaultOperations } from "../types/vault-operations";
-import type { INotificationService } from "../services/notification-service";
+import type { INotificationService, NoticeOptions } from "../services/notification-service";
 import { RevisionCache } from "../services/revision-cache";
 import {
     CommunicationData,
@@ -87,6 +87,7 @@ import {
     isProgressStale as _isProgressStale,
     executeFullScan as _executeFullScan,
 } from "./sync-orchestration";
+import { syncErrorNotice } from "./sync-coordinator";
 import { BackgroundTransferQueue } from "./background-transfer";
 import type { TransferItem, TransferRecord, TransferCallbacks } from "./transfer-types";
 export type { SyncManagerSettings, LocalFileIndex, SyncState, FullScanProgress, CommunicationData };
@@ -192,6 +193,15 @@ export class SyncManager {
             return this.encryptedAdapter;
         }
         return this.baseAdapter;
+    }
+
+    /**
+     * Swap the add-on engine (null removes it). The cached adapter wraps the old
+     * engine, so it is dropped as well.
+     */
+    setCryptoEngine(engine: ICryptoEngine | null): void {
+        this.cryptoEngine = engine;
+        this.encryptedAdapter = null;
     }
 
     get e2eeEnabled(): boolean {
@@ -341,7 +351,7 @@ export class SyncManager {
      * @param key    i18n message key (e.g. "noticeSyncing")
      * @param suffix Optional text: appended as ": {suffix}" or replaces {0} placeholder
      */
-    public async notify(key: string, suffix?: string) {
+    public async notify(key: string, suffix?: string, options?: NoticeOptions) {
         const level = this.settings.notificationLevel;
 
         let message = this.t(key);
@@ -355,7 +365,8 @@ export class SyncManager {
 
         if (show) {
             this.logger.markNoticeShown();
-            this.notifier.show(message);
+            if (options) this.notifier.show(message, options);
+            else this.notifier.show(message);
             await this.logger.notice(message);
         } else {
             await this.logger.info(`[Silent] ${message}`);
@@ -527,6 +538,14 @@ export class SyncManager {
                         `[E2EE Check] Remote E2EE state could not be verified: ${String(e)}. Aborting sync to prevent data corruption.`,
                         "warn",
                     );
+                    // Automatic triggers stay quiet (they retry soon), but a sync the
+                    // user asked for must not end without any feedback.
+                    if (trigger === "manual-sync" || trigger === "full-scan") {
+                        this.currentTrigger = trigger;
+                        const notice = syncErrorNotice(e);
+                        if (notice.suffix === undefined) await this.notify(notice.key);
+                        else await this.notify(notice.key, notice.suffix);
+                    }
                     return;
                 }
                 // Not authenticated — ignore (first API call will fail naturally)

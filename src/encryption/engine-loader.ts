@@ -12,6 +12,11 @@ export const APPROVED_ENGINE_HASH: string = (() => {
     return addon.files[addon.installAs];
 })();
 
+/** Entry-file hashes of earlier approved releases (outdated, not tampered). */
+const RETIRED_ENGINE_HASHES: ReadonlySet<string> = new Set(
+    APPROVED_ADDONS.find((a) => a.kind === "crypto-engine")?.retiredEntryHashes ?? [],
+);
+
 /** File name of the engine inside the plugin folder. */
 export const ENGINE_FILE_NAME = "e2ee-engine.js";
 
@@ -88,7 +93,13 @@ export async function evaluateEngine(
                 console.error(
                     `Vault-Sync: E2EE engine hash mismatch! Expected: ${APPROVED_ENGINE_HASH}, Got: ${actualHash}`,
                 );
-                if (onNotify) await onNotify("noticeEngineVerifyFailed");
+                if (onNotify) {
+                    await onNotify(
+                        RETIRED_ENGINE_HASHES.has(actualHash)
+                            ? "noticeAddonUpdateRequired"
+                            : "noticeEngineVerifyFailed",
+                    );
+                }
                 return null;
             }
         } else {
@@ -157,6 +168,18 @@ export async function evaluateEngine(
         console.error("Vault-Sync: Engine execution failed", e);
         return null;
     }
+}
+
+/**
+ * Removes the installed engine file. The caller must also detach the engine
+ * from the sync manager.
+ */
+export async function removeInstalledEngine(
+    vault: IVaultOperations,
+    pluginPath: string,
+): Promise<void> {
+    const path = normalizePath(`${pluginPath}/${ENGINE_FILE_NAME}`);
+    if (await vault.exists(path)) await vault.remove(path);
 }
 
 export type EngineInstallResult =

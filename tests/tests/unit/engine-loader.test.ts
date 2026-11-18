@@ -187,6 +187,40 @@ describe("loadExternalCryptoEngine", () => {
         expect(onNotify).toHaveBeenCalledWith("noticeEngineVerifyFailed");
     });
 
+    it("tells the user to update when the file is an earlier approved release", async () => {
+        const { APPROVED_ADDONS } = await import("../../../src/addons/approved-addons");
+        const retired = APPROVED_ADDONS[0].retiredEntryHashes![0];
+        vi.spyOn(crypto.subtle, "digest").mockResolvedValue(hexToArrayBuffer(retired));
+        const enginePath = `${PLUGIN_PATH}/e2ee-engine.js`;
+        const vault = createMockVault({ [enginePath]: makeValidEngineScript() });
+        const onNotify = vi.fn();
+
+        const result = await loadExternalCryptoEngine(vault, PLUGIN_PATH, onNotify);
+
+        expect(result).toBeNull();
+        expect(onNotify).toHaveBeenCalledWith("noticeAddonUpdateRequired");
+        expect(onNotify).not.toHaveBeenCalledWith("noticeEngineVerifyFailed");
+    });
+
+    it("never lists the approved hash as retired", async () => {
+        const { APPROVED_ADDONS } = await import("../../../src/addons/approved-addons");
+        for (const addon of APPROVED_ADDONS) {
+            expect(addon.retiredEntryHashes ?? []).not.toContain(addon.files[addon.installAs]);
+        }
+    });
+
+    it("removeInstalledEngine deletes the engine file only if present", async () => {
+        const { removeInstalledEngine } = await import("../../../src/encryption/engine-loader");
+        const enginePath = `${PLUGIN_PATH}/e2ee-engine.js`;
+        const vault = createMockVault({ [enginePath]: "x" });
+        await removeInstalledEngine(vault, PLUGIN_PATH);
+        expect(vault.remove).toHaveBeenCalledWith(enginePath);
+
+        const empty = createMockVault({});
+        await removeInstalledEngine(empty, PLUGIN_PATH);
+        expect(empty.remove).not.toHaveBeenCalled();
+    });
+
     it("should return null when engine script throws during execution", async () => {
         const badScript = "throw new Error('Boom');";
         const enginePath = `${PLUGIN_PATH}/e2ee-engine.js`;

@@ -3,6 +3,7 @@ import type VaultSync from "../main";
 import { t } from "../i18n";
 import { getSettingsSections } from "./settings-schema";
 import { ExclusionPatternModal } from "./exclusion-modal";
+import { ConfirmModal } from "./confirm-modal";
 
 const CLOSED_GROUPS_KEY = "vault-sync:closed-groups";
 
@@ -129,9 +130,13 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                 .setName(t("settingClientSecret"))
                 .setDesc(t("settingClientSecretDesc"))
                 .addText((text) =>
-                    text.setValue(this.plugin.getClientSecret()).onChange(async (value) => {
-                        await this.plugin.updateClientCredential("clientSecret", value);
-                    }),
+                    {
+                        text.inputEl.type = "password";
+                        text.inputEl.autocomplete = "off";
+                        text.setValue(this.plugin.getClientSecret()).onChange(async (value) => {
+                            await this.plugin.updateClientCredential("clientSecret", value);
+                        });
+                    },
                 );
         }
 
@@ -151,6 +156,27 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                         await this.plugin.adapterLogin();
                     }),
             );
+
+        // Logout (only while signed in)
+        if (this.plugin.isAdapterAuthenticated()) {
+            new Setting(authBody)
+                .setName(t("settingLogout"))
+                .setDesc(t("settingLogoutDesc"))
+                .addButton((button) =>
+                    button
+                        .setButtonText(t("settingLogout"))
+                        .setWarning()
+                        .onClick(async () => {
+                            const ok = await new ConfirmModal(
+                                this.app,
+                                t("settingLogoutConfirm"),
+                                t("settingLogout"),
+                                true,
+                            ).ask();
+                            if (ok && (await this.plugin.adapterLogout())) this.display();
+                        }),
+                );
+        }
 
         // Render Schema-based Settings
         const sections = getSettingsSections(this.plugin);
@@ -226,9 +252,30 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                         break;
                     case "text":
                         setting.addText((text) => {
-                            text.setValue(String((this.getSettingValue(item.key) as string | undefined) || ""))
-                                .setPlaceholder(item.placeholder || "")
-                                .onChange(async (val) => {
+                            const current = () =>
+                                String((this.getSettingValue(item.key) as string | undefined) || "");
+                            text.setValue(current()).setPlaceholder(item.placeholder || "");
+                            if (item.commitOnBlur && item.onChange) {
+                                const onChange = item.onChange;
+                                let busy = false;
+                                const commit = async () => {
+                                    if (busy || text.getValue() === current()) return;
+                                    busy = true;
+                                    try {
+                                        await onChange(text.getValue(), this.plugin);
+                                    } finally {
+                                        // Show what was actually saved (reverts rejected input)
+                                        text.setValue(current());
+                                        busy = false;
+                                    }
+                                };
+                                text.inputEl.addEventListener("change", () => void commit());
+                                text.inputEl.addEventListener("keydown", (e) => {
+                                    if (e.key === "Enter") text.inputEl.blur();
+                                });
+                                return;
+                            }
+                            text.onChange(async (val) => {
                                     if (item.onChange) {
                                         await item.onChange(val, this.plugin);
                                     } else {
@@ -288,6 +335,8 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                                     this.setSettingValue(item.key, val);
                                     await this.plugin.saveSettings();
                                     if (item.onChange) await item.onChange(val, this.plugin);
+                                    // Other sections may depend on this value (e.g. trigger mode)
+                                    this.display();
                                 });
                         });
                         break;
@@ -386,11 +435,43 @@ export class VaultSyncSettingTab extends PluginSettingTab {
         // Add-ons are separate, opt-in downloads with their own terms.
         new Setting(containerEl).setName(t("addonSectionTitle")).setHeading();
         const agreements = this.plugin.settings.addonAgreements ?? {};
+        const names = Object.values(agreements).map((a) => `${a.name} ${a.version}`);
         if (this.plugin.syncManager.cryptoEngine) {
-            const names = Object.values(agreements).map((a) => `${a.name} ${a.version}`);
             new Setting(containerEl)
                 .setName(t("addonStatusInstalled"))
-                .setDesc(names.length > 0 ? names.join(", ") : t("addonStatusInstalledManually"));
+                .setDesc(names.length > 0 ? names.join(", ") : t("addonStatusInstalledManually"))
+                .addButton((btn) =>
+                    btn.setButtonText(t("addonReinstall")).onClick(() => {
+                        this.plugin.openAddonInstallModal();
+                    }),
+                )
+                .addButton((btn) =>
+                    btn
+                        .setButtonText(t("addonRemove"))
+                        .setWarning()
+                        .onClick(async () => {
+                            const ok = await new ConfirmModal(
+                                this.app,
+                                t("addonRemoveConfirm"),
+                                t("addonRemove"),
+                                true,
+                            ).ask();
+                            if (ok) await this.plugin.removeAddon();
+                        }),
+                );
+        } else if (names.length > 0) {
+            // Installed before, but this version of Vault-Sync no longer accepts it
+            new Setting(containerEl)
+                .setName(t("addonStatusUpdateRequired"))
+                .setDesc(`${names.join(", ")}\n${t("addonStatusUpdateRequiredDesc")}`)
+                .addButton((btn) =>
+                    btn
+                        .setButtonText(t("addonUpdateOpen"))
+                        .setCta()
+                        .onClick(() => {
+                            this.plugin.openAddonInstallModal();
+                        }),
+                );
         } else {
             new Setting(containerEl)
                 .setName(t("addonStatusNone"))
@@ -421,7 +502,10 @@ export class VaultSyncSettingTab extends PluginSettingTab {
     ): void {
         controlEl.createDiv({
             cls: "vault-sync-number-hint",
-            text: `${limits.min} ~ ${limits.max} (default: ${limits.default})`,
+            text: t("settingDefaultHint")
+                .replace("{0}", String(limits.min))
+                .replace("{1}", String(limits.max))
+                .replace("{2}", String(limits.default)),
         });
     }
 

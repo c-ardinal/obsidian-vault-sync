@@ -1182,3 +1182,15 @@ describe("State Machine Transitions", () => {
         expect(ctx.syncState).toBe("PAUSED");
     });
 });
+
+describe("syncErrorNotice", () => {
+    it("maps errors to the user-facing notice", async () => {
+        const { syncErrorNotice } = await import("../../../src/sync-manager/sync-coordinator");
+        expect(syncErrorNotice(new Error("Not authenticated")).key).toBe("noticeSyncFailedAuth");
+        expect(syncErrorNotice(new Error("Failed to fetch")).key).toBe("noticeSyncFailedNetwork");
+        expect(syncErrorNotice(new Error("boom"))).toEqual({
+            key: "noticeSyncFailed",
+            suffix: "boom",
+        });
+    });
+});

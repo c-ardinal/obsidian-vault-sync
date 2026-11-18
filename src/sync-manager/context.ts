@@ -1,4 +1,5 @@
 import type { CloudAdapter } from "../types/adapter";
+import type { NoticeOptions } from "../services/notification-service";
 import type { IVaultOperations } from "../types/vault-operations";
 import type { RevisionCache } from "../services/revision-cache";
 import type {
@@ -75,7 +76,7 @@ export interface SyncContext {
 
     // === Utility Methods (remain on SyncManager, called via ctx) ===
     log: (message: string, level?: LogLevel) => Promise<void>;
-    notify: (key: string, suffix?: string) => Promise<void>;
+    notify: (key: string, suffix?: string, options?: NoticeOptions) => Promise<void>;
     startActivity: () => void;
     endActivity: () => void;
     onActivityStart: () => void;

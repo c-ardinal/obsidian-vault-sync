@@ -306,6 +306,15 @@ const ALWAYS_SHOW = new Set([
     "noticeSyncFailedAuth",
     "noticeSyncFailedNetwork",
     "noticeSyncFailed",
+    // Conflict copies are local-only: without this notice nobody would know they exist
+    "noticeConflictSaved",
+    "noticeConflictRemoteSaved",
+    "noticeCheckOtherDevice",
+    // Sync is paused until the user acts
+    "noticeAddonRequired",
+    "noticeAddonUpdateRequired",
+    "noticeEngineVerifyFailed",
+    "noticeVaultLocked",
 ]);
 
 /**

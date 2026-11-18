@@ -378,9 +378,38 @@ describe("GoogleAuthService", () => {
     });
 
     describe("logout", () => {
-        it("should not throw (TODO implementation)", async () => {
+        it("does nothing remote when not signed in", async () => {
+            const { requestUrl } = await import("obsidian");
+            (requestUrl as any).mockClear();
             await auth.logout();
-            // No-op currently
+            expect(requestUrl).not.toHaveBeenCalled();
+        });
+
+        it("revokes the refresh token and forgets both tokens", async () => {
+            const { requestUrl } = await import("obsidian");
+            (requestUrl as any).mockReset().mockResolvedValue({ status: 200 });
+            auth.accessToken = "at";
+            auth.refreshToken = "rt";
+            auth.tokenExpiresAt = 123;
+            await auth.logout();
+            expect(requestUrl).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    url: "https://oauth2.googleapis.com/revoke",
+                    method: "POST",
+                    body: "token=rt",
+                }),
+            );
+            expect(auth.accessToken).toBeNull();
+            expect(auth.refreshToken).toBeNull();
+            expect(auth.tokenExpiresAt).toBe(0);
+        });
+
+        it("still forgets the tokens when revoking fails (offline)", async () => {
+            const { requestUrl } = await import("obsidian");
+            (requestUrl as any).mockReset().mockRejectedValue(new Error("offline"));
+            auth.refreshToken = "rt";
+            await expect(auth.logout()).resolves.toBeUndefined();
+            expect(auth.refreshToken).toBeNull();
         });
     });
 });

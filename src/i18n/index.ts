@@ -24,6 +24,19 @@ export const en: Record<string, string> = {
     settingLogin: "Login",
     settingRelogin: "Re-login",
     settingLoginDesc: "Authorize with Google Drive.",
+    settingLogout: "Logout",
+    settingLogoutDesc:
+        "Sign out of Google Drive on this device and revoke the sign-in. Files are not deleted.",
+    settingLogoutConfirm:
+        "Sign out of Google Drive on this device?\nSyncing stops until you log in again. No files are deleted.",
+    noticeLoggedOut: "[Auth] Logged out",
+    noticeLogoutBusy: "[Auth] Sync is running. Try again when it has finished.",
+    confirmOk: "OK",
+    confirmCancel: "Cancel",
+    settingDefaultHint: "{0} ~ {1} (default: {2})",
+    unitSec: "sec",
+    unitFiles: "files",
+    unitMB: "MB",
 
     settingTriggerStrategy: "Sync Trigger Strategy",
     settingTriggerStrategyDesc: "Choose how sync triggers are configured across devices.",
@@ -110,6 +123,9 @@ export const en: Record<string, string> = {
     settingExclusionModalDuplicate: "This pattern already exists.",
     settingExclusionModalScanning: "Scanning vault files...",
     settingExclusionModalFileCount: "{0} files scanned",
+    settingCloudRootFolderInvalid:
+        "This folder name cannot be used. Enter a name that does not start with / and contains none of \\ < > : \" | ? *",
+    settingCloudRootFolderChange: "Change",
     settingCloudRootFolderWarning:
         "Changing the root folder disconnects from current synced data. A full re-sync will occur. Continue?",
     settingNotificationLevel: "Notification Level",
@@ -125,18 +141,6 @@ export const en: Record<string, string> = {
     settingConflictStrategyRemote: "Keep Cloud (Overwrite This Device)",
     settingAdvancedSection: "Advanced Settings",
     settingAdvancedSectionDesc: "Advanced settings for power users.",
-    settingSecuritySection: "Security (E2EE)",
-    settingSubheaderE2EEStatus: "Encryption",
-    settingE2EEStatus: "Encryption Status",
-    settingE2EEStatusDisabled: "Disabled",
-    settingE2EEStatusLocked: "Locked",
-    settingE2EEStatusUnlocked: "Unlocked",
-    settingE2EEStatusGuide: "Manage via Command Palette (E2EE: Start/Unlock Vault Encryption)",
-    settingE2EEAutoUnlock: "Auto-unlock on Startup",
-    settingE2EEAutoUnlockDesc:
-        "WARNING: Stores E2EE password in Obsidian's SecretStorage for auto-unlock. " +
-        "This reduces security to device-level rather than password-level protection. " +
-        "Anyone with access to your device can decrypt your vault.",
     settingDevSection: "Developer Settings",
     settingStartupDelay: "Trigger: Startup Delay",
     settingStartupDelayDesc: "Wait for Obsidian to index files before starting sync.",
@@ -159,16 +163,8 @@ export const en: Record<string, string> = {
     noticeSyncConfirmed: "[Sync] Success",
     noticeWaitOtherDeviceMerge: "[Conflict] Waiting for other device to resolve...: {0}",
     noticeMergingFile: "[Conflict] Merging",
-    noticeMigrationStarted: "[E2EE] Migration started. Please do not close Obsidian.",
-    noticeMigrationComplete: "[E2EE] Migration complete! Your vault is now encrypted.",
-    noticeMigrationFailed: "[E2EE] Migration failed! Check logs for details.",
-    noticeE2EEAutoEnabled:
-        "[E2EE] This vault is encrypted on another device. Please enter your password to unlock.",
-    noticeVaultLocked: "[E2EE] Vault is locked. Sync paused. Use Command Palette → 'E2EE: Unlock'.",
-    noticeEngineVerifyFailed: "Add-on verification failed. Please reinstall the add-on.",
-    noticeE2EEPasswordChanged: "[E2EE] Encryption password changed successfully.",
-    noticeE2EERecoveryComplete: "[E2EE] Vault recovered successfully with recovery code.",
-    noticeE2EEDecryptFailed: "[E2EE] Decryption failed. Wrong password or corrupted data.",
+    noticeEngineVerifyFailed:
+        "Add-on verification failed: it does not match an approved release. Download the latest package and install it again.",
 
     noticeSyncFailedAuth: "[Sync] Not authenticated. Please login from Settings.",
     noticeSyncFailedNetwork: "[Sync] Network error. Check your connection and try again.",
@@ -189,7 +185,7 @@ export const en: Record<string, string> = {
 
     // History Modal & Browser UI
     historyTitle: "History",
-    historyActions: "Menue",
+    historyActions: "Menu",
     historyKeepForever: "Keep Forever (Protect)",
     historyKeepForeverConfirm:
         "【Warning】Do you want to enable indefinite preservation (Keep Forever) for this revision?\n\nDue to Cloud-side specifications, once enabled, it cannot be disabled.\n(Only file deletion will be possible.)",
@@ -232,11 +228,6 @@ export const en: Record<string, string> = {
         "Vault-Sync: An older copy of this plugin (ID obsidian-vault-sync) is still enabled. Turn it off or uninstall it in Settings → Community plugins, then restart the app. Syncing is paused until then.",
     noticeLegacyDataMigrated:
         "Vault-Sync: Settings and sync data were carried over from the older copy of the plugin. You can uninstall the older copy (ID obsidian-vault-sync).",
-    labelE2EESetup: "E2EE: Start Vault Encryption",
-    labelE2EEUnlock: "E2EE: Unlock Vault",
-    labelE2EEChangePassword: "E2EE: Change Encryption Password",
-    labelE2EEShowRecovery: "E2EE: Show Recovery Code",
-    labelE2EERecover: "E2EE: Recover Vault with Recovery Code",
     labelInstallAddon: "Install add-on",
     addonSectionTitle: "Add-ons",
     addonStatusNone: "No add-ons installed",
@@ -245,6 +236,19 @@ export const en: Record<string, string> = {
     addonStatusInstalled: "Installed add-ons",
     addonStatusInstalledManually: "Installed manually",
     addonInstallOpen: "Install add-on...",
+    addonReinstall: "Update / reinstall...",
+    addonRemove: "Remove",
+    addonRemoveConfirm:
+        "Remove the add-on from this device?\nIf this vault uses it, syncing on this device pauses until you install it again. Nothing is deleted from the cloud.",
+    addonRemoved: "Add-on removed.",
+    addonRemoveBusy: "Sync is running. Try again when it has finished.",
+    addonRemoveFailed: "The add-on could not be removed. Check the logs.",
+    addonStatusUpdateRequired: "Add-on update required",
+    addonStatusUpdateRequiredDesc:
+        "This version of Vault-Sync needs a newer release of the add-on. Download the latest package and install it.",
+    addonUpdateOpen: "Update add-on...",
+    noticeAddonUpdateRequired:
+        "The installed add-on is out of date for this version of Vault-Sync. Download the latest package and install it from Settings → Add-ons. Sync paused.",
     addonInstallTitle: "Install an add-on",
     addonRequiredByVault:
         "This vault uses an add-on that is not installed on this device. Install it to keep syncing.",
@@ -310,64 +314,8 @@ export const en: Record<string, string> = {
     passwordStrengthGood: "Good",
     passwordStrengthStrong: "Strong",
 
-    // E2EE Setup Modal
-    e2eeSetupTitle: "E2EE Setup",
-    e2eeSetupDesc:
-        "Welcome to Vault-Sync E2EE.\nThis wizard will migrate your vault to an encrypted format.",
-    e2eeSetupMigratingBg: "Migration is currently running in the background.",
-    e2eeSetupPasswordLabel: "Encryption Password",
-    e2eeSetupPasswordDesc: "Used to derive your Master Key. Don't lose it!",
-    e2eeSetupPasswordHint:
-        "Minimum length: 8 characters.\nAllowed: A-Z, a-z, 0-9, space, and symbols: !\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~",
-    e2eeSetupAsciiOnly: "Only ASCII characters are allowed.",
-    e2eeSetupStartButton: "Start Migration",
-    e2eeSetupMigratingButton: "Migrating...",
-    e2eeSetupFinalizing: "Finalizing migration...",
-    e2eeSetupSwapping: "Performing folder swap on remote...",
-    e2eeSetupError: "Error occurred. Check logs.",
-    e2eeSetupKeychainFailed:
-        "Warning: Failed to save password to SecretStorage.\nYou will need to re-enter it next time.",
-
-    // E2EE Interrupted Migration
-    e2eeInterruptedTitle: "Interrupted Migration Found",
-    e2eeInterruptedDesc:
-        "A previous migration attempt was interrupted.\nA temporary encrypted folder exists on the remote.",
-    e2eeInterruptedCleanLabel: "Clean Up & Restart",
-    e2eeInterruptedCleanDesc: "Delete the temporary folder and start over.",
-    e2eeInterruptedResetButton: "Reset & Restart",
-    e2eeInterruptedCleaning: "Cleaning up...",
-    e2eeInterruptedDone: "Cleanup complete. Please reopen this modal.",
-
-    // E2EE Unlock Modal
-    e2eeUnlockTitle: "Unlock Vault",
-    e2eeUnlockPasswordLabel: "Password",
-    e2eeUnlockButton: "Unlock",
-    e2eeUnlockAutoUnlock: "Remember password and auto-unlock on startup",
-    e2eeUnlockSuccess: "Unlocked!",
-    e2eeUnlockFailed: "Invalid password.",
-
-    // E2EE Password Change Modal
-    e2eeChangePasswordTitle: "Change Encryption Password",
-    e2eeChangePasswordDesc:
-        "Enter a new password to re-encrypt your master key.\nExisting encrypted data will remain unchanged.",
-    e2eeChangePasswordNewLabel: "New Password",
-    e2eeChangePasswordConfirmLabel: "Confirm New Password",
-    e2eeChangePasswordButton: "Change Password",
-
-    // E2EE Recovery Code Modal
-    e2eeRecoveryExportTitle: "Recovery Code",
-    e2eeRecoveryExportDesc:
-        "This code can restore access to your vault if you forget your password.",
-    e2eeRecoveryWarning:
-        "Store this code in a safe place. Anyone with this code can decrypt your vault.",
-    e2eeRecoveryCopy: "Copy to Clipboard",
-    e2eeRecoveryCopied: "Copied!",
-    e2eeRecoveryClose: "Close",
-    e2eeRecoveryImportTitle: "Recover Vault",
-    e2eeRecoveryImportDesc:
-        "Enter your recovery code and set a new password to restore vault access.",
-    e2eeRecoveryCodeLabel: "Recovery Code",
-    e2eeRecoveryRestoreButton: "Recover Vault",
+    // Add-on specific text (its settings, commands, dialogs and notices) is not
+    // here: the add-on supplies it at runtime (see setAddonStrings).
 };
 
 let activeDict: Record<string, string> = en;
@@ -393,6 +341,29 @@ export function currentLanguage(): string {
     return "en";
 }
 
+/** Text supplied by an installed add-on, per language. */
+let addonStrings: ((lang: string) => Record<string, string>) | null = null;
+let addonActive: Record<string, string> = {};
+let addonEn: Record<string, string> = {};
+
+/** Register (or with null, remove) the display text of the installed add-on. */
+export function setAddonStrings(provider: ((lang: string) => Record<string, string>) | null): void {
+    addonStrings = provider;
+    try {
+        addonEn = provider?.("en") ?? {};
+        const lang = currentLanguage();
+        addonActive = lang === "en" ? addonEn : (provider?.(lang) ?? {});
+    } catch {
+        addonEn = {};
+        addonActive = {};
+    }
+}
+
+/** True while an add-on supplies text. */
+export function hasAddonStrings(): boolean {
+    return addonStrings !== null;
+}
+
 export function t(key: string): string {
-    return activeDict[key] || en[key] || key;
+    return activeDict[key] || addonActive[key] || en[key] || addonEn[key] || key;
 }
