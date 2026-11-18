@@ -93,7 +93,7 @@ export async function scanObsidianChanges(ctx: SyncContext): Promise<void> {
             }
         }
     } catch (e) {
-        await ctx.log(`[Obsidian Scan] Error: ${e}`, "error");
+        await ctx.log(`[Obsidian Scan] Error: ${String(e)}`, "error");
     }
 }
 
@@ -156,7 +156,7 @@ export async function scanVaultChanges(ctx: SyncContext): Promise<void> {
                         }
                     }
                 } catch (e) {
-                    await ctx.log(`[Vault Scan] Hash check failed for ${file.path}: ${e}`, "warn");
+                    await ctx.log(`[Vault Scan] Hash check failed for ${file.path}: ${String(e)}`, "warn");
                 }
             }
         }
@@ -209,7 +209,7 @@ export async function scanVaultChanges(ctx: SyncContext): Promise<void> {
 
         await ctx.log(`[Vault Scan] Completed in ${Date.now() - start}ms`, "debug");
     } catch (e) {
-        await ctx.log(`[Vault Scan] Error: ${e}`, "error");
+        await ctx.log(`[Vault Scan] Error: ${String(e)}`, "error");
     }
 }
 

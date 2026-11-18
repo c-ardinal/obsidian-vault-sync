@@ -2,9 +2,19 @@ import { normalizePath } from "obsidian";
 import { toHex } from "../utils/format";
 import type { IVaultOperations } from "../types/vault-operations";
 
-interface SecretStorage {
+export interface SecretStorage {
     getSecret(id: string): string | null;
     setSecret(id: string, secret: string): void;
+}
+
+/** Credentials persisted by SecureStorage (SecretStorage JSON or encrypted file). */
+export interface StoredCredentials {
+    clientId?: string;
+    clientSecret?: string;
+    accessToken?: string | null;
+    refreshToken?: string | null;
+    tokenExpiresAt?: number;
+    [key: string]: unknown;
 }
 
 const IV_LENGTH = 12;
@@ -139,7 +149,7 @@ export class SecureStorage {
         const key = await window.crypto.subtle.deriveKey(
             {
                 name: "PBKDF2",
-                salt: salt as any,
+                salt: salt as BufferSource,
                 iterations: 100000,
                 hash: "SHA-256",
             },
@@ -153,7 +163,7 @@ export class SecureStorage {
         return key;
     }
 
-    async saveCredentials(data: Record<string, any>): Promise<void> {
+    async saveCredentials(data: StoredCredentials): Promise<void> {
         // 1. Save to Obsidian SecretStorage if available
         let secretStorageSuccess = false;
         if (this.secretStorage) {
@@ -211,7 +221,7 @@ export class SecureStorage {
         }
     }
 
-    async loadCredentials(): Promise<Record<string, any> | null> {
+    async loadCredentials(): Promise<StoredCredentials | null> {
         // 1. Try Obsidian SecretStorage first
         if (this.secretStorage) {
             try {
@@ -224,7 +234,7 @@ export class SecureStorage {
                     // Clean them up now to satisfy the "migration complete -> delete" rule.
                     await this.cleanupFiles();
 
-                    return JSON.parse(secret);
+                    return JSON.parse(secret) as StoredCredentials;
                 }
             } catch (e) {
                 console.warn("[SecureStorage] Failed to load from SecretStorage", e);
@@ -264,7 +274,7 @@ export class SecureStorage {
             const decoded = new TextDecoder().decode(decrypted);
             console.debug(`[SecureStorage] Successfully loaded credentials from file.`);
 
-            return JSON.parse(decoded);
+            return JSON.parse(decoded) as StoredCredentials;
         } catch (e) {
             console.error(
                 "SecureStorage: Failed to decrypt file. Key changed or file corrupted.",

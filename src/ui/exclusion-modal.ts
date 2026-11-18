@@ -136,7 +136,7 @@ export class ExclusionPatternModal extends Modal {
         this.updateStatus();
 
         // Load all file paths, then render once ready
-        this.loadAllPaths().then(() => {
+        void this.loadAllPaths().then(() => {
             this.pathsLoaded = true;
             this.renderList();
         });
@@ -291,7 +291,7 @@ export class ExclusionPatternModal extends Modal {
             const item = itemContainer.createDiv({ cls: "vault-sync-exclusion-item" });
 
             // Setting label as pattern text
-            const label = t(te.label as Parameters<typeof t>[0]);
+            const label = t(te.label);
             item.createSpan({
                 cls: "vault-sync-exclusion-item-pattern",
                 text: te.patterns.join(", "),
@@ -424,6 +424,6 @@ export class ExclusionPatternModal extends Modal {
 
     private savePatterns(): void {
         this.plugin.settings.exclusionPatterns = this.patterns.join("\n");
-        this.plugin.saveSettings();
+        void this.plugin.saveSettings();
     }
 }

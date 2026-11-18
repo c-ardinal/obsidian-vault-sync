@@ -48,7 +48,7 @@
 
         function label() {
             var isJa = (document.documentElement.lang || "").indexOf("ja") === 0;
-            var t = isJa ? "ページトップへ戻る" : "Back to top";
+            var t = isJa ? "ページトップへ移動" : "Back to top";
             btn.setAttribute("aria-label", t);
             btn.title = t;
         }

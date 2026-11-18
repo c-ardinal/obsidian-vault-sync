@@ -1,4 +1,4 @@
-import { Platform, Notice } from "obsidian";
+import { Platform } from "obsidian";
 import { VaultSyncSettings } from "../types/settings";
 import { SETTINGS_LIMITS } from "../constants";
 import { t } from "../i18n";
@@ -22,7 +22,7 @@ export interface SettingItem {
         disabled?: number;
     };
     // Custom behaviors
-    onChange?: (value: any, plugin: VaultSync) => Promise<void>;
+    onChange?: (value: unknown, plugin: VaultSync) => Promise<void>;
     isHidden?: (settings: VaultSyncSettings, plugin: VaultSync) => boolean;
     getDesc?: (settings: VaultSyncSettings, plugin: VaultSync) => string;
 }
@@ -228,13 +228,13 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                     placeholder: "ObsidianVaultSync",
                     onChange: async (val, p) => {
                         // Sanitize
-                        const sanitized = val.trim();
+                        const sanitized = String(val).trim();
                         if (
                             !sanitized ||
                             sanitized.startsWith("/") ||
                             sanitized.includes("\\") ||
                             sanitized.length > 255 ||
-                            /[<>:\"|?*]/.test(sanitized)
+                            /[<>:"|?*]/.test(sanitized)
                         ) {
                             // Invalid input - revert to default if empty, or just ignore
                             if (!sanitized) {

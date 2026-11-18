@@ -20,7 +20,7 @@ Obsidian向けクラウドストレージ同期プラグイン。ローカルの
 ┌────────────────────────▼────────────────────────────────┐
 │                  SyncManager                             │
 │  同期オーケストレーション・スケジューリング・状態管理     │
-│  Smart Sync / Background Full Scan / 割り込み制御        │
+│  Smart Sync / Background Full Scan / インタラプト制御        │
 │  3-way マージ / 競合解決 / 分散ロック                    │
 └────────────────────────┬────────────────────────────────┘
                          │
@@ -70,7 +70,7 @@ ObsidianVaultSync/           ← App Root (設定で変更可)
                  └── obsidian-vault-sync/ ← 本プラグイン配置フォルダ
 ```
 
-- **Global Discovery**: `VaultName` と一致するフォルダをGoogle Drive内からグローバルに検索。見つかった場合は App Root 配下へ自動的に移動（Adoption）して統合する。
+- **Global Discovery**: `VaultName` と一致するフォルダをGoogle Drive内からグローバルに検索。検出時は App Root 配下へ自動的に移動（Adoption）して統合する。
 
 #### ローカルデータ
 
@@ -89,7 +89,7 @@ ObsidianVaultSync/           ← App Root (設定で変更可)
 
 | ドキュメント                                | 内容                                                                 |
 | :------------------------------------------ | :------------------------------------------------------------------- |
-| [同期エンジン仕様](spec/sync-engine.md)     | Smart Sync / Full Scan / Index管理 / 割り込み制御 / 同期トリガー     |
+| [同期エンジン仕様](spec/sync-engine.md)     | Smart Sync / Full Scan / Index管理 / インタラプト制御 / 同期トリガー     |
 | [競合解決仕様](spec/conflict-resolution.md) | 3-wayマージ / 楽観的ロック / 分散ロック / ancestorHashライフサイクル |
 | [設定仕様](spec/settings.md)                | 全設定項目 / 同期スコープ / 除外パターン                             |
 | [履歴機能仕様](spec/history.md)             | リビジョン管理 / Diff表示 / ロールバック                             |
@@ -119,18 +119,18 @@ ObsidianVaultSync/           ← App Root (設定で変更可)
 - **認証情報保存**: Obsidian SecretStorage APIを優先使用。未対応環境では `.sync-state`（AES-GCM暗号化バイナリ）に保存し、機密性を確保。
 - **通信**: HTTPS のみ
 - **楽観的ロック**: Push時にリモートハッシュを検証し、競合を検知
-- **パストラバーサル防止**: 履歴API呼び出し時のパス検証
+- **パストラバーサル防止**: 履歴APIコール時のパス検証
 - **整合性検証**: ダウンロード時のMD5ハッシュ照合
 
 ## 6. エンドツーエンド暗号化 (E2EE)
 
-オプション機能。外部E2EEエンジン (`e2ee-engine.js`) を配置することで有効化。設計は**マスターキー・ラッピング方式**に基づき、中央認証サーバーを必要とせず、高いセキュリティと利便性（複数デバイス同期）を両立する。
+オプション機能。外部E2EEエンジン (`e2ee-engine.js`) を配置することで有効化。設計は**マスターキー・ラッピング方式**を基盤とし、中央認証サーバーを必要とせず、高度なセキュリティと利便性（複数デバイス同期）を両立する。
 
 ### 6.1 ユースケース
 
 #### ケース1: 初回セットアップ (Fresh Setup / Join)
 
-プラグイン導入後、初めて同期設定を行う場合。
+プラグイン導入後、初回の同期設定時。
 
 1. **リモートチェック**: Google Drive 上に既に Vault データが存在するか確認。
 2. **分岐フロー**:
@@ -140,12 +140,12 @@ ObsidianVaultSync/           ← App Root (設定で変更可)
 
 #### ケース2: 途中からの E2EE 有効化 (Migration)
 
-既存の非暗号化同期環境から E2EE 環境へ移行する場合。Side-by-Side（並行稼働）方式を採用。
+既存の非暗号化同期環境から E2EE 環境へ移行するケース。Side-by-Side（並行稼働）方式を採用。
 
-1. **事前チェック**: ローカルの変更が全て同期済み (Clean) であることを確認。
+1. **事前チェック**: ローカルの全変更が同期済み (Clean) であることを確認。
 2. **メンテナンスロック**: `migration.lock` を作成。他デバイスは同期を一時停止。
 3. **Side-by-Side アップロード**: 新ルートフォルダへ暗号化しながらアップロード。進捗表示・中断/再開対応。
-4. **スイッチオーバー**: 全ファイルアップロード完了後に整合性チェック → `vault-lock.vault` 生成 → 旧フォルダをバックアップにリネーム → 新フォルダへ切り替え → `migration.lock` 削除。
+4. **スイッチオーバー**: 全ファイルアップロード完了後に整合性チェック → `vault-lock.vault` 生成 → 旧フォルダをバックアップにリネーム → 新フォルダへ移行 → `migration.lock` 削除。
 
 #### ケース3: 運用中の同期
 
@@ -175,9 +175,9 @@ ObsidianVaultSync/           ← App Root (設定で変更可)
 
 `DecryptionError` クラスで原因を分類:
 
-- `authentication`: パスワード間違い（GCM認証タグ不一致）
+- `authentication`: パスワード不一致（GCM認証タグ不一致）
 - `format`: データ破損（マジックバイト不正、チャンク数不整合など）
-- VSC2の場合、`chunkIndex` で問題のチャンク位置を特定可能
+- VSC2では、`chunkIndex` で問題のチャンク位置を特定可能
 
 #### 鍵管理 (MasterKeyManager)
 
@@ -194,7 +194,7 @@ ObsidianVaultSync/           ← App Root (設定で変更可)
 
 `CloudAdapter` インターフェースを実装するプロキシパターン。`baseAdapter` (GoogleDriveAdapter) をラップし、暗号化/復号を透過的に挿入。
 
-- **`uploadFile`**: IV生成 → 暗号化 → `baseAdapter.uploadFile` 呼び出し
+- **`uploadFile`**: IV生成 → 暗号化 → `baseAdapter.uploadFile` コール
 - **`downloadFile`**: `baseAdapter.downloadFile` → 復号 → 平文返却
 - **`uploadFileResumable`**: `largeFileThresholdMB` 以上のファイルで VSC2 チャンク分割暗号化 → Content-Range チャンクアップロード
 - **パススルー**: `getFileMetadata`, `deleteFile`, `createFolder` 等は baseAdapter へそのまま転送
@@ -202,7 +202,7 @@ ObsidianVaultSync/           ← App Root (設定で変更可)
 ### 6.4 ロックファイル管理 (VaultLockService)
 
 - `vault-lock.vault` と `migration.lock` はE2EEの状態定義ファイル
-- 常に非暗号化アダプタ経由（baseAdapter）で読み書き
+- 常に非暗号化アダプタ経由（baseAdapter）で入出力
 - 通常の同期対象からは除外
 - `uploadLockFile()`: パスワード変更・リカバリー時の vault-lock.vault 更新
 
@@ -212,8 +212,8 @@ ObsidianVaultSync/           ← App Root (設定で変更可)
 | :------------------ | :------------------------------------------------------------------------------------------ |
 | `startMigration`    | `migration.lock` 作成 → 新フォルダ作成                                                      |
 | `processMigration`  | 全ファイル読込 → 暗号化 → 新フォルダへアップロード（進捗コールバック対応）                  |
-| `finalizeMigration` | `vault-lock.vault` 作成 → 旧フォルダリネーム → 新フォルダへ切り替え → `migration.lock` 削除 |
-| `cancelMigration`   | `migration.lock` と作業中フォルダを削除して元に戻す                                         |
+| `finalizeMigration` | `vault-lock.vault` 作成 → 旧フォルダリネーム → 新フォルダへ移行 → `migration.lock` 削除 |
+| `cancelMigration`   | `migration.lock` と作業中フォルダを削除して原状復帰                                         |
 
 中断時は次回起動時に「再開」か「破棄（移行キャンセル）」を選択可能。移行済みファイルはハッシュ比較でスキップ。
 
@@ -228,14 +228,14 @@ ObsidianVaultSync/           ← App Root (設定で変更可)
 - **セットアップウィザード**: 警告表示 → パスワード入力（ASCII限定、8文字以上）→ 強度チェック → 確認 → 暗号化開始
 - **ロック解除モーダル**: パスワード入力 → vault-lock.vault ダウンロード → ロック解除
 - **パスワード変更モーダル**: 新パスワード入力 → 強度チェック → `updatePassword` → vault-lock.vault アップロード
-- **リカバリーコード表示モーダル**: 警告バナー → Base64リカバリーコード表示（読み取り専用）→ フィンガープリント表示 → クリップボードコピー
+- **リカバリーコード表示モーダル**: 警告バナー → Base64リカバリーコード表示（リードオンリー）→ フィンガープリント表示 → クリップボードコピー
 - **リカバリー復元モーダル**: リカバリーコード入力 → 新パスワード入力 → `recoverFromCode` → vault-lock.vault アップロード
 
 ### 6.7 E2EEエンジン検証
 
 - エンジンファイルの SHA-256 ハッシュを `APPROVED_ENGINE_HASH` と照合
 - 必須メソッド (`encrypt`, `decrypt`, `isUnlocked` 等) の存在を検証
-- 検証失敗時は `noticeEngineVerifyFailed` 通知を表示し、エンジンを読み込まない
+- 検証失敗時は `noticeEngineVerifyFailed` 通知を表示し、エンジンをロードしない
 
 ## 7. 国際化 (i18n)
 

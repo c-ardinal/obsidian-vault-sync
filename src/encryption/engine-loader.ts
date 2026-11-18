@@ -58,7 +58,7 @@ export async function loadExternalCryptoEngine(
                 successfulPath = enginePath;
                 break;
             }
-        } catch (e) {
+        } catch {
             // Ignore error for this specific path candidate
         }
     }
@@ -98,19 +98,26 @@ export async function evaluateEngine(
         }
 
         // Dynamic execution of the engine script as CommonJS
-        const engineModule = { exports: {} as any };
-        const execute = new Function("module", "exports", "require", content);
+        const engineModule: { exports: { default?: unknown } } = { exports: {} };
+        const execute = new Function("module", "exports", "require", content) as (
+            module: unknown,
+            exports: unknown,
+            require: (name: string) => unknown,
+        ) => void;
 
-        const customRequire = (name: string) => {
+        const customRequire = (name: string): unknown => {
             if (name === "obsidian") return obsidianModule;
-            const globalRequire = (window as any).require;
+            const globalRequire = (window as unknown as { require?: (name: string) => unknown })
+                .require;
             if (globalRequire) return globalRequire(name);
             console.warn(`Vault-Sync: Engine required '${name}' but no require available.`);
             return undefined;
         };
 
         execute(engineModule, engineModule.exports, customRequire);
-        const engine = engineModule.exports.default || engineModule.exports;
+        const engine = (engineModule.exports.default || engineModule.exports) as
+            | Record<string, unknown>
+            | undefined;
 
         // Validate all required methods exist
         const requiredMethods = [
@@ -145,7 +152,7 @@ export async function evaluateEngine(
         }
 
         console.debug("Vault-Sync: External E2EE engine fully verified.");
-        return engine;
+        return engine as unknown as ICryptoEngine;
     } catch (e) {
         console.error("Vault-Sync: Engine execution failed", e);
         return null;

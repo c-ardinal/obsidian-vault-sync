@@ -36,7 +36,7 @@ export class PromptModal extends Modal {
 
         this.errorEl = contentEl.createDiv({ cls: "vault-sync-prompt-error" });
 
-        const btnSetting = new Setting(contentEl)
+        new Setting(contentEl)
             .addButton((btn) => {
                 this.okBtn = btn;
                 btn.setButtonText("OK")
@@ -62,7 +62,7 @@ export class PromptModal extends Modal {
         setTimeout(() => {
             textComp!.inputEl.focus();
             textComp!.inputEl.select();
-            this.validate(this.defaultValue);
+            void this.validate(this.defaultValue);
         }, 50);
     }
 

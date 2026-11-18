@@ -209,7 +209,7 @@ export class GoogleDriveHttpClient {
                 try {
                     const text = await response.text();
                     try {
-                        const json = JSON.parse(text);
+                        const json = JSON.parse(text) as { error?: { message?: string } };
                         if (json.error && json.error.message) {
                             errorMsg = json.error.message;
                         } else {
@@ -218,7 +218,7 @@ export class GoogleDriveHttpClient {
                     } catch {
                         errorMsg = text;
                     }
-                } catch (e) {
+                } catch {
                     errorMsg = "Could not read error body";
                 }
 
@@ -279,14 +279,14 @@ export class GoogleDriveHttpClient {
                 if (window.navigator.onLine) done();
             }, 5000);
             const timeout = setTimeout(() => {
-                this.log("waitForOnline timed out after 60s — resuming retry loop", "warn");
+                void this.log("waitForOnline timed out after 60s — resuming retry loop", "warn");
                 done();
             }, GoogleDriveHttpClient.ONLINE_TIMEOUT_MS);
         });
     }
 
     /** Parse JSON safely. Throws a clear error on malformed responses (CDN/WAF HTML pages, truncated body). */
-    async safeJsonParse(response: Response, context: string): Promise<any> {
+    async safeJsonParse(response: Response, context: string): Promise<unknown> {
         const text = await response.text();
         try {
             return JSON.parse(text);

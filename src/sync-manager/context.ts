@@ -6,7 +6,6 @@ import type {
     LocalFileIndex,
     SyncState,
     FullScanProgress,
-    CommunicationData,
 } from "./types";
 import type { SyncTrigger } from "./notification-matrix";
 import type { SyncLogger, LogLevel } from "./logger";

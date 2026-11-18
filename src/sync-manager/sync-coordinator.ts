@@ -8,8 +8,6 @@ import {
     SYNC_POST_PUSH_PULL_MAX_RETRIES,
     SCAN_FULL_SCAN_CHUNK_SIZE,
 } from "./constants";
-import { smartPull, pullViaChangesAPI } from "./sync-pull";
-import { smartPush } from "./sync-push";
 import { retryOverwriteRepairs } from "./overwrite-recovery";
 import { migratePlainHashes } from "./plain-hash-migration";
 
@@ -158,7 +156,7 @@ export async function executeSmartSync(ctx: SyncContext, scanVault: boolean): Pr
 
         await ctx.log("=== SMART SYNC COMPLETED ===", "info");
     } catch (e) {
-        await ctx.log(`Smart Sync failed: ${e}`, "error");
+        await ctx.log(`Smart Sync failed: ${String(e)}`, "error");
         const msg = e instanceof Error ? e.message : String(e);
         const msgLower = msg.toLowerCase();
         if (msgLower.includes("not authenticated") || msgLower.includes("authentication failed") || msgLower.includes("token revoked")) {
@@ -204,7 +202,7 @@ async function postPushPull(ctx: SyncContext, maxRetries: number = SYNC_POST_PUS
             return;
         } catch (e) {
             await ctx.log(
-                `[Post-Push Pull] Attempt ${attempt + 1}/${maxRetries + 1} failed: ${e}`,
+                `[Post-Push Pull] Attempt ${attempt + 1}/${maxRetries + 1} failed: ${String(e)}`,
                 "warn",
             );
             if (attempt === maxRetries) {
@@ -369,7 +367,7 @@ export async function executeFullScan(ctx: SyncContext): Promise<void> {
         ctx.fullScanProgress = null;
         await saveIndex(ctx);
     } catch (e) {
-        await ctx.log(`[Full Scan] Error: ${e}`, "error");
+        await ctx.log(`[Full Scan] Error: ${String(e)}`, "error");
         ctx.fullScanProgress = null;
     } finally {
         await ctx.logger.endCycle();

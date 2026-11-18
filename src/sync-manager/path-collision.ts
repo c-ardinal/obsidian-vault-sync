@@ -57,7 +57,7 @@ export function claimPullPath(ctx: SyncContext, path: string, fileId: string): (
 const pulls = new WeakMap<SyncContext, Map<string, { path: string; fileId: string }>>();
 function inFlight(ctx: SyncContext): Map<string, { path: string; fileId: string }> {
     let m = pulls.get(ctx);
-    if (!m) pulls.set(ctx, (m = new Map()));
+    if (!m) pulls.set(ctx, (m = new Map<string, { path: string; fileId: string }>()));
     return m;
 }
 

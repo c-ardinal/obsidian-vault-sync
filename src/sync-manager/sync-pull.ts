@@ -74,7 +74,8 @@ async function cleanupForbiddenDirectories(ctx: SyncContext): Promise<void> {
                         "debug",
                     );
                 }
-            } catch (e) {
+            } catch {
+                // ignore: best-effort cleanup
             }
         }
     }
@@ -174,7 +175,7 @@ async function detectPullChanges(
                         }
                     } catch (e) {
                         await ctx.log(
-                            `[Smart Pull] Failed to rename ${oldPath} -> ${newPath}: ${e}`,
+                            `[Smart Pull] Failed to rename ${oldPath} -> ${newPath}: ${String(e)}`,
                             "warn",
                         );
                     }
@@ -402,7 +403,7 @@ function buildLocalDeletionTasks(
                 await ctx.log(`[Smart Pull] [${counter.completed}/${total}] Deleted locally: ${path}`, "info");
                 await ctx.notify("noticeFileTrashed", basename(path));
             } catch (e) {
-                await ctx.log(`[Smart Pull] Delete failed: ${path} - ${e}`, "error");
+                await ctx.log(`[Smart Pull] Delete failed: ${path} - ${String(e)}`, "error");
             }
         });
     }
@@ -454,7 +455,7 @@ function buildForbiddenRemoteCleanupTasks(
                 }
             } catch (e) {
                 await ctx.log(
-                    `[Smart Pull] [Cleanup] Folder wipe failed: ${folder} - ${e}`,
+                    `[Smart Pull] [Cleanup] Folder wipe failed: ${folder} - ${String(e)}`,
                     "warn",
                 );
             }
@@ -470,7 +471,7 @@ function buildForbiddenRemoteCleanupTasks(
                 delete ctx.localIndex[file.path];
             } catch (e) {
                 await ctx.log(
-                    `[Smart Pull] [Cleanup] File delete failed: ${file.path} - ${e}`,
+                    `[Smart Pull] [Cleanup] File delete failed: ${file.path} - ${String(e)}`,
                     "warn",
                 );
             }
@@ -534,7 +535,7 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
                             remoteIndex = await downloadRemoteIndex(ctx, remoteIndexMeta.id);
                         }
                     } catch (e) {
-                        await ctx.log(`[Smart Pull] Failed to load remote index for pending conflicts: ${e}`, "warn");
+                        await ctx.log(`[Smart Pull] Failed to load remote index for pending conflicts: ${String(e)}`, "warn");
                     }
                     let pendingPulled = false;
                     for (const path of unlockedPaths) {
@@ -550,7 +551,7 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
                                 : await ctx.adapter.getFileMetadata(path);
                         } catch (e) {
                             // Transient error: keep pendingConflict and re-check next sync
-                            await ctx.log(`[Smart Pull] Pending conflict re-check failed for ${path}: ${e}`, "warn");
+                            await ctx.log(`[Smart Pull] Pending conflict re-check failed for ${path}: ${String(e)}`, "warn");
                             continue;
                         }
                         if (!meta || meta.kind === "folder" || meta.path !== path) {
@@ -596,7 +597,7 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
                 ctx.startPageToken = await ctx.adapter.getStartPageToken();
                 await saveIndex(ctx);
             } catch (e) {
-                await ctx.log(`[Smart Pull] Failed to init Changes API: ${e}`, "warn");
+                await ctx.log(`[Smart Pull] Failed to init Changes API: ${String(e)}`, "warn");
             }
             // Fall through to standard hash check for this run
         }
@@ -745,7 +746,15 @@ export const CHANGES_MAX_PAGES_PER_SYNC = 50;
 /** A change whose pull keeps failing is retried on at most this many later syncs */
 export const CHANGES_MAX_PULL_RETRIES = 3;
 
-type ChangedFile = { id: string; path: string; hash?: string; size: number; [key: string]: any };
+type ChangedFile = {
+    id: string;
+    path: string;
+    hash?: string;
+    size: number;
+    mtime?: number;
+    ancestorHash?: string;
+    plainHash?: string;
+};
 
 // Changes whose pull failed (network error etc.) or went to the background queue,
 // keyed by fileId: see pendingPullsOf (persisted with the local index). The page
@@ -811,7 +820,7 @@ export async function pullViaChangesAPI(
             }
         } catch (e) {
             await ctx.log(
-                `[Smart Pull] [Changes API] Failed to download remote index: ${e}`,
+                `[Smart Pull] [Changes API] Failed to download remote index: ${String(e)}`,
                 "warn",
             );
         }
@@ -1055,7 +1064,7 @@ async function pullFilesMissingFromIndex(
             else if (!ctx.localIndex[path]) reconcilePending.add(ctx);
         } catch (e) {
             reconcilePending.add(ctx);
-            await ctx.log(`[Changes API] Index reconcile failed for ${path}: ${e}`, "warn");
+            await ctx.log(`[Changes API] Index reconcile failed for ${path}: ${String(e)}`, "warn");
         }
     });
     ctx.startActivity();
@@ -1069,7 +1078,7 @@ async function processChangePage(
     changes: Array<{
         fileId: string;
         removed?: boolean;
-        file?: { kind: string; id: string; path: string; hash?: string; size: number; [key: string]: any };
+        file?: ChangedFile & { kind: string };
     }>,
     remoteIndex: LocalFileIndex,
     commData: Pick<CommunicationData, "mergeLocks">,
@@ -1121,14 +1130,14 @@ async function processChangePage(
                         await ctx.notify("noticeFileTrashed", basename(pathToDelete));
                     } catch (e) {
                         await ctx.log(
-                            `[Smart Pull] Delete failed: ${pathToDelete} - ${e}`,
+                            `[Smart Pull] Delete failed: ${pathToDelete} - ${String(e)}`,
                             "error",
                         );
                     }
                 });
             }
         } else if (change.file && change.file.kind === "file") {
-            const cloudFile: any = change.file;
+            const cloudFile: ChangedFile = change.file;
             if (cloudFile.path === ctx.pluginDataPath) continue;
             if (isManagedSeparately(cloudFile.path)) continue;
 
@@ -1163,7 +1172,7 @@ async function processChangePage(
                         delete ctx.localIndex[cloudFile.path];
                     } catch (e) {
                         await ctx.log(
-                            `[Smart Pull] [Cleanup] Failed to delete forbidden file: ${cloudFile.path} - ${e}`,
+                            `[Smart Pull] [Cleanup] Failed to delete forbidden file: ${cloudFile.path} - ${String(e)}`,
                             "error",
                         );
                     }
@@ -1286,7 +1295,7 @@ async function processChangePage(
                             }
                         } catch (e) {
                             await ctx.log(
-                                `[Changes API] Failed to rename ${oldPath} -> ${newPath}: ${e}`,
+                                `[Changes API] Failed to rename ${oldPath} -> ${newPath}: ${String(e)}`,
                                 "warn",
                             );
                         }
@@ -1328,7 +1337,7 @@ async function processChangePage(
                                 "warn",
                             );
                         } catch (e) {
-                            await ctx.log(`[Changes API] Failed to rename ${oldPath} -> ${alt}: ${e}`, "warn");
+                            await ctx.log(`[Changes API] Failed to rename ${oldPath} -> ${alt}: ${String(e)}`, "warn");
                         }
                     } else {
                         await ctx.log(

@@ -154,7 +154,7 @@ export async function findCommonAncestorHash(
         // A network failure is not "no common ancestor": retry the pull later
         // instead of falling back to a conflict copy.
         if (e instanceof TransientHistoryError) throw e;
-        await ctx.log(`[Merge] Error finding common ancestor: ${e}`, "error");
+        await ctx.log(`[Merge] Error finding common ancestor: ${String(e)}`, "error");
         return null;
     }
 }
@@ -183,7 +183,7 @@ export async function perform3WayMerge(
         });
     } catch (e) {
         if (e instanceof TransientHistoryError) throw e;
-        await ctx.log(`[Merge] Error: ${e}`, "error");
+        await ctx.log(`[Merge] Error: ${String(e)}`, "error");
         return null;
     }
 }
@@ -241,7 +241,7 @@ export async function pullFileSafely(
                 await ctx.adapter.moveFile(clashId, basename(alt), dirname(alt) || null);
                 await renameLocal(ctx, clash, alt);
             } catch (e) {
-                await ctx.log(`[${logPrefix}] Could not rename colliding ${clash}: ${e}`, "warn");
+                await ctx.log(`[${logPrefix}] Could not rename colliding ${clash}: ${String(e)}`, "warn");
                 return false;
             }
             moveIndexEntry(ctx, clash, alt);
@@ -257,7 +257,7 @@ export async function pullFileSafely(
             try {
                 await ctx.adapter.moveFile(fileId, basename(newPath), dirname(newPath) || null);
             } catch (e) {
-                await ctx.log(`[${logPrefix}] Could not rename colliding ${item.path}: ${e}`, "warn");
+                await ctx.log(`[${logPrefix}] Could not rename colliding ${item.path}: ${String(e)}`, "warn");
                 return false;
             }
             await ctx.log(
@@ -328,7 +328,7 @@ async function dropStaleAliases(ctx: SyncContext, path: string, fileId: string, 
                 );
             }
         } catch (e) {
-            await ctx.log(`[${logPrefix}] Could not clean up stale copy ${other}: ${e}`, "warn");
+            await ctx.log(`[${logPrefix}] Could not clean up stale copy ${other}: ${String(e)}`, "warn");
         }
     }
 }
@@ -522,7 +522,7 @@ async function adoptUploadOfRenamedFile(
     try {
         await ctx.adapter.moveFile(fileId, basename(now), dirname(now) || null);
     } catch (e) {
-        await ctx.log(`[${logPrefix}] Could not move our lost upload ${item.path} to ${now}: ${e}`, "warn");
+        await ctx.log(`[${logPrefix}] Could not move our lost upload ${item.path} to ${now}: ${String(e)}`, "warn");
         return false;
     }
     const hash = item.hash!.toLowerCase();
@@ -723,8 +723,6 @@ async function pullFileUnchecked(
                 }
 
                 let isModifiedLocally = isActuallyModified || ctx.dirtyPaths.has(item.path);
-
-                const hasRemoteUpdate = hasRemoteConflict;
 
                 if (isModifiedLocally || hasRemoteConflict) {
                     let contentMatches = false;
@@ -950,7 +948,6 @@ async function pullFileUnchecked(
                         await ctx.notify("noticeMergingFile", basename(item.path));
 
                         let baseHash = localBase.ancestorHash;
-                        let origin = "ancestorHash";
                         let attempted = peekAttemptedUpload(ctx, item.path)?.toLowerCase();
                         if (attempted && ctx.e2eeEnabled) {
                             // Recorded as the plaintext md5: find its (encrypted) cloud version.
@@ -972,7 +969,6 @@ async function pullFileUnchecked(
                             item.ancestorHash.toLowerCase() === localBase.hash.toLowerCase()
                         ) {
                             baseHash = localBase.hash;
-                            origin = "remote ancestorHash (our push)";
                         } else if (
                             attempted &&
                             item.hash &&
@@ -986,7 +982,6 @@ async function pullFileUnchecked(
                             // uploaded over it repairs it (overwrite-recovery), so it is the
                             // common ancestor.
                             baseHash = attempted;
-                            origin = "our unconfirmed upload (in history)";
                         } else if (
                             localBase.lastAction === "push" &&
                             localBase.hash &&
@@ -1002,7 +997,6 @@ async function pullFileUnchecked(
                             // The older ancestorHash made our own pushed lines look like edits we
                             // made again, conflicting with the remote's copy of them.
                             baseHash = localBase.hash;
-                            origin = "our unconfirmed push (in history)";
                         }
 
                         await ctx.log(
@@ -1040,7 +1034,6 @@ async function pullFileUnchecked(
                             ))
                         ) {
                             baseHash = item.ancestorHash;
-                            origin = "remote ancestorHash (uploaded over ours)";
                             await ctx.log(
                                 `[${logPrefix}] Remote was built on ${baseHash.substring(0, 8)}, older than our ${localBase.hash.substring(0, 8)}. Merging from that base.`,
                                 "debug",
@@ -1053,13 +1046,12 @@ async function pullFileUnchecked(
                             const computedAncestor = await findCommonAncestorHash(
                                 ctx,
                                 item.path,
-                                localBase.hash as string,
+                                localBase.hash,
                                 item.hash || "",
                                 fileId,
                             );
                             if (computedAncestor) {
                                 baseHash = computedAncestor;
-                                origin = "history lookup";
                             }
                         }
 
@@ -1351,7 +1343,7 @@ async function pullFileUnchecked(
                 }
             } catch (err) {
                 await ctx.log(
-                    `[${logPrefix}] Conflict check error for ${item.path}: ${err}`,
+                    `[${logPrefix}] Conflict check error for ${item.path}: ${String(err)}`,
                     "error",
                 );
                 // Don't leave our lock blocking other devices until its TTL runs out.
@@ -1426,7 +1418,7 @@ async function pullFileUnchecked(
         ctx.logger.markActionTaken();
         return true;
     } catch (e) {
-        await ctx.log(`[${logPrefix}] Pull failed: ${item.path} - ${e}`, "error");
+        await ctx.log(`[${logPrefix}] Pull failed: ${item.path} - ${String(e)}`, "error");
         if (e instanceof Error && e.name === "DecryptionError") {
             await ctx.notify("noticeE2EEDecryptFailed", basename(item.path));
         }

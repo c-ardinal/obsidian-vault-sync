@@ -6,13 +6,13 @@ export interface SettingItem {
     type: "toggle" | "text" | "number" | "dropdown" | "textarea" | "info";
     label: string;
     desc?: string;
-    getDesc?: (settings: any, plugin: any) => string;
+    getDesc?: (settings: unknown, plugin: unknown) => string;
     placeholder?: string;
     options?: Record<string, string>;
     unit?: string;
     limits?: { min: number; max: number; default: number; disabled?: number };
-    onChange?: (value: any, plugin: any) => Promise<void>;
-    isHidden?: (settings: any) => boolean;
+    onChange?: (value: unknown, plugin: unknown) => Promise<void>;
+    isHidden?: (settings: unknown) => boolean;
 }
 
 export interface SettingSection {
@@ -20,7 +20,7 @@ export interface SettingSection {
     title: string;
     description?: string;
     items: SettingItem[];
-    isHidden?: (settings: any) => boolean;
+    isHidden?: (settings: unknown) => boolean;
 }
 
 export interface MigrationProgress {

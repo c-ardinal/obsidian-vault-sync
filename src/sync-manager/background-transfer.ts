@@ -60,7 +60,7 @@ export class BackgroundTransferQueue {
         try {
             await this.loadHistory(this.ctx);
         } catch (e) {
-            this.ctx.log(`[Background Transfer] Failed to load history: ${e}`, "error");
+            void this.ctx.log(`[Background Transfer] Failed to load history: ${String(e)}`, "error");
         }
         this.rotateOldLogs(this.ctx).catch(() => {});
     }
@@ -217,7 +217,7 @@ export class BackgroundTransferQueue {
     private startProcessing(): void {
         if (this.isProcessing || this.isPaused || !this.ctx) return;
         this.processLoop(this.ctx).catch((e) => {
-            this.ctx?.log(`[Background Transfer] Process loop error: ${e}`, "error");
+            void this.ctx?.log(`[Background Transfer] Process loop error: ${String(e)}`, "error");
         });
     }
 
@@ -265,7 +265,7 @@ export class BackgroundTransferQueue {
                             path: next.path,
                             size: next.size,
                             status: "failed",
-                            startedAt: next.startedAt!,
+                            startedAt: next.startedAt,
                             completedAt: Date.now(),
                             error: errorMsg,
                             transferMode: "background",
@@ -397,7 +397,7 @@ export class BackgroundTransferQueue {
             // Uploading without the conflict check could overwrite another
             // device's edit. Defer to the next sync cycle instead.
             await ctx.log(
-                `[Background Transfer] Remote check failed for ${item.path}, deferring: ${e}`,
+                `[Background Transfer] Remote check failed for ${item.path}, deferring: ${String(e)}`,
                 "warn",
             );
             ctx.dirtyPaths.set(item.path, Date.now());
@@ -469,14 +469,14 @@ export class BackgroundTransferQueue {
             uploaded = await ctx.adapter.uploadFileResumable(
                 item.path,
                 item.content!,
-                item.mtime!,
+                item.mtime,
                 targetFileId,
             );
         } else {
             uploaded = await ctx.adapter.uploadFile(
                 item.path,
                 item.content!,
-                item.mtime!,
+                item.mtime,
                 targetFileId,
             );
         }
@@ -487,7 +487,7 @@ export class BackgroundTransferQueue {
         const previousAncestorHash = ctx.localIndex[item.path]?.ancestorHash;
         const entry = {
             fileId: uploaded.id,
-            mtime: item.mtime!,
+            mtime: item.mtime,
             size: uploaded.size,
             hash: uploaded.hash,
             plainHash,
@@ -738,7 +738,7 @@ export class BackgroundTransferQueue {
             const lines = records.map((r) => JSON.stringify(r)).join("\n") + "\n";
             const existing = await ctx.vault.read(logPath).catch(() => "");
             await ctx.vault.write(logPath, existing + lines);
-        } catch (e) {
+        } catch {
             this.unflushedRecords.unshift(...records);
         }
     }
@@ -772,7 +772,7 @@ export class BackgroundTransferQueue {
                 }
             }
         } catch (e) {
-            await ctx.log(`[Background Transfer] Log rotation error: ${e}`, "warn");
+            await ctx.log(`[Background Transfer] Log rotation error: ${String(e)}`, "warn");
         }
     }
 
@@ -795,7 +795,7 @@ export class BackgroundTransferQueue {
             };
             await saveIndex(ctx);
         } catch (e) {
-            await ctx.log(`[Background Transfer] Failed to upload index: ${e}`, "error");
+            await ctx.log(`[Background Transfer] Failed to upload index: ${String(e)}`, "error");
         }
     }
 }

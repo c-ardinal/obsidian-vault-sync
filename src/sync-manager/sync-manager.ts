@@ -6,7 +6,6 @@ import {
     CommunicationData,
     FullScanProgress,
     LocalFileIndex,
-    MergeLockEntry,
     SyncManagerSettings,
     SyncState,
 } from "./types";
@@ -19,8 +18,6 @@ import { SecureStorage } from "../services/secure-storage";
 import {
     type SyncTrigger,
     shouldShowNotification,
-    ALWAYS_SHOW_ACTIVITY,
-    TRIGGER_PRIORITY,
 } from "./notification-matrix";
 import {
     PLUGIN_DIR,
@@ -527,7 +524,7 @@ export class SyncManager {
             } catch (e) {
                 if (this.baseAdapter.isAuthenticated()) {
                     await this.log(
-                        `[E2EE Check] Remote E2EE state could not be verified: ${e}. Aborting sync to prevent data corruption.`,
+                        `[E2EE Check] Remote E2EE state could not be verified: ${String(e)}. Aborting sync to prevent data corruption.`,
                         "warn",
                     );
                     return;

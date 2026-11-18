@@ -3,8 +3,8 @@ import { md5 } from "../utils/md5";
 import { toHex } from "../utils/format";
 import { normalizePath, dirname } from "../utils/path";
 import type { SyncContext } from "./context";
-import type { CommunicationData, MergeLockEntry } from "./types";
-import { isManagedSeparately, shouldNotBeOnRemote, shouldIgnore } from "./file-utils";
+import type { CommunicationData, LocalFileIndex, MergeLockEntry } from "./types";
+import { shouldIgnore } from "./file-utils";
 import {
     LOCK_MAX_ATTEMPTS,
     LOCK_TTL_MS,
@@ -163,7 +163,7 @@ export async function loadCommunication(
         if (s.active) s.comm = { data: cloneComm(data), at: Date.now() };
         return data;
     } catch (e) {
-        await ctx.log(`[Communication] Failed to load: ${e}`, "error");
+        await ctx.log(`[Communication] Failed to load: ${String(e)}`, "error");
         // A fresh read feeds a read-modify-write of the lock map. Returning an
         // empty map here would make the following save wipe every other
         // device's locks, so surface the error instead.
@@ -178,7 +178,7 @@ export async function saveCommunication(ctx: SyncContext, data: CommunicationDat
         const content = new TextEncoder().encode(JSON.stringify(data, null, 2));
         await ctx.adapter.uploadFile(
             ctx.communicationPath,
-            content.buffer as ArrayBuffer,
+            content.buffer,
             Date.now(),
         );
         const s = cycleState(ctx);
@@ -186,7 +186,7 @@ export async function saveCommunication(ctx: SyncContext, data: CommunicationDat
     } catch (e) {
         const s = cycleState(ctx);
         s.comm = null;
-        await ctx.log(`[Communication] Failed to save: ${e}`, "error");
+        await ctx.log(`[Communication] Failed to save: ${String(e)}`, "error");
         throw e;
     }
 }
@@ -331,7 +331,7 @@ export async function releaseMergeLock(
         await enqueueLockOp(ctx, "release", path, logPrefix);
     } catch (e) {
         await ctx.log(
-            `[${logPrefix || "Communication"}] Failed to release lock for ${path}: ${e}`,
+            `[${logPrefix || "Communication"}] Failed to release lock for ${path}: ${String(e)}`,
             "error",
         );
     }
@@ -434,7 +434,7 @@ export async function loadIndex(
         const data = await ctx.vault.readBinary(ctx.pluginDataPath);
         const decompressed = await tryDecompress(data);
         const text = new TextDecoder().decode(decompressed);
-        const parsed = JSON.parse(text);
+        const parsed = JSON.parse(text) as { index?: LocalFileIndex; startPageToken?: string | null };
         ctx.index = parsed.index || {};
         ctx.startPageToken = parsed.startPageToken || null;
 
@@ -452,12 +452,12 @@ export async function loadIndex(
         const rawPath = ctx.pluginDataPath.replace(".json", "_raw.json");
         try {
             await ctx.log(
-                `[Index] Main load failed (${e}). Attempting fallback to raw index: ${rawPath}`,
+                `[Index] Main load failed (${String(e)}). Attempting fallback to raw index: ${rawPath}`,
                 "warn",
             );
             if (await ctx.vault.exists(rawPath)) {
                 const data = await ctx.vault.read(rawPath);
-                const parsed = JSON.parse(data);
+                const parsed = JSON.parse(data) as { index?: LocalFileIndex; startPageToken?: string | null };
                 ctx.index = parsed.index || {};
                 ctx.startPageToken = parsed.startPageToken || null;
                 await ctx.log("[Index] Successfully recovered from raw index.", "info");
@@ -465,7 +465,7 @@ export async function loadIndex(
                 return;
             }
         } catch (rawErr) {
-            await ctx.log(`[Index] Raw fallback also failed: ${rawErr}`, "error");
+            await ctx.log(`[Index] Raw fallback also failed: ${String(rawErr)}`, "error");
         }
 
         await ctx.log(`[Index] Fatal load failure. Starting fresh.`, "error");
@@ -480,7 +480,13 @@ export async function loadLocalIndex(ctx: SyncContext): Promise<void> {
     try {
         if (await ctx.vault.exists(ctx.localIndexPath)) {
             const data = await ctx.vault.read(ctx.localIndexPath);
-            const parsed = JSON.parse(data);
+            const parsed = JSON.parse(data) as {
+                index?: LocalFileIndex;
+                deviceId?: string;
+                attemptedUploads?: unknown;
+                pendingPulls?: unknown;
+                journalSeq?: unknown;
+            };
             ctx.localIndex = parsed.index || {};
             ctx.deviceId = parsed.deviceId || "";
             journalOf(ctx).seq = typeof parsed.journalSeq === "number" ? parsed.journalSeq : 0;
@@ -543,7 +549,7 @@ export async function loadLocalIndex(ctx: SyncContext): Promise<void> {
         ctx.logFolder = `${ctx.pluginDir}/logs/${ctx.deviceId}`;
 
         if (!isAlreadyLogged) {
-            await ctx.log(`[Local Index] Load failed: ${e}`, "error");
+            await ctx.log(`[Local Index] Load failed: ${String(e)}`, "error");
         }
         ctx.localIndex = {};
         restorePlainHashVersion(ctx, undefined, true);
@@ -757,21 +763,21 @@ export function markDeleted(ctx: SyncContext, path: string): void {
     if (ctx.index[path]) {
         setOf(deleteIntents, ctx).add(path);
         ctx.dirtyPaths.set(path, Date.now());
-        ctx.log(`[Dirty] Marked for deletion: ${path}`, "debug");
+        void ctx.log(`[Dirty] Marked for deletion: ${path}`, "debug");
     }
 }
 
 export function markFolderDeleted(ctx: SyncContext, folderPath: string): void {
     if (shouldIgnore(ctx, folderPath)) return;
     ctx.deletedFolders.add(folderPath);
-    ctx.log(`[Dirty] Marked for deletion (folder root): ${folderPath}`, "debug");
+    void ctx.log(`[Dirty] Marked for deletion (folder root): ${folderPath}`, "debug");
 
     const prefix = folderPath + "/";
     for (const path of Object.keys(ctx.index)) {
         if (path.startsWith(prefix) && !shouldIgnore(ctx, path)) {
             setOf(deleteIntents, ctx).add(path);
             ctx.dirtyPaths.set(path, Date.now());
-            ctx.log(`[Dirty] Marked for deletion (child): ${path}`, "debug");
+            void ctx.log(`[Dirty] Marked for deletion (child): ${path}`, "debug");
         }
     }
 }
@@ -786,7 +792,7 @@ const ownRenames = new WeakMap<object, Map<string, number>>();
 
 export async function renameLocal(ctx: SyncContext, from: string, to: string): Promise<void> {
     let m = ownRenames.get(ctx);
-    if (!m) ownRenames.set(ctx, (m = new Map()));
+    if (!m) ownRenames.set(ctx, (m = new Map<string, number>()));
     const key = `${from}\u0000${to}`;
     m.set(key, (m.get(key) ?? 0) + 1);
     try {
@@ -816,7 +822,7 @@ const unsyncedRenames = new WeakMap<object, Map<string, string>>();
 
 function noteUnsyncedRename(ctx: SyncContext, from: string, to: string): void {
     let m = unsyncedRenames.get(ctx);
-    if (!m) unsyncedRenames.set(ctx, (m = new Map()));
+    if (!m) unsyncedRenames.set(ctx, (m = new Map<string, string>()));
     for (const [k, v] of m) if (v === from) m.set(k, to);
     m.set(from, to);
 }
@@ -831,7 +837,7 @@ export function takeUnsyncedRename(ctx: SyncContext, path: string): string | und
 
 export function markRenamed(ctx: SyncContext, oldPath: string, newPath: string): void {
     if (takeOwnRename(ctx, oldPath, newPath)) {
-        ctx.log(`[Dirty] Ignored our own rename: ${oldPath} -> ${newPath}`, "debug");
+        void ctx.log(`[Dirty] Ignored our own rename: ${oldPath} -> ${newPath}`, "debug");
         return;
     }
     if (shouldIgnore(ctx, newPath)) return;
@@ -848,8 +854,8 @@ export function markRenamed(ctx: SyncContext, oldPath: string, newPath: string):
         noteUnsyncedRename(ctx, oldPath, newPath);
         ctx.dirtyPaths.delete(oldPath);
         ctx.dirtyPaths.set(newPath, Date.now());
-        ctx.log(`[Dirty] Removed (renamed before sync): ${oldPath}`, "debug");
-        ctx.log(`[Dirty] Marked (renamed before sync): ${newPath}`, "debug");
+        void ctx.log(`[Dirty] Removed (renamed before sync): ${oldPath}`, "debug");
+        void ctx.log(`[Dirty] Marked (renamed before sync): ${newPath}`, "debug");
         return;
     }
 
@@ -859,7 +865,7 @@ export function markRenamed(ctx: SyncContext, oldPath: string, newPath: string):
     if (ctx.index[oldPath] && ctx.index[newPath]?.fileId && ctx.index[newPath].fileId !== ctx.index[oldPath].fileId) {
         setOf(deleteIntents, ctx).add(oldPath);
         ctx.dirtyPaths.set(oldPath, Date.now());
-        ctx.log(`[Dirty] ${newPath} was already uploaded as a new file. Deleting ${oldPath} instead of moving it.`, "debug");
+        void ctx.log(`[Dirty] ${newPath} was already uploaded as a new file. Deleting ${oldPath} instead of moving it.`, "debug");
         return;
     }
 
@@ -885,7 +891,7 @@ export function markRenamed(ctx: SyncContext, oldPath: string, newPath: string):
     }
 
     ctx.dirtyPaths.set(newPath, Date.now());
-    ctx.log(
+    void ctx.log(
         `[Dirty] Marked (${isMove ? "moved" : "renamed"}): ${newPath} (Migrated ID from ${oldPath})`,
         "debug",
     );
@@ -944,7 +950,7 @@ export function markFolderRenamed(
             // dirtyPaths を更新
             ctx.dirtyPaths.delete(oldPath);
             ctx.dirtyPaths.set(newPath, Date.now());
-            ctx.log(
+            void ctx.log(
                 `[Dirty] Marked (folder move child): ${oldPath} -> ${newPath} (Migrated ID)`,
                 "debug",
             );

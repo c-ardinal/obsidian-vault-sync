@@ -119,7 +119,7 @@ async function executeFolderDeletions(ctx: SyncContext): Promise<{ folderDeleted
             }
             ctx.deletedFolders.delete(folderPath);
         } catch (e) {
-            await ctx.log(`[Smart Push] Failed to delete folder ${folderPath}: ${e}`, "error");
+            await ctx.log(`[Smart Push] Failed to delete folder ${folderPath}: ${String(e)}`, "error");
         }
     }
 
@@ -233,13 +233,13 @@ async function uploadRemoteIndex(ctx: SyncContext): Promise<void> {
                 await ctx.log(`[Smart Push] Raw index backup uploaded.`, "debug");
             }
         } catch (rawErr) {
-            await ctx.log(`[Smart Push] Failed to upload raw index: ${rawErr}`, "debug");
+            await ctx.log(`[Smart Push] Failed to upload raw index: ${String(rawErr)}`, "debug");
         }
 
         await saveIndex(ctx);
         await ctx.log(`[Smart Push] Index uploaded. Hash: ${uploadedIndex.hash}`, "info");
     } catch (e) {
-        await ctx.log(`[Smart Push] Failed to upload index: ${e}`, "error");
+        await ctx.log(`[Smart Push] Failed to upload index: ${String(e)}`, "error");
     }
 }
 
@@ -399,7 +399,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                 }
                             } catch (e) {
                                 await ctx.log(
-                                    `[Smart Push] Optimal folder move failed for ${path}, falling back: ${e}`,
+                                    `[Smart Push] Optimal folder move failed for ${path}, falling back: ${String(e)}`,
                                     "warn",
                                 );
                             }
@@ -414,7 +414,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                             return;
                         } catch (e) {
                             await ctx.log(
-                                `[Smart Push] Failed to sync folder ${path}: ${e}`,
+                                `[Smart Push] Failed to sync folder ${path}: ${String(e)}`,
                                 "error",
                             );
                             return;
@@ -513,7 +513,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                             // Don't return — fall through to hash check.
                         } catch (e) {
                             await ctx.log(
-                                `[Smart Push] Move API failed for ${path}, falling back to re-upload: ${e}`,
+                                `[Smart Push] Move API failed for ${path}, falling back to re-upload: ${String(e)}`,
                                 "warn",
                             );
                             delete indexEntry.pendingMove;
@@ -539,7 +539,8 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                             try {
                                 alreadyOnRemoteFile = await ctx.adapter.getFileMetadata(path);
                                 remoteLookup = alreadyOnRemoteFile;
-                            } catch (e) {
+                            } catch {
+                                // ignore: treated as not on remote
                             }
                         }
 
@@ -597,7 +598,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                         });
                     } catch (e) {
                         await ctx.log(
-                            `[Smart Push] Failed to read ${path} for hash check: ${e}`,
+                            `[Smart Push] Failed to read ${path} for hash check: ${String(e)}`,
                             "error",
                         );
                     }
@@ -706,7 +707,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
         // edit) instead of turning the local note into a conflict copy.
         const toRecord = inlineUploadQueue.filter((f) => f.hash && f.path !== ctx.pluginDataPath);
         if (toRecord.length > 0) {
-            for (const f of toRecord) recordAttemptedUpload(ctx, f.path, f.hash!);
+            for (const f of toRecord) recordAttemptedUpload(ctx, f.path, f.hash);
             await saveLocalIndex(ctx, true);
         }
 
@@ -915,7 +916,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                             }
                                         } catch (uploadErr) {
                                             await ctx.log(
-                                                `[Smart Push] [Deadlock Breaking] Failed to upload merged file: ${file.path} - ${uploadErr}`,
+                                                `[Smart Push] [Deadlock Breaking] Failed to upload merged file: ${file.path} - ${String(uploadErr)}`,
                                                 "error",
                                             );
                                         }
@@ -926,7 +927,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                         }
                     } catch (e) {
                         await ctx.log(
-                            `[Smart Push] Pre-upload check failed for ${file.path}, will retry next sync: ${e}`,
+                            `[Smart Push] Pre-upload check failed for ${file.path}, will retry next sync: ${String(e)}`,
                             "warn",
                         );
                         return;
@@ -996,7 +997,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                         transferMode: "inline",
                     });
                 } catch (e) {
-                    await ctx.log(`[Smart Push] Upload failed: ${file.path} - ${e}`, "error");
+                    await ctx.log(`[Smart Push] Upload failed: ${file.path} - ${String(e)}`, "error");
                     // A lost response may still have been applied by the server
                     recordAttemptedUpload(ctx, file.path, file.hash);
                 } finally {
@@ -1058,7 +1059,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                     }
                 } catch (e) {
                     await ctx.log(
-                        `[Smart Push] [Folder Wipe] Failed to wipe folder ${folderPath}: ${e}`,
+                        `[Smart Push] [Folder Wipe] Failed to wipe folder ${folderPath}: ${String(e)}`,
                         "error",
                     );
                 }
@@ -1126,7 +1127,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                         );
                     }
                 } catch (e) {
-                    await ctx.log(`[Smart Push] Delete failed: ${path} - ${e}`, "error");
+                    await ctx.log(`[Smart Push] Delete failed: ${path} - ${String(e)}`, "error");
                 }
             });
         }
@@ -1151,6 +1152,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
         }
         return true;
     } finally {
+        // nothing to clean up
     }
 }
 
@@ -1192,7 +1194,7 @@ async function collapseCollidingNewPaths(ctx: SyncContext): Promise<void> {
                 "warn",
             );
         } catch (e) {
-            await ctx.log(`[Smart Push] Could not check ${path} for a name collision: ${e}`, "warn");
+            await ctx.log(`[Smart Push] Could not check ${path} for a name collision: ${String(e)}`, "warn");
         }
     }
 }
