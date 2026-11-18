@@ -277,7 +277,7 @@ const MATRIX: MatrixEntry[] = [
         },
     },
     {
-        // ✅ 同期: すべて最新の状態です
+        // ✅ 同期: 全ファイルが最新状態です
         key: "noticeVaultUpToDate",
         scenarios: {
             initialSync: { v: "Show", s: "Show" },
@@ -291,7 +291,7 @@ const MATRIX: MatrixEntry[] = [
         },
     },
     {
-        // 📝 同期: 正常にアップロード出来たか確認中...
+        // 📝 同期: アップロード結果を検証中...
         key: "noticeInitialSyncConfirmation",
         scenarios: {
             initialSync: { v: "Show", s: "Show" },
@@ -421,7 +421,7 @@ const MATRIX: MatrixEntry[] = [
         },
     },
     {
-        // ⚠️ 競合: マージに失敗した可能性が有ります。詳細は他デバイスを確認してください
+        // ⚠️ 競合: マージに失敗した可能性があります。詳細は他デバイスを確認してください
         key: "noticeCheckOtherDevice",
         scenarios: {
             pushConflict: { v: "Show", s: "Show" },
@@ -629,10 +629,10 @@ const FORMAT_SPECS: FormatSpec[] = [
     { key: "noticePullCompleted", specJa: "✅ [同期] ダウンロード完了 ({0} files)" },
     { key: "noticeFilePushed", specJa: "📤 [同期] アップロード中: {file}" },
     { key: "noticePushCompleted", specJa: "✅ [同期] アップロード完了 ({0} files)" },
-    { key: "noticeVaultUpToDate", specJa: "✅ [同期] すべて最新の状態です" },
+    { key: "noticeVaultUpToDate", specJa: "✅ [同期] 全ファイルが最新状態です" },
     {
         key: "noticeInitialSyncConfirmation",
-        specJa: "📝 [同期] 正常にアップロード出来たか確認中...",
+        specJa: "📝 [同期] アップロード結果を検証中...",
     },
     { key: "noticeSyncConfirmed", specJa: "✅ [同期] 成功: {file}" },
     { key: "noticeFileTrashed", specJa: "🗑️ [同期] 削除: {file}" },
@@ -649,7 +649,7 @@ const FORMAT_SPECS: FormatSpec[] = [
     },
     {
         key: "noticeCheckOtherDevice",
-        specJa: "⚠️ [競合] マージに失敗した可能性が有ります。詳細は他デバイスを確認してください",
+        specJa: "⚠️ [競合] マージに失敗した可能性があります。詳細は他デバイスを確認してください",
     },
     {
         key: "noticeMergeLockLost",
@@ -678,7 +678,7 @@ const FORMAT_SPECS: FormatSpec[] = [
     // ═══ Migration Notifications ═══
     {
         key: "noticeMigrationStarted",
-        specJa: "🚀 [E2EE] 移行を開始しました。Obsidianを閉じないでください。",
+        specJa: "🚀 [E2EE] 移行を開始しました。Obsidianを終了しないでください。",
     },
     { key: "noticeMigrationComplete", specJa: "✅ [E2EE] 移行完了！Vaultが暗号化されました。" },
     { key: "noticeMigrationFailed", specJa: "❌ [E2EE] 移行失敗。ログを確認してください。" },
@@ -689,7 +689,7 @@ const FORMAT_SPECS: FormatSpec[] = [
     },
     {
         key: "noticeAddonRequired",
-        specJa: "⚠️ このVaultでは、このデバイスに未導入のアドオンが使われています。設定 → アドオン から導入してください。同期を一時停止しています。",
+        specJa: "⚠️ このVaultでは、このデバイスに未導入のアドオンが使用されています。設定 → アドオン から導入してください。同期を一時停止しています。",
     },
     {
         key: "noticeE2EEAutoEnabled",
@@ -700,14 +700,14 @@ const FORMAT_SPECS: FormatSpec[] = [
         specJa: "❌ アドオンの検証に失敗しました。アドオンを再導入してください。",
     },
     { key: "e2eeUnlockSuccess", specJa: "ロック解除しました！" },
-    { key: "e2eeUnlockFailed", specJa: "パスワードが正しくありません。" },
+    { key: "e2eeUnlockFailed", specJa: "パスワードが一致しません。" },
     {
         key: "e2eeSetupKeychainFailed",
         specJa: "警告: SecretStorageへのパスワード保存に失敗しました。\n次回起動時にパスワードの再入力が必要です。",
     },
     {
         key: "e2eeInterruptedDone",
-        specJa: "クリーンアップ完了。このモーダルを再度開いてください。",
+        specJa: "クリーンアップ完了。このモーダルを再表示してください。",
     },
 ];
 
