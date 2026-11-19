@@ -205,6 +205,8 @@ async function closeSettings(page) {
 }
 
 async function shot(page, lang, label, target) {
+    // Notices (sync status, Obsidian's own hints) float over the UI; drop them for stable images.
+    await page.evaluate(() => document.querySelectorAll(".notice-container .notice").forEach((n) => n.remove()));
     const dir = join(OUT_DIR, lang);
     mkdirSync(dir, { recursive: true });
     const file = join(dir, `${String(shots.length).padStart(2, "0")}-${label}.png`);
