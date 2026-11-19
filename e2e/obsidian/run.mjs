@@ -2,13 +2,17 @@
 /**
  * Real-app UI check: starts the actual Obsidian desktop app with this plugin
  * installed in a throwaway vault, drives it through the Chrome DevTools
- * Protocol (Playwright connectOverCDP), checks the settings tab and saves
- * screenshots.
+ * Protocol (Playwright connectOverCDP), checks the settings tab and the
+ * plugin's other screens (history, transfers, add-on install, exclusion
+ * patterns, notices, menus, ribbon) on desktop and phone layouts, and saves
+ * screenshots. Modals are checked for a single close control and for content
+ * sticking out of the screen.
  *
  *   OBSIDIAN_BIN   path to the unpacked Obsidian executable (see setup-obsidian.mjs)
  *   PLUGIN_DIR     built plugin (default: dist/cardinal-vault-sync)
  *   OUT_DIR        screenshots + report (default: test-results/e2e-obsidian)
  *   E2E_LANGS      comma separated UI languages (default: en,ja)
+ *   ADDON_ZIP      optional add-on package (.zip) to show the install review screen
  *
  * Needs a display; in CI it runs under xvfb-run. Exit code 1 on any failed check.
  */
@@ -21,7 +25,10 @@ import { chromium } from "playwright-core";
 
 const PLUGIN_DIR = resolve(process.env.PLUGIN_DIR || "dist/cardinal-vault-sync");
 const OUT_DIR = resolve(process.env.OUT_DIR || "test-results/e2e-obsidian");
-const LANGS = (process.env.E2E_LANGS || "en,ja").split(",").map((s) => s.trim()).filter(Boolean);
+const LANGS = (process.env.E2E_LANGS || "en,ja")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
 const OBSIDIAN_BIN = process.env.OBSIDIAN_BIN;
 const PLUGIN_ID = JSON.parse(readFileSync(join(PLUGIN_DIR, "manifest.json"), "utf8")).id;
 
@@ -107,16 +114,20 @@ async function launch(root) {
         if (code) console.error(`Obsidian exited with ${code}\n${log.slice(-4000)}`);
     });
 
-    await waitFor(
-        async () => (await fetch(`http://127.0.0.1:${port}/json/version`)).ok,
-        { timeout: 60000, what: "DevTools endpoint" },
-    );
+    await waitFor(async () => (await fetch(`http://127.0.0.1:${port}/json/version`)).ok, {
+        timeout: 60000,
+        what: "DevTools endpoint",
+    });
     const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
     const page = await waitFor(
         async () => {
             for (const ctx of browser.contexts()) {
                 for (const p of ctx.pages()) {
-                    if (await p.evaluate(() => !!window.app?.workspace?.layoutReady).catch(() => false)) {
+                    if (
+                        await p
+                            .evaluate(() => !!window.app?.workspace?.layoutReady)
+                            .catch(() => false)
+                    ) {
                         return p;
                     }
                 }
@@ -132,7 +143,11 @@ async function waitReady(page) {
     await waitFor(
         () =>
             page
-                .evaluate((id) => !!window.app?.workspace?.layoutReady && !!window.app.plugins.plugins[id], PLUGIN_ID)
+                .evaluate(
+                    (id) =>
+                        !!window.app?.workspace?.layoutReady && !!window.app.plugins.plugins[id],
+                    PLUGIN_ID,
+                )
                 .catch(() => false),
         { timeout: 60000, what: "workspace + plugin loaded" },
     );
@@ -204,9 +219,12 @@ async function closeSettings(page) {
     await sleep(300);
 }
 
-async function shot(page, lang, label, target) {
+async function shot(page, lang, label, target, { keepNotices = false } = {}) {
     // Notices (sync status, Obsidian's own hints) float over the UI; drop them for stable images.
-    await page.evaluate(() => document.querySelectorAll(".notice-container .notice").forEach((n) => n.remove()));
+    if (!keepNotices)
+        await page.evaluate(() =>
+            document.querySelectorAll(".notice-container .notice").forEach((n) => n.remove()),
+        );
     const dir = join(OUT_DIR, lang);
     mkdirSync(dir, { recursive: true });
     const file = join(dir, `${String(shots.length).padStart(2, "0")}-${label}.png`);
@@ -236,7 +254,9 @@ async function shotSettings(page, lang, label, target = ".modal.mod-settings") {
 }
 
 const navNames = (page) =>
-    page.$$eval(".vault-sync-settings-nav-item .setting-item-name", (els) => els.map((e) => e.textContent.trim()));
+    page.$$eval(".vault-sync-settings-nav-item .setting-item-name", (els) =>
+        els.map((e) => e.textContent.trim()),
+    );
 
 async function settingsText(page) {
     return page.$eval(".vault-sync-settings-container", (el) => el.innerText);
@@ -246,7 +266,8 @@ async function checkHierarchy(main, lang, { mobile = false } = {}) {
     const tag = mobile ? "mobile" : "desktop";
     let page = await openSettings(main);
     if (page !== main) await page.setViewportSize(mobile ? MOBILE : DESKTOP).catch(() => {});
-    const target = !mobile && (await page.$(".modal.mod-settings")) ? ".modal.mod-settings" : undefined;
+    const target =
+        !mobile && (await page.$(".modal.mod-settings")) ? ".modal.mod-settings" : undefined;
 
     const names = await navNames(page);
     check(lang, `${tag}: root lists categories`, names.length >= 5, names.join(" | "));
@@ -268,25 +289,48 @@ async function checkHierarchy(main, lang, { mobile = false } = {}) {
         );
         const rows = (await page.$$(".vault-sync-settings-page .setting-item")).length;
         const scrollTop = await page.$eval(".vault-sync-settings-container", (el) => el.scrollTop);
-        check(lang, `${tag}: page "${names[i]}" opens with matching title`, heading === names[i], `title="${heading}"`);
+        check(
+            lang,
+            `${tag}: page "${names[i]}" opens with matching title`,
+            heading === names[i],
+            `title="${heading}"`,
+        );
         check(lang, `${tag}: page "${names[i]}" has settings`, rows > 0, `${rows} rows`);
-        check(lang, `${tag}: page "${names[i]}" starts at top`, scrollTop === 0, `scrollTop=${scrollTop}`);
+        check(
+            lang,
+            `${tag}: page "${names[i]}" starts at top`,
+            scrollTop === 0,
+            `scrollTop=${scrollTop}`,
+        );
         const text = await settingsText(page);
         if (BANNED_UI_WORDS.test(text)) leaked.push(names[i]);
         await shotSettings(page, lang, `${tag}-page${i + 1}`, target);
 
         await page.click(".vault-sync-settings-back");
-        await page.waitForSelector(".vault-sync-settings-nav-item", { timeout: 5000 });
+        await page.waitForSelector(".vault-sync-settings-nav-item", {
+            timeout: 5000,
+        });
         const back = await navNames(page);
-        check(lang, `${tag}: back from "${names[i]}" returns to root`, back.join("|") === names.join("|"));
+        check(
+            lang,
+            `${tag}: back from "${names[i]}" returns to root`,
+            back.join("|") === names.join("|"),
+        );
     }
-    check(lang, `${tag}: no add-on internals named in plugin UI`, leaked.length === 0, leaked.join(", "));
+    check(
+        lang,
+        `${tag}: no add-on internals named in plugin UI`,
+        leaked.length === 0,
+        leaked.join(", "),
+    );
 
     if (!mobile) {
         // Keyboard: Enter on a focused row opens the page.
         await page.focus(".vault-sync-settings-nav-item");
         await page.keyboard.press("Enter");
-        const kbd = await page.waitForSelector(".vault-sync-settings-back", { timeout: 3000 }).catch(() => null);
+        const kbd = await page
+            .waitForSelector(".vault-sync-settings-back", { timeout: 3000 })
+            .catch(() => null);
         check(lang, `${tag}: Enter on a category opens it`, !!kbd);
 
         // Closing and reopening settings starts at the category list again.
@@ -302,10 +346,327 @@ async function checkHierarchy(main, lang, { mobile = false } = {}) {
     await closeSettings(main);
 }
 
+// ---------------------------------------------------------------------------
+// Non-settings screens: ribbon, notices, modals, menus. Uses the plugin's own
+// developer-mode demo commands so no cloud account is needed.
+// ---------------------------------------------------------------------------
+
+const cmd = (page, id) =>
+    page.evaluate((full) => window.app.commands.executeCommandById(full), `${PLUGIN_ID}:${id}`);
+
+/** Visible close controls in the top-most modal (Obsidian's own + the plugin's). */
+async function visibleCloseButtons(page) {
+    return page.evaluate(() => {
+        const modals = [...document.querySelectorAll(".modal-container .modal")];
+        const modal = modals[modals.length - 1];
+        if (!modal) return [];
+        const out = [];
+        for (const el of modal.querySelectorAll(
+            // Obsidian's close control (.modal-close-button, or .modal-header-button on 1.15 mobile) and any plugin-made one.
+            ".modal-close-button, .modal-header-button, .vault-sync-close-btn, [aria-label='Close']",
+        )) {
+            const cs = getComputedStyle(el);
+            const r = el.getBoundingClientRect();
+            if (
+                cs.display === "none" ||
+                cs.visibility === "hidden" ||
+                r.width === 0 ||
+                r.height === 0
+            )
+                continue;
+            out.push({
+                cls: el.className,
+                x: Math.round(r.x),
+                y: Math.round(r.y),
+                w: Math.round(r.width),
+                h: Math.round(r.height),
+            });
+        }
+        return out;
+    });
+}
+
+/** Elements of the open modal that stick out of the viewport or overflow sideways. */
+async function layoutIssues(page) {
+    return page.evaluate(() => {
+        const modals = [...document.querySelectorAll(".modal-container .modal")];
+        const modal = modals[modals.length - 1];
+        if (!modal) return [];
+        const vw = window.innerWidth;
+        const issues = [];
+        const mr = modal.getBoundingClientRect();
+        if (mr.right > vw + 1 || mr.left < -1)
+            issues.push(`modal ${Math.round(mr.left)}..${Math.round(mr.right)} > ${vw}`);
+        for (const el of modal.querySelectorAll("*")) {
+            if (
+                el.scrollWidth > el.clientWidth + 2 &&
+                getComputedStyle(el).overflowX === "visible" &&
+                el.clientWidth > 40
+            ) {
+                const cls = typeof el.className === "string" ? el.className : "";
+                // A <select> clips its own long label by design.
+                if (cls && !cls.includes("diff") && el.tagName !== "SELECT")
+                    issues.push(
+                        `overflow-x: ${el.tagName.toLowerCase()}.${cls.split(" ").join(".")}`,
+                    );
+            }
+        }
+        return [...new Set(issues)].slice(0, 8);
+    });
+}
+
+async function modalOpen(page, selector, what) {
+    await page.waitForSelector(`.modal-container ${selector}`, { timeout: 8000 });
+    await sleep(400);
+    return what;
+}
+
+/** Shot + generic checks for the top-most modal. */
+async function shotModal(page, lang, tag, label, name) {
+    const closers = await visibleCloseButtons(page);
+    check(
+        lang,
+        `${tag}: ${name} has exactly one close control`,
+        closers.length === 1,
+        closers.map((c) => `${c.cls}@${c.x},${c.y}`).join(" ; "),
+    );
+    const issues = await layoutIssues(page);
+    check(lang, `${tag}: ${name} fits the screen`, issues.length === 0, issues.join(" ; "));
+    await shot(page, lang, `${tag}-${label}`);
+}
+
+async function escape(page) {
+    await page.keyboard.press("Escape");
+    await sleep(300);
+    await closeModals(page);
+}
+
+async function checkScreens(page, lang, { mobile = false } = {}) {
+    const tag = mobile ? "mobile" : "desktop";
+    await page.evaluate((id) => {
+        const p = window.app.plugins.plugins[id];
+        p.settings.isDeveloperMode = true;
+        // Avoid real network sync attempts during the run.
+        if (p.syncManager) p.syncManager.currentTrigger = "manual-sync";
+    }, PLUGIN_ID);
+
+    // Ribbon / mobile sync indicator, idle and syncing.
+    await shot(page, lang, `${tag}-scr-workspace`);
+    await cmd(page, "dev-demo-sync-animation");
+    await sleep(600);
+    await shot(page, lang, `${tag}-scr-syncing`);
+    await sleep(5000);
+
+    // Notices: the demo sequence plus a sticky conflict notice and the real "not signed in" one.
+    await page.evaluate(() =>
+        document.querySelectorAll(".notice-container .notice").forEach((n) => n.remove()),
+    );
+    await cmd(page, "dev-demo-notifications");
+    await page.evaluate(async (id) => {
+        const sm = window.app.plugins.plugins[id].syncManager;
+        setTimeout(
+            () =>
+                sm.notify("noticeConflictSaved", "Notes/Plan (Conflict 2026-11-19).md", {
+                    sticky: true,
+                    openPath: "Welcome.md",
+                }),
+            3200,
+        );
+    }, PLUGIN_ID);
+    await sleep(3800);
+    await shot(page, lang, `${tag}-scr-notices`, undefined, {
+        keepNotices: true,
+    });
+    await page.evaluate(() =>
+        document.querySelectorAll(".notice-container .notice").forEach((n) => n.remove()),
+    );
+
+    // Manual sync without an account (ribbon on desktop, command on mobile).
+    await cmd(page, "sync-vault");
+    await sleep(1500);
+    await shot(page, lang, `${tag}-scr-sync-not-signed-in`, undefined, {
+        keepNotices: true,
+    });
+    await page.evaluate(() =>
+        document.querySelectorAll(".notice-container .notice").forEach((n) => n.remove()),
+    );
+
+    // History / diff viewer.
+    await cmd(page, "dev-demo-history");
+    await modalOpen(page, ".mod-history-modal");
+    await page.waitForSelector(".vault-sync-revision-item", { timeout: 8000 }).catch(() => {});
+    if (!mobile) {
+        await page
+            .locator(".vault-sync-revision-item")
+            .first()
+            .click()
+            .catch(() => {});
+    }
+    await page.waitForSelector(".diff-table", { timeout: 8000 }).catch(() => {});
+    await sleep(500);
+    await shotModal(page, lang, tag, "scr-history", "history modal");
+    if (mobile) {
+        await page.click(".vault-sync-history-toggle-btn").catch(() => {});
+        await sleep(500);
+        await shot(page, lang, `${tag}-scr-history-drawer`);
+        await page
+            .locator(".vault-sync-revision-item")
+            .nth(1)
+            .click()
+            .catch(() => {});
+        await sleep(800);
+        await shot(page, lang, `${tag}-scr-history-selected`);
+    }
+    // Split diff view.
+    const splitBtn = page
+        .locator(
+            ".vault-sync-revision-control-row .clickable-icon, .vault-sync-revision-control-row button",
+        )
+        .filter({
+            has: page.locator("svg.lucide-rows, svg.lucide-rows-2, svg.svg-icon.lucide-rows"),
+        });
+    if (await splitBtn.count().catch(() => 0)) {
+        await splitBtn
+            .first()
+            .click()
+            .catch(() => {});
+        await sleep(600);
+        await shot(page, lang, `${tag}-scr-history-split`);
+    }
+    await escape(page);
+
+    // "Restore as" prompt, empty and with an error.
+    await cmd(page, "dev-demo-prompt-modal");
+    await modalOpen(page, ".vault-sync-prompt-input");
+    await shotModal(page, lang, tag, "scr-restore-as", "restore-as dialog");
+    await page.fill(".vault-sync-prompt-input", "Notes/existing.md");
+    await page.keyboard.press("Enter");
+    await sleep(500);
+    await shot(page, lang, `${tag}-scr-restore-as-error`);
+    await escape(page);
+
+    // Transfer status.
+    await cmd(page, "dev-demo-transfer-status");
+    await modalOpen(page, ".mod-transfer-status-modal");
+    await shotModal(page, lang, tag, "scr-transfers", "transfer status modal");
+    await escape(page);
+
+    // Add-on install (and, when a package is given, its terms review).
+    await cmd(page, "install-addon");
+    await modalOpen(page, ".vault-sync-addon-install");
+    await shotModal(page, lang, tag, "scr-addon-install", "add-on install modal");
+    if (process.env.ADDON_ZIP) {
+        await page
+            .setInputFiles(".vault-sync-addon-install input[type=file]", process.env.ADDON_ZIP)
+            .catch((e) => check(lang, `${tag}: add-on package picked`, false, String(e)));
+        await page.waitForSelector(".vault-sync-addon-terms", { timeout: 10000 }).catch(() => {});
+        await sleep(800);
+        await shot(page, lang, `${tag}-scr-addon-terms`);
+        await page.evaluate(() => {
+            const m = document.querySelector(".modal-container .modal");
+            const c = m?.querySelector(".modal-content") || m;
+            if (c) c.scrollTop = c.scrollHeight;
+            if (m) m.scrollTop = m.scrollHeight;
+        });
+        await sleep(300);
+        await shot(page, lang, `${tag}-scr-addon-terms-bottom`);
+    }
+    await escape(page);
+
+    // Exclusion patterns (opened from the settings, shown here as a dialog).
+    const sp = await openSettings(page);
+    const scopeName = await sp.$$eval(".vault-sync-settings-nav-item .setting-item-name", (els) =>
+        els.map((e) => e.textContent.trim()),
+    );
+    const items = await sp.$$(".vault-sync-settings-nav-item");
+    // Sync scope is the third category.
+    if (items[2]) {
+        await items[2].click();
+        await sp.waitForSelector(".vault-sync-settings-back", { timeout: 5000 });
+        const btn = sp
+            .locator(".vault-sync-settings-page button")
+            .filter({ hasText: /Configure|設定|編集|管理/ })
+            .first();
+        if (await btn.count()) {
+            await btn.click();
+            await modalOpen(sp, ".vault-sync-exclusion-modal");
+            await shotModal(sp, lang, tag, "scr-exclusion", "exclusion modal");
+            await sp.fill(".vault-sync-exclusion-add-input", "Welc");
+            await sleep(500);
+            await shot(sp, lang, `${tag}-scr-exclusion-typing`);
+            await escape(sp);
+        } else {
+            check(lang, `${tag}: exclusion button found on "${scopeName[2]}"`, false);
+        }
+    }
+    await closeSettings(page);
+
+    // File context menu entry, then the real history modal without an account.
+    let menuShown = false;
+    if (!mobile) {
+        await page.evaluate(() => window.app.workspace.leftSplit?.expand?.());
+        const row = page.locator('.nav-file-title[data-path="Welcome.md"]').first();
+        if (await row.count()) {
+            await row.click({ button: "right" });
+            menuShown = !!(await page
+                .waitForSelector(".menu", { timeout: 3000 })
+                .catch(() => null));
+        }
+    } else {
+        menuShown = await page.evaluate(() => {
+            try {
+                const { Menu } = window.require("obsidian");
+                const file = window.app.vault.getAbstractFileByPath("Welcome.md");
+                const menu = new Menu();
+                window.app.workspace.trigger("file-menu", menu, file, "file-explorer-context-menu");
+                menu.showAtPosition({ x: 100, y: 200 });
+                return true;
+            } catch {
+                return false;
+            }
+        });
+        if (menuShown) await sleep(500);
+    }
+    if (menuShown) {
+        await shot(page, lang, `${tag}-scr-file-menu`);
+        const entry = page.locator(".menu .menu-item").filter({ hasText: "Vault-Sync" });
+        if (await entry.count()) {
+            await entry.first().click();
+            await modalOpen(page, ".mod-history-modal").catch(() => {});
+            await sleep(2500);
+            await shot(page, lang, `${tag}-scr-history-no-account`);
+            await escape(page);
+        } else {
+            await page.keyboard.press("Escape");
+        }
+    }
+
+    // Command palette filtered to the plugin.
+    await page.evaluate(() => window.app.commands.executeCommandById("command-palette:open"));
+    const input = await page.waitForSelector(".prompt-input", { timeout: 3000 }).catch(() => null);
+    if (input) {
+        await input.fill("Vault-Sync");
+        await sleep(500);
+        await shot(page, lang, `${tag}-scr-commands`);
+        await page.keyboard.press("Escape");
+        await sleep(300);
+    }
+    await page.evaluate(
+        (id) => (window.app.plugins.plugins[id].settings.isDeveloperMode = false),
+        PLUGIN_ID,
+    );
+}
+
 async function runLang(lang) {
     const root = mkdtempSync(join(tmpdir(), `obsidian-e2e-${lang}-`));
     const { proc, browser, page } = await launch(root);
-    page.on("pageerror", (e) => consoleErrors.push({ lang, kind: "pageerror", text: String(e) }));
+    page.on("pageerror", (e) =>
+        consoleErrors.push({
+            lang,
+            kind: "pageerror",
+            text: `${String(e.stack || e)} (after shot ${shots.at(-1)?.label ?? "-"})`,
+        }),
+    );
     page.on("console", (m) => {
         if (m.type() === "error") consoleErrors.push({ lang, kind: "console", text: m.text() });
     });
@@ -314,7 +675,11 @@ async function runLang(lang) {
         await prepare(page, lang);
         const info = await page.evaluate((id) => {
             const m = window.app.plugins.manifests[id];
-            return { obsidian: window.electron ? undefined : undefined, plugin: m?.version, lang: window.localStorage.getItem("language") || "en" };
+            return {
+                obsidian: window.electron ? undefined : undefined,
+                plugin: m?.version,
+                lang: window.localStorage.getItem("language") || "en",
+            };
         }, PLUGIN_ID);
         const appVersion = await page.evaluate(async () => {
             try {
@@ -323,10 +688,20 @@ async function runLang(lang) {
                 return null;
             }
         });
-        check(lang, "plugin loaded in real Obsidian", !!info.plugin, `plugin ${info.plugin}, Obsidian ${appVersion ?? "?"}, lang ${info.lang}`);
+        check(
+            lang,
+            "plugin loaded in real Obsidian",
+            !!info.plugin,
+            `plugin ${info.plugin}, Obsidian ${appVersion ?? "?"}, lang ${info.lang}`,
+        );
         await shot(page, lang, "desktop-workspace");
 
         await checkHierarchy(page, lang);
+        await checkScreens(page, lang).catch(async (e) => {
+            check(lang, "desktop: screens run completed", false, e.stack || String(e));
+            await shot(page, lang, "desktop-scr-error").catch(() => {});
+            await closeModals(page);
+        });
 
         // Mobile layout, emulated by Obsidian itself.
         await page.setViewportSize(MOBILE);
@@ -336,7 +711,13 @@ async function runLang(lang) {
         await closeModals(page);
         const isMobile = await page.evaluate(() => window.app.isMobile);
         check(lang, "mobile emulation active", isMobile);
-        if (isMobile) await checkHierarchy(page, lang, { mobile: true });
+        if (isMobile) {
+            await checkHierarchy(page, lang, { mobile: true });
+            await checkScreens(page, lang, { mobile: true }).catch(async (e) => {
+                check(lang, "mobile: screens run completed", false, e.stack || String(e));
+                await shot(page, lang, "mobile-scr-error").catch(() => {});
+            });
+        }
     } catch (e) {
         check(lang, "run completed", false, e.stack || String(e));
         await shot(page, lang, "error").catch(() => {});
@@ -352,14 +733,18 @@ async function runLang(lang) {
 function writeReport() {
     mkdirSync(OUT_DIR, { recursive: true });
     const failed = results.filter((r) => !r.ok);
-    writeFileSync(join(OUT_DIR, "report.json"), JSON.stringify({ results, shots, consoleErrors }, null, 2));
+    writeFileSync(
+        join(OUT_DIR, "report.json"),
+        JSON.stringify({ results, shots, consoleErrors }, null, 2),
+    );
     const lines = [
         `## Obsidian UI check: ${failed.length ? `${failed.length} failed` : "all passed"}`,
         "",
         "| Lang | Check | Result | Detail |",
         "|---|---|---|---|",
         ...results.map(
-            (r) => `| ${r.lang} | ${r.name} | ${r.ok ? "✅" : "❌"} | ${r.detail.replace(/\|/g, "\\|").replace(/\n/g, " ").slice(0, 300)} |`,
+            (r) =>
+                `| ${r.lang} | ${r.name} | ${r.ok ? "✅" : "❌"} | ${r.detail.replace(/\|/g, "\\|").replace(/\n/g, " ").slice(0, 300)} |`,
         ),
         "",
         `${shots.length} screenshots in the \`e2e-obsidian-screenshots\` artifact.`,
@@ -374,11 +759,17 @@ function writeReport() {
 }
 
 async function main() {
-    if (!OBSIDIAN_BIN) throw new Error("Set OBSIDIAN_BIN (run e2e/obsidian/setup-obsidian.mjs first).");
+    if (!OBSIDIAN_BIN)
+        throw new Error("Set OBSIDIAN_BIN (run e2e/obsidian/setup-obsidian.mjs first).");
     rmSync(OUT_DIR, { recursive: true, force: true });
     for (const lang of LANGS) await runLang(lang);
     const pluginErrors = consoleErrors.filter((e) => e.kind === "pageerror");
-    check("all", "no uncaught page errors", pluginErrors.length === 0, pluginErrors.map((e) => e.text).join(" / "));
+    check(
+        "all",
+        "no uncaught page errors",
+        pluginErrors.length === 0,
+        pluginErrors.map((e) => e.text).join(" / "),
+    );
     const failed = writeReport();
     process.exit(failed ? 1 : 0);
 }

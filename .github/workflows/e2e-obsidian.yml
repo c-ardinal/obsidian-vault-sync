@@ -1,7 +1,8 @@
 name: Obsidian UI check
 
 # Starts the real Obsidian desktop app (Linux AppImage) with the built plugin,
-# drives the settings tab through the DevTools protocol and saves screenshots.
+# drives the settings tab and the plugin's other screens (modals, notices, menus)
+# through the DevTools protocol and saves screenshots.
 on:
     pull_request:
         paths:
@@ -53,6 +54,16 @@ jobs:
 
             - name: Download Obsidian
               run: echo "OBSIDIAN_BIN=$(node e2e/obsidian/setup-obsidian.mjs | tail -n 1)" >> "$GITHUB_ENV"
+
+            - name: Download add-on package (for the install review screen)
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  repo=c-ardinal/obsidian-vault-sync-e2ee-engine
+                  tag=$(gh release list --repo "$repo" -L 1 --json tagName -q '.[0].tagName' || true)
+                  if [ -n "$tag" ] && gh release download "$tag" --repo "$repo" --pattern 'vault-sync-e2ee-engine.zip' -D .addon-pkg; then
+                      echo "ADDON_ZIP=$PWD/.addon-pkg/vault-sync-e2ee-engine.zip" >> "$GITHUB_ENV"
+                  fi
 
             - name: Run UI check
               run: xvfb-run -a --server-args="-screen 0 1920x1080x24" node e2e/obsidian/run.mjs
