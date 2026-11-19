@@ -247,13 +247,25 @@ export class TriggerManager {
 
         if (source === "interval" && syncManager.isSyncing()) {
             // Already syncing, interval trigger queues with low priority
-            await syncManager.requestSmartSync(trigger);
+            await this.requestSync(trigger);
             return;
         }
 
         await syncManager.log(`[Trigger] Activated via ${source}`, "system");
 
         // Animation is handled via Activity Callbacks if changes are found
-        await syncManager.requestSmartSync(trigger);
+        await this.requestSync(trigger);
+    }
+
+    /**
+     * Callers fire and forget, so a failed sync must not become an unhandled rejection.
+     * The sync itself already logs the failure and shows a notice.
+     */
+    private async requestSync(trigger: SyncTrigger): Promise<void> {
+        try {
+            await this.deps.syncManager.requestSmartSync(trigger);
+        } catch {
+            /* reported by the sync */
+        }
     }
 }
