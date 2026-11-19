@@ -511,7 +511,7 @@ export default class VaultSync extends Plugin {
             if (this.syncRibbonIconEl) {
                 await this.performSyncOperation(
                     [{ element: this.syncRibbonIconEl, originalIcon: "sync" }],
-                    () => this.syncManager.requestSmartSync("manual-sync"),
+                    () => this.requestManualSync(),
                 );
             }
         });
@@ -523,12 +523,10 @@ export default class VaultSync extends Plugin {
                 if (this.syncRibbonIconEl) {
                     await this.performSyncOperation(
                         [{ element: this.syncRibbonIconEl, originalIcon: "sync" }],
-                        async () => {
-                            await this.syncManager.requestSmartSync("manual-sync");
-                        },
+                        () => this.requestManualSync(),
                     );
                 } else {
-                    await this.syncManager.requestSmartSync("manual-sync");
+                    await this.requestManualSync();
                 }
             },
         });
@@ -562,7 +560,7 @@ export default class VaultSync extends Plugin {
 
         this.addCommand({
             id: "transfer-status",
-            name: t("labelTransferStatus"),
+            name: t("labelTransferStatusCommand"),
             callback: () => {
                 new TransferStatusModal(this.app, this.syncManager).open();
             },
@@ -673,6 +671,18 @@ export default class VaultSync extends Plugin {
         // Clean up background transfer queue (remove event listeners, flush history)
         if (this.syncManager) {
             this.syncManager.destroyTransferQueue();
+        }
+    }
+
+    /**
+     * Manual sync from the ribbon or a command. The sync already logs a failure and
+     * shows a notice, so it must not also surface as an unhandled rejection.
+     */
+    private async requestManualSync(): Promise<void> {
+        try {
+            await this.syncManager.requestSmartSync("manual-sync");
+        } catch {
+            /* reported by the sync */
         }
     }
 

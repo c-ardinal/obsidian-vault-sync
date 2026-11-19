@@ -68,14 +68,6 @@
     background-color: var(--background-primary);
 }
 
-.modal.mod-history-modal .modal-close-button {
-    display: flex;
-}
-
-.is-mobile .modal.mod-history-modal .modal-close-button {
-    display: none;
-}
-
 /* Target the inner content div of the modal to handle layout */
 .modal.mod-history-modal .modal-content {
     display: flex;
@@ -86,40 +78,18 @@
     margin: 0;
 }
 
-/* Main Title Row */
-.vault-sync-header-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 10px 20px;
-    border-bottom: 1px solid var(--background-modifier-border);
-    flex-shrink: 0;
-}
-.vault-sync-header-row h2 {
-    margin: 0;
-    font-size: 1.2em;
-    flex: 1;
-}
-.vault-sync-close-btn {
-    background: transparent;
-    border: none;
-    cursor: pointer;
-    width: 32px;
-    height: 32px;
-    padding: 4px;
-    border-radius: 50%;
-    color: var(--text-muted);
-    display: none; /* Hidden on PC */
-    align-items: center;
-    justify-content: center;
+/* Load error shown in place of the history view */
+.modal.mod-history-modal .modal-content > .error-text {
+    padding: var(--size-4-4) var(--size-4-5);
 }
 
-.is-mobile .vault-sync-close-btn {
-    display: flex; /* Show on Mobile */
-}
-.vault-sync-close-btn:hover {
-    background-color: var(--background-modifier-hover);
-    color: var(--text-normal);
+/* Title in Obsidian's own modal header (setTitle) for the edge-to-edge modals */
+.modal.mod-history-modal .modal-header,
+.modal.mod-transfer-status-modal .modal-header {
+    padding: var(--size-4-3) var(--size-4-5);
+    padding-right: calc(var(--size-4-5) + 32px); /* room for the close button */
+    border-bottom: 1px solid var(--background-modifier-border);
+    flex-shrink: 0;
 }
 
 .vault-sync-history-toggle-btn {
@@ -416,7 +386,7 @@
     flex: 1;
     padding: 0 10px;
     white-space: pre-wrap;
-    word-break: break-all;
+    overflow-wrap: anywhere;
     min-height: 1.5em;
 }
 
@@ -561,21 +531,34 @@
         "header header"
         "list diff";
     grid-template-rows: auto 1fr;
-    grid-template-columns: 0px 1fr; /* Default: Drawer Closed (width 0 or very small) */
-    transition: grid-template-columns 0.3s ease;
+    grid-template-columns: 0px 1fr; /* The drawer overlays the diff */
     gap: 0;
 }
 
-/* Drawer Open State */
-.is-mobile .vault-sync-history-container.is-drawer-open {
-    grid-template-columns: 170px 1fr; /* Fixed width drawer might be better than valid vw if we want readable text */
-}
-
-/* Drawer Styling on Mobile */
+/* Drawer Styling on Mobile: slides in over the diff instead of squeezing it */
 .is-mobile .vault-sync-history-list {
     background-color: var(--background-primary);
-    z-index: 10;
+    z-index: 30; /* above the diff highlight outline (20) */
     white-space: nowrap; /* Prevent text wrap during transition */
+    width: min(280px, 82vw);
+    justify-self: start;
+    overflow-y: auto;
+    box-shadow: var(--shadow-l);
+    transform: translateX(-105%);
+    visibility: hidden;
+    transition:
+        transform 0.25s ease,
+        visibility 0.25s;
+}
+
+.is-mobile .vault-sync-history-container.is-drawer-open .vault-sync-history-list {
+    transform: none;
+    visibility: visible;
+}
+
+/* Split view does not fit a phone screen */
+.is-phone .modal.mod-history-modal .diff-mode-toggle {
+    display: none;
 }
 /* If closed (width 0), content is hidden by overflow:hidden on container */
 
@@ -625,8 +608,11 @@
     gap: 8px;
 }
 
-.is-mobile .dropdown {
-    max-width: 250px; /* Limit dropdown width on mobile */
+/* Scoped to the history modal: an unscoped rule would shrink every dropdown in Obsidian */
+.is-mobile .modal.mod-history-modal .revision-control-row .dropdown {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: none;
 }
 
 /* Adjustments for the drawer toggle button visibility */
@@ -666,7 +652,8 @@
 .is-mobile .vault-sync-mobile-fab {
     display: flex;
     position: fixed;
-    top: calc(60px + env(safe-area-inset-top)); /* Moved lower to clear status bar */
+    /* Below Obsidian's floating mobile header (its title sits around 60-104px) */
+    top: calc(var(--vault-sync-fab-top, 112px) + env(safe-area-inset-top));
     left: 50%;
     transform: translateX(-50%) scale(0.7); /* Smaller and centered */
     width: 40px;
@@ -1348,11 +1335,6 @@
     color: var(--text-error);
     margin-top: 3px;
     word-break: break-all;
-}
-
-/* Hide default close button on mobile (custom vault-sync-close-btn is used instead) */
-.is-mobile .modal.mod-transfer-status-modal .modal-close-button {
-    display: none;
 }
 
 /* Mobile adjustments */

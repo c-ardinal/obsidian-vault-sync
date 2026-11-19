@@ -48,7 +48,7 @@ export class AddonInstallModal extends Modal {
         const { contentEl } = this;
         this.renderer.load();
         contentEl.addClass("vault-sync-addon-install");
-        contentEl.createEl("h2", { text: t("addonInstallTitle") });
+        this.setTitle(t("addonInstallTitle"));
         if (this.requiredByVault) {
             contentEl.createEl("p", {
                 text: t("addonRequiredByVault"),

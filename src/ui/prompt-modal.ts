@@ -19,7 +19,7 @@ export class PromptModal extends Modal {
 
     onOpen() {
         const { contentEl } = this;
-        contentEl.createEl("h2", { text: this.title });
+        this.setTitle(this.title);
 
         const inputSetting = new Setting(contentEl).setName("Path");
         let textComp: TextComponent | null = null;

@@ -89,7 +89,7 @@ export class ExclusionPatternModal extends Modal {
         this.modalEl.addClass("vault-sync-exclusion-modal");
         contentEl.empty();
 
-        contentEl.createEl("h2", { text: t("settingExclusionModalTitle") });
+        this.setTitle(t("settingExclusionModalTitle"));
 
         const addRow = contentEl.createDiv({ cls: "vault-sync-exclusion-add-row" });
 

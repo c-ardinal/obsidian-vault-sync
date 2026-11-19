@@ -288,6 +288,7 @@ export const en: Record<string, string> = {
 
     // Transfer Status
     labelTransferStatus: "Transfer Status (Vault-Sync)",
+    labelTransferStatusCommand: "Show Transfer Status",
     transferTitle: "Transfer Status",
     transferActiveSection: "Active Transfers",
     transferHistorySection: "Recent History",
