@@ -164,11 +164,23 @@ async function closeModals(page) {
 }
 
 async function openSettings(page) {
-    await page.evaluate((id) => {
-        window.app.setting.open();
-        window.app.setting.openTabById(id);
-    }, PLUGIN_ID);
-    await page.waitForSelector(".vault-sync-settings-container", { timeout: 15000 });
+    await page.evaluate(() => window.app.setting.open());
+    await page.waitForSelector(".modal.mod-settings", { timeout: 10000 }).catch(() => {});
+    await page.evaluate((id) => window.app.setting.openTabById(id), PLUGIN_ID);
+    try {
+        await page.waitForSelector(".vault-sync-settings-container", { timeout: 15000 });
+    } catch (e) {
+        const diag = await page.evaluate((id) => {
+            const s = window.app.setting;
+            return {
+                modals: [...document.querySelectorAll(".modal")].map((m) => m.className),
+                activeTab: s.activeTab?.id ?? null,
+                pluginTabs: (s.pluginTabs || []).map((t) => t.id),
+                hasPlugin: !!window.app.plugins.plugins[id],
+            };
+        }, PLUGIN_ID);
+        throw new Error(`${e.message}\nsettings diag: ${JSON.stringify(diag)}`);
+    }
 }
 
 async function closeSettings(page) {

@@ -385,6 +385,16 @@ export default class VaultSync extends Plugin {
             },
         );
 
+        // Created before the onLayoutReady callback below: when the plugin is enabled
+        // after startup, that callback runs at once and reads currentTriggers.
+        this.triggerManager = new TriggerManager({
+            app: this.app,
+            settings: this.settings,
+            syncManager: this.syncManager,
+            registerEvent: (evt) => this.registerEvent(evt),
+            registerInterval: (id) => this.registerInterval(id),
+        });
+
         this.app.workspace.onLayoutReady(() => {
             void (async () => {
                 if (this.currentTriggers.enableStartupSync) {
@@ -630,13 +640,6 @@ export default class VaultSync extends Plugin {
         this.settingTab = new VaultSyncSettingTab(this.app, this);
         this.addSettingTab(this.settingTab);
 
-        this.triggerManager = new TriggerManager({
-            app: this.app,
-            settings: this.settings,
-            syncManager: this.syncManager,
-            registerEvent: (evt) => this.registerEvent(evt),
-            registerInterval: (id) => this.registerInterval(id),
-        });
         this.triggerManager.setupAutoSyncInterval();
         this.triggerManager.registerTriggers();
 
