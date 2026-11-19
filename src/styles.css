@@ -818,25 +818,7 @@
 .vault-sync-subheader-label {
     display: flex;
     align-items: center;
-    gap: 4px;
     padding: 6px 0;
-    cursor: pointer;
-    user-select: none;
-}
-
-.vault-sync-subheader-label:hover {
-    opacity: 0.8;
-}
-
-.vault-sync-subheader-chevron {
-    display: flex;
-    align-items: center;
-    color: var(--text-muted);
-}
-
-.vault-sync-subheader-chevron svg {
-    width: 14px;
-    height: 14px;
 }
 
 .vault-sync-subheader-text {
@@ -1553,4 +1535,65 @@
 
 .vault-sync-control-spacer {
     flex: 1;
+}
+
+/* Settings: hierarchical navigation */
+.vault-sync-settings-nav-item {
+    cursor: pointer;
+    align-items: center;
+    gap: 12px;
+    border-radius: var(--radius-s);
+}
+
+.vault-sync-settings-nav-item:hover,
+.vault-sync-settings-nav-item:focus-visible {
+    background-color: var(--background-modifier-hover);
+}
+
+.vault-sync-settings-nav-icon,
+.vault-sync-settings-nav-chevron {
+    display: flex;
+    align-items: center;
+    color: var(--text-muted);
+    flex-shrink: 0;
+}
+
+.vault-sync-settings-nav-icon svg {
+    width: 20px;
+    height: 20px;
+}
+
+.vault-sync-settings-page-header {
+    margin-bottom: 4px;
+}
+
+.vault-sync-settings-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-height: 32px;
+    padding: 4px 10px 4px 4px;
+    background: transparent;
+    box-shadow: none;
+    color: var(--text-accent);
+    cursor: pointer;
+}
+
+.vault-sync-settings-back:hover {
+    background-color: var(--background-modifier-hover);
+}
+
+.is-mobile .vault-sync-settings-back {
+    min-height: 44px;
+}
+
+.vault-sync-settings-back-icon {
+    display: flex;
+    align-items: center;
+}
+
+.vault-sync-settings-section-title {
+    margin-top: 20px;
+    font-weight: 600;
+    color: var(--text-normal);
 }
