@@ -153,3 +153,6 @@ build.ps1
 e2ee-engine.js
 # Multi-device simulation reports
 test-results/
+
+# Obsidian UI check (e2e/obsidian)
+.obsidian-cache/
