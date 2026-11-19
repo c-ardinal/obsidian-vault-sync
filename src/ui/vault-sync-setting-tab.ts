@@ -124,11 +124,12 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                 .setName(t(category.titleKey))
                 .setDesc(this.getCategoryDesc(category));
             const row = setting.settingEl;
-            row.addClass("vault-sync-settings-nav-item");
+            // mod-navigable: Obsidian keeps these rows horizontal on narrow screens
+            row.addClass("vault-sync-settings-nav-item", "mod-navigable");
             row.setAttr("role", "button");
             row.setAttr("tabindex", "0");
 
-            const iconEl = createDiv({ cls: "vault-sync-settings-nav-icon" });
+            const iconEl = createDiv({ cls: ["setting-item-icon", "vault-sync-settings-nav-icon"] });
             setIcon(iconEl, category.icon);
             row.prepend(iconEl);
 
@@ -159,14 +160,19 @@ export class VaultSyncSettingTab extends PluginSettingTab {
     private renderPageHeader(el: HTMLElement, category: SettingsCategory): void {
         const header = el.createDiv({ cls: "vault-sync-settings-page-header" });
         const back = header.createEl("button", {
-            cls: "vault-sync-settings-back",
+            cls: ["clickable-icon", "vault-sync-settings-back"],
             attr: { "aria-label": t("settingNavBackAria") },
         });
         setIcon(back.createSpan({ cls: "vault-sync-settings-back-icon" }), "chevron-left");
         back.createSpan({ text: t("settingNavBack") });
         back.addEventListener("click", () => this.navigate("root"));
 
-        new Setting(el).setName(t(category.titleKey)).setHeading();
+        // Obsidian indents setting headings to the card text; the class below aligns
+        // the page title with the back button and the card edges instead.
+        new Setting(header)
+            .setName(t(category.titleKey))
+            .setHeading()
+            .settingEl.addClass("vault-sync-settings-page-title");
     }
 
     private renderCategory(el: HTMLElement, category: SettingsCategory): void {
