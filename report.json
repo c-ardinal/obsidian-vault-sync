@@ -1,0 +1,980 @@
+{
+  "results": [
+    {
+      "lang": "en",
+      "name": "plugin loaded in real Obsidian",
+      "ok": true,
+      "detail": "plugin 0.18.0, Obsidian 1.15.1, lang en"
+    },
+    {
+      "lang": "en",
+      "name": "desktop: root lists categories",
+      "ok": true,
+      "detail": "Authentication | Sync Triggers | Sync Scope | Performance | Add-ons | Advanced Settings"
+    },
+    {
+      "lang": "en",
+      "name": "desktop: root has no back button",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "lang": "en",
+      "name": "desktop: page \"Authentication\" opens with matching title",
+      "ok": true,
+      "detail": "title=\"Authentication\""
+    },
+    {
+      "lang": "en",
+      "name": "desktop: page \"Authentication\" has settings",
+      "ok": true,
+      "detail": "2 rows"
+    },
+    {
+      "lang": "en",
+      "name": "desktop: page \"Authentication\" starts at top",
+      "ok": true,
+      "detail": "scrollTop=0"
+    },
+    {
+      "lang": "en",
+      "name": "desktop: back from \"Authentication\" returns to root",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "lang": "en",
+      "name": "desktop: page \"Sync Triggers\" opens with matching title",
+      "ok": true,
+      "detail": "title=\"Sync Triggers\""
+    },
+    {
+      "lang": "en",
+      "name": "desktop: page \"Sync Triggers\" has settings",
+      "ok": true,
+      "detail": "6 rows"
+    },
+    {
+      "lang": "en",
+      "name": "desktop: page \"Sync Triggers\" starts at top",
+      "ok": true,
+      "detail": "scrollTop=0"
+    },
+    {
+      "lang": "en",
+      "name": "desktop: back from \"Sync Triggers\" returns to root",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "lang": "en",
+      "name": "desktop: page \"Sync Scope\" opens with matching title",
+      "ok": true,
+      "detail": "title=\"Sync Scope\""
+    },
+    {
+      "lang": "en",
+      "name": "desktop: page \"Sync Scope\" has settings",
+      "ok": true,
+      "detail": "11 rows"
+    },
+    {
+      "lang": "en",
+      "name": "desktop: page \"Sync Scope\" starts at top",
+      "ok": true,
+      "detail": "scrollTop=0"
+    },
+    {
+      "lang": "en",
+      "name": "desktop: back from \"Sync Scope\" returns to root",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "lang": "en",
+      "name": "desktop: page \"Performance\" opens with matching title",
+      "ok": true,
+      "detail": "title=\"Performance\""
+    },
+    {
+      "lang": "en",
+      "name": "desktop: page \"Performance\" has settings",
+      "ok": true,
+      "detail": "5 rows"
+    },
+    {
+      "lang": "en",
+      "name": "desktop: page \"Performance\" starts at top",
+      "ok": true,
+      "detail": "scrollTop=0"
+    },
+    {
+      "lang": "en",
+      "name": "desktop: back from \"Performance\" returns to root",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "lang": "en",
+      "name": "desktop: page \"Add-ons\" opens with matching title",
+      "ok": true,
+      "detail": "title=\"Add-ons\""
+    },
+    {
+      "lang": "en",
+      "name": "desktop: page \"Add-ons\" has settings",
+      "ok": true,
+      "detail": "1 rows"
+    },
+    {
+      "lang": "en",
+      "name": "desktop: page \"Add-ons\" starts at top",
+      "ok": true,
+      "detail": "scrollTop=0"
+    },
+    {
+      "lang": "en",
+      "name": "desktop: back from \"Add-ons\" returns to root",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "lang": "en",
+      "name": "desktop: page \"Advanced Settings\" opens with matching title",
+      "ok": true,
+      "detail": "title=\"Advanced Settings\""
+    },
+    {
+      "lang": "en",
+      "name": "desktop: page \"Advanced Settings\" has settings",
+      "ok": true,
+      "detail": "1 rows"
+    },
+    {
+      "lang": "en",
+      "name": "desktop: page \"Advanced Settings\" starts at top",
+      "ok": true,
+      "detail": "scrollTop=0"
+    },
+    {
+      "lang": "en",
+      "name": "desktop: back from \"Advanced Settings\" returns to root",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "lang": "en",
+      "name": "desktop: no add-on internals named in plugin UI",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "lang": "en",
+      "name": "desktop: Enter on a category opens it",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "lang": "en",
+      "name": "desktop: reopening settings shows the category list",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "lang": "en",
+      "name": "mobile emulation active",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "lang": "en",
+      "name": "mobile: root lists categories",
+      "ok": true,
+      "detail": "Authentication | Sync Triggers | Sync Scope | Performance | Add-ons | Advanced Settings"
+    },
+    {
+      "lang": "en",
+      "name": "mobile: root has no back button",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "lang": "en",
+      "name": "mobile: page \"Authentication\" opens with matching title",
+      "ok": true,
+      "detail": "title=\"Authentication\""
+    },
+    {
+      "lang": "en",
+      "name": "mobile: page \"Authentication\" has settings",
+      "ok": true,
+      "detail": "2 rows"
+    },
+    {
+      "lang": "en",
+      "name": "mobile: page \"Authentication\" starts at top",
+      "ok": true,
+      "detail": "scrollTop=0"
+    },
+    {
+      "lang": "en",
+      "name": "mobile: back from \"Authentication\" returns to root",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "lang": "en",
+      "name": "mobile: page \"Sync Triggers\" opens with matching title",
+      "ok": true,
+      "detail": "title=\"Sync Triggers\""
+    },
+    {
+      "lang": "en",
+      "name": "mobile: page \"Sync Triggers\" has settings",
+      "ok": true,
+      "detail": "6 rows"
+    },
+    {
+      "lang": "en",
+      "name": "mobile: page \"Sync Triggers\" starts at top",
+      "ok": true,
+      "detail": "scrollTop=0"
+    },
+    {
+      "lang": "en",
+      "name": "mobile: back from \"Sync Triggers\" returns to root",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "lang": "en",
+      "name": "mobile: page \"Sync Scope\" opens with matching title",
+      "ok": true,
+      "detail": "title=\"Sync Scope\""
+    },
+    {
+      "lang": "en",
+      "name": "mobile: page \"Sync Scope\" has settings",
+      "ok": true,
+      "detail": "11 rows"
+    },
+    {
+      "lang": "en",
+      "name": "mobile: page \"Sync Scope\" starts at top",
+      "ok": true,
+      "detail": "scrollTop=0"
+    },
+    {
+      "lang": "en",
+      "name": "mobile: back from \"Sync Scope\" returns to root",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "lang": "en",
+      "name": "mobile: page \"Performance\" opens with matching title",
+      "ok": true,
+      "detail": "title=\"Performance\""
+    },
+    {
+      "lang": "en",
+      "name": "mobile: page \"Performance\" has settings",
+      "ok": true,
+      "detail": "5 rows"
+    },
+    {
+      "lang": "en",
+      "name": "mobile: page \"Performance\" starts at top",
+      "ok": true,
+      "detail": "scrollTop=0"
+    },
+    {
+      "lang": "en",
+      "name": "mobile: back from \"Performance\" returns to root",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "lang": "en",
+      "name": "mobile: page \"Add-ons\" opens with matching title",
+      "ok": true,
+      "detail": "title=\"Add-ons\""
+    },
+    {
+      "lang": "en",
+      "name": "mobile: page \"Add-ons\" has settings",
+      "ok": true,
+      "detail": "1 rows"
+    },
+    {
+      "lang": "en",
+      "name": "mobile: page \"Add-ons\" starts at top",
+      "ok": true,
+      "detail": "scrollTop=0"
+    },
+    {
+      "lang": "en",
+      "name": "mobile: back from \"Add-ons\" returns to root",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "lang": "en",
+      "name": "mobile: page \"Advanced Settings\" opens with matching title",
+      "ok": true,
+      "detail": "title=\"Advanced Settings\""
+    },
+    {
+      "lang": "en",
+      "name": "mobile: page \"Advanced Settings\" has settings",
+      "ok": true,
+      "detail": "1 rows"
+    },
+    {
+      "lang": "en",
+      "name": "mobile: page \"Advanced Settings\" starts at top",
+      "ok": true,
+      "detail": "scrollTop=0"
+    },
+    {
+      "lang": "en",
+      "name": "mobile: back from \"Advanced Settings\" returns to root",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "lang": "en",
+      "name": "mobile: no add-on internals named in plugin UI",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "lang": "ja",
+      "name": "plugin loaded in real Obsidian",
+      "ok": true,
+      "detail": "plugin 0.18.0, Obsidian 1.15.1, lang ja"
+    },
+    {
+      "lang": "ja",
+      "name": "desktop: root lists categories",
+      "ok": true,
+      "detail": "認証 | 同期トリガー設定 | 同期範囲 | パフォーマンス | アドオン | 高度な設定"
+    },
+    {
+      "lang": "ja",
+      "name": "desktop: root has no back button",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "lang": "ja",
+      "name": "desktop: page \"認証\" opens with matching title",
+      "ok": true,
+      "detail": "title=\"認証\""
+    },
+    {
+      "lang": "ja",
+      "name": "desktop: page \"認証\" has settings",
+      "ok": true,
+      "detail": "2 rows"
+    },
+    {
+      "lang": "ja",
+      "name": "desktop: page \"認証\" starts at top",
+      "ok": true,
+      "detail": "scrollTop=0"
+    },
+    {
+      "lang": "ja",
+      "name": "desktop: back from \"認証\" returns to root",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "lang": "ja",
+      "name": "desktop: page \"同期トリガー設定\" opens with matching title",
+      "ok": true,
+      "detail": "title=\"同期トリガー設定\""
+    },
+    {
+      "lang": "ja",
+      "name": "desktop: page \"同期トリガー設定\" has settings",
+      "ok": true,
+      "detail": "6 rows"
+    },
+    {
+      "lang": "ja",
+      "name": "desktop: page \"同期トリガー設定\" starts at top",
+      "ok": true,
+      "detail": "scrollTop=0"
+    },
+    {
+      "lang": "ja",
+      "name": "desktop: back from \"同期トリガー設定\" returns to root",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "lang": "ja",
+      "name": "desktop: page \"同期範囲\" opens with matching title",
+      "ok": true,
+      "detail": "title=\"同期範囲\""
+    },
+    {
+      "lang": "ja",
+      "name": "desktop: page \"同期範囲\" has settings",
+      "ok": true,
+      "detail": "11 rows"
+    },
+    {
+      "lang": "ja",
+      "name": "desktop: page \"同期範囲\" starts at top",
+      "ok": true,
+      "detail": "scrollTop=0"
+    },
+    {
+      "lang": "ja",
+      "name": "desktop: back from \"同期範囲\" returns to root",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "lang": "ja",
+      "name": "desktop: page \"パフォーマンス\" opens with matching title",
+      "ok": true,
+      "detail": "title=\"パフォーマンス\""
+    },
+    {
+      "lang": "ja",
+      "name": "desktop: page \"パフォーマンス\" has settings",
+      "ok": true,
+      "detail": "5 rows"
+    },
+    {
+      "lang": "ja",
+      "name": "desktop: page \"パフォーマンス\" starts at top",
+      "ok": true,
+      "detail": "scrollTop=0"
+    },
+    {
+      "lang": "ja",
+      "name": "desktop: back from \"パフォーマンス\" returns to root",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "lang": "ja",
+      "name": "desktop: page \"アドオン\" opens with matching title",
+      "ok": true,
+      "detail": "title=\"アドオン\""
+    },
+    {
+      "lang": "ja",
+      "name": "desktop: page \"アドオン\" has settings",
+      "ok": true,
+      "detail": "1 rows"
+    },
+    {
+      "lang": "ja",
+      "name": "desktop: page \"アドオン\" starts at top",
+      "ok": true,
+      "detail": "scrollTop=0"
+    },
+    {
+      "lang": "ja",
+      "name": "desktop: back from \"アドオン\" returns to root",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "lang": "ja",
+      "name": "desktop: page \"高度な設定\" opens with matching title",
+      "ok": true,
+      "detail": "title=\"高度な設定\""
+    },
+    {
+      "lang": "ja",
+      "name": "desktop: page \"高度な設定\" has settings",
+      "ok": true,
+      "detail": "1 rows"
+    },
+    {
+      "lang": "ja",
+      "name": "desktop: page \"高度な設定\" starts at top",
+      "ok": true,
+      "detail": "scrollTop=0"
+    },
+    {
+      "lang": "ja",
+      "name": "desktop: back from \"高度な設定\" returns to root",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "lang": "ja",
+      "name": "desktop: no add-on internals named in plugin UI",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "lang": "ja",
+      "name": "desktop: Enter on a category opens it",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "lang": "ja",
+      "name": "desktop: reopening settings shows the category list",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "lang": "ja",
+      "name": "mobile emulation active",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "lang": "ja",
+      "name": "mobile: root lists categories",
+      "ok": true,
+      "detail": "認証 | 同期トリガー設定 | 同期範囲 | パフォーマンス | アドオン | 高度な設定"
+    },
+    {
+      "lang": "ja",
+      "name": "mobile: root has no back button",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "lang": "ja",
+      "name": "mobile: page \"認証\" opens with matching title",
+      "ok": true,
+      "detail": "title=\"認証\""
+    },
+    {
+      "lang": "ja",
+      "name": "mobile: page \"認証\" has settings",
+      "ok": true,
+      "detail": "2 rows"
+    },
+    {
+      "lang": "ja",
+      "name": "mobile: page \"認証\" starts at top",
+      "ok": true,
+      "detail": "scrollTop=0"
+    },
+    {
+      "lang": "ja",
+      "name": "mobile: back from \"認証\" returns to root",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "lang": "ja",
+      "name": "mobile: page \"同期トリガー設定\" opens with matching title",
+      "ok": true,
+      "detail": "title=\"同期トリガー設定\""
+    },
+    {
+      "lang": "ja",
+      "name": "mobile: page \"同期トリガー設定\" has settings",
+      "ok": true,
+      "detail": "6 rows"
+    },
+    {
+      "lang": "ja",
+      "name": "mobile: page \"同期トリガー設定\" starts at top",
+      "ok": true,
+      "detail": "scrollTop=0"
+    },
+    {
+      "lang": "ja",
+      "name": "mobile: back from \"同期トリガー設定\" returns to root",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "lang": "ja",
+      "name": "mobile: page \"同期範囲\" opens with matching title",
+      "ok": true,
+      "detail": "title=\"同期範囲\""
+    },
+    {
+      "lang": "ja",
+      "name": "mobile: page \"同期範囲\" has settings",
+      "ok": true,
+      "detail": "11 rows"
+    },
+    {
+      "lang": "ja",
+      "name": "mobile: page \"同期範囲\" starts at top",
+      "ok": true,
+      "detail": "scrollTop=0"
+    },
+    {
+      "lang": "ja",
+      "name": "mobile: back from \"同期範囲\" returns to root",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "lang": "ja",
+      "name": "mobile: page \"パフォーマンス\" opens with matching title",
+      "ok": true,
+      "detail": "title=\"パフォーマンス\""
+    },
+    {
+      "lang": "ja",
+      "name": "mobile: page \"パフォーマンス\" has settings",
+      "ok": true,
+      "detail": "5 rows"
+    },
+    {
+      "lang": "ja",
+      "name": "mobile: page \"パフォーマンス\" starts at top",
+      "ok": true,
+      "detail": "scrollTop=0"
+    },
+    {
+      "lang": "ja",
+      "name": "mobile: back from \"パフォーマンス\" returns to root",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "lang": "ja",
+      "name": "mobile: page \"アドオン\" opens with matching title",
+      "ok": true,
+      "detail": "title=\"アドオン\""
+    },
+    {
+      "lang": "ja",
+      "name": "mobile: page \"アドオン\" has settings",
+      "ok": true,
+      "detail": "1 rows"
+    },
+    {
+      "lang": "ja",
+      "name": "mobile: page \"アドオン\" starts at top",
+      "ok": true,
+      "detail": "scrollTop=0"
+    },
+    {
+      "lang": "ja",
+      "name": "mobile: back from \"アドオン\" returns to root",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "lang": "ja",
+      "name": "mobile: page \"高度な設定\" opens with matching title",
+      "ok": true,
+      "detail": "title=\"高度な設定\""
+    },
+    {
+      "lang": "ja",
+      "name": "mobile: page \"高度な設定\" has settings",
+      "ok": true,
+      "detail": "1 rows"
+    },
+    {
+      "lang": "ja",
+      "name": "mobile: page \"高度な設定\" starts at top",
+      "ok": true,
+      "detail": "scrollTop=0"
+    },
+    {
+      "lang": "ja",
+      "name": "mobile: back from \"高度な設定\" returns to root",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "lang": "ja",
+      "name": "mobile: no add-on internals named in plugin UI",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "lang": "all",
+      "name": "no uncaught page errors",
+      "ok": true,
+      "detail": ""
+    }
+  ],
+  "shots": [
+    {
+      "lang": "en",
+      "file": "/home/runner/work/obsidian-vault-sync/obsidian-vault-sync/test-results/e2e-obsidian/en/00-desktop-workspace.png",
+      "label": "desktop-workspace"
+    },
+    {
+      "lang": "en",
+      "file": "/home/runner/work/obsidian-vault-sync/obsidian-vault-sync/test-results/e2e-obsidian/en/01-desktop-root.png",
+      "label": "desktop-root"
+    },
+    {
+      "lang": "en",
+      "file": "/home/runner/work/obsidian-vault-sync/obsidian-vault-sync/test-results/e2e-obsidian/en/02-desktop-page1.png",
+      "label": "desktop-page1"
+    },
+    {
+      "lang": "en",
+      "file": "/home/runner/work/obsidian-vault-sync/obsidian-vault-sync/test-results/e2e-obsidian/en/03-desktop-page2.png",
+      "label": "desktop-page2"
+    },
+    {
+      "lang": "en",
+      "file": "/home/runner/work/obsidian-vault-sync/obsidian-vault-sync/test-results/e2e-obsidian/en/04-desktop-page2-bottom.png",
+      "label": "desktop-page2-bottom"
+    },
+    {
+      "lang": "en",
+      "file": "/home/runner/work/obsidian-vault-sync/obsidian-vault-sync/test-results/e2e-obsidian/en/05-desktop-page3.png",
+      "label": "desktop-page3"
+    },
+    {
+      "lang": "en",
+      "file": "/home/runner/work/obsidian-vault-sync/obsidian-vault-sync/test-results/e2e-obsidian/en/06-desktop-page3-bottom.png",
+      "label": "desktop-page3-bottom"
+    },
+    {
+      "lang": "en",
+      "file": "/home/runner/work/obsidian-vault-sync/obsidian-vault-sync/test-results/e2e-obsidian/en/07-desktop-page4.png",
+      "label": "desktop-page4"
+    },
+    {
+      "lang": "en",
+      "file": "/home/runner/work/obsidian-vault-sync/obsidian-vault-sync/test-results/e2e-obsidian/en/08-desktop-page5.png",
+      "label": "desktop-page5"
+    },
+    {
+      "lang": "en",
+      "file": "/home/runner/work/obsidian-vault-sync/obsidian-vault-sync/test-results/e2e-obsidian/en/09-desktop-page6.png",
+      "label": "desktop-page6"
+    },
+    {
+      "lang": "en",
+      "file": "/home/runner/work/obsidian-vault-sync/obsidian-vault-sync/test-results/e2e-obsidian/en/10-mobile-root.png",
+      "label": "mobile-root"
+    },
+    {
+      "lang": "en",
+      "file": "/home/runner/work/obsidian-vault-sync/obsidian-vault-sync/test-results/e2e-obsidian/en/11-mobile-root-bottom.png",
+      "label": "mobile-root-bottom"
+    },
+    {
+      "lang": "en",
+      "file": "/home/runner/work/obsidian-vault-sync/obsidian-vault-sync/test-results/e2e-obsidian/en/12-mobile-page1.png",
+      "label": "mobile-page1"
+    },
+    {
+      "lang": "en",
+      "file": "/home/runner/work/obsidian-vault-sync/obsidian-vault-sync/test-results/e2e-obsidian/en/13-mobile-page2.png",
+      "label": "mobile-page2"
+    },
+    {
+      "lang": "en",
+      "file": "/home/runner/work/obsidian-vault-sync/obsidian-vault-sync/test-results/e2e-obsidian/en/14-mobile-page2-bottom.png",
+      "label": "mobile-page2-bottom"
+    },
+    {
+      "lang": "en",
+      "file": "/home/runner/work/obsidian-vault-sync/obsidian-vault-sync/test-results/e2e-obsidian/en/15-mobile-page3.png",
+      "label": "mobile-page3"
+    },
+    {
+      "lang": "en",
+      "file": "/home/runner/work/obsidian-vault-sync/obsidian-vault-sync/test-results/e2e-obsidian/en/16-mobile-page3-bottom.png",
+      "label": "mobile-page3-bottom"
+    },
+    {
+      "lang": "en",
+      "file": "/home/runner/work/obsidian-vault-sync/obsidian-vault-sync/test-results/e2e-obsidian/en/17-mobile-page4.png",
+      "label": "mobile-page4"
+    },
+    {
+      "lang": "en",
+      "file": "/home/runner/work/obsidian-vault-sync/obsidian-vault-sync/test-results/e2e-obsidian/en/18-mobile-page4-bottom.png",
+      "label": "mobile-page4-bottom"
+    },
+    {
+      "lang": "en",
+      "file": "/home/runner/work/obsidian-vault-sync/obsidian-vault-sync/test-results/e2e-obsidian/en/19-mobile-page5.png",
+      "label": "mobile-page5"
+    },
+    {
+      "lang": "en",
+      "file": "/home/runner/work/obsidian-vault-sync/obsidian-vault-sync/test-results/e2e-obsidian/en/20-mobile-page6.png",
+      "label": "mobile-page6"
+    },
+    {
+      "lang": "ja",
+      "file": "/home/runner/work/obsidian-vault-sync/obsidian-vault-sync/test-results/e2e-obsidian/ja/21-desktop-workspace.png",
+      "label": "desktop-workspace"
+    },
+    {
+      "lang": "ja",
+      "file": "/home/runner/work/obsidian-vault-sync/obsidian-vault-sync/test-results/e2e-obsidian/ja/22-desktop-root.png",
+      "label": "desktop-root"
+    },
+    {
+      "lang": "ja",
+      "file": "/home/runner/work/obsidian-vault-sync/obsidian-vault-sync/test-results/e2e-obsidian/ja/23-desktop-page1.png",
+      "label": "desktop-page1"
+    },
+    {
+      "lang": "ja",
+      "file": "/home/runner/work/obsidian-vault-sync/obsidian-vault-sync/test-results/e2e-obsidian/ja/24-desktop-page2.png",
+      "label": "desktop-page2"
+    },
+    {
+      "lang": "ja",
+      "file": "/home/runner/work/obsidian-vault-sync/obsidian-vault-sync/test-results/e2e-obsidian/ja/25-desktop-page2-bottom.png",
+      "label": "desktop-page2-bottom"
+    },
+    {
+      "lang": "ja",
+      "file": "/home/runner/work/obsidian-vault-sync/obsidian-vault-sync/test-results/e2e-obsidian/ja/26-desktop-page3.png",
+      "label": "desktop-page3"
+    },
+    {
+      "lang": "ja",
+      "file": "/home/runner/work/obsidian-vault-sync/obsidian-vault-sync/test-results/e2e-obsidian/ja/27-desktop-page3-bottom.png",
+      "label": "desktop-page3-bottom"
+    },
+    {
+      "lang": "ja",
+      "file": "/home/runner/work/obsidian-vault-sync/obsidian-vault-sync/test-results/e2e-obsidian/ja/28-desktop-page4.png",
+      "label": "desktop-page4"
+    },
+    {
+      "lang": "ja",
+      "file": "/home/runner/work/obsidian-vault-sync/obsidian-vault-sync/test-results/e2e-obsidian/ja/29-desktop-page5.png",
+      "label": "desktop-page5"
+    },
+    {
+      "lang": "ja",
+      "file": "/home/runner/work/obsidian-vault-sync/obsidian-vault-sync/test-results/e2e-obsidian/ja/30-desktop-page6.png",
+      "label": "desktop-page6"
+    },
+    {
+      "lang": "ja",
+      "file": "/home/runner/work/obsidian-vault-sync/obsidian-vault-sync/test-results/e2e-obsidian/ja/31-mobile-root.png",
+      "label": "mobile-root"
+    },
+    {
+      "lang": "ja",
+      "file": "/home/runner/work/obsidian-vault-sync/obsidian-vault-sync/test-results/e2e-obsidian/ja/32-mobile-root-bottom.png",
+      "label": "mobile-root-bottom"
+    },
+    {
+      "lang": "ja",
+      "file": "/home/runner/work/obsidian-vault-sync/obsidian-vault-sync/test-results/e2e-obsidian/ja/33-mobile-page1.png",
+      "label": "mobile-page1"
+    },
+    {
+      "lang": "ja",
+      "file": "/home/runner/work/obsidian-vault-sync/obsidian-vault-sync/test-results/e2e-obsidian/ja/34-mobile-page2.png",
+      "label": "mobile-page2"
+    },
+    {
+      "lang": "ja",
+      "file": "/home/runner/work/obsidian-vault-sync/obsidian-vault-sync/test-results/e2e-obsidian/ja/35-mobile-page2-bottom.png",
+      "label": "mobile-page2-bottom"
+    },
+    {
+      "lang": "ja",
+      "file": "/home/runner/work/obsidian-vault-sync/obsidian-vault-sync/test-results/e2e-obsidian/ja/36-mobile-page3.png",
+      "label": "mobile-page3"
+    },
+    {
+      "lang": "ja",
+      "file": "/home/runner/work/obsidian-vault-sync/obsidian-vault-sync/test-results/e2e-obsidian/ja/37-mobile-page3-bottom.png",
+      "label": "mobile-page3-bottom"
+    },
+    {
+      "lang": "ja",
+      "file": "/home/runner/work/obsidian-vault-sync/obsidian-vault-sync/test-results/e2e-obsidian/ja/38-mobile-page4.png",
+      "label": "mobile-page4"
+    },
+    {
+      "lang": "ja",
+      "file": "/home/runner/work/obsidian-vault-sync/obsidian-vault-sync/test-results/e2e-obsidian/ja/39-mobile-page4-bottom.png",
+      "label": "mobile-page4-bottom"
+    },
+    {
+      "lang": "ja",
+      "file": "/home/runner/work/obsidian-vault-sync/obsidian-vault-sync/test-results/e2e-obsidian/ja/40-mobile-page5.png",
+      "label": "mobile-page5"
+    },
+    {
+      "lang": "ja",
+      "file": "/home/runner/work/obsidian-vault-sync/obsidian-vault-sync/test-results/e2e-obsidian/ja/41-mobile-page6.png",
+      "label": "mobile-page6"
+    }
+  ],
+  "consoleErrors": [
+    {
+      "lang": "en",
+      "kind": "console",
+      "text": "Vault-Sync: [ERROR] [Index] Fatal load failure. Starting fresh."
+    },
+    {
+      "lang": "en",
+      "kind": "console",
+      "text": "Vault-Sync: [ERROR] Smart Sync failed: Error: Not authenticated"
+    },
+    {
+      "lang": "en",
+      "kind": "console",
+      "text": "Vault-Sync: [ERROR] [Index] Fatal load failure. Starting fresh."
+    },
+    {
+      "lang": "en",
+      "kind": "console",
+      "text": "Vault-Sync: [ERROR] Smart Sync failed: Error: Not authenticated"
+    },
+    {
+      "lang": "en",
+      "kind": "console",
+      "text": "Vault-Sync: [ERROR] [Index] Fatal load failure. Starting fresh."
+    },
+    {
+      "lang": "en",
+      "kind": "console",
+      "text": "Vault-Sync: [ERROR] Smart Sync failed: Error: Not authenticated"
+    },
+    {
+      "lang": "ja",
+      "kind": "console",
+      "text": "Vault-Sync: [ERROR] [Index] Fatal load failure. Starting fresh."
+    },
+    {
+      "lang": "ja",
+      "kind": "console",
+      "text": "Vault-Sync: [ERROR] Smart Sync failed: Error: Not authenticated"
+    },
+    {
+      "lang": "ja",
+      "kind": "console",
+      "text": "Vault-Sync: [ERROR] [Index] Fatal load failure. Starting fresh."
+    },
+    {
+      "lang": "ja",
+      "kind": "console",
+      "text": "Vault-Sync: [ERROR] Smart Sync failed: Error: Not authenticated"
+    },
+    {
+      "lang": "ja",
+      "kind": "console",
+      "text": "Vault-Sync: [ERROR] [Index] Fatal load failure. Starting fresh."
+    },
+    {
+      "lang": "ja",
+      "kind": "console",
+      "text": "Vault-Sync: [ERROR] Smart Sync failed: Error: Not authenticated"
+    }
+  ]
+}
