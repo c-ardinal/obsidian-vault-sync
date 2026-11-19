@@ -1564,23 +1564,27 @@
 }
 
 .vault-sync-settings-page-header {
-    margin-bottom: 4px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--size-4-3);
+    margin-bottom: var(--size-4-5);
 }
 
 .vault-sync-settings-back {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: var(--size-4-1);
+    width: auto;
+    height: auto;
     min-height: 32px;
-    padding: 4px 10px 4px 4px;
-    background: transparent;
-    box-shadow: none;
-    color: var(--text-accent);
-    cursor: pointer;
+    padding: var(--size-4-1) var(--size-4-2) var(--size-4-1) 0;
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
 }
 
 .vault-sync-settings-back:hover {
-    background-color: var(--background-modifier-hover);
+    color: var(--text-normal);
 }
 
 .is-mobile .vault-sync-settings-back {
@@ -1590,6 +1594,17 @@
 .vault-sync-settings-back-icon {
     display: flex;
     align-items: center;
+}
+
+.vault-sync-settings-container .setting-item-heading.vault-sync-settings-page-title {
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    border-top: none;
+}
+
+.vault-sync-settings-page-title .setting-item-name {
+    font-size: var(--font-ui-large);
 }
 
 .vault-sync-settings-section-title {
