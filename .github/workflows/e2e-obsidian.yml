@@ -17,7 +17,7 @@ on:
                 required: false
 
 permissions:
-    contents: write
+    contents: read
 
 jobs:
     obsidian-ui:
@@ -70,11 +70,3 @@ jobs:
                   if-no-files-found: ignore
                   retention-days: 14
 
-            # TEMPORARY (remove before merge): expose screenshots as a git ref for review
-            - name: Publish screenshots ref (temporary)
-              if: ${{ !cancelled() }}
-              run: |
-                  cd test-results/e2e-obsidian
-                  git init -q && git add -A
-                  git -c user.name=ci -c user.email=ci@example.invalid commit -qm "screenshots ${{ github.run_id }}"
-                  git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" HEAD:refs/e2e-shots/latest
