@@ -163,24 +163,40 @@ async function closeModals(page) {
     await sleep(300);
 }
 
+/**
+ * Open the plugin's settings tab. Returns the page that shows it: the main window,
+ * or a separate window when this Obsidian version opens settings in one.
+ */
 async function openSettings(page) {
-    await page.evaluate(() => window.app.setting.open());
-    await page.waitForSelector(".modal.mod-settings", { timeout: 10000 }).catch(() => {});
-    await page.evaluate((id) => window.app.setting.openTabById(id), PLUGIN_ID);
-    try {
-        await page.waitForSelector(".vault-sync-settings-container", { timeout: 15000 });
-    } catch (e) {
-        const diag = await page.evaluate((id) => {
-            const s = window.app.setting;
+    await page.evaluate((id) => {
+        window.app.setting.open();
+        window.app.setting.openTabById(id);
+    }, PLUGIN_ID);
+    const browser = page.context().browser();
+    const found = await waitFor(
+        async () => {
+            for (const ctx of browser.contexts()) {
+                for (const p of ctx.pages()) {
+                    if (await p.$(".vault-sync-settings-container").catch(() => null)) return p;
+                }
+            }
+            return null;
+        },
+        { timeout: 15000, what: "plugin settings tab" },
+    ).catch(async (e) => {
+        const diag = await page.evaluate(() => {
+            const el = window.app.setting.containerEl;
             return {
-                modals: [...document.querySelectorAll(".modal")].map((m) => m.className),
-                activeTab: s.activeTab?.id ?? null,
-                pluginTabs: (s.pluginTabs || []).map((t) => t.id),
-                hasPlugin: !!window.app.plugins.plugins[id],
+                activeTab: window.app.setting.activeTab?.id ?? null,
+                connected: el?.isConnected ?? null,
+                sameDocument: el ? el.ownerDocument === document : null,
+                bodyClasses: document.body.className,
             };
-        }, PLUGIN_ID);
-        throw new Error(`${e.message}\nsettings diag: ${JSON.stringify(diag)}`);
-    }
+        });
+        const pages = browser.contexts().flatMap((c) => c.pages().map((p) => p.url()));
+        throw new Error(`${e.message}\nsettings diag: ${JSON.stringify({ ...diag, pages })}`);
+    });
+    return found;
 }
 
 async function closeSettings(page) {
@@ -224,10 +240,11 @@ async function settingsText(page) {
     return page.$eval(".vault-sync-settings-container", (el) => el.innerText);
 }
 
-async function checkHierarchy(page, lang, { mobile = false } = {}) {
+async function checkHierarchy(main, lang, { mobile = false } = {}) {
     const tag = mobile ? "mobile" : "desktop";
-    const target = mobile ? undefined : ".modal.mod-settings";
-    await openSettings(page);
+    let page = await openSettings(main);
+    if (page !== main) await page.setViewportSize(mobile ? MOBILE : DESKTOP).catch(() => {});
+    const target = !mobile && (await page.$(".modal.mod-settings")) ? ".modal.mod-settings" : undefined;
 
     const names = await navNames(page);
     check(lang, `${tag}: root lists categories`, names.length >= 5, names.join(" | "));
@@ -271,8 +288,8 @@ async function checkHierarchy(page, lang, { mobile = false } = {}) {
         check(lang, `${tag}: Enter on a category opens it`, !!kbd);
 
         // Closing and reopening settings starts at the category list again.
-        await closeSettings(page);
-        await openSettings(page);
+        await closeSettings(main);
+        page = await openSettings(main);
         check(
             lang,
             `${tag}: reopening settings shows the category list`,
@@ -280,7 +297,7 @@ async function checkHierarchy(page, lang, { mobile = false } = {}) {
                 (await page.$$(".vault-sync-settings-back")).length === 0,
         );
     }
-    await closeSettings(page);
+    await closeSettings(main);
 }
 
 async function runLang(lang) {
