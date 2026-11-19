@@ -818,25 +818,7 @@
 .vault-sync-subheader-label {
     display: flex;
     align-items: center;
-    gap: 4px;
     padding: 6px 0;
-    cursor: pointer;
-    user-select: none;
-}
-
-.vault-sync-subheader-label:hover {
-    opacity: 0.8;
-}
-
-.vault-sync-subheader-chevron {
-    display: flex;
-    align-items: center;
-    color: var(--text-muted);
-}
-
-.vault-sync-subheader-chevron svg {
-    width: 14px;
-    height: 14px;
 }
 
 .vault-sync-subheader-text {
@@ -1553,4 +1535,80 @@
 
 .vault-sync-control-spacer {
     flex: 1;
+}
+
+/* Settings: hierarchical navigation */
+.vault-sync-settings-nav-item {
+    cursor: pointer;
+    align-items: center;
+    gap: 12px;
+    border-radius: var(--radius-s);
+}
+
+.vault-sync-settings-nav-item:hover,
+.vault-sync-settings-nav-item:focus-visible {
+    background-color: var(--background-modifier-hover);
+}
+
+.vault-sync-settings-nav-icon,
+.vault-sync-settings-nav-chevron {
+    display: flex;
+    align-items: center;
+    color: var(--text-muted);
+    flex-shrink: 0;
+}
+
+.vault-sync-settings-nav-icon svg {
+    width: 20px;
+    height: 20px;
+}
+
+.vault-sync-settings-page-header {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--size-4-3);
+    margin-bottom: var(--size-4-5);
+}
+
+.vault-sync-settings-back {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--size-4-1);
+    width: auto;
+    height: auto;
+    min-height: 32px;
+    padding: var(--size-4-1) var(--size-4-2) var(--size-4-1) 0;
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+}
+
+.vault-sync-settings-back:hover {
+    color: var(--text-normal);
+}
+
+.is-mobile .vault-sync-settings-back {
+    min-height: 44px;
+}
+
+.vault-sync-settings-back-icon {
+    display: flex;
+    align-items: center;
+}
+
+.vault-sync-settings-container .setting-item-heading.vault-sync-settings-page-title {
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    border-top: none;
+}
+
+.vault-sync-settings-page-title .setting-item-name {
+    font-size: var(--font-ui-large);
+}
+
+.vault-sync-settings-section-title {
+    margin-top: 20px;
+    font-weight: 600;
+    color: var(--text-normal);
 }

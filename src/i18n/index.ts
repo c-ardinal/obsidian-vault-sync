@@ -229,6 +229,16 @@ export const en: Record<string, string> = {
     noticeLegacyDataMigrated:
         "Vault-Sync: Settings and sync data were carried over from the older copy of the plugin. You can uninstall the older copy (ID obsidian-vault-sync).",
     labelInstallAddon: "Install add-on",
+    settingNavBack: "Settings",
+    settingNavBackAria: "Back to the settings list",
+    settingCategoryAccountDesc: "Login method, login and logout",
+    settingCategoryAccountSignedIn: "Logged in",
+    settingCategoryAccountSignedOut: "Not logged in",
+    settingCategoryTriggersDesc: "When to sync: on startup, on save, at intervals",
+    settingCategoryScopeDesc: "Cloud folder, file types to sync, exclusions",
+    settingCategoryPerformanceDesc: "Conflict handling, notifications, transfers",
+    settingCategoryAddonsDesc: "Install and manage optional add-ons",
+    settingCategoryAdvancedDesc: "Logging and other detailed settings",
     addonSectionTitle: "Add-ons",
     addonStatusNone: "No add-ons installed",
     addonStatusNoneDesc:
