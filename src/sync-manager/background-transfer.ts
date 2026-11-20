@@ -1,5 +1,5 @@
 import { removeRemote } from "./remote-deletion";
-import { md5 } from "../utils/md5";
+import { cloudHashMatches, contentFingerprint } from "./content-fingerprint";
 import { formatSize } from "../utils/format";
 import { basename, dirname } from "../utils/path";
 import type { CloudFile } from "../types/adapter";
@@ -371,7 +371,7 @@ export class BackgroundTransferQueue {
 
         if (currentStat.mtime !== item.mtime) {
             const freshContent = await ctx.vault.readBinary(item.path);
-            const freshHash = md5(freshContent);
+            const freshHash = contentFingerprint(freshContent);
             if (freshHash !== item.snapshotHash) {
                 await ctx.log(
                     `[Background Transfer] File modified since enqueue, re-marking dirty: ${item.path}`,
@@ -419,7 +419,7 @@ export class BackgroundTransferQueue {
                 remoteHash &&
                 (!lastKnownHash || lastKnownHash.toLowerCase() !== remoteHash.toLowerCase()) &&
                 !ctx.e2eeEnabled &&
-                remoteHash.toLowerCase() === md5(item.content!)
+                cloudHashMatches(ctx.adapter, remoteHash, contentFingerprint(item.content!))
             ) {
                 // The cloud already has exactly this content: our own earlier upload whose
                 // result was never recorded (the app was closed while it was in flight).
@@ -466,7 +466,7 @@ export class BackgroundTransferQueue {
         const targetFileId = remoteMeta?.id || ctx.index[item.path]?.fileId;
         // Write-ahead record (as for inline uploads): if the app is closed while this
         // upload is in flight, the next start recognises the cloud version as ours.
-        recordAttemptedUpload(ctx, item.path, md5(item.content!));
+        recordAttemptedUpload(ctx, item.path, contentFingerprint(item.content!));
         await saveLocalIndex(ctx, true);
         let uploaded: CloudFile;
         if (ctx.adapter.uploadFileResumable) {

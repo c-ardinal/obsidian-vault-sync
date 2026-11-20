@@ -117,7 +117,12 @@ describe("EncryptedAdapter", () => {
 
     describe("constructor", () => {
         it("should inherit feature flags from base adapter", () => {
-            expect(adapter.capabilities).toEqual(baseAdapter.capabilities);
+            expect(adapter.capabilities).toEqual({ ...baseAdapter.capabilities, contentHash: null });
+        });
+
+        it("never reports the cloud's hash as comparable with vault content", () => {
+            expect(baseAdapter.capabilities.contentHash).toBe("md5");
+            expect(adapter.capabilities.contentHash).toBeNull();
         });
 
         it("should inherit feature flags when base has different values", () => {

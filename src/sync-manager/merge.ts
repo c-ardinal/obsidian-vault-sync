@@ -1,5 +1,5 @@
 import { TFile } from "obsidian";
-import { md5 } from "../utils/md5";
+import { contentFingerprint } from "./content-fingerprint";
 import type { SyncContext } from "./context";
 import { ensureLocalFolder, hashContent, normalizeLineEndings, plainHashMatches } from "./file-utils";
 import {
@@ -316,7 +316,7 @@ async function dropStaleAliases(ctx: SyncContext, path: string, fileId: string, 
                 continue;
             }
             const content = await ctx.vault.readBinary(other);
-            const unmodified = !!entry.hash && md5(content) === entry.hash.toLowerCase();
+            const unmodified = !!entry.hash && contentFingerprint(content) === entry.hash.toLowerCase();
             if (unmodified && !ctx.dirtyPaths.has(other)) {
                 await ctx.vault.remove(other);
                 await ctx.log(`[${logPrefix}] Removed stale copy ${other} (the note is now at ${path}).`, "info");
@@ -398,7 +398,7 @@ async function hashOfDownload(
     content: ArrayBuffer,
     plainHash: string,
 ): Promise<string> {
-    if (!ctx.e2eeEnabled) return md5(content);
+    if (!ctx.e2eeEnabled) return contentFingerprint(content);
     let hash = item.hash || "";
     if (!fileId) return hash;
     if (item.plainHash) {
@@ -412,7 +412,7 @@ async function hashOfDownload(
     // which version we actually got.
     const current = await ctx.adapter.getFileMetadataById(fileId, item.path).catch(() => null);
     if (current?.hash && hash && current.hash.toLowerCase() !== hash.toLowerCase() && supportsHistory(ctx)) {
-        const found = await findRevisionByContent(ctx, item.path, fileId, md5(content)).catch(() => null);
+        const found = await findRevisionByContent(ctx, item.path, fileId, contentFingerprint(content)).catch(() => null);
         if (found) hash = found.hash;
     }
     return hash;
@@ -456,7 +456,7 @@ async function findRevisionByContent(
     for (const r of revisions.slice(-10).reverse()) {
         if (!r.hash) continue;
         const content = await getRevisionContent(ctx, path, r.id, fileId);
-        if (md5(content) === contentMd5) {
+        if (contentFingerprint(content) === contentMd5) {
             return { hash: r.hash.toLowerCase(), plainHash: await hashContent(content) };
         }
     }
@@ -626,7 +626,7 @@ async function pullFileUnchecked(
                 // cloud file: we pulled it and the app was closed before our index was saved.
                 // Then it is the base and the remote version simply replaces it; without
                 // this, an untouched note came back as a conflict copy of itself.
-                const local = md5(await ctx.vault.readBinary(item.path));
+                const local = contentFingerprint(await ctx.vault.readBinary(item.path));
                 const older =
                     item.hash && local !== item.hash.toLowerCase()
                         ? await findOwnUploadInHistory(ctx, item.path, fileId, local)
@@ -657,7 +657,7 @@ async function pullFileUnchecked(
                 // Compare RAW bytes: localBase.hash / item.hash are raw-byte MD5s (Drive md5Checksum,
                 // and push hashes raw content). Hashing a line-ending-normalized UTF-8 decode here
                 // made every CRLF / BOM / binary file look "locally modified" -> false conflicts.
-                const currentHash = md5(localContent);
+                const currentHash = contentFingerprint(localContent);
                 const localBase = ctx.localIndex[item.path];
 
                 await ctx.log(
@@ -884,7 +884,7 @@ async function pullFileUnchecked(
                                 );
                                 return false;
                             }
-                            if (md5(latest) !== currentHash) {
+                            if (contentFingerprint(latest) !== currentHash) {
                                 ctx.dirtyPaths.set(item.path, Date.now());
                                 await ctx.log(
                                     `[${logPrefix}] ${item.path} was edited during the download. Keeping the local edit; it will be merged.`,
@@ -1089,7 +1089,7 @@ async function pullFileUnchecked(
                                     break;
                                 }
                                 const reread = await ctx.vault.readBinary(item.path);
-                                if (md5(reread) === md5(latestLocal)) break;
+                                if (contentFingerprint(reread) === contentFingerprint(latestLocal)) break;
                                 await ctx.log(
                                     `[${logPrefix}] ${item.path} was edited during the merge. Re-merging with the latest local content.`,
                                     "info",
@@ -1141,7 +1141,7 @@ async function pullFileUnchecked(
 
                                 markSettingsUpdatedIfNeeded(ctx, item.path);
 
-                                const mergedHash = md5(normalizedBuffer);
+                                const mergedHash = contentFingerprint(normalizedBuffer);
                                 const remoteNorm = normalizeLineEndings(remoteContentStr);
 
                                 const isIdenticalToRemote =

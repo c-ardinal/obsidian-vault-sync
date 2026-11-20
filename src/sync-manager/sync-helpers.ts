@@ -1,5 +1,7 @@
-import { md5 } from "../utils/md5";
+import { contentFingerprint } from "./content-fingerprint";
 import type { SyncContext } from "./context";
+import { parseIndex, providerNameOf, serializeIndex } from "./remote-layout";
+import { noteIndexFormat } from "./state";
 import type { LocalFileIndex } from "./types";
 import { tryDecompress, hashContent } from "./file-utils";
 
@@ -7,11 +9,11 @@ export async function computeLocalHash(
     ctx: SyncContext,
     content: ArrayBuffer,
     indexEntry: { hash?: string; plainHash?: string },
-    /** md5(content) if the caller already computed it */
+    /** contentFingerprint(content) if the caller already computed it */
     rawMd5?: string,
 ): Promise<{ localHash: string; compareHash: string | undefined }> {
     const useE2EE = ctx.e2eeEnabled && !!indexEntry.plainHash;
-    const localHash = useE2EE ? await hashContent(content) : (rawMd5 ?? md5(content));
+    const localHash = useE2EE ? await hashContent(content) : (rawMd5 ?? contentFingerprint(content));
     const compareHash = useE2EE ? indexEntry.plainHash : indexEntry.hash;
     return { localHash, compareHash };
 }
@@ -27,11 +29,9 @@ export async function downloadRemoteIndexData(
 ): Promise<{ index: LocalFileIndex; startPageToken: string | null }> {
     const content = await ctx.adapter.downloadFile(fileId);
     const decompressed = await tryDecompress(content);
-    const data = JSON.parse(new TextDecoder().decode(decompressed)) as {
-        index?: LocalFileIndex;
-        startPageToken?: string | null;
-    };
-    return { index: data.index || {}, startPageToken: data.startPageToken || null };
+    const parsed = parseIndex(new TextDecoder().decode(decompressed), providerNameOf(ctx.adapter));
+    await noteIndexFormat(ctx, parsed, "remote");
+    return { index: parsed.index, startPageToken: parsed.startPageToken };
 }
 
 export function getThresholdBytes(ctx: SyncContext): number {
@@ -202,7 +202,7 @@ export async function buildRemoteIndexPayload(ctx: SyncContext): Promise<ArrayBu
         const { pendingMove, forcePush: _f, ...rest } = e;
         if (!merged[pendingMove.oldPath]) merged[pendingMove.oldPath] = rest;
     }
-    const data = JSON.stringify({ index: merged, startPageToken: ctx.startPageToken });
+    const data = serializeIndex(merged, ctx.startPageToken, providerNameOf(ctx.adapter));
     return new TextEncoder().encode(data).buffer;
 }
 

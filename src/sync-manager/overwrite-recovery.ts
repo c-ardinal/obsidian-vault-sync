@@ -1,4 +1,4 @@
-import { md5 } from "../utils/md5";
+import { contentFingerprint } from "./content-fingerprint";
 import type { SyncContext } from "./context";
 import { hashContent } from "./file-utils";
 import { getRevisionContent, listRevisions, supportsHistory } from "./history";
@@ -217,7 +217,7 @@ async function repairUnderLock(
                 return false;
             }
             const latest = await ctx.vault.readBinary(path);
-            if (md5(latest) === md5(localBuf)) merged = result;
+            if (contentFingerprint(latest) === contentFingerprint(localBuf)) merged = result;
         }
         if (!merged || !localBuf) {
             // Still typing: the edit is pushed first, then we repair on top of it.
@@ -225,7 +225,7 @@ async function repairUnderLock(
             return false;
         }
         pending.delete(path);
-        if (md5(merged) === md5(localBuf)) {
+        if (contentFingerprint(merged) === contentFingerprint(localBuf)) {
             // Our copy (= the newest version) already contains the overwritten edits.
             await ctx.log(`[Overwrite Check] ${path} already includes the overwritten edits.`, "debug");
             return false;
