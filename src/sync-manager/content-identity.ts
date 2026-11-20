@@ -1,4 +1,4 @@
-import type { SyncContext } from "./context";
+import type { SyncFlags } from "./context";
 import { contentFingerprint } from "./content-fingerprint";
 import { hashContent } from "./file-utils";
 
@@ -22,7 +22,7 @@ import { hashContent } from "./file-utils";
  * Dropbox) needs the same "compare plainHash" rule, and only this module changes.
  */
 
-type Ctx = Pick<SyncContext, "e2eeEnabled">;
+type Ctx = Pick<SyncFlags, "e2eeEnabled">;
 
 /** True when the cloud holds a transformed form of the vault bytes */
 export function storesTransformedContent(ctx: Ctx): boolean {
