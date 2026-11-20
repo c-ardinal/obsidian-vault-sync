@@ -18,7 +18,7 @@ import {
     MISSING_EVENT_GRACE_MS,
 } from "./state";
 import { getRevisionContent, listRevisions, supportsHistory, TransientHistoryError } from "./history";
-import { claimPullPath, findPathCollision, freeCollisionPath, moveIndexEntry, pathKey, windowsNameProblem } from "./path-collision";
+import { claimPullPath, findPathCollision, isPathClaimedByOther, freeCollisionPath, moveIndexEntry, pathKey, windowsNameProblem } from "./path-collision";
 import { basename, dirname } from "../utils/path";
 import { MERGE_MAX_INLINE_DOWNLOAD_BYTES } from "./constants";
 import {
@@ -385,9 +385,13 @@ async function dropStaleAliases(ctx: SyncContext, path: string, fileId: string, 
                 ctx.dirtyPaths.delete(other);
                 continue;
             }
+            // Another cloud file is being pulled to that name right now: the file there
+            // is (about to be) that note. Removing it lost the note, and its delete event
+            // then deleted it from the cloud as well.
+            if (isPathClaimedByOther(ctx, other, fileId)) continue;
             const content = await ctx.vault.readBinary(other);
             const unmodified = !!entry.hash && contentFingerprint(content) === entry.hash.toLowerCase();
-            if (unmodified && !ctx.dirtyPaths.has(other)) {
+            if (unmodified && !ctx.dirtyPaths.has(other) && !isPathClaimedByOther(ctx, other, fileId)) {
                 await ctx.vault.remove(other);
                 await ctx.log(`[${logPrefix}] Removed stale copy ${other} (the note is now at ${path}).`, "info");
             } else {

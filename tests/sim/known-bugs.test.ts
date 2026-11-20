@@ -102,18 +102,7 @@ const NON_MD5: Partial<SimConfig> = {
     network: { minLatencyMs: 5, maxLatencyMs: 800, failureRate: 0.02, lostResponseRate: 0.15 },
 };
 
-const KNOWN_BUGS: Case[] = [
-    {
-        title: "restart: a rename whose event was lost to an app kill, then edited, is not paired",
-        symptom:
-            "The note exists under both names (no content lost). The vault event of the rename never " +
-            "arrives and the note was edited before the next scan, so neither the event nor equal " +
-            "content ties the new name to the old one; pairing by similar content could merge two " +
-            "different notes, so the engine keeps both.",
-        config: { seed: 80782, ...RESTART },
-        expect: ["DUPLICATE"],
-    },
-];
+const KNOWN_BUGS: Case[] = [];
 
 /** Former bugs that must stay fixed (move cases here when fixing them) */
 const FIXED_REGRESSIONS: Case[] = [
@@ -893,6 +882,30 @@ const FIXED_REGRESSIONS: Case[] = [
         title: "restart: an event-less rename is paired even when the new note was edited since",
         symptom: "A renamed and then edited note existed under both names after an app kill",
         config: { seed: 170822, ...RESTART },
+        expect: [],
+    },
+    {
+        title: "restart: a rename whose event was lost to an app kill, then edited, is paired by its lines",
+        symptom: "The note existed under both names after the rename event was lost",
+        config: { seed: 80782, ...RESTART },
+        expect: [],
+    },
+    {
+        title: "chaos: a stale copy is not removed while another note is being pulled to its name",
+        symptom: "A new note vanished on every device (its delete event was taken as the user's)",
+        config: { seed: 190486, ...CHAOS },
+        expect: [],
+    },
+    {
+        title: "restart: a later upload's overwrite check does not replace an earlier waiting one",
+        symptom: "Another device's edit overwritten at the same moment was lost after an app kill",
+        config: { seed: 190002, ...RESTART },
+        expect: [],
+    },
+    {
+        title: "restart: a note edited after an event-less rename waits to be paired before upload",
+        symptom: "A renamed and edited note existed under both names after an app kill",
+        config: { seed: 190441, ...RESTART },
         expect: [],
     },
 ];

@@ -305,7 +305,9 @@ async function holdUnexplainedNewFiles(
     const now = Date.now();
     const expired: string[] = [];
     for (const path of added) {
-        if (!unreported.has(path) || ctx.localIndex[path]) continue;
+        // A note edited after a rename whose event was lost has an event (the edit):
+        // it waits as well, or it was uploaded as a new note before the pairing below.
+        if (ctx.localIndex[path] || (!unreported.has(path) && !isNote(path))) continue;
         const since = held.get(path) ?? now;
         if (now - since >= MISSING_EVENT_GRACE_MS) {
             held.delete(path);

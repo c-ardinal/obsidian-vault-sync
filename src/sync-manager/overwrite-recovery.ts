@@ -111,13 +111,29 @@ const pendingChecks = new CtxState<Map<string, PendingCheck>>("overwriteChecks",
  * When the history cannot be read, the check itself is queued and retried later:
  * skipping it lost the overwritten edit for good.
  */
+/**
+ * Waiting checks are keyed by path; a later upload of the same note gets its own
+ * entry ("path\0hash") so the earlier check is not replaced. Replacing it dropped the
+ * check of the upload that overwrote another device's edit, and that edit was lost.
+ */
+function forgetCheck(ctx: SyncContext, path: string, check: PendingCheck): void {
+    const map = pendingChecks.get(ctx);
+    if (!map) return;
+    for (const [key, c] of [...map]) {
+        if (key.split("\0")[0] === path && c.ourHash === check.ourHash) map.delete(key);
+    }
+}
+
 async function detectOverwrite(ctx: SyncContext, path: string, check: PendingCheck): Promise<PendingRepair | null> {
+    // An earlier upload of this note still waits for its check: run it first.
+    const earlier = pendingChecks.get(ctx)?.get(path);
+    if (earlier && earlier.ourHash !== check.ourHash) await detectOverwrite(ctx, path, earlier);
     const known = new Set(check.known);
     const ours = check.ourHash;
     let repair: PendingRepair;
     try {
         const revisions = await listRevisions(ctx, path, check.fileId);
-        pendingChecks.get(ctx)?.delete(path);
+        forgetCheck(ctx, path, check);
         let idx = -1;
         revisions.forEach((r, i) => {
             if (r.hash?.toLowerCase() === ours) idx = i;
@@ -141,7 +157,8 @@ async function detectOverwrite(ctx: SyncContext, path: string, check: PendingChe
     } catch (e) {
         let checks = pendingChecks.get(ctx);
         if (!checks) pendingChecks.set(ctx, (checks = new Map<string, PendingCheck>()));
-        checks.set(path, check);
+        const cur = checks.get(path);
+        checks.set(!cur || cur.ourHash === check.ourHash ? path : `${path}\0${check.ourHash}`, check);
         await saveLocalIndex(ctx, true);
         await ctx.log(`[Overwrite Check] Could not read the history of ${path}: ${String(e)}. Checking again later.`, "debug");
         return null;
@@ -162,12 +179,13 @@ async function detectOverwrite(ctx: SyncContext, path: string, check: PendingChe
  */
 export async function retryOverwriteRepairs(ctx: SyncContext): Promise<void> {
     const checks = pendingChecks.get(ctx);
-    for (const [path, check] of [...(checks ?? [])]) {
+    for (const [key, check] of [...(checks ?? [])]) {
+        if (!checks!.has(key)) continue; // run already as an earlier check
         if (Date.now() - check.since > REPAIR_TIMEOUT_MS) {
-            checks!.delete(path);
+            checks!.delete(key);
             continue;
         }
-        await detectOverwrite(ctx, path, check);
+        await detectOverwrite(ctx, key.split("\0")[0], check);
     }
     const pending = pendingRepairs.get(ctx);
     if (!pending || pending.size === 0) return;
