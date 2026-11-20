@@ -730,6 +730,51 @@ async function checkScreens(page, lang, { mobile = false } = {}) {
     await shotModal(page, lang, tag, "scr-transfers", "transfer status modal");
     await escape(page);
 
+    // Conflict resolve screen: a note and its conflict copy, resolved by hand.
+    await page.evaluate(async () => {
+        const v = window.app.vault;
+        const note = "E2E/Plan.md";
+        const copy = "E2E/Plan (Conflict 2026-11-20T08-00-00).md";
+        if (!v.getAbstractFileByPath("E2E")) await v.createFolder("E2E");
+        for (const p of [note, copy]) {
+            const f = v.getAbstractFileByPath(p);
+            if (f) await v.delete(f);
+        }
+        const shared = Array.from({ length: 12 }, (_, i) => `- shared item ${i + 1}`).join("\n");
+        await v.create(note, `# Plan\n\nGoal: ship on Friday\n\n${shared}\n\nOwner: cloud side\n`);
+        await v.create(copy, `# Plan\n\nGoal: ship on Thursday after review\n\n${shared}\n\nOwner: this device\nNotes: added here\n`);
+    });
+    await cmd(page, "resolve-conflicts");
+    await modalOpen(page, ".vault-sync-conflict-chunks");
+    await shotModal(page, lang, tag, "scr-conflict-resolve", "conflict resolve modal");
+    await page.locator(".vault-sync-conflict-choices button").nth(2).click();
+    await sleep(300);
+    const merged = await page.$eval(".vault-sync-conflict-result", (el) => el.value);
+    check(
+        lang,
+        `${tag}: conflict result takes both sides`,
+        merged.includes("ship on Thursday") && merged.includes("ship on Friday"),
+        merged.slice(0, 120),
+    );
+    await shot(page, lang, `${tag}-scr-conflict-resolve-both`);
+    await page.locator(".vault-sync-conflict-buttons button.mod-cta").click();
+    await sleep(800);
+    const after = await page.evaluate(async () => {
+        const v = window.app.vault;
+        const f = v.getAbstractFileByPath("E2E/Plan.md");
+        return {
+            text: f ? await v.read(f) : null,
+            copyLeft: !!v.getAbstractFileByPath("E2E/Plan (Conflict 2026-11-20T08-00-00).md"),
+        };
+    });
+    check(
+        lang,
+        `${tag}: conflict saved and copy removed`,
+        !!after.text?.includes("ship on Thursday") && !after.copyLeft,
+        JSON.stringify(after).slice(0, 200),
+    );
+    await closeModals(page);
+
     // Add-on install (and, when a package is given, its terms review).
     await cmd(page, "install-addon");
     await modalOpen(page, ".vault-sync-addon-install");
