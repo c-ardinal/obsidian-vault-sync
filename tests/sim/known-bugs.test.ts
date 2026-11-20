@@ -72,6 +72,16 @@ const RESTART: Partial<SimConfig> = {
     network: { minLatencyMs: 20, maxLatencyMs: 1500, failureRate: 0.03, lostResponseRate: 0.3 },
     offlineRate: 0.03,
 };
+/** Same settings as the large-files scenario in multi-device.sim.test.ts */
+const LARGE: Partial<SimConfig> = {
+    profile: "disjoint",
+    devices: 3,
+    actions: 45,
+    binaryRate: 0.3,
+    settings: { largeFileThresholdMB: 0.0001 },
+    network: { minLatencyMs: 20, maxLatencyMs: 1500, failureRate: 0.04, lostResponseRate: 0.3 },
+    offlineRate: 0.03,
+};
 const CROSS_OS: Partial<SimConfig> = {
     profile: "disjoint",
     devices: 3,
@@ -507,6 +517,91 @@ const FIXED_REGRESSIONS: Case[] = [
         title: "restart: a large file whose cloud copy changed is not bounced between sync and the background queue",
         symptom: "An attachment never finishes syncing and the other devices never get it",
         config: { seed: 10184, ...RESTART },
+        expect: [],
+    },
+    // Found by the 2026-11-20 runs toward 0 failures in 10,000 (seeds 30000-30999, 40000-40999)
+    {
+        title: "an older-base merge keeps the lines this device added",
+        symptom: "A line just typed into a note disappears after a merge with another device's edit",
+        config: { seed: 30524, ...CHAOS },
+        expect: [],
+    },
+    {
+        title: "a collision rename made by the sync is not taken for a user rename",
+        symptom: "A note vanishes after two devices create notes whose names differ only in letter case",
+        config: { seed: 30045, ...CHAOS },
+        expect: [],
+    },
+    {
+        title: "E2EE: our lost upload of a note renamed during the download is moved, not pulled back",
+        symptom: "A renamed note exists twice, under its old and new name",
+        config: { seed: 30514, ...E2EE },
+        expect: [],
+    },
+    {
+        title: "E2EE: a merge does not guess the base when the stored hash cannot be read",
+        symptom: "An edit disappears after a merge on an encrypted vault",
+        config: { seed: 30744, ...E2EE },
+        expect: [],
+    },
+    {
+        title: "a merged upload keeps its hash on a note renamed during the upload",
+        symptom: "A conflict copy appears for edits made on different lines",
+        config: { seed: 40358, ...CLEAN },
+        expect: [],
+    },
+    {
+        title: "files only an overwritten shared index listed are pulled",
+        symptom: "A note created on one device never reaches the others",
+        config: { seed: 40889, ...FLAKY },
+        expect: [],
+    },
+    {
+        title: "a note that took a name during a conflict is not overwritten by the cloud version",
+        symptom: "A renamed note's text is replaced by another note's text",
+        config: { seed: 40924, ...CHAOS },
+        expect: [],
+    },
+    {
+        title: "E2EE: a merge waits when the revision history is unreachable",
+        symptom: "A conflict copy appears for edits made on different lines",
+        config: { seed: 40501, ...E2EE },
+        expect: [],
+    },
+    {
+        title: "our lost upload, edited by another device and renamed here twice, is adopted and merged",
+        symptom: "A renamed note exists twice, under its first and its last name",
+        config: { seed: 40247, ...LARGE },
+        expect: [],
+    },
+    {
+        title: "restart: a late-found upload of ours is checked for an overwrite",
+        symptom: "An edit made at the same moment as another device's edit disappears from the note",
+        config: { seed: 40165, ...RESTART },
+        expect: [],
+    },
+    {
+        title: "restart: new files a scan held back are uploaded later",
+        symptom: "A note created just before the app was closed never reaches the other devices",
+        config: { seed: 40207, ...RESTART },
+        expect: [],
+    },
+    {
+        title: "a remote deletion does not remove a file that took the deleted file's name",
+        symptom: "A note pulled from another device disappears again on one device",
+        config: { seed: 40536, ...CHAOS },
+        expect: [],
+    },
+    {
+        title: "delete and re-create under another letter case on Windows/macOS is a rename",
+        symptom: "The note keeps its old name in the cloud and on the other devices",
+        config: { seed: 40245, ...CHAOS },
+        expect: [],
+    },
+    {
+        title: "a remote index listing one file under two names is resolved against the cloud",
+        symptom: "A device joining later gets the wrong text under one name and misses another note",
+        config: { seed: 40952, ...CHAOS },
         expect: [],
     },
 ];
