@@ -2155,3 +2155,15 @@
 .vault-sync-devices-heading h4 {
     margin: 0;
 }
+
+/* Full-height phone modals lay out their content as a flex column: never let
+   a paragraph or list shrink below its content (it was cut to one line). */
+.vault-sync-devices-modal .modal-content > * {
+    flex-shrink: 0;
+}
+
+.vault-sync-devices-note {
+    margin: var(--size-4-2) 0;
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+}

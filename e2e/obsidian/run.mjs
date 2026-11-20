@@ -806,6 +806,11 @@ async function checkScreens(page, lang, { mobile = false } = {}) {
     await shotModal(page, lang, tag, "scr-devices", "devices modal");
     const rows = await page.$$eval(".vault-sync-activity-row", (els) => els.length);
     check(lang, `${tag}: devices modal lists all changes`, rows === 5, `rows=${rows}`);
+    // Every note paragraph shows all its lines (none is squeezed by the modal layout)
+    const clipped = await page.$$eval(".vault-sync-devices-note", (els) =>
+        els.filter((e) => e.scrollHeight > e.clientHeight + 1).map((e) => e.textContent.slice(0, 30)),
+    );
+    check(lang, `${tag}: devices modal texts are not cut`, clipped.length === 0, clipped.join(" / "));
     await escape(page);
 
     // Add-on install (and, when a package is given, its terms review).

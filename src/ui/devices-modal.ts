@@ -57,7 +57,7 @@ export class DevicesModal extends Modal {
     private async load(): Promise<void> {
         const { contentEl } = this;
         contentEl.empty();
-        contentEl.createEl("p", { cls: "setting-item-description", text: t("devicesIntro") });
+        contentEl.createEl("p", { cls: "vault-sync-devices-note", text: t("devicesIntro") });
         const status = contentEl.createEl("p", { text: t("remoteTrashLoading") });
         try {
             this.records = await this.source.listDevices();
@@ -75,7 +75,7 @@ export class DevicesModal extends Modal {
         contentEl.createDiv({ cls: "vault-sync-devices-heading" }).createEl("h4", { text: t("devicesListHeading") });
         const own = this.records.some((r) => r.id === this.source.thisDeviceId);
         if (!own) {
-            contentEl.createEl("p", { cls: "setting-item-description", text: t("devicesThisNotYet") });
+            contentEl.createEl("p", { cls: "vault-sync-devices-note", text: t("devicesThisNotYet") });
         }
         for (const r of this.records) {
             const isThis = r.id === this.source.thisDeviceId;
@@ -117,14 +117,14 @@ export class DevicesModal extends Modal {
             }
         }
         if (this.records.length > 1) {
-            contentEl.createEl("p", { cls: "setting-item-description", text: t("devicesForgetDesc") });
+            contentEl.createEl("p", { cls: "vault-sync-devices-note", text: t("devicesForgetDesc") });
         }
     }
 
     private redraw(): void {
         const { contentEl } = this;
         contentEl.empty();
-        contentEl.createEl("p", { cls: "setting-item-description", text: t("devicesIntro") });
+        contentEl.createEl("p", { cls: "vault-sync-devices-note", text: t("devicesIntro") });
         this.renderDevices();
         this.renderActivity();
     }
@@ -148,7 +148,7 @@ export class DevicesModal extends Modal {
             listEl.empty();
             const items = this.filter ? all.filter((a) => a.deviceId === this.filter) : all;
             if (items.length === 0) {
-                listEl.createEl("p", { cls: "setting-item-description", text: t("devicesNoActivity") });
+                listEl.createEl("p", { cls: "vault-sync-devices-note", text: t("devicesNoActivity") });
                 return;
             }
             for (const a of items.slice(0, this.shown)) this.renderEntry(listEl, a);
