@@ -508,7 +508,8 @@ export class BackgroundTransferQueue {
         if (await reconcileVanishedAfterUpload(ctx, item.path, item.content!, entry)) {
             // Renamed or deleted while uploading: the upload was re-homed (as for
             // inline pushes). Registering the old path made both names exist on
-            // every device.
+            // every device. Saved at once, as for inline pushes.
+            await saveIndex(ctx);
         } else {
             ctx.index[item.path] = entry;
             ctx.localIndex[item.path] = { ...entry };

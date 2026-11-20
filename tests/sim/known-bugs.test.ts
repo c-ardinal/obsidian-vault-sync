@@ -103,7 +103,16 @@ const NON_MD5: Partial<SimConfig> = {
 };
 
 const KNOWN_BUGS: Case[] = [
-    // Empty: every bug found so far is fixed and lives in FIXED_REGRESSIONS.
+    {
+        title: "restart: a rename whose event was lost to an app kill, then edited, is not paired",
+        symptom:
+            "The note exists under both names (no content lost). The vault event of the rename never " +
+            "arrives and the note was edited before the next scan, so neither the event nor equal " +
+            "content ties the new name to the old one; pairing by similar content could merge two " +
+            "different notes, so the engine keeps both.",
+        config: { seed: 80782, ...RESTART },
+        expect: ["DUPLICATE"],
+    },
 ];
 
 /** Former bugs that must stay fixed (move cases here when fixing them) */
@@ -692,6 +701,36 @@ const FIXED_REGRESSIONS: Case[] = [
         title: "restart: the merged upload is recorded before it is sent",
         symptom: "A merge is uploaded twice after the app was closed",
         config: { seed: 60757, ...RESTART },
+        expect: [],
+    },
+    {
+        title: "e2ee: an upload whose note was renamed twice meanwhile is moved, not re-created",
+        symptom: "A note renamed twice during its first upload exists under both names",
+        config: { seed: 70932, ...E2EE },
+        expect: [],
+    },
+    {
+        title: "restart: an upload re-homed to the note's new name is saved at once",
+        symptom: "A note renamed during its first upload exists twice after a restart",
+        config: { seed: 80845, ...RESTART },
+        expect: [],
+    },
+    {
+        title: "chaos: a letter-case-only rename during the first upload is followed",
+        symptom: "A new note renamed Todo.md -> todo.md stays under the old name in the cloud",
+        config: { seed: 80176, ...CHAOS },
+        expect: [],
+    },
+    {
+        title: "e2ee: an unreadable history retries the lost-upload check instead of merging from an older base",
+        symptom: "A conflict copy appears and a line is lost after a merged upload's response was lost",
+        config: { seed: 80128, ...E2EE },
+        expect: [],
+    },
+    {
+        title: "restart: the shared index is owed before files are uploaded",
+        symptom: "Notes pushed just before the app was closed never reach the other devices",
+        config: { seed: 80132, ...RESTART },
         expect: [],
     },
 ];

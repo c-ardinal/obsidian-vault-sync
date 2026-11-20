@@ -16,7 +16,7 @@ import {
     isDeviceExcluded,
     hashContent,
 } from "./file-utils";
-import { loadCommunication, saveIndex, saveLocalIndex, releaseLockAfterPush, findForeignLock, renameLocal, confirmMissingForDeletion, clearDeleteIntent, noteDeleteIntent, takeUnsyncedRename } from "./state";
+import { loadCommunication, saveIndex, saveLocalIndex, releaseLockAfterPush, findForeignLock, renameLocal, confirmMissingForDeletion, clearDeleteIntent, noteDeleteIntent, takeUnsyncedRename, peekUnsyncedRename } from "./state";
 import { pullFileSafely } from "./merge";
 import { isMergeableText, recoverOverwrittenVersion } from "./overwrite-recovery";
 import { findPathCollision, freeCollisionPath, moveIndexEntry, pathKey } from "./path-collision";
@@ -180,7 +180,13 @@ export async function reconcileVanishedAfterUpload(
     content: ArrayBuffer,
     entry: LocalFileIndex[string],
 ): Promise<boolean> {
-    if (await ctx.vault.exists(path)) return false;
+    if (await ctx.vault.exists(path)) {
+        // On Windows/macOS a letter-case-only rename ("Todo.md" -> "todo.md") leaves the
+        // old spelling "existing": without this the upload stayed under the old name
+        // while the note was renamed here.
+        const to = peekUnsyncedRename(ctx, path);
+        if (!(ctx.caseInsensitiveFs && to && to !== path && pathKey(to) === pathKey(path))) return false;
+    }
     // An already-synced file renamed during the upload: the rename handler moved its
     // index entry (same fileId) to the new path, with a pendingMove from `path`. Record
     // that the remote now holds what we uploaded; registering `path` for deletion here
@@ -200,6 +206,20 @@ export async function reconcileVanishedAfterUpload(
         }
         ctx.dirtyPaths.delete(path);
         await ctx.log(`[Smart Push] ${path} was renamed to ${p} during upload.`, "info");
+        return true;
+    }
+    // Renamed again (or deleted) before that event arrived: the recorded name is gone
+    // too. Deleting the upload now and creating the note anew under its final name made
+    // two copies once another device edited the upload meanwhile. Keep it as our
+    // attempted upload: the next push (or a pull of it) moves it to the final name.
+    const pendingTo = peekUnsyncedRename(ctx, path);
+    if (pendingTo && !ctx.index[pendingTo] && !(await ctx.vault.exists(pendingTo))) {
+        recordAttemptedUpload(ctx, path, contentFingerprint(content));
+        ctx.dirtyPaths.delete(path);
+        await ctx.log(
+            `[Smart Push] ${path} was renamed again during upload. Settling the upload next sync.`,
+            "info",
+        );
         return true;
     }
     // Renamed (and maybe edited since): the rename handler recorded where it went.
@@ -893,7 +913,11 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
         const toRecord = inlineUploadQueue.filter((f) => f.hash && f.path !== ctx.pluginDataPath);
         if (toRecord.length > 0) {
             for (const f of toRecord) recordAttemptedUpload(ctx, f.path, f.hash);
-            await saveLocalIndex(ctx, true);
+            // The shared index that will list these files is owed from now on: killed
+            // after the uploads but before the index upload, the restarted app had
+            // nothing to push and the other devices never learned of the files.
+            markIndexUploadOwed(ctx);
+            await saveIndex(ctx);
         }
 
         for (const file of inlineUploadQueue) {
@@ -1172,7 +1196,11 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                         ancestorHash: previousAncestorHash || uploaded.hash,
                     };
                     if (await reconcileVanishedAfterUpload(ctx, file.path, file.content, entry)) {
-                        // handled as a rename/delete that happened while uploading
+                        // Handled as a rename/delete that happened while uploading. Saved
+                        // now: killed before the next save, the restart took the upload
+                        // for a deleted note and removed it while the note lived on
+                        // under its new name (a second copy once another device edited it).
+                        await saveIndex(ctx);
                     } else {
                         ctx.index[file.path] = entry;
                         ctx.localIndex[file.path] = { ...entry };

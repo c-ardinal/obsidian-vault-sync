@@ -567,7 +567,12 @@ async function isOurLostUpload(
     if (!storesTransformedContent(ctx)) return takeAttemptedUpload(ctx, item.path, item.hash);
     const sent = peekAttemptedUpload(ctx, item.path);
     if (!sent || !item.hash || !supportsHistory(ctx)) return false;
-    const found = await findRevisionByContent(ctx, item.path, fileId, sent).catch(() => null);
+    const found = await findRevisionByContent(ctx, item.path, fileId, sent).catch((e) => {
+        // Unreadable history: retry later. Taking our own lost upload for another
+        // device's edit merged from an older base and lost our later lines.
+        if (e instanceof TransientHistoryError) throw e;
+        return null;
+    });
     if (!found || found.hash !== item.hash.toLowerCase()) return false;
     return takeAttemptedUpload(ctx, item.path, sent);
 }
