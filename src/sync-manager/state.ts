@@ -818,7 +818,27 @@ export function markDirty(ctx: StateCtx, path: string): void {
         return;
     }
     deleteIntents.get(ctx)?.delete(path); // there again: no longer deleted
+    // On a case-insensitive disk a note deleted here and created again under another
+    // letter case takes the same place: it cannot sit next to the old name on any such
+    // device. Uploading it as a new note while the old one was not yet removed from
+    // the cloud wrote the new content into the old cloud file under the OLD name.
+    // Treat it as a rename of the deleted note, so the cloud gets the new spelling.
+    const replaced = deletedUnderOtherSpelling(ctx, path);
+    if (replaced) {
+        deleteIntents.get(ctx)?.delete(replaced);
+        markRenamed(ctx, replaced, path);
+        return;
+    }
     ctx.dirtyPaths.set(path, Date.now());
+}
+
+function deletedUnderOtherSpelling(ctx: StateCtx, path: string): string | undefined {
+    if (!ctx.caseInsensitiveFs || ctx.index[path]) return undefined;
+    const intents = deleteIntents.get(ctx);
+    if (!intents || intents.size === 0) return undefined;
+    const fold = (p: string) => (ctx.unicodeInsensitiveFs ? p.normalize("NFC") : p).toLowerCase();
+    const key = fold(path);
+    return [...intents].find((k) => k !== path && fold(k) === key && !!ctx.index[k]);
 }
 
 /** Vault edits reported while the engine held the path (see markDirty) */

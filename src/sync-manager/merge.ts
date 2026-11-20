@@ -24,6 +24,7 @@ import {
     attemptedUploadsOf,
     forgetAttemptedUpload,
     isAttemptedUpload,
+    pendingPullsOf,
     peekAttemptedUpload,
     takeAttemptedUpload,
 } from "./sync-helpers";
@@ -31,7 +32,7 @@ import { removeRemote } from "./remote-deletion";
 import { getMergeStrategy } from "./strategies";
 import { storesTransformedContent } from "./content-identity";
 import { CtxState } from "./context-state";
-import { checkLateUploadForOverwrite } from "./overwrite-recovery";
+import { checkLateUploadForOverwrite, isMergeableText } from "./overwrite-recovery";
 
 /**
  * A local file this device never synced that may simply be replaced by the
@@ -473,12 +474,18 @@ async function attemptedUploadInHistory(
     if (storesTransformedContent(ctx)) {
         // Recorded as the plaintext md5: find its (encrypted / differently hashed) cloud version.
         for (const sent of attempts) {
-            const found = await findRevisionByContent(ctx, path, fileId, sent).catch(() => null);
+            const found = await findRevisionByContent(ctx, path, fileId, sent).catch((e) => {
+                if (e instanceof TransientHistoryError) throw e;
+                return null;
+            });
             if (found?.hash) return found.hash.toLowerCase();
         }
         return undefined;
     }
-    const revisions = await listRevisions(ctx, path, fileId).catch(() => []);
+    const revisions = await listRevisions(ctx, path, fileId).catch((e) => {
+        if (e instanceof TransientHistoryError) throw e;
+        return [];
+    });
     const inHistory = new Set(revisions.map((r) => r.hash?.toLowerCase()).filter(Boolean));
     return attempts.find((h) => inHistory.has(h)) ?? attempts[0];
 }
@@ -576,7 +583,10 @@ async function revisionOrder(
             if (h === declaredBase.toLowerCase()) declared = i;
         });
         return ours === -1 || declared === -1 ? null : { ours, declared };
-    } catch {
+    } catch (e) {
+        // Unreachable history: retry later rather than guess the base (a wrong guess
+        // turns our own earlier edit into a conflict with the remote's copy of it)
+        if (e instanceof TransientHistoryError) throw e;
         return null;
     }
 }
@@ -610,7 +620,25 @@ async function adoptUploadOfRenamedFile(
     }
     // Renamed again while we downloaded: follow it to its current name
     const now = peekUnsyncedRename(ctx, item.path);
-    const attemptedAs = [item.path, before, now].find((p) => p && isAttemptedUpload(ctx, p, sent));
+    let attemptedAs = [item.path, before, now].find((p) => p && isAttemptedUpload(ctx, p, sent));
+    // Another device edited our lost upload since: it is still ours if the version we
+    // sent is in its history. That version is then the base our later edits merge onto.
+    let base: string | undefined;
+    if (!attemptedAs && now && !storesTransformedContent(ctx) && supportsHistory(ctx)) {
+        const revisions = await listRevisions(ctx, item.path, fileId).catch((e) => {
+            if (e instanceof TransientHistoryError) throw e;
+            return [];
+        });
+        const inHistory = new Set(revisions.map((r) => r.hash?.toLowerCase()).filter(Boolean));
+        for (const p of [item.path, before, now]) {
+            const hit = attemptedUploadsOf(ctx, p).find((h) => inHistory.has(h));
+            if (hit) {
+                attemptedAs = p;
+                base = hit;
+                break;
+            }
+        }
+    }
     if (!now || !attemptedAs || ctx.index[now] || !(await ctx.vault.exists(now))) {
         return false;
     }
@@ -622,9 +650,12 @@ async function adoptUploadOfRenamedFile(
         await ctx.log(`[${logPrefix}] Could not move our lost upload ${item.path} to ${now}: ${String(e)}`, "warn");
         throw e;
     }
-    takeAttemptedUpload(ctx, attemptedAs, sent);
+    if (base) forgetAttemptedUpload(ctx, attemptedAs);
+    else takeAttemptedUpload(ctx, attemptedAs, sent);
     takeUnsyncedRename(ctx, item.path);
-    const hash = item.hash!.toLowerCase();
+    // Edited elsewhere since: record our version as the base, so the next push sees the
+    // remote change and merges it with ours instead of overwriting it
+    const hash = (base ?? item.hash!).toLowerCase();
     const entry = {
         fileId,
         mtime: item.mtime ?? Date.now(),
@@ -1160,6 +1191,14 @@ async function pullFileUnchecked(
                             // uploaded over it repairs it (overwrite-recovery), so it is the
                             // common ancestor.
                             baseHash = attempted;
+                            // That upload may itself have replaced another device's version
+                            // (we never saw its response, so its overwrite check never ran).
+                            if (fileId && isMergeableText(item.path)) {
+                                await checkLateUploadForOverwrite(ctx, item.path, fileId, attempted, [
+                                    localBase.hash,
+                                    localBase.ancestorHash,
+                                ]);
+                            }
                         } else if (
                             localBase.lastAction === "push" &&
                             localBase.hash &&
@@ -1475,6 +1514,31 @@ async function pullFileUnchecked(
                     let remoteGotHash = item.hash?.toLowerCase() || "";
                     if (!isRemoteDeleted) {
                         const remoteContent = await ctx.adapter.downloadFile(fileId || "");
+                        if (await ctx.vault.exists(item.path)) {
+                            // Another note took this name (moved or created here) after
+                            // our version went to the conflict copy. Writing would replace
+                            // that note unseen: keep it, push it, and pull the cloud
+                            // version on the next sync, which moves whichever is in the way.
+                            await ctx.log(
+                                `[${logPrefix}] ${item.path} was taken by another note during the conflict. Pulling the cloud version next sync.`,
+                                "info",
+                            );
+                            if (fileId) {
+                                pendingPullsOf(ctx).set(fileId, {
+                                    file: { id: fileId, path: item.path, hash: item.hash, size: item.size ?? 0 },
+                                    attempts: 0,
+                                });
+                            }
+                            ctx.dirtyPaths.set(item.path, Date.now());
+                            if (holdsMergeLock(ctx, item.path)) {
+                                await releaseMergeLock(ctx, item.path, logPrefix).catch(() => {});
+                            }
+                            await ctx.notify("noticeConflictSaved", basename(conflictPath), {
+                                sticky: true,
+                                openPath: conflictPath,
+                            });
+                            return false;
+                        }
                         await ensureLocalFolder(ctx, item.path);
                         await ctx.vault.writeBinary(item.path, remoteContent);
                         remoteSize = remoteContent.byteLength;

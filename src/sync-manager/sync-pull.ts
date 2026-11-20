@@ -125,6 +125,8 @@ async function detectPullChanges(
         if (entry.fileId) localIdToPath.set(entry.fileId, p);
     }
 
+    remoteIndex = await resolveDuplicateIds(ctx, remoteIndex);
+
     for (const [path, remoteEntry] of Object.entries(remoteIndex)) {
         if (path === ctx.pluginDataPath) continue;
         if (isManagedSeparately(path)) continue;
@@ -1211,6 +1213,13 @@ async function processChangePage(
                 localDeletions.push(pathToDelete);
                 tasks.push(async () => {
                     try {
+                        // Another file of this page took the name meanwhile (the deleted
+                        // one had already left it here): that file is not what was deleted.
+                        const holder = ctx.index[pathToDelete]?.fileId;
+                        if (holder && holder !== change.fileId) {
+                            await ctx.log(`[Smart Pull] ${pathToDelete} now holds another file. Not deleting it.`, "debug");
+                            return;
+                        }
                         if (!(await applyRemoteDeletion(ctx, pathToDelete, decision))) return;
                         ctx.logger.markActionTaken();
                         completed.count++;
@@ -1744,4 +1753,40 @@ async function followFolderSpelling(ctx: SyncContext, oldPath: string, newPath: 
     const from = dirname(oldPath);
     const to = dirname(newPath);
     if (from !== to && pathKey(from) === pathKey(to)) await alignFolderSpelling(ctx, newPath);
+}
+
+/**
+ * One cloud file listed under two names: the index was written by a device that had
+ * not seen a rename yet. Pulling both put the file at both names, then dropped one
+ * as a stale copy, and a different note that now holds the old name was never
+ * pulled. Ask the cloud where the file really is; at the other name, list whatever
+ * file the cloud has there instead (or nothing).
+ */
+async function resolveDuplicateIds(ctx: SyncContext, remoteIndex: LocalFileIndex): Promise<LocalFileIndex> {
+    const byId = new Map<string, string[]>();
+    for (const [p, e] of Object.entries(remoteIndex)) {
+        if (!e.fileId || p === ctx.pluginDataPath) continue;
+        byId.set(e.fileId, [...(byId.get(e.fileId) ?? []), p]);
+    }
+    const dupes = [...byId].filter(([, paths]) => paths.length > 1);
+    if (dupes.length === 0) return remoteIndex;
+    const out: LocalFileIndex = { ...remoteIndex };
+    for (const [id, paths] of dupes) {
+        let actual: string | undefined;
+        try {
+            actual = (await ctx.adapter.getFileMetadataById(id, paths[0]))?.path;
+        } catch {
+            continue; // unknown: leave the entries as they are
+        }
+        for (const p of paths) {
+            if (p === actual) continue;
+            delete out[p];
+            const there = await ctx.adapter.getFileMetadata(p).catch(() => null);
+            if (there?.id && there.id !== id && !byId.has(there.id)) {
+                out[p] = { fileId: there.id, mtime: there.mtime ?? 0, size: there.size ?? 0, hash: there.hash } as LocalFileIndex[string];
+            }
+            await ctx.log(`[Smart Pull] The remote index lists ${id} under ${p} too, but it is at ${actual ?? "(gone)"}. Using the cloud's file at ${p}.`, "info");
+        }
+    }
+    return out;
 }

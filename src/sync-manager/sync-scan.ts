@@ -269,6 +269,11 @@ const unexplainedNew = new CtxState<Map<string, number>>(
     "New files found by a scan while a synced file is missing without an event (first seen at)",
 );
 
+/** Whether a scan held back new files that a later scan must look at again */
+export function holdsNewFiles(ctx: object): boolean {
+    return (unexplainedNew.get(ctx as ScanCtx)?.size ?? 0) > 0;
+}
+
 /**
  * A synced file is missing and a file no event reported appeared, with different
  * content (edited, then renamed): most likely one rename whose vault event is still
@@ -289,6 +294,8 @@ async function holdUnexplainedNewFiles(
         return;
     }
     if (!held) unexplainedNew.set(ctx, (held = new Map<string, number>()));
+    // Gone, or no longer new (its event arrived): nothing to wait for
+    for (const p of [...held.keys()]) if (!added.includes(p)) held.delete(p);
     const now = Date.now();
     for (const path of added) {
         if (!unreported.has(path) || ctx.localIndex[path]) continue;

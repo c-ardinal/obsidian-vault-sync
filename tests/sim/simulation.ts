@@ -561,6 +561,11 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
                     if (mutated.length > 0 || JSON.stringify(d.userFiles()) !== filesBefore) {
                         changed = true;
                     }
+                    // Uploading the shared index owed from before the heal is catching up,
+                    // not an idle sync: measure the idle cost in the next round.
+                    if (calls.some((c) => c.outcome === "ok" && c.method === "uploadFile" && c.arg.endsWith("/sync-index.json"))) {
+                        changed = true;
+                    }
                     // Still holding work back (a missing file waits a few seconds for a
                     // late rename event): not quiet yet.
                     if ((d.describe() as { dirtyPaths: string[] }).dirtyPaths.length > 0) changed = true;
