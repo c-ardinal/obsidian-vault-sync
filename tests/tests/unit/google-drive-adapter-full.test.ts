@@ -74,9 +74,10 @@ describe("GoogleDriveAdapter - Full Coverage", () => {
 
     describe("Basic Properties", () => {
         it("should expose feature flags", () => {
-            expect(adapter.supportsChangesAPI).toBe(true);
-            expect(adapter.supportsHash).toBe(true);
-            expect(adapter.supportsHistory).toBe(true);
+            expect(adapter.capabilities.changeFeed).toBe(true);
+            expect(adapter.capabilities.contentHash).toBe("md5");
+            expect(adapter.capabilities.revisions).toBe(true);
+            expect(adapter.capabilities.resumableChunkAlignment).toBe(256 * 1024);
         });
 
         it("should expose static ONLINE_TIMEOUT_MS", () => {

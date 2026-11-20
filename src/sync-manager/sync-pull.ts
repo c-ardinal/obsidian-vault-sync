@@ -1,3 +1,4 @@
+import { capabilitiesOf } from "../types/adapter";
 import { removeRemote } from "./remote-deletion";
 import type { CommunicationData } from "./types";
 import type { SyncContext } from "./context";
@@ -510,7 +511,7 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
     }
 
     let tokenJustInitialized = false;
-    if (ctx.adapter.supportsChangesAPI) {
+    if (capabilitiesOf(ctx.adapter).changeFeed) {
         // Don't use Changes API when index is empty — a stale startPageToken
         // would skip files that haven't changed since the token was issued,
         // preventing a full pull on a fresh device.
@@ -607,7 +608,7 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
         } else {
             tokenJustInitialized = true;
             try {
-                ctx.startPageToken = await ctx.adapter.getStartPageToken();
+                ctx.startPageToken = await ctx.adapter.getStartPageToken!();
                 await saveIndex(ctx);
             } catch (e) {
                 await ctx.log(`[Smart Pull] Failed to init Changes API: ${String(e)}`, "warn");
@@ -646,7 +647,7 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
         ctx,
         remoteIndexMeta.id,
     );
-    if (tokenJustInitialized && remoteToken && ctx.adapter.supportsChangesAPI) {
+    if (tokenJustInitialized && remoteToken && capabilitiesOf(ctx.adapter).changeFeed) {
         // The remote index can be older than the token we just took: another device may
         // have renamed or edited a file after uploading it. Pulling from the index and
         // then reading changes only from NOW lost those changes for good (the note stayed
@@ -794,7 +795,7 @@ export async function pullViaChangesAPI(
     drainAll: boolean = false,
 ): Promise<boolean> {
     if (!ctx.startPageToken) {
-        ctx.startPageToken = await ctx.adapter.getStartPageToken();
+        ctx.startPageToken = await ctx.adapter.getStartPageToken!();
         await saveIndex(ctx);
     }
 
@@ -844,7 +845,7 @@ export async function pullViaChangesAPI(
     };
 
     for (let page = 0; page < CHANGES_MAX_PAGES_PER_SYNC && currentPageToken; page++) {
-        const changes = await ctx.adapter.getChanges(currentPageToken);
+        const changes = await ctx.adapter.getChanges!(currentPageToken);
 
         if (changes.changes.length === 0 && changes.nextPageToken) {
             // Drive may return an empty page that is not the last one (e.g. every change

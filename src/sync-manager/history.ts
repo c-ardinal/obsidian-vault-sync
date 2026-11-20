@@ -1,10 +1,10 @@
 import { isCloudNotFound } from "../cloud-adapters/cloud-error";
 import { TFile } from "obsidian";
-import type { FileRevision } from "../types/adapter";
+import { capabilitiesOf, type FileRevision } from "../types/adapter";
 import type { SyncContext } from "./context";
 
 export function supportsHistory(ctx: SyncContext): boolean {
-    return ctx.adapter.supportsHistory ?? false;
+    return capabilitiesOf(ctx.adapter).revisions;
 }
 
 /**
@@ -38,7 +38,7 @@ async function wrapHistoryCall<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 export async function listRevisions(ctx: SyncContext, path: string, fileId?: string): Promise<FileRevision[]> {
-    if (!ctx.adapter.supportsHistory || !ctx.adapter.listRevisions) {
+    if (!supportsHistory(ctx) || !ctx.adapter.listRevisions) {
         throw new Error(
             ctx.t("historyNotSupported") || "Cloud adapter does not support history.",
         );
@@ -52,7 +52,7 @@ export async function getRevisionContent(
     revisionId: string,
     fileId?: string,
 ): Promise<ArrayBuffer> {
-    if (!ctx.adapter.supportsHistory || !ctx.adapter.getRevisionContent) {
+    if (!supportsHistory(ctx) || !ctx.adapter.getRevisionContent) {
         throw new Error(
             ctx.t("historyNotSupported") || "Cloud adapter does not support history.",
         );
@@ -76,7 +76,7 @@ export async function setRevisionKeepForever(
     revisionId: string,
     keepForever: boolean,
 ): Promise<void> {
-    if (!ctx.adapter.supportsHistory || !ctx.adapter.setRevisionKeepForever) {
+    if (!supportsHistory(ctx) || !ctx.adapter.setRevisionKeepForever) {
         throw new Error(
             ctx.t("historyNotSupported") || "Cloud adapter does not support history.",
         );
@@ -86,7 +86,7 @@ export async function setRevisionKeepForever(
 }
 
 export async function deleteRevision(ctx: SyncContext, path: string, revisionId: string): Promise<void> {
-    if (!ctx.adapter.supportsHistory || !ctx.adapter.deleteRevision) {
+    if (!supportsHistory(ctx) || !ctx.adapter.deleteRevision) {
         throw new Error(
             ctx.t("historyNotSupported") || "Cloud adapter does not support history.",
         );
