@@ -1105,47 +1105,10 @@
     font-variant-numeric: tabular-nums;
 }
 
-/* Summary: two lines of text and, while syncing, a thin bar */
+/* Top: the shared sync status panel (same parts as the status bar popover) */
 .vault-sync-xfer-summary {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-
-.vault-sync-xfer-summary-head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: 2px 12px;
-}
-
-.vault-sync-xfer-summary-title {
-    font-weight: var(--font-semibold);
-}
-
-.vault-sync-xfer-summary[data-state="error"] .vault-sync-xfer-summary-title,
-.vault-sync-xfer-summary[data-state="auth"] .vault-sync-xfer-summary-title {
-    color: var(--text-error);
-}
-
-.vault-sync-xfer-bar {
-    height: 3px;
-    margin-top: 4px;
-    border-radius: 2px;
-    background: var(--background-modifier-border);
-    overflow: hidden;
-}
-
-.vault-sync-xfer-bar-fill {
-    height: 100%;
-    width: 0;
-    background: var(--interactive-accent);
-}
-
-@media (prefers-reduced-motion: no-preference) {
-    .vault-sync-xfer-bar-fill {
-        transition: width 0.4s ease;
-    }
+    padding-bottom: var(--size-4-5);
+    border-bottom: 1px solid var(--background-modifier-border);
 }
 
 .vault-sync-xfer-error {

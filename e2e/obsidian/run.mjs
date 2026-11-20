@@ -643,7 +643,7 @@ async function checkTransfers(page, lang, tag) {
     const info = await page.evaluate(() => {
         const m = document.querySelector(".mod-transfer-status-modal");
         return {
-            summary: !!m.querySelector(".vault-sync-xfer-summary"),
+            summary: !!m.querySelector(".vault-sync-xfer-summary .vault-sync-status-steps"),
             queue: m.querySelectorAll(".mod-queue .vault-sync-xfer-row").length,
             batches: m.querySelectorAll(".vault-sync-xfer-batch").length,
             open: m.querySelectorAll(".vault-sync-xfer-batch.is-open").length,

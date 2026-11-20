@@ -397,7 +397,8 @@ export function openDemoHistoryModal(app: App, syncManager: SyncManager): void {
  */
 export function openDemoTransferStatusModal(app: App, syncManager: SyncManager): void {
     const mockSM = createTransferProxy(syncManager);
-    new TransferStatusModal(app, mockSM).open();
+    // Demo buttons do nothing.
+    new TransferStatusModal(app, mockSM, { onSyncNow: () => {}, onOpenSettings: () => {} }).open();
 }
 
 /**

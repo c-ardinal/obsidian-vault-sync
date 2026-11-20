@@ -3,7 +3,7 @@ import { GoogleDriveAdapter } from "./cloud-adapters/google-drive";
 import { SyncManager, type SyncTrigger } from "./sync-manager";
 import type { SecureStorage } from "./services/secure-storage";
 import { HistoryModal } from "./ui/history-modal";
-import { TransferStatusModal } from "./ui/transfer-status-modal";
+import { TransferStatusModal, type TransferModalActions } from "./ui/transfer-status-modal";
 import { SyncStatusView } from "./ui/sync-status-view";
 import { DEFAULT_SETTINGS } from "./constants";
 import { DATA_REMOTE_DIR, VaultSyncSettings } from "./types/settings";
@@ -558,14 +558,14 @@ export default class VaultSync extends Plugin {
         });
 
         this.addRibbonIcon("arrow-up-down", t("labelTransferStatus"), () => {
-            new TransferStatusModal(this.app, this.syncManager).open();
+            new TransferStatusModal(this.app, this.syncManager, this.transferModalActions()).open();
         });
 
         this.addCommand({
             id: "transfer-status",
             name: t("labelTransferStatusCommand"),
             callback: () => {
-                new TransferStatusModal(this.app, this.syncManager).open();
+                new TransferStatusModal(this.app, this.syncManager, this.transferModalActions()).open();
             },
         });
 
@@ -722,6 +722,14 @@ export default class VaultSync extends Plugin {
         } else {
             await this.requestManualSync();
         }
+    }
+
+    /** Buttons for the status panel at the top of the transfer status screen. */
+    transferModalActions(): TransferModalActions {
+        return {
+            onSyncNow: () => void this.runManualSync(),
+            onOpenSettings: () => this.openSettingsTab(),
+        };
     }
 
     /** Open this plugin's settings tab. */

@@ -14,15 +14,7 @@ import type { TransferItem, TransferRecord } from "../sync-manager/transfer-type
 import type { SyncProgressSnapshot } from "../sync-manager/sync-progress";
 import { TRANSFER_MAX_RETRIES } from "../sync-manager/constants";
 import { basename, dirname } from "../utils/path";
-import {
-    displayState,
-    formatBytes,
-    formatClock,
-    formatDuration,
-    percent,
-    triggerLabel,
-    type DisplayState,
-} from "./sync-status-view";
+import { formatBytes, formatClock, renderSyncPanel } from "./sync-status-view";
 import {
     groupHistory,
     type HistoryBatch,
@@ -34,15 +26,12 @@ const QUEUE_VISIBLE = 8;
 /** Lists are refreshed this often (only when their data changed) */
 const REFRESH_MS = 1000;
 
-const STATE_TITLE: Record<DisplayState, string> = {
-    syncing: "statusSyncing",
-    scanning: "statusScanning",
-    synced: "statusSynced",
-    error: "statusFailed",
-    offline: "statusOffline",
-    auth: "statusAuth",
-    never: "statusNever",
-};
+
+/** Buttons on the transfer screen's status panel */
+export interface TransferModalActions {
+    onSyncNow: () => void;
+    onOpenSettings: () => void;
+}
 
 export class TransferStatusModal extends Modal {
     private refreshTimer: number | null = null;
@@ -59,6 +48,7 @@ export class TransferStatusModal extends Modal {
     constructor(
         app: App,
         private syncManager: SyncManager,
+        private actions?: TransferModalActions,
     ) {
         super(app);
     }
@@ -73,7 +63,7 @@ export class TransferStatusModal extends Modal {
         this.setTitle(this.t("transferTitle"));
 
         const root = this.contentEl.createDiv({ cls: "vault-sync-transfer-container" });
-        this.summaryEl = root.createDiv({ cls: "vault-sync-xfer-summary" });
+        this.summaryEl = root.createDiv({ cls: "vault-sync-status-panel vault-sync-xfer-summary" });
         this.queueEl = root.createDiv({ cls: "vault-sync-xfer-section mod-queue" });
         this.historyEl = root.createDiv({ cls: "vault-sync-xfer-section mod-history" });
 
@@ -106,68 +96,22 @@ export class TransferStatusModal extends Modal {
         }
     }
 
+    /** Top: the same sync status panel as the status bar popover. */
     private renderSummary(s: SyncProgressSnapshot): void {
         const el = this.summaryEl;
         if (!el) return;
-        const t = this.t;
-        const state = displayState(s, this.isSignedIn());
-        el.empty();
-        el.dataset.state = state;
-
-        // Line 1: state, and what started it / when the last one ended
-        const head = el.createDiv({ cls: "vault-sync-xfer-summary-head" });
-        head.createSpan({ cls: "vault-sync-xfer-summary-title", text: t(STATE_TITLE[state]) });
-        let sub = "";
-        if (s.active && s.startedAt) {
-            sub = `${triggerLabel(s.trigger)} · ${t("statusStartedAt").replace("{0}", formatClock(s.startedAt))}`;
-        } else if (s.last) {
-            sub = t("statusLastSync")
-                .replace("{0}", formatClock(s.last.finishedAt))
-                .replace("{1}", formatDuration(s.last.durationMs / 1000));
-        }
-        if (sub) head.createSpan({ cls: "vault-sync-xfer-muted", text: sub });
-
-        // Line 2: counts · time left · speed · conflicts / waiting changes
-        const total = s.pull.total + s.push.total;
-        const parts: string[] = [];
-        if (s.phase === "scanning" && total === 0) {
-            parts.push(
-                t("statusScanCount").replace("{0}", String(s.scan.done)).replace("{1}", String(s.scan.total)),
-            );
-        } else if (total > 0) {
-            parts.push(
-                `${t("statusPull")} ${s.pull.done}/${s.pull.total}`,
-                `${t("statusPush")} ${s.push.done}/${s.push.total}`,
-            );
-        } else if (s.active) {
-            parts.push(t("statusCheckingRemote"));
-        }
-        if (s.active && s.etaSec !== null) {
-            parts.push(`${t("statusEta")} ${t("statusAbout")}${formatDuration(s.etaSec)}`);
-        }
-        if (s.active && s.bytesPerSec) parts.push(`${formatBytes(s.bytesPerSec)}/s`);
-        const conflicts = s.active ? s.conflicts : (s.last?.conflicts ?? 0);
-        if (conflicts > 0) parts.push(`${t("statusConflicts")} ${conflicts}`);
-        const pending = this.syncManager.pendingChangeCount ?? 0;
-        if (!s.active && pending > 0) parts.push(t("statusPending").replace("{0}", String(pending)));
-        if (parts.length) el.createDiv({ cls: "vault-sync-xfer-muted", text: parts.join(" · ") });
-
-        // A thin bar only while a sync runs
-        if (s.active) {
-            el.createDiv({ cls: "vault-sync-xfer-bar" })
-                .createDiv({ cls: "vault-sync-xfer-bar-fill" })
-                .style.width = `${percent(s)}%`;
-        }
-
-        if (!s.active && (state === "error" || state === "offline" || state === "auth")) {
-            const msg =
-                state === "auth"
-                    ? t("statusAuthHint")
-                    : state === "offline"
-                      ? t("statusOfflineHint")
-                      : (s.last?.message ?? t("statusFailedHint"));
-            el.createDiv({ cls: "vault-sync-xfer-error", text: msg });
-        }
+        const actions = this.actions;
+        renderSyncPanel(el, s, {
+            syncManager: this.syncManager,
+            signedIn: this.isSignedIn(),
+            onSyncNow: actions ? () => actions.onSyncNow() : undefined,
+            onOpenSettings: actions
+                ? () => {
+                      this.close();
+                      actions.onOpenSettings();
+                  }
+                : undefined,
+        });
     }
 
     // --- lists ---

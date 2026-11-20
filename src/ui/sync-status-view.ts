@@ -9,6 +9,7 @@
  */
 import { Platform, moment } from "obsidian";
 import type VaultSync from "../main";
+import type { SyncManager } from "../sync-manager";
 import { t } from "../i18n";
 import type { SyncProgressSnapshot } from "../sync-manager/sync-progress";
 import { TransferStatusModal } from "./transfer-status-modal";
@@ -307,170 +308,200 @@ export class SyncStatusView {
     }
 
     private renderPanel(el: HTMLElement, s: SyncProgressSnapshot): void {
-        const state = displayState(s, this.plugin.isAdapterAuthenticated());
-        const sm = this.plugin.syncManager;
-        el.empty();
-        el.dataset.state = state;
-
-        // Title row: state + what started it / when it ended
-        const head = el.createDiv({ cls: "vault-sync-status-head" });
-        head.createSpan({ cls: "vault-sync-status-title", text: this.titleFor(state) });
-        let sub = "";
-        if (s.active && s.startedAt) {
-            sub = `${triggerLabel(s.trigger)} · ${t("statusStartedAt").replace("{0}", formatClock(s.startedAt))}`;
-        } else if (s.last) {
-            sub = t("statusLastSync")
-                .replace("{0}", formatClock(s.last.finishedAt))
-                .replace("{1}", formatDuration(s.last.durationMs / 1000));
-        }
-        if (sub) head.createSpan({ cls: "vault-sync-status-sub", text: sub });
-
-        // Steps: check -> (scan) -> download -> upload -> done
-        const steps = el.createDiv({ cls: "vault-sync-status-steps" });
-        const order: Array<{ id: string; label: string }> = [
-            { id: "checking", label: t("statusStepCheck") },
-            ...(s.phase === "scanning" || s.scan.total > 0 ? [{ id: "scanning", label: t("statusStepScan") }] : []),
-            { id: "pulling", label: t("statusStepPull") },
-            { id: "pushing", label: t("statusStepPush") },
-            { id: "done", label: t("statusStepDone") },
-        ];
-        const currentIdx = s.active
-            ? order.findIndex((o) => o.id === s.phase)
-            : state === "synced"
-              ? order.length
-              : -1;
-        order.forEach((o, i) => {
-            const step = steps.createDiv({ cls: "vault-sync-status-step" });
-            if (currentIdx >= 0 && i < currentIdx) step.addClass("is-done");
-            if (i === currentIdx) step.addClass("is-current");
-            step.createDiv({ cls: "vault-sync-status-step-bar" });
-            step.createSpan({ text: o.label });
+        renderSyncPanel(el, s, {
+            syncManager: this.plugin.syncManager,
+            signedIn: this.plugin.isAdapterAuthenticated(),
+            onOpenTransfers: () => {
+                this.closeDetails();
+                new TransferStatusModal(
+                    this.plugin.app,
+                    this.plugin.syncManager,
+                    this.plugin.transferModalActions(),
+                ).open();
+            },
+            onSyncNow: () => void this.plugin.runManualSync(),
+            onOpenSettings: () => {
+                this.closeDetails();
+                this.plugin.openSettingsTab();
+            },
         });
-        steps.style.setProperty("--vs-steps", String(order.length));
+    }
+}
 
-        // Overall bar
-        const total = s.pull.total + s.push.total;
-        // Failed cycles that never got to transfer anything show no bar.
-        const showOverall = s.active || total > 0 || state === "synced";
-        const overall = el.createDiv({ cls: "vault-sync-status-overall" });
-        const row = overall.createDiv({ cls: "vault-sync-status-overall-row" });
-        if (showOverall) {
-            row.createEl("b", { text: s.fraction === null && s.active ? "—" : `${percent(s)}%` });
-        }
-        const counts =
-            s.phase === "scanning" && total === 0
-                ? t("statusScanCount").replace("{0}", String(s.scan.done)).replace("{1}", String(s.scan.total))
-                : total > 0
-                  ? `${t("statusFiles").replace("{0}", String(s.pull.done + s.push.done)).replace("{1}", String(total))}` +
-                    (s.pull.bytesTotal + s.push.bytesTotal > 0
-                        ? ` · ${formatBytes(s.pull.bytesDone + s.push.bytesDone)} / ${formatBytes(s.pull.bytesTotal + s.push.bytesTotal)}`
-                        : "")
-                  : s.active
-                    ? t("statusCheckingRemote")
-                    : "";
-        if (counts) row.createSpan({ cls: "vault-sync-status-muted", text: counts });
-        if (showOverall) {
-            const bar = overall.createDiv({ cls: "vault-sync-status-bar" });
-            bar.createDiv({ cls: "vault-sync-status-bar-fill" }).style.width = `${percent(s)}%`;
-        }
-        if (!showOverall && !counts) overall.remove();
+export function stateTitle(state: DisplayState): string {
+    switch (state) {
+        case "syncing":
+            return t("statusSyncing");
+        case "scanning":
+            return t("statusScanning");
+        case "synced":
+            return t("statusSynced");
+        case "error":
+            return t("statusFailed");
+        case "offline":
+            return t("statusOffline");
+        case "auth":
+            return t("statusAuth");
+        case "never":
+            return t("statusNever");
+    }
+}
 
-        // Per direction
-        if (total > 0 || s.conflicts > 0 || state === "synced") {
-            const kv = el.createDiv({ cls: "vault-sync-status-kv" });
-            const dir = (label: string, d: { done: number; total: number }) => {
-                kv.createSpan({ cls: "vault-sync-status-muted", text: label });
-                const mini = kv.createDiv({ cls: "vault-sync-status-mini" });
-                mini.createDiv({ cls: "vault-sync-status-bar-fill" }).style.width =
-                    `${d.total > 0 ? Math.round((d.done / d.total) * 100) : 0}%`;
-                kv.createSpan({ cls: "vault-sync-status-num", text: `${d.done} / ${d.total}` });
-            };
-            dir(t("statusPull"), s.pull);
-            dir(t("statusPush"), s.push);
-            const conflicts = s.active ? s.conflicts : (s.last?.conflicts ?? 0);
-            if (conflicts > 0) {
-                kv.createSpan({ cls: "vault-sync-status-warn", text: t("statusConflicts") });
-                kv.createDiv();
-                kv.createSpan({ cls: "vault-sync-status-num vault-sync-status-warn", text: String(conflicts) });
-            }
-        }
+export interface SyncPanelOptions {
+    syncManager: SyncManager;
+    signedIn: boolean;
+    /** Footer buttons, each shown only when given */
+    onOpenTransfers?: () => void;
+    onSyncNow?: () => void;
+    onOpenSettings?: () => void;
+}
 
-        // Current file
-        if (s.active && s.current.length > 0) {
-            const cur = s.current[0];
-            const box = el.createDiv({ cls: "vault-sync-status-now" });
-            box.createSpan({
-                cls: "vault-sync-status-muted",
-                text: cur.direction === "pull" ? t("statusDownloading") : t("statusUploading"),
-            });
-            box.createSpan({ cls: "vault-sync-status-file", text: cur.path });
-            const meta: string[] = [];
-            if (cur.size > 0) meta.push(formatBytes(cur.size));
-            if (s.bytesPerSec) meta.push(`${formatBytes(s.bytesPerSec)}/s`);
-            if (s.current.length > 1) meta.push(t("statusParallel").replace("{0}", String(s.current.length)));
-            if (meta.length) box.createSpan({ cls: "vault-sync-status-muted", text: meta.join(" · ") });
-        }
+/** The sync status panel: used by the popover, the phone sheet and the transfer status screen. */
+export function renderSyncPanel(el: HTMLElement, s: SyncProgressSnapshot, o: SyncPanelOptions): void {
+    const state = displayState(s, o.signedIn);
+    const sm = o.syncManager;
+    el.empty();
+    el.dataset.state = state;
 
-        // Failure detail
-        if (!s.active && (state === "error" || state === "offline" || state === "auth")) {
-            const msg =
-                state === "auth"
-                    ? t("statusAuthHint")
-                    : state === "offline"
-                      ? t("statusOfflineHint")
-                      : (s.last?.message ?? t("statusFailedHint"));
-            el.createDiv({ cls: "vault-sync-status-error", text: msg });
-        }
+    // Title row: state + what started it / when it ended
+    const head = el.createDiv({ cls: "vault-sync-status-head" });
+    head.createSpan({ cls: "vault-sync-status-title", text: stateTitle(state) });
+    let sub = "";
+    if (s.active && s.startedAt) {
+        sub = `${triggerLabel(s.trigger)} · ${t("statusStartedAt").replace("{0}", formatClock(s.startedAt))}`;
+    } else if (s.last) {
+        sub = t("statusLastSync")
+            .replace("{0}", formatClock(s.last.finishedAt))
+            .replace("{1}", formatDuration(s.last.durationMs / 1000));
+    }
+    if (sub) head.createSpan({ cls: "vault-sync-status-sub", text: sub });
 
-        // Footer: time left / pending, actions
-        const foot = el.createDiv({ cls: "vault-sync-status-foot" });
-        let note = "";
-        if (s.active && s.etaSec !== null) note = `${t("statusEta")} ${t("statusAbout")}${formatDuration(s.etaSec)}`;
-        else if (!s.active && sm.pendingChangeCount > 0)
-            note = t("statusPending").replace("{0}", String(sm.pendingChangeCount));
-        const background = sm.getActiveTransfers().filter((x) => !x.id.startsWith("inline-")).length;
-        if (background > 0) note += `${note ? " · " : ""}${t("statusBackground").replace("{0}", String(background))}`;
-        foot.createSpan({ cls: "vault-sync-status-muted", text: note });
+    // Steps: check -> (scan) -> download -> upload -> done
+    const steps = el.createDiv({ cls: "vault-sync-status-steps" });
+    const order: Array<{ id: string; label: string }> = [
+        { id: "checking", label: t("statusStepCheck") },
+        ...(s.phase === "scanning" || s.scan.total > 0 ? [{ id: "scanning", label: t("statusStepScan") }] : []),
+        { id: "pulling", label: t("statusStepPull") },
+        { id: "pushing", label: t("statusStepPush") },
+        { id: "done", label: t("statusStepDone") },
+    ];
+    const currentIdx = s.active
+        ? order.findIndex((o) => o.id === s.phase)
+        : state === "synced"
+          ? order.length
+          : -1;
+    order.forEach((o, i) => {
+        const step = steps.createDiv({ cls: "vault-sync-status-step" });
+        if (currentIdx >= 0 && i < currentIdx) step.addClass("is-done");
+        if (i === currentIdx) step.addClass("is-current");
+        step.createDiv({ cls: "vault-sync-status-step-bar" });
+        step.createSpan({ text: o.label });
+    });
+    steps.style.setProperty("--vs-steps", String(order.length));
 
-        const btns = foot.createDiv({ cls: "vault-sync-status-btns" });
-        const details = btns.createEl("button", { text: t("statusTransferDetails") });
-        details.addEventListener("click", () => {
-            this.closeDetails();
-            new TransferStatusModal(this.plugin.app, sm).open();
-        });
-        if (!s.active) {
-            const action = btns.createEl("button", { cls: "mod-cta" });
-            if (state === "auth") {
-                action.setText(t("statusOpenSettings"));
-                action.addEventListener("click", () => {
-                    this.closeDetails();
-                    this.plugin.openSettingsTab();
-                });
-            } else {
-                action.setText(state === "error" || state === "offline" ? t("statusRetry") : t("statusSyncNow"));
-                action.addEventListener("click", () => {
-                    void this.plugin.runManualSync();
-                });
-            }
+    // Overall bar
+    const total = s.pull.total + s.push.total;
+    // Failed cycles that never got to transfer anything show no bar.
+    const showOverall = s.active || total > 0 || state === "synced";
+    const overall = el.createDiv({ cls: "vault-sync-status-overall" });
+    const row = overall.createDiv({ cls: "vault-sync-status-overall-row" });
+    if (showOverall) {
+        row.createEl("b", { text: s.fraction === null && s.active ? "—" : `${percent(s)}%` });
+    }
+    const counts =
+        s.phase === "scanning" && total === 0
+            ? t("statusScanCount").replace("{0}", String(s.scan.done)).replace("{1}", String(s.scan.total))
+            : total > 0
+              ? `${t("statusFiles").replace("{0}", String(s.pull.done + s.push.done)).replace("{1}", String(total))}` +
+                (s.pull.bytesTotal + s.push.bytesTotal > 0
+                    ? ` · ${formatBytes(s.pull.bytesDone + s.push.bytesDone)} / ${formatBytes(s.pull.bytesTotal + s.push.bytesTotal)}`
+                    : "")
+              : s.active
+                ? t("statusCheckingRemote")
+                : "";
+    if (counts) row.createSpan({ cls: "vault-sync-status-muted", text: counts });
+    if (showOverall) {
+        const bar = overall.createDiv({ cls: "vault-sync-status-bar" });
+        bar.createDiv({ cls: "vault-sync-status-bar-fill" }).style.width = `${percent(s)}%`;
+    }
+    if (!showOverall && !counts) overall.remove();
+
+    // Per direction
+    if (total > 0 || s.conflicts > 0 || state === "synced") {
+        const kv = el.createDiv({ cls: "vault-sync-status-kv" });
+        const dir = (label: string, d: { done: number; total: number }) => {
+            kv.createSpan({ cls: "vault-sync-status-muted", text: label });
+            const mini = kv.createDiv({ cls: "vault-sync-status-mini" });
+            mini.createDiv({ cls: "vault-sync-status-bar-fill" }).style.width =
+                `${d.total > 0 ? Math.round((d.done / d.total) * 100) : 0}%`;
+            kv.createSpan({ cls: "vault-sync-status-num", text: `${d.done} / ${d.total}` });
+        };
+        dir(t("statusPull"), s.pull);
+        dir(t("statusPush"), s.push);
+        const conflicts = s.active ? s.conflicts : (s.last?.conflicts ?? 0);
+        if (conflicts > 0) {
+            kv.createSpan({ cls: "vault-sync-status-warn", text: t("statusConflicts") });
+            kv.createDiv();
+            kv.createSpan({ cls: "vault-sync-status-num vault-sync-status-warn", text: String(conflicts) });
         }
     }
 
-    private titleFor(state: DisplayState): string {
-        switch (state) {
-            case "syncing":
-                return t("statusSyncing");
-            case "scanning":
-                return t("statusScanning");
-            case "synced":
-                return t("statusSynced");
-            case "error":
-                return t("statusFailed");
-            case "offline":
-                return t("statusOffline");
-            case "auth":
-                return t("statusAuth");
-            case "never":
-                return t("statusNever");
+    // Current file
+    if (s.active && s.current.length > 0) {
+        const cur = s.current[0];
+        const box = el.createDiv({ cls: "vault-sync-status-now" });
+        box.createSpan({
+            cls: "vault-sync-status-muted",
+            text: cur.direction === "pull" ? t("statusDownloading") : t("statusUploading"),
+        });
+        box.createSpan({ cls: "vault-sync-status-file", text: cur.path });
+        const meta: string[] = [];
+        if (cur.size > 0) meta.push(formatBytes(cur.size));
+        if (s.bytesPerSec) meta.push(`${formatBytes(s.bytesPerSec)}/s`);
+        if (s.current.length > 1) meta.push(t("statusParallel").replace("{0}", String(s.current.length)));
+        if (meta.length) box.createSpan({ cls: "vault-sync-status-muted", text: meta.join(" · ") });
+    }
+
+    // Failure detail
+    if (!s.active && (state === "error" || state === "offline" || state === "auth")) {
+        const msg =
+            state === "auth"
+                ? t("statusAuthHint")
+                : state === "offline"
+                  ? t("statusOfflineHint")
+                  : (s.last?.message ?? t("statusFailedHint"));
+        el.createDiv({ cls: "vault-sync-status-error", text: msg });
+    }
+
+    // Footer: time left / pending, actions
+    const foot = el.createDiv({ cls: "vault-sync-status-foot" });
+    let note = "";
+    if (s.active && s.etaSec !== null) note = `${t("statusEta")} ${t("statusAbout")}${formatDuration(s.etaSec)}`;
+    else if (!s.active && sm.pendingChangeCount > 0)
+        note = t("statusPending").replace("{0}", String(sm.pendingChangeCount));
+    const background = sm.getActiveTransfers().filter((x) => !x.id.startsWith("inline-")).length;
+    if (background > 0) note += `${note ? " · " : ""}${t("statusBackground").replace("{0}", String(background))}`;
+    foot.createSpan({ cls: "vault-sync-status-muted", text: note });
+
+    const btns = foot.createDiv({ cls: "vault-sync-status-btns" });
+    if (o.onOpenTransfers) {
+        const open = o.onOpenTransfers;
+        btns.createEl("button", { text: t("statusTransferDetails") }).addEventListener("click", () => open());
+    }
+    if (!s.active) {
+        if (state === "auth" && o.onOpenSettings) {
+            const open = o.onOpenSettings;
+            btns.createEl("button", { cls: "mod-cta", text: t("statusOpenSettings") }).addEventListener(
+                "click",
+                () => open(),
+            );
+        } else if (state !== "auth" && o.onSyncNow) {
+            const run = o.onSyncNow;
+            btns.createEl("button", {
+                cls: "mod-cta",
+                text: state === "error" || state === "offline" ? t("statusRetry") : t("statusSyncNow"),
+            }).addEventListener("click", () => run());
         }
     }
+    if (!note && btns.childElementCount === 0) foot.remove();
 }
