@@ -1,3 +1,4 @@
+import { Platform } from "obsidian";
 import type { IVaultOperations } from "../types/vault-operations";
 import type { OAuthCloudAdapter } from "../types/oauth-adapter";
 import { SecureStorage, type SecretStorage } from "./secure-storage";
@@ -26,6 +27,20 @@ interface SettingsManagerDeps {
  * Extracted from the main Vault-Sync plugin class to separate
  * settings persistence from plugin lifecycle orchestration.
  */
+/**
+ * A list saved per device by an early build (deviceExclusionPatterns in
+ * local-data.json) goes to the list of this kind of device, unless that list
+ * is already set. The old key is dropped (it would otherwise be synced).
+ */
+export function moveLegacyDeviceExclusion(settings: Record<string, unknown>, isMobile: boolean): void {
+    const legacy = settings.deviceExclusionPatterns;
+    delete settings.deviceExclusionPatterns;
+    if (typeof legacy !== "string" || !legacy.trim()) return;
+    const key = isMobile ? "mobileExclusionPatterns" : "desktopExclusionPatterns";
+    const current = settings[key];
+    if (typeof current !== "string" || !current.trim()) settings[key] = legacy;
+}
+
 export class SettingsManager {
     settings!: VaultSyncSettings;
     secureStorage!: SecureStorage;
@@ -63,7 +78,15 @@ export class SettingsManager {
 
         // Nested groups get new fields' defaults, and the result shares no objects
         // with DEFAULT_SETTINGS (a shallow copy let setting changes alter the defaults).
-        this.settings = mergeWithDefaults(DEFAULT_SETTINGS, loadedSettings);
+        const merged = mergeWithDefaults(DEFAULT_SETTINGS, loadedSettings);
+        moveLegacyDeviceExclusion(merged as unknown as Record<string, unknown>, Platform.isMobile);
+        // Reloaded after another device changed them: the same object, so the sync and
+        // the triggers (which keep a reference) see the new values too
+        if (this.settings) {
+            Object.assign(this.settings, merged);
+        } else {
+            this.settings = merged;
+        }
         // Brought to the current shape in memory; written with the next save.
         migrateSettings(this.settings as unknown as Record<string, unknown>);
 
@@ -141,7 +164,7 @@ export class SettingsManager {
             await vaultOps.createFolder(remoteDir).catch(() => {});
         }
 
-        const localKeys = ["encryptionSecret", "hasCompletedFirstSync", "deviceExclusionPatterns"];
+        const localKeys = ["encryptionSecret", "hasCompletedFirstSync"];
         const localData: Record<string, unknown> = {};
         const openData: Record<string, unknown> = {};
         const settingsRecord = this.settings as unknown as Record<string, unknown>;

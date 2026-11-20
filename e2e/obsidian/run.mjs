@@ -1109,8 +1109,8 @@ async function checkScreens(page, lang, { mobile = false } = {}) {
                 });
                 check(
                     lang,
-                    `${tag}: device exclusion list has its own title and note, without toggle rows`,
-                    /this device|この端末/.test(info.title) && info.note.length > 0 && info.managed === 0,
+                    `${tag}: PC exclusion list has its own title and note, without toggle rows`,
+                    /PC/.test(info.title) && info.note.length > 0 && info.managed === 0,
                     JSON.stringify(info),
                 );
                 await sp.fill(".vault-sync-exclusion-add-input", "Archive/**");
@@ -1119,18 +1119,18 @@ async function checkScreens(page, lang, { mobile = false } = {}) {
                 await shotModal(sp, lang, tag, "scr-device-exclusion", "device exclusion modal");
                 const saved = await page.evaluate((id) => {
                     const pl = window.app.plugins.plugins[id];
-                    return { device: pl.settings.deviceExclusionPatterns, shared: pl.settings.exclusionPatterns };
+                    return { device: pl.settings.desktopExclusionPatterns, shared: pl.settings.exclusionPatterns };
                 }, PLUGIN_ID);
                 check(
                     lang,
-                    `${tag}: device exclusion saved apart from the shared list`,
+                    `${tag}: PC exclusion saved apart from the shared list`,
                     saved.device === "Archive/**" && !saved.shared.includes("Archive/**"),
                     JSON.stringify(saved),
                 );
                 await escape(sp);
                 await page.evaluate(async (id) => {
                     const pl = window.app.plugins.plugins[id];
-                    pl.settings.deviceExclusionPatterns = "";
+                    pl.settings.desktopExclusionPatterns = "";
                     await pl.saveSettings();
                 }, PLUGIN_ID);
             } else {

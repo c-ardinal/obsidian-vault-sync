@@ -60,7 +60,7 @@ export function settingsLines(settings: Record<string, unknown>, prefix = ""): s
         } else if (typeof value === "string") {
             if (CHOICE_SETTINGS.has(key)) lines.push(`${name}: ${value}`);
             else if (TEXT_SETTINGS.has(key)) lines.push(`${name}: ${value.trim() ? "(set)" : "(empty)"}`);
-            else if (key === "exclusionPatterns" || key === "deviceExclusionPatterns") {
+            else if (key === "exclusionPatterns" || key === "desktopExclusionPatterns" || key === "mobileExclusionPatterns") {
                 const n = value.split("\n").filter((l) => l.trim() && !l.trim().startsWith("#")).length;
                 lines.push(`${name}: ${n} pattern(s)`);
             }

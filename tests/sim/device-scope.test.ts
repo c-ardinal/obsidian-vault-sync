@@ -1,5 +1,5 @@
 /**
- * Files one device leaves out (deviceExclusionPatterns), on the real
+ * Files one device leaves out (desktopExclusionPatterns), on the real
  * SyncManager: the cloud keeps them for the other devices, deleting them on
  * the device that leaves them out does not delete them in the cloud, and they
  * come back when the pattern is taken off.
@@ -17,7 +17,7 @@ function setup() {
     const rng = new Rng(23);
     vi.spyOn(Math, "random").mockImplementation(() => rng.next());
     const cloud = new SimCloud();
-    const make = (name: string, deviceExclusionPatterns = "") => {
+    const make = (name: string, desktopExclusionPatterns = "") => {
         const devRng = rng.fork(name.charCodeAt(0));
         return new SimDevice({
             name,
@@ -27,7 +27,7 @@ function setup() {
             log: (n: string, m: string) => {
                 if (process.env.SIM_LOG) console.log(n, m);
             },
-            settings: { deviceExclusionPatterns },
+            settings: { desktopExclusionPatterns },
             cloudView: (d) => cloud.createDeviceView(name, devRng.fork(7), () => NET, () => d.online),
         });
     };
@@ -42,7 +42,7 @@ function setup() {
         return value as T;
     };
     const setPatterns = (dev: SimDevice, patterns: string) => {
-        (dev.ctx.settings as { deviceExclusionPatterns: string }).deviceExclusionPatterns = patterns;
+        (dev.ctx.settings as { desktopExclusionPatterns: string }).desktopExclusionPatterns = patterns;
     };
     /** The user deletes a whole folder (one folder event, like Obsidian) */
     const deleteFolder = async (dev: SimDevice, path: string) => {
@@ -51,7 +51,7 @@ function setup() {
     return { make, sync, run, setPatterns, deleteFolder };
 }
 
-describe("files left out on one device", () => {
+describe("files left out on one kind of device (PC here)", () => {
     afterEach(() => {
         vi.restoreAllMocks();
         vi.useRealTimers();

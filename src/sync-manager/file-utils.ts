@@ -1,3 +1,4 @@
+import { Platform } from "obsidian";
 import { normalizePath, basename } from "../utils/path";
 import { matchWildcard } from "../utils/wildcard";
 import { contentFingerprint } from "./content-fingerprint";
@@ -444,13 +445,21 @@ function patternList(text: string | undefined): string[] {
         .filter((p) => p && !p.startsWith("#"));
 }
 
+/** The list of this kind of device (PC or mobile) */
+export function deviceScopePatterns(settings: {
+    desktopExclusionPatterns?: string;
+    mobileExclusionPatterns?: string;
+}): string {
+    return (Platform.isMobile ? settings.mobileExclusionPatterns : settings.desktopExclusionPatterns) ?? "";
+}
+
 /**
- * Left out on this device only (deviceExclusionPatterns). Such files are not
+ * Left out on this kind of device only (desktop/mobileExclusionPatterns). Such files are not
  * "should not be on remote": the other devices keep syncing them, so no
  * cleanup ever removes them from the cloud.
  */
 export function isDeviceExcluded(ctx: FileUtilsCtx, path: string): boolean {
-    return matchesDeviceScope(ctx.settings.deviceExclusionPatterns, path);
+    return matchesDeviceScope(deviceScopePatterns(ctx.settings), path);
 }
 
 /** The path matches one of the patterns (one per line, "#" lines are comments) */
@@ -468,7 +477,7 @@ export function matchesDeviceScope(patternText: string | undefined, path: string
  * other devices): only the files this device syncs are deleted, one by one.
  */
 export function holdsDeviceExcluded(ctx: FileUtilsCtx, folderPath: string, indexed: string[]): boolean {
-    const patterns = patternList(ctx.settings.deviceExclusionPatterns);
+    const patterns = patternList(deviceScopePatterns(ctx.settings));
     if (patterns.length === 0) return false;
     if (isDeviceExcluded(ctx, folderPath)) return true;
     const prefix = folderPath + "/";

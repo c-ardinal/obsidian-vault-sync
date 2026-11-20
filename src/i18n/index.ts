@@ -276,12 +276,18 @@ export const en: Record<string, string> = {
     settingExclusionModalScanning: "Scanning vault files...",
     settingExclusionModalFileCount: "{0} files scanned",
     settingExclusionModalNote: "Matching files are not synced on any device, and are removed from the cloud.",
-    settingDeviceExclusionPatterns: "Leave out on this device",
-    settingDeviceExclusionPatternsDesc:
-        "Files and folders this device does not sync. They stay in the cloud and keep syncing on your other devices. Files already here are kept, and deleting them here does not delete them in the cloud. This list is not synced to other devices.",
-    settingDeviceExclusionModalTitle: "Leave out on this device",
-    settingDeviceExclusionModalNote:
-        "Matching files are not downloaded, uploaded or deleted by this device. They stay in the cloud for your other devices.",
+    settingDesktopExclusionPatterns: "Exclude files/folders (PC only)",
+    settingDesktopExclusionPatternsDesc:
+        "Files and folders PCs do not sync. They stay in the cloud and keep syncing on mobile devices. Files already on a PC are kept, and deleting them there does not delete them in the cloud. Shared by all your PCs.",
+    settingDesktopExclusionModalTitle: "Exclusion patterns (PC only)",
+    settingDesktopExclusionModalNote:
+        "Matching files are not downloaded, uploaded or deleted by PCs. They stay in the cloud for mobile devices.",
+    settingMobileExclusionPatterns: "Exclude files/folders (mobile only)",
+    settingMobileExclusionPatternsDesc:
+        "Files and folders phones and tablets do not sync. They stay in the cloud and keep syncing on PCs. Files already on a mobile device are kept, and deleting them there does not delete them in the cloud. Shared by all your mobile devices.",
+    settingMobileExclusionModalTitle: "Exclusion patterns (mobile only)",
+    settingMobileExclusionModalNote:
+        "Matching files are not downloaded, uploaded or deleted by phones and tablets. They stay in the cloud for PCs.",
     settingCloudRootFolderInvalid:
         "This folder name cannot be used. Enter a name that does not start with / and contains none of \\ < > : \" | ? *",
     settingCloudRootFolderChange: "Change",

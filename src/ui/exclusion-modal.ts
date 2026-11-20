@@ -63,7 +63,13 @@ const toggleExclusions = (): ToggleExclusion[] => [
 ];
 
 /** The two pattern lists: for every device (also removed from the cloud), or this device only */
-export type ExclusionListKey = "exclusionPatterns" | "deviceExclusionPatterns";
+export type ExclusionListKey = "exclusionPatterns" | "desktopExclusionPatterns" | "mobileExclusionPatterns";
+
+const LIST_TEXTS: Record<ExclusionListKey, { title: string; note: string }> = {
+    exclusionPatterns: { title: "settingExclusionModalTitle", note: "settingExclusionModalNote" },
+    desktopExclusionPatterns: { title: "settingDesktopExclusionModalTitle", note: "settingDesktopExclusionModalNote" },
+    mobileExclusionPatterns: { title: "settingMobileExclusionModalTitle", note: "settingMobileExclusionModalNote" },
+};
 
 export class ExclusionPatternModal extends Modal {
     private plugin: VaultSync;
@@ -96,11 +102,11 @@ export class ExclusionPatternModal extends Modal {
         this.modalEl.addClass("vault-sync-exclusion-modal");
         contentEl.empty();
 
-        const deviceOnly = this.key === "deviceExclusionPatterns";
-        this.setTitle(t(deviceOnly ? "settingDeviceExclusionModalTitle" : "settingExclusionModalTitle"));
+        const texts = LIST_TEXTS[this.key];
+        this.setTitle(t(texts.title));
         contentEl.createEl("p", {
             cls: "vault-sync-exclusion-note",
-            text: t(deviceOnly ? "settingDeviceExclusionModalNote" : "settingExclusionModalNote"),
+            text: t(texts.note),
         });
 
         const addRow = contentEl.createDiv({ cls: "vault-sync-exclusion-add-row" });

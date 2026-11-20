@@ -1,3 +1,4 @@
+import { deviceScopePatterns } from "./sync-manager/file-utils";
 import { Notice, Plugin, TFile, TFolder, setIcon, Platform, apiVersion } from "obsidian";
 import { createCloudAdapter, DEFAULT_CLOUD_PROVIDER } from "./cloud-adapters";
 import { MassDeleteGuard } from "./sync-manager/mass-change-guard";
@@ -351,7 +352,12 @@ export default class VaultSync extends Plugin {
         this.syncManager.unicodeInsensitiveFs = Platform.isMacOS || Platform.isIosApp;
 
         this.syncManager.onSettingsUpdated = async () => {
+            const scopeBefore = deviceScopePatterns(this.settings);
             await this.loadSettings();
+            // Another device of this kind changed the exclusion list
+            if (deviceScopePatterns(this.settings) !== scopeBefore) {
+                await this.syncManager.applyDeviceScopeChange(scopeBefore);
+            }
             this.triggerManager.setupAutoSyncInterval();
             if (this.settingTab) {
                 this.settingTab.display();
@@ -1010,8 +1016,17 @@ export default class VaultSync extends Plugin {
         this.syncManager.triggerFullCleanup();
     }
 
-    /** This device's exclusion list changed: files no longer left out are fetched now */
-    async applyDeviceScopeChange(previous: string): Promise<void> {
+    /**
+     * The PC or mobile exclusion list changed. When it is the list of this kind of
+     * device, files no longer left out are fetched now (the other kind of device
+     * applies it when the settings reach it).
+     */
+    async applyExclusionListChange(
+        key: "desktopExclusionPatterns" | "mobileExclusionPatterns",
+        previous: string,
+    ): Promise<void> {
+        const ownKey = Platform.isMobile ? "mobileExclusionPatterns" : "desktopExclusionPatterns";
+        if (key !== ownKey) return;
         await this.syncManager.applyDeviceScopeChange(previous);
         if (this.settings.hasCompletedFirstSync) void this.requestManualSync();
     }

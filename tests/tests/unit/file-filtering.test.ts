@@ -22,7 +22,10 @@ import {
     isDeviceExcluded,
     holdsDeviceExcluded,
     matchesDeviceScope,
+    deviceScopePatterns,
 } from "../../../src/sync-manager/file-utils";
+import { Platform } from "obsidian";
+import { moveLegacyDeviceExclusion } from "../../../src/services/settings-manager";
 import type { SyncContext } from "../../../src/sync-manager/context";
 
 /** Minimal mock SyncContext with all sync toggles enabled by default */
@@ -491,7 +494,7 @@ describe("shouldIgnore", () => {
 // ═════════════════════════════════════════════════════════════════════
 
 describe("device exclusion", () => {
-    const ctx = makeCtx({ deviceExclusionPatterns: "Archive/**\n# comment\n**/*.mp4" } as never);
+    const ctx = makeCtx({ desktopExclusionPatterns: "Archive/**\n# comment\n**/*.mp4" } as never);
 
     it("matches the patterns, case-insensitively, ignoring comment lines", () => {
         expect(isDeviceExcluded(ctx, "Archive/2020/a.md")).toBe(true);
@@ -509,12 +512,41 @@ describe("device exclusion", () => {
     });
 
     it("keeps whole-folder deletes away from folders that may hold such files", () => {
-        const only = makeCtx({ deviceExclusionPatterns: "Notes/big/**" } as never);
+        const only = makeCtx({ desktopExclusionPatterns: "Notes/big/**" } as never);
         expect(holdsDeviceExcluded(only, "Notes", [])).toBe(true); // pattern points below it
         expect(holdsDeviceExcluded(only, "Notes/big", [])).toBe(true);
         expect(holdsDeviceExcluded(only, "Other", [])).toBe(false);
         // A pattern without a fixed folder can match anywhere
         expect(holdsDeviceExcluded(ctx, "Other", [])).toBe(true);
         expect(holdsDeviceExcluded(makeCtx(), "Notes", ["Notes/a.md"])).toBe(false);
+    });
+});
+
+describe("PC / mobile exclusion lists", () => {
+    it("uses the list of this kind of device", () => {
+        const settings = { desktopExclusionPatterns: "Big/**", mobileExclusionPatterns: "Media/**" };
+        const ctx = makeCtx(settings as never);
+        expect(deviceScopePatterns(settings)).toBe("Big/**");
+        expect(isDeviceExcluded(ctx, "Big/a.md")).toBe(true);
+        expect(isDeviceExcluded(ctx, "Media/a.png")).toBe(false);
+        (Platform as { isMobile: boolean }).isMobile = true;
+        try {
+            expect(deviceScopePatterns(settings)).toBe("Media/**");
+            expect(isDeviceExcluded(ctx, "Big/a.md")).toBe(false);
+            expect(isDeviceExcluded(ctx, "Media/a.png")).toBe(true);
+        } finally {
+            (Platform as { isMobile: boolean }).isMobile = false;
+        }
+    });
+
+    it("moves a list saved per device by an early build to its kind of device", () => {
+        const pc: Record<string, unknown> = { deviceExclusionPatterns: "Old/**", desktopExclusionPatterns: "", mobileExclusionPatterns: "" };
+        moveLegacyDeviceExclusion(pc, false);
+        expect(pc).toEqual({ desktopExclusionPatterns: "Old/**", mobileExclusionPatterns: "" });
+
+        const phone: Record<string, unknown> = { deviceExclusionPatterns: "Old/**", desktopExclusionPatterns: "", mobileExclusionPatterns: "Set/**" };
+        moveLegacyDeviceExclusion(phone, true);
+        // A list already set (synced from another device) wins
+        expect(phone).toEqual({ desktopExclusionPatterns: "", mobileExclusionPatterns: "Set/**" });
     });
 });
