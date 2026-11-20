@@ -168,6 +168,8 @@ async function detectPullChanges(
                                 delete ctx.localIndex[oldPath];
                             }
 
+                            await markIfEditedSinceSync(ctx, newPath);
+
                             // Update ID map so subsequent iterations see the correct path
                             localIdToPath.set(remoteEntry.fileId, newPath);
 
@@ -1364,6 +1366,8 @@ async function processChangePage(
                                 if (ctx.dirtyPaths.has(oldPath)) {
                                     ctx.dirtyPaths.delete(oldPath);
                                     ctx.dirtyPaths.set(newPath, Date.now());
+                                } else {
+                                    await markIfEditedSinceSync(ctx, newPath);
                                 }
 
                                 localIdToPath.set(cloudFile.id, newPath);
@@ -1581,3 +1585,23 @@ async function processChangePage(
     return { tasks, completed, confirmedCount, failed };
 }
 
+/**
+ * After following another device's rename: an edit the user saved just before (its
+ * vault event not delivered yet, or reported for the old name) is in the renamed
+ * file but marked nowhere. Unmarked, it was never pushed and the device kept a
+ * version the cloud never got. Compare with what the index says we synced.
+ */
+async function markIfEditedSinceSync(ctx: SyncContext, path: string): Promise<void> {
+    const entry = ctx.localIndex[path];
+    if (!entry || ctx.dirtyPaths.has(path)) return;
+    try {
+        const content = await ctx.vault.readBinary(path);
+        const { localHash, compareHash } = await computeLocalHash(ctx, content, entry);
+        if (compareHash && localHash !== compareHash.toLowerCase()) {
+            ctx.dirtyPaths.set(path, Date.now());
+            await ctx.log(`[Smart Pull] ${path} was edited here before the rename arrived; it will be pushed.`, "info");
+        }
+    } catch {
+        // unreadable now: the next scan decides
+    }
+}

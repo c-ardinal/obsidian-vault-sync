@@ -121,6 +121,7 @@ async function detectOverwrite(ctx: SyncContext, path: string, check: PendingChe
         let checks = pendingChecks.get(ctx);
         if (!checks) pendingChecks.set(ctx, (checks = new Map<string, PendingCheck>()));
         checks.set(path, check);
+        await saveLocalIndex(ctx, true);
         await ctx.log(`[Overwrite Check] Could not read the history of ${path}: ${String(e)}. Checking again later.`, "debug");
         return null;
     }
@@ -130,6 +131,7 @@ async function detectOverwrite(ctx: SyncContext, path: string, check: PendingChe
         "warn",
     );
     pendingFor(ctx).set(path, repair);
+    await saveLocalIndex(ctx, true);
     return repair;
 }
 
@@ -255,5 +257,44 @@ async function repairUnderLock(
         return false;
     } finally {
         await releaseMergeLock(ctx, path, "Overwrite Check");
+    }
+}
+
+/**
+ * Owed repairs and checks are saved with the local index. Kept only in memory,
+ * they were dropped when the app was closed before the repair ran: the overwritten
+ * device then took the newer version as built on its own, and its edit was gone
+ * from the note (left only in the file's history).
+ */
+export function overwriteRepairsSnapshot(
+    ctx: object,
+): { repairs: Record<string, PendingRepair>; checks: Record<string, PendingCheck> } | undefined {
+    const repairs = pendingRepairs.get(ctx);
+    const checks = pendingChecks.get(ctx);
+    if (!repairs?.size && !checks?.size) return undefined;
+    return { repairs: Object.fromEntries(repairs ?? []), checks: Object.fromEntries(checks ?? []) };
+}
+
+export function restoreOverwriteRepairs(ctx: object, data: unknown): void {
+    if (!data || typeof data !== "object") return;
+    const { repairs, checks } = data as { repairs?: unknown; checks?: unknown };
+    const str = (v: unknown): v is string => typeof v === "string" && v.length > 0;
+    if (repairs && typeof repairs === "object") {
+        let map = pendingRepairs.get(ctx);
+        if (!map) pendingRepairs.set(ctx, (map = new Map()));
+        for (const [path, r] of Object.entries(repairs as Record<string, Partial<PendingRepair>>)) {
+            if (!r || !str(r.fileId) || !str(r.overwrittenId) || !str(r.overwrittenHash) || !str(r.baseHash)) continue;
+            if (typeof r.since !== "number" || map.has(path)) continue;
+            map.set(path, r as PendingRepair);
+        }
+    }
+    if (checks && typeof checks === "object") {
+        let map = pendingChecks.get(ctx);
+        if (!map) pendingChecks.set(ctx, (map = new Map()));
+        for (const [path, c] of Object.entries(checks as Record<string, Partial<PendingCheck>>)) {
+            if (!c || !str(c.fileId) || !str(c.ourHash) || !Array.isArray(c.known)) continue;
+            if (typeof c.since !== "number" || map.has(path)) continue;
+            map.set(path, { fileId: c.fileId, ourHash: c.ourHash, known: c.known.filter(str), since: c.since });
+        }
     }
 }

@@ -81,6 +81,17 @@ const CROSS_OS: Partial<SimConfig> = {
     binaryRate: 0.25,
 };
 
+const NON_MD5: Partial<SimConfig> = {
+    profile: "disjoint",
+    devices: 3,
+    actions: 45,
+    foreignHash: true,
+    fs: ["linux", "windows", "macos"],
+    windowsLineEndings: true,
+    binaryRate: 0.2,
+    network: { minLatencyMs: 5, maxLatencyMs: 800, failureRate: 0.02, lostResponseRate: 0.15 },
+};
+
 const KNOWN_BUGS: Case[] = [
     // Empty: every bug found so far is fixed and lives in FIXED_REGRESSIONS.
 ];
@@ -459,6 +470,43 @@ const FIXED_REGRESSIONS: Case[] = [
         title: "restart: a merge result not pushed before the app was closed is pushed after the restart",
         symptom: "Another device's edit merged here never reaches the cloud",
         config: { seed: 393, ...RESTART },
+        expect: [],
+    },
+    // Found by the 2026-11-20 test audit (3,000 random runs)
+    {
+        title: "a failed index upload is retried, and a merge-read failure does not upload a partial index",
+        symptom: "A device that joins later never receives a note another device pushed",
+        config: { seed: 5016, ...CHAOS },
+        expect: [],
+    },
+    {
+        title: "an edit typed while a merge result was being written is pushed",
+        symptom: "The last edit to a note stays on one device and never reaches the others",
+        config: { seed: 10089, ...CROSS_OS },
+        expect: [],
+    },
+    {
+        title: "an edit saved just before another device's rename arrived is pushed under the new name",
+        symptom: "The last edit to a renamed note stays on one device and never reaches the others",
+        config: { seed: 10171, ...CROSS_OS },
+        expect: [],
+    },
+    {
+        title: "non-MD5 cloud: a download is not recorded under a newer version's hash",
+        symptom: "Two devices show different text for the same note, and both think they are in sync",
+        config: { seed: 10297, ...NON_MD5 },
+        expect: [],
+    },
+    {
+        title: "restart: a repair owed for an overwritten version survives a restart",
+        symptom: "An edit made at the same moment as another device's edit disappears from the note",
+        config: { seed: 10064, ...RESTART },
+        expect: [],
+    },
+    {
+        title: "restart: a large file whose cloud copy changed is not bounced between sync and the background queue",
+        symptom: "An attachment never finishes syncing and the other devices never get it",
+        config: { seed: 10184, ...RESTART },
         expect: [],
     },
 ];

@@ -5,7 +5,7 @@ import { noteIndexFormat } from "./state";
 import type { LocalFileIndex } from "./types";
 import { tryDecompress, hashContent, matchesDeviceScope, deviceScopePatterns } from "./file-utils";
 import { storesTransformedContent } from "./content-identity";
-import { CtxState } from "./context-state";
+import { CtxFlag, CtxState } from "./context-state";
 
 
 /** What this module reads from the sync context */
@@ -44,7 +44,13 @@ export async function downloadRemoteIndexData(
     ctx: SyncHelpersCtx,
     fileId: string,
 ): Promise<{ index: LocalFileIndex; startPageToken: string | null }> {
-    const content = await ctx.adapter.downloadFile(fileId);
+    return parseRemoteIndexBytes(ctx, await ctx.adapter.downloadFile(fileId));
+}
+
+async function parseRemoteIndexBytes(
+    ctx: SyncHelpersCtx,
+    content: ArrayBuffer,
+): Promise<{ index: LocalFileIndex; startPageToken: string | null }> {
     const decompressed = await tryDecompress(content);
     const parsed = parseIndex(new TextDecoder().decode(decompressed), providerNameOf(ctx.adapter));
     await noteIndexFormat(ctx, parsed, "remote");
@@ -98,12 +104,60 @@ export function markPendingTransfer(
  * merge below is skipped, and the next upload used to drop these entries again:
  * devices doing their first sync from the shared index then never got the file.
  */
+const resolveInline = new CtxState<Set<string>>("resolveInline", "Large files the background queue handed back because the cloud copy changed");
+
+/**
+ * The background queue found the cloud copy of a large file changed and handed the
+ * file back to the sync cycle. The push must then upload it inline (with its
+ * conflict handling) instead of deferring it to the queue again: deferring sent it
+ * straight back, forever, and the edit never reached the cloud.
+ */
+export function handBackToSyncCycle(ctx: object, path: string): void {
+    let set = resolveInline.get(ctx);
+    if (!set) resolveInline.set(ctx, (set = new Set()));
+    set.add(path);
+}
+
+/** True (once) when the push must not defer this path to the background queue. */
+export function takeHandBack(ctx: object, path: string): boolean {
+    return resolveInline.get(ctx)?.delete(path) ?? false;
+}
+
+const indexUploadOwed = new CtxFlag("indexUploadOwed", "The shared index upload failed; the next push uploads it even with nothing else to do");
+
+/**
+ * The shared index could not be uploaded (files were pushed, but the index that
+ * lists them was not). Without a retry, a later sync with nothing to push never
+ * uploaded it, and devices doing their first sync from the cloud's index never
+ * received those files. Kept in memory and, when the entry exists, in the saved
+ * index (forcePush on the index's own entry), so a restart keeps the debt.
+ */
+export function markIndexUploadOwed(ctx: Pick<SyncContext, "index" | "pluginDataPath">): void {
+    indexUploadOwed.add(ctx);
+    const own = ctx.index[ctx.pluginDataPath];
+    if (own) own.forcePush = true;
+}
+
+export function owesIndexUpload(ctx: Pick<SyncContext, "index" | "pluginDataPath">): boolean {
+    return indexUploadOwed.has(ctx) || !!ctx.index[ctx.pluginDataPath]?.forcePush;
+}
+
+export function clearIndexUploadOwed(ctx: Pick<SyncContext, "index" | "pluginDataPath">): void {
+    indexUploadOwed.delete(ctx);
+}
+
 const carriedRemoteEntries = new CtxState<LocalFileIndex>("carriedRemoteEntries", "Remote index entries kept for files this device has not pulled yet");
 
 export async function buildRemoteIndexPayload(ctx: SyncHelpersCtx): Promise<ArrayBuffer> {
     const merged: LocalFileIndex = { ...ctx.index };
+    // The cloud's index could not be read (network): give up instead of uploading
+    // ours as-is. Ours may lack entries another device wrote (a file it pushed but we
+    // have not pulled yet); replacing the shared index with it hid that file from
+    // every device doing its first sync later. The caller retries on the next sync.
+    let readingRemote = true;
     try {
         const meta = await ctx.adapter.getFileMetadata(ctx.pluginDataPath);
+        readingRemote = false;
         const lastSeen = ctx.index[ctx.pluginDataPath]?.hash?.toLowerCase() || "";
         if (meta?.id && meta.hash && meta.hash.toLowerCase() === lastSeen) {
             const carried = carriedRemoteEntries.get(ctx) ?? {};
@@ -134,7 +188,10 @@ export async function buildRemoteIndexPayload(ctx: SyncHelpersCtx): Promise<Arra
                 merged[path] = entry;
             }
         } else if (meta?.id && meta.hash) {
-            const remote = await downloadRemoteIndex(ctx, meta.id);
+            readingRemote = true;
+            const bytes = await ctx.adapter.downloadFile(meta.id);
+            readingRemote = false;
+            const remote = (await parseRemoteIndexBytes(ctx, bytes)).index;
             const ourPathById = new Map<string, string>();
             for (const [p, e] of Object.entries(ctx.index)) if (e.fileId) ourPathById.set(e.fileId, p);
             const changedByUs = (e: LocalFileIndex[string] | undefined) =>
@@ -202,6 +259,8 @@ export async function buildRemoteIndexPayload(ctx: SyncHelpersCtx): Promise<Arra
             }
         }
     } catch (e) {
+        if (readingRemote) throw e;
+        // Unreadable (damaged) cloud index: ours replaces it
         await ctx.log(`[Index] Could not merge remote index, uploading local index as-is: ${String(e)}`, "warn");
     }
     // Cloud files we know of but have not pulled yet (deferred to the background queue,
@@ -227,6 +286,12 @@ export async function buildRemoteIndexPayload(ctx: SyncHelpersCtx): Promise<Arra
         delete merged[p];
         const { pendingMove, forcePush: _f, ...rest } = e;
         if (!merged[pendingMove.oldPath]) merged[pendingMove.oldPath] = rest;
+    }
+    const own = merged[ctx.pluginDataPath];
+    if (own?.forcePush) {
+        // Our "index upload owed" mark is local bookkeeping, not for other devices
+        const { forcePush: _owed, ...rest } = own;
+        merged[ctx.pluginDataPath] = rest;
     }
     const data = serializeIndex(merged, ctx.startPageToken, providerNameOf(ctx.adapter));
     return new TextEncoder().encode(data).buffer;

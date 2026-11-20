@@ -11,6 +11,9 @@ import { saveIndex, saveLocalIndex, takeUnsyncedRename } from "./state";
 import { compress } from "./file-utils";
 import {
     buildRemoteIndexPayload,
+    clearIndexUploadOwed,
+    handBackToSyncCycle,
+    markIndexUploadOwed,
     forgetAttemptedUpload,
     isAttemptedUpload,
     peekAttemptedUpload,
@@ -456,6 +459,7 @@ export class BackgroundTransferQueue {
                     "warn",
                 );
                 ctx.dirtyPaths.set(item.path, Date.now());
+                handBackToSyncCycle(ctx, item.path);
                 if (ctx.localIndex[item.path]?.pendingTransfer) {
                     delete ctx.localIndex[item.path].pendingTransfer;
                 }
@@ -798,9 +802,12 @@ export class BackgroundTransferQueue {
                 size: uploadedIndex.size,
                 hash: uploadedIndex.hash,
             };
+            clearIndexUploadOwed(ctx);
             await saveIndex(ctx);
         } catch (e) {
-            await ctx.log(`[Background Transfer] Failed to upload index: ${String(e)}`, "error");
+            markIndexUploadOwed(ctx);
+            await saveIndex(ctx).catch(() => {});
+            await ctx.log(`[Background Transfer] Failed to upload index (retried next sync): ${String(e)}`, "error");
         }
     }
 }

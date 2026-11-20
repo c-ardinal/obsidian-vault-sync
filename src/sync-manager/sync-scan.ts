@@ -7,7 +7,7 @@ import {
     isDeviceExcluded,
 } from "./file-utils";
 import { computeLocalHash } from "./sync-helpers";
-import { markRenamed } from "./state";
+import { markRenamed, takeEventsDuringSync } from "./state";
 import { entryIdentityHash, localIdentityHash } from "./content-identity";
 import type { FileUtilsCtx } from "./file-utils";
 import type { StateCtx } from "./state";
@@ -26,6 +26,33 @@ export type ScanCtx = Pick<
     | "syncingPaths"
     | "vault"
 > & FileUtilsCtx & StateCtx & SyncHelpersCtx;
+
+/**
+ * Edits the vault reported while the engine held the path (markDirty set them
+ * aside). Most are the echo of our own write; a file whose content differs from
+ * what the index says we synced was edited by the user and is pushed.
+ */
+export async function recheckEventsDuringSync(ctx: ScanCtx): Promise<void> {
+    for (const path of takeEventsDuringSync(ctx)) {
+        if (ctx.dirtyPaths.has(path) || shouldIgnore(ctx, path)) continue;
+        try {
+            if (!(await ctx.vault.exists(path))) continue; // deletions come as their own event
+            const entry = ctx.localIndex[path];
+            let edited = !entry;
+            if (entry) {
+                const content = await ctx.vault.readBinary(path);
+                const { localHash, compareHash } = await computeLocalHash(ctx, content, entry);
+                edited = !compareHash || localHash !== compareHash.toLowerCase();
+            }
+            if (edited) {
+                ctx.dirtyPaths.set(path, Date.now());
+                await ctx.log(`[Dirty] Edited while being synced: ${path}`, "info");
+            }
+        } catch {
+            ctx.dirtyPaths.set(path, Date.now());
+        }
+    }
+}
 
 /**
  * Scan .obsidian directory for changes

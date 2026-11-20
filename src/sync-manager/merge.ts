@@ -405,8 +405,16 @@ async function hashOfDownload(
     if (!fileId) return hash;
     if (item.plainHash) {
         if (!(await plainHashMatches(item.plainHash, content, plainHash.toLowerCase()))) {
-            const current = await ctx.adapter.getFileMetadataById(fileId, item.path).catch(() => null);
-            if (current?.hash) hash = current.hash;
+            // Not the listed version. Do not assume it is the cloud's current one: a
+            // version uploaded after our download started has that hash, and recording
+            // it next to the older content we got made this device (and every device
+            // reading its index) treat the newer version as already here. Find the
+            // version by content; failing that keep the listed hash, which only costs
+            // one more download when the newer version is reported.
+            if (supportsHistory(ctx)) {
+                const found = await findRevisionByContent(ctx, item.path, fileId, contentFingerprint(content)).catch(() => null);
+                if (found) hash = found.hash;
+            }
         }
         return hash;
     }

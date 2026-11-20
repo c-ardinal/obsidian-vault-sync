@@ -23,13 +23,17 @@ import { findPathCollision, freeCollisionPath, moveIndexEntry, pathKey } from ".
 import { TransferPriority } from "./transfer-types";
 import { formatSize } from "../utils/format";
 import { basename, dirname } from "../utils/path";
-import { scanObsidianChanges, scanVaultChanges } from "./sync-scan";
+import { recheckEventsDuringSync, scanObsidianChanges, scanVaultChanges } from "./sync-scan";
 import {
     computeLocalHash,
     getThresholdBytes,
     generateTransferId,
     markPendingTransfer,
     buildRemoteIndexPayload,
+    clearIndexUploadOwed,
+    markIndexUploadOwed,
+    owesIndexUpload,
+    takeHandBack,
     recordAttemptedUpload,
     forgetAttemptedUpload,
     isAttemptedUpload,
@@ -270,11 +274,21 @@ async function uploadRemoteIndex(ctx: SyncContext): Promise<void> {
             await ctx.log(`[Smart Push] Failed to upload raw index: ${String(rawErr)}`, "debug");
         }
 
+        clearIndexUploadOwed(ctx);
         await saveIndex(ctx);
         await ctx.log(`[Smart Push] Index uploaded. Hash: ${uploadedIndex.hash}`, "info");
     } catch (e) {
-        await ctx.log(`[Smart Push] Failed to upload index: ${String(e)}`, "error");
+        markIndexUploadOwed(ctx);
+        await saveIndex(ctx).catch(() => {});
+        await ctx.log(`[Smart Push] Failed to upload index (retried next sync): ${String(e)}`, "error");
     }
+}
+
+/** Nothing to push, but an earlier index upload failed: upload it now. */
+async function settleOwedIndexUpload(ctx: SyncContext): Promise<void> {
+    if (!owesIndexUpload(ctx)) return;
+    await ctx.log("[Smart Push] Uploading the index left over from an earlier failed upload.", "info");
+    await uploadRemoteIndex(ctx);
 }
 
 
@@ -288,6 +302,8 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
         ctx.progress?.setPhase("scanning");
         await scanVaultChanges(ctx);
     }
+
+    await recheckEventsDuringSync(ctx);
 
     // Scan .obsidian files for changes (vault events don't fire for these)
     await scanObsidianChanges(ctx);
@@ -315,6 +331,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
 
     if (ctx.dirtyPaths.size === 0 && plannedFolders.length === 0) {
         await ctx.log("[Smart Push] No dirty files to push. Skipping.", "debug");
+        await settleOwedIndexUpload(ctx);
         return false;
     }
 
@@ -733,7 +750,8 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
         for (const file of uploadQueue) {
             const isMetadata = file.path === ctx.pluginDataPath;
             const isMergeResult = ctx.localIndex[file.path]?.lastAction === "merge";
-            if (!isMetadata && !isMergeResult && file.size > thresholdBytes) {
+            const handedBack = takeHandBack(ctx, file.path);
+            if (!isMetadata && !isMergeResult && !handedBack && file.size > thresholdBytes) {
                 const snapshotHash = file.hash;
                 ctx.backgroundTransferQueue.enqueue({
                     id: generateTransferId("push"),
@@ -765,6 +783,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
     const totalOps = inlineUploadQueue.length + deleteQueue.length;
     if (totalOps === 0 && folderDeletedCount === 0 && moveCount === 0 && deferredCount === 0) {
         await ctx.log("[Smart Push] No changes after filtering.", "debug");
+        await settleOwedIndexUpload(ctx);
         return false;
     }
 

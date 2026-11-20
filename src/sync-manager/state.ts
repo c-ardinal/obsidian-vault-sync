@@ -1,3 +1,4 @@
+import { overwriteRepairsSnapshot, restoreOverwriteRepairs } from "./overwrite-recovery";
 import { plainHashVersion, restorePlainHashVersion } from "./plain-hash-migration";
 import { contentFingerprint } from "./content-fingerprint";
 import { parseIndex, providerNameOf, serializeIndex, type ParsedIndex } from "./remote-layout";
@@ -533,6 +534,7 @@ export async function loadLocalIndex(ctx: StateCtx): Promise<void> {
                 deviceId?: string;
                 attemptedUploads?: unknown;
                 pendingPulls?: unknown;
+                overwriteRepairs?: unknown;
                 journalSeq?: unknown;
                 plainHashVersion?: unknown;
             };
@@ -543,6 +545,7 @@ export async function loadLocalIndex(ctx: StateCtx): Promise<void> {
             rememberWritten(ctx);
             restoreAttemptedUploads(ctx, parsed.attemptedUploads);
             restorePendingPulls(ctx, parsed.pendingPulls);
+            restoreOverwriteRepairs(ctx, parsed.overwriteRepairs);
             restorePlainHashVersion(ctx, parsed.plainHashVersion, false);
             // The background queue does not survive a restart. Its owed pulls are in
             // pendingPulls (retried by the next sync) and unpushed files are found by
@@ -722,6 +725,7 @@ export async function saveLocalIndex(ctx: StateCtx, immediate = false): Promise<
             deviceId: ctx.deviceId,
             attemptedUploads: attemptedUploadsSnapshot(ctx),
             pendingPulls: pendingPullsSnapshot(ctx),
+            overwriteRepairs: overwriteRepairsSnapshot(ctx),
             journalSeq: j.seq,
             plainHashVersion: plainHashVersion(ctx),
         });
@@ -770,8 +774,28 @@ export function indexKeyFor(ctx: StateCtx, path: string): string {
 export function markDirty(ctx: StateCtx, path: string): void {
     path = indexKeyFor(ctx, normalizePath(path));
     if (shouldIgnore(ctx, path)) return;
-    if (ctx.syncingPaths.has(path)) return;
+    if (ctx.syncingPaths.has(path)) {
+        // Usually the echo of our own write, but it can be a user edit typed while the
+        // engine still held the path (after its write, until the merge lock was
+        // released). Dropping it lost that edit: the file was never pushed and the
+        // device stayed different from the cloud. Checked against the index before
+        // the next push (recheckEventsDuringSync).
+        setOf(eventsDuringSync, ctx).add(path);
+        return;
+    }
     ctx.dirtyPaths.set(path, Date.now());
+}
+
+/** Vault edits reported while the engine held the path (see markDirty) */
+const eventsDuringSync = new CtxState<Set<string>>("eventsDuringSync", "Vault edits reported while the engine was writing the path; checked before the next push");
+
+/** Takes the paths whose edits arrived while the engine held them (and no longer does). */
+export function takeEventsDuringSync(ctx: StateCtx): string[] {
+    const set = eventsDuringSync.get(ctx);
+    if (!set || set.size === 0) return [];
+    const ready = [...set].filter((p) => !ctx.syncingPaths.has(p));
+    for (const p of ready) set.delete(p);
+    return ready;
 }
 
 /**
