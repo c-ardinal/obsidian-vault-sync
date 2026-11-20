@@ -432,6 +432,25 @@ async function shotModal(page, lang, tag, label, name) {
     );
     const issues = await layoutIssues(page);
     check(lang, `${tag}: ${name} fits the screen`, issues.length === 0, issues.join(" ; "));
+    // Phone/tablet: the close button and title must sit below the system status bar
+    // (emulated mobile sets --safe-area-inset-top like a real device).
+    const top = await page.evaluate(() => {
+        const inset =
+            parseFloat(getComputedStyle(document.body).getPropertyValue("--safe-area-inset-top")) || 0;
+        const modal = [...document.querySelectorAll(".modal-container .modal")].pop();
+        const els = [
+            ...(modal?.querySelectorAll(".modal-close-button, .modal-header-button, .modal-title") ?? []),
+        ].filter((e) => e.getBoundingClientRect().height > 0);
+        return { inset, tops: els.map((e) => Math.round(e.getBoundingClientRect().top)) };
+    });
+    if (top.inset > 0) {
+        check(
+            lang,
+            `${tag}: ${name} header clears the status bar`,
+            top.tops.every((y) => y >= top.inset - 1),
+            `inset ${top.inset}px, tops ${top.tops.join(",")}`,
+        );
+    }
     await shot(page, lang, `${tag}-${label}`);
 }
 
@@ -619,6 +638,95 @@ async function checkSyncStatus(page, lang, { mobile = false } = {}) {
     );
 }
 
+/** Transfer status screen: summary, 24h tiles, queue, history filter and batches. */
+async function checkTransfers(page, lang, tag) {
+    const info = await page.evaluate(() => {
+        const m = document.querySelector(".mod-transfer-status-modal");
+        return {
+            summary: !!m.querySelector(".vault-sync-xfer-summary .vault-sync-status-steps"),
+            queue: m.querySelectorAll(".mod-queue .vault-sync-xfer-row").length,
+            batches: m.querySelectorAll(".vault-sync-xfer-batch").length,
+            open: m.querySelectorAll(".vault-sync-xfer-batch.is-open").length,
+        };
+    });
+    check(
+        lang,
+        `${tag}: transfer screen shows summary, queue and batched history`,
+        info.summary && info.queue >= 3 && info.batches >= 3 && info.open >= 1,
+        JSON.stringify(info),
+    );
+    // Failed filter: only failed rows.
+    await page.selectOption("select.vault-sync-xfer-filter", "failed");
+    await sleep(300);
+    const failedOnly = await page.evaluate(() => {
+        const rows = [...document.querySelectorAll(".mod-history .vault-sync-xfer-row")];
+        return rows.length > 0 && rows.every((r) => r.classList.contains("is-failed"));
+    });
+    check(lang, `${tag}: transfer history "failed" filter`, failedOnly);
+    await shot(page, lang, `${tag}-scr-transfers-failed`);
+    await page.selectOption("select.vault-sync-xfer-filter", "all");
+    await sleep(300);
+    // Open a closed batch, then show the history part.
+    await page
+        .locator(".vault-sync-xfer-batch:not(.is-open) .vault-sync-xfer-batch-head")
+        .first()
+        .click();
+    await sleep(300);
+    const opened = await page.evaluate(
+        () => document.querySelectorAll(".vault-sync-xfer-batch.is-open .vault-sync-xfer-row").length,
+    );
+    check(lang, `${tag}: transfer history batch opens`, opened >= 2, `${opened} rows`);
+    await page.evaluate(() => document.querySelector(".mod-history")?.scrollIntoView());
+    await sleep(300);
+    await shot(page, lang, `${tag}-scr-transfers-history`);
+}
+
+/** Display settings: diff text size sliders update the preview. */
+async function checkDisplaySettings(main, lang, { mobile = false } = {}) {
+    const tag = mobile ? "mobile" : "desktop";
+    const page = await openSettings(main);
+    if (page !== main) await page.setViewportSize(mobile ? MOBILE : DESKTOP).catch(() => {});
+    const names = await navNames(page);
+    const idx = names.findIndex((n) => /^(Display|表示)$/.test(n));
+    check(lang, `${tag}: display settings page listed`, idx >= 0, names.join(" | "));
+    if (idx < 0) return;
+    const items = await page.$$(".vault-sync-settings-nav-item");
+    await items[idx].click();
+    await page.waitForSelector(".vault-sync-diff-preview", { timeout: 5000 });
+    const sizes = () =>
+        page.$$eval(".vault-sync-diff-preview-pane .diff-table", (els) =>
+            els.map((e) => getComputedStyle(e).fontSize),
+        );
+    const setSlider = (value) =>
+        page.$eval(
+            ".vault-sync-settings-page input.slider",
+            (el, v) => {
+                el.value = v;
+                el.dispatchEvent(new Event("input", { bubbles: true }));
+                el.dispatchEvent(new Event("change", { bubbles: true }));
+            },
+            value,
+        );
+    const before = await sizes();
+    await setSlider("18"); // desktop slider
+    await sleep(400);
+    const after = await sizes();
+    check(
+        lang,
+        `${tag}: diff text size slider updates the preview`,
+        after[0] === "18px" && after[1] === before[1],
+        `${before.join(",")} -> ${after.join(",")}`,
+    );
+    await page.evaluate(() =>
+        document.querySelector(".vault-sync-diff-preview")?.scrollIntoView({ block: "center" }),
+    );
+    await sleep(300);
+    await shot(page, lang, `${tag}-settings-display`);
+    await setSlider("14"); // back to the default
+    await sleep(300);
+    await closeSettings(main);
+}
+
 async function checkScreens(page, lang, { mobile = false } = {}) {
     const tag = mobile ? "mobile" : "desktop";
     await page.evaluate((id) => {
@@ -728,6 +836,7 @@ async function checkScreens(page, lang, { mobile = false } = {}) {
     await cmd(page, "dev-demo-transfer-status");
     await modalOpen(page, ".mod-transfer-status-modal");
     await shotModal(page, lang, tag, "scr-transfers", "transfer status modal");
+    await checkTransfers(page, lang, tag);
     await escape(page);
 
     // Add-on install (and, when a package is given, its terms review).
@@ -876,6 +985,9 @@ async function runLang(lang) {
         await shot(page, lang, "desktop-workspace");
 
         await checkHierarchy(page, lang);
+        await checkDisplaySettings(page, lang).catch((e) =>
+            check(lang, "desktop: display settings run completed", false, e.stack || String(e)),
+        );
         await checkScreens(page, lang).catch(async (e) => {
             check(lang, "desktop: screens run completed", false, e.stack || String(e));
             await shot(page, lang, "desktop-scr-error").catch(() => {});
@@ -892,6 +1004,9 @@ async function runLang(lang) {
         check(lang, "mobile emulation active", isMobile);
         if (isMobile) {
             await checkHierarchy(page, lang, { mobile: true });
+            await checkDisplaySettings(page, lang, { mobile: true }).catch((e) =>
+                check(lang, "mobile: display settings run completed", false, e.stack || String(e)),
+            );
             await checkScreens(page, lang, { mobile: true }).catch(async (e) => {
                 check(lang, "mobile: screens run completed", false, e.stack || String(e));
                 await shot(page, lang, "mobile-scr-error").catch(() => {});

@@ -20,6 +20,8 @@ export const SETTINGS_LIMITS = {
     massDeleteConfirmPercent: { min: 1, max: 100, default: 10, disabled: -1 },
     /** Days a file deleted from the cloud stays in the cloud trash (-1 = no trash) */
     remoteTrashRetentionDays: { min: 1, max: 3650, default: 30, disabled: -1 },
+    diffFontSizeDesktop: { min: 10, max: 24, default: 14 },
+    diffFontSizeMobile: { min: 10, max: 24, default: 13 },
 } as const;
 
 export const DEFAULT_SETTINGS: VaultSyncSettings = {
@@ -54,6 +56,8 @@ export const DEFAULT_SETTINGS: VaultSyncSettings = {
     remoteTrashRetentionDays: SETTINGS_LIMITS.remoteTrashRetentionDays.default,
     notificationLevel: "standard",
     showSyncStatus: true,
+    diffFontSizeDesktop: 14,
+    diffFontSizeMobile: 13,
     conflictResolutionStrategy: "smart-merge",
     isDeveloperMode: false,
     enableLogging: false,
