@@ -26,11 +26,11 @@ import {
     alignFolderSpelling,
     hasDeleteIntent,
 } from "./state";
-import { pullFileSafely } from "./merge";
+import { pullFileSafely, takePullLockSkip } from "./merge";
 import { TransferPriority } from "./transfer-types";
 import { formatSize } from "../utils/format";
 import { basename, dirname } from "../utils/path";
-import { findPathCollision, freeCollisionPath, moveIndexEntry, pathKey } from "./path-collision";
+import { announceIncoming, findPathCollision, freeCollisionPath, moveIndexEntry, pathKey } from "./path-collision";
 import { INTEGRITY_MIN_INDEX_SIZE_BYTES, INTEGRITY_MIN_LOCAL_FILE_COUNT } from "./constants";
 import {
     computeLocalHash,
@@ -744,9 +744,11 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
 
     if (tasks.length > 0) {
         ctx.startActivity();
+        const release = announceIncoming(ctx, inlineDownloads.map((d) => d.path));
         try {
             await runParallel(tasks, ctx.settings.concurrency);
         } finally {
+            release();
             // Keep spinning until executeSmartSync finishes
         }
     }
@@ -940,7 +942,15 @@ export async function pullViaChangesAPI(
 
         if (tasks.length > 0) {
             ctx.startActivity();
-            await runParallel(tasks, ctx.settings.concurrency);
+            const release = announceIncoming(
+                ctx,
+                changes.changes.flatMap((c) => (c.file?.path && !c.removed ? [c.file.path] : [])),
+            );
+            try {
+                await runParallel(tasks, ctx.settings.concurrency);
+            } finally {
+                release();
+            }
             totalCompleted += pageCompleted.count;
         }
 
@@ -1028,8 +1038,13 @@ export async function pullViaChangesAPI(
                 ok = false;
             }
             if (pending.get(r.file.id) !== r) return; // superseded meanwhile
+            // Another device is merging it: waiting is not a failed attempt (giving up
+            // left the device without the note once the merge was done)
+            const waitedForLock = !ok && takePullLockSkip(ctx, r.file.path);
             if (ok) {
                 pending.delete(r.file.id);
+            } else if (waitedForLock) {
+                pending.set(r.file.id, { file: r.file, attempts: r.attempts });
             } else if (r.attempts + 1 < CHANGES_MAX_PULL_RETRIES) {
                 pending.set(r.file.id, { file: r.file, attempts: r.attempts + 1 });
             } else {

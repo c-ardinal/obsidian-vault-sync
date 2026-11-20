@@ -540,7 +540,8 @@ function adoptLocalOnlyEntries(ctx: StateCtx): void {
     const knownIds = new Set(Object.values(ctx.index).map((e) => e.fileId).filter(Boolean));
     for (const [path, entry] of Object.entries(ctx.localIndex)) {
         if (path === ctx.pluginDataPath || ctx.index[path] || !entry.fileId || knownIds.has(entry.fileId)) continue;
-        if (entry.lastAction !== "pull" || !entry.hash) continue;
+        // Our own upload is journaled the same way (push), so it is a synced file too
+        if ((entry.lastAction !== "pull" && entry.lastAction !== "push") || !entry.hash) continue;
         ctx.index[path] = { ...entry };
         knownIds.add(entry.fileId);
     }

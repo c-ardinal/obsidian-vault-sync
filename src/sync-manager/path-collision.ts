@@ -81,8 +81,10 @@ export async function freeCollisionPath(ctx: PathCollisionCtx, path: string): Pr
     const ext = dot > 0 ? name.slice(dot) : "";
     const used = new Set([
         ...Object.keys(ctx.index).map(pathKey),
+        ...Object.keys(ctx.localIndex).map(pathKey),
         ...[...ctx.dirtyPaths.keys()].map(pathKey),
         ...reservedKeys(ctx),
+        ...(incoming.get(ctx) ?? []),
         ...inFlight(ctx).keys(),
     ]);
     for (let n = 2; n < 1000; n++) {
@@ -134,4 +136,22 @@ export function windowsNameProblem(path: string): string | null {
         if (/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/.test(base)) return "reserved name";
     }
     return null;
+}
+
+const incoming = new CtxState<Set<string>>("incomingPaths", "Cloud paths of the pull batch running now (folded)");
+
+/**
+ * Names the current pull batch is about to download. Pulls run in parallel, so a
+ * clashing file renamed apart could otherwise be given the name ("x (2).md") of
+ * another file in the same batch that was not pulled yet. Returns a release.
+ */
+export function announceIncoming(ctx: PathCollisionCtx, paths: string[]): () => void {
+    const keys = paths.map(pathKey);
+    let set = incoming.get(ctx);
+    if (!set) incoming.set(ctx, (set = new Set<string>()));
+    const added = keys.filter((k) => !set!.has(k));
+    for (const k of added) set.add(k);
+    return () => {
+        for (const k of added) set!.delete(k);
+    };
 }

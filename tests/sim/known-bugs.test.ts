@@ -763,6 +763,36 @@ const FIXED_REGRESSIONS: Case[] = [
         config: { seed: 90699, ...CHAOS },
         expect: [],
     },
+    {
+        title: "chaos: a clashing file is not renamed onto a name another file of the same pull batch has",
+        symptom: "A note renamed apart for a letter-case clash lands on another note's name",
+        config: { seed: 100620, ...CHAOS },
+        expect: [],
+    },
+    {
+        title: "chaos: a pull waiting for another device's merge lock is not given up",
+        symptom: "A note restored by another device never comes back here",
+        config: { seed: 100905, ...CHAOS },
+        expect: [],
+    },
+    {
+        title: "e2ee: line endings alone are not a difference between devices",
+        symptom: "(checker) A Windows copy with CRLF was reported as diverged from an LF merge",
+        config: { seed: 100633, ...E2EE },
+        expect: [],
+    },
+    {
+        title: "restart: a journaled upload is adopted into the sync index after an app kill",
+        symptom: "A note renamed after a restart exists twice",
+        config: { seed: 100033, ...RESTART },
+        expect: [],
+    },
+    {
+        title: "restart: an earlier upload of a moved note is an edit of it, not an orphan",
+        symptom: "A moved note is deleted in the cloud after a restart",
+        config: { seed: 100737, ...RESTART },
+        expect: [],
+    },
 ];
 
 function configOf(c: Case, name: string): SimConfig {

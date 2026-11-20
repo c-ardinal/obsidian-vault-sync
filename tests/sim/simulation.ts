@@ -744,7 +744,9 @@ function diffMaps(a: Record<string, string>, b: Record<string, string>): string[
     for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) {
         if (!(k in a)) out.push(`extra local ${k}`);
         else if (!(k in b)) out.push(`missing local ${k}`);
-        else if (a[k] !== b[k]) out.push(`content of ${k}`);
+        // Line endings / BOM only: the engine treats these as the same text (a Windows
+        // device keeps its CRLF copy when another device's merge wrote LF)
+        else if (a[k] !== b[k] && sameText(a[k], b[k]) === false) out.push(`content of ${k}`);
     }
     return out;
 }
@@ -844,4 +846,9 @@ export async function minimizePlan(cfg: SimConfig, plan: Action[], kind: string,
         if (!removed) chunk = Math.floor(chunk / 2);
     }
     return current;
+}
+
+function sameText(x: string, y: string): boolean {
+    const norm = (t: string) => t.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
+    return norm(x) === norm(y);
 }

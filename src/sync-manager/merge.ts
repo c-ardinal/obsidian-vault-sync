@@ -790,6 +790,7 @@ async function pullFileUnchecked(
             ctx.localIndex[item.path].pendingConflict = true;
             await saveLocalIndex(ctx);
         }
+        lockSkipsOf(ctx).add(item.path);
         return false;
     }
 
@@ -1757,4 +1758,16 @@ async function unsyncedNoteUnderOtherSpelling(ctx: SyncContext, path: string): P
         if (await ctx.vault.exists(other)) return other;
     }
     return null;
+}
+
+const lockSkips = new CtxState<Set<string>>("pullLockSkips", "Pulls skipped because another device holds the merge lock");
+function lockSkipsOf(ctx: SyncContext): Set<string> {
+    let set = lockSkips.get(ctx);
+    if (!set) lockSkips.set(ctx, (set = new Set<string>()));
+    return set;
+}
+
+/** True (once) when the last pull of `path` was skipped for another device's merge lock */
+export function takePullLockSkip(ctx: SyncContext, path: string): boolean {
+    return lockSkips.get(ctx)?.delete(path) ?? false;
 }

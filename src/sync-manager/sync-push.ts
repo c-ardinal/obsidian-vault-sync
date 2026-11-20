@@ -38,6 +38,7 @@ import {
     recordAttemptedUpload,
     forgetAttemptedUpload,
     isAttemptedUpload,
+    moveAttemptedUploads,
     forgetAttemptedVersion,
     attemptedUploadsSnapshot,
 } from "./sync-helpers";
@@ -350,6 +351,13 @@ async function settleOrphanedUploads(ctx: SyncContext): Promise<void> {
                 if (!meta) forgetAttemptedUpload(ctx, path); // never reached the cloud
                 continue;
             }
+            // A synced file renamed here (pending move): the attempt was an edit of it,
+            // not an orphan. Removing it deleted the note in the cloud for every device.
+            const owner = Object.entries(ctx.index).find(([, e]) => e.fileId === meta.id)?.[0];
+            if (owner) {
+                moveAttemptedUploads(ctx, path, owner);
+                continue;
+            }
             let sent = meta.hash;
             let plainHash: string | undefined;
             if (storesTransformedContent(ctx)) {
@@ -622,6 +630,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                             // our known base hash so the push/pull sees the remote change and
                             // merges it.
                             const knownHash = ctx.index[path]?.hash;
+                            let adoptedOwnUpload = false;
                             let remoteChangedMeanwhile =
                                 !!knownHash &&
                                 !!moved.hash &&
@@ -637,6 +646,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                 if (owner) {
                                     forgetAttemptedVersion(ctx, owner, h);
                                     remoteChangedMeanwhile = false;
+                                    adoptedOwnUpload = true;
                                 }
                             }
                             if (remoteChangedMeanwhile) {
@@ -661,6 +671,14 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                 forcePush: false,
                                 pendingMove: undefined,
                             };
+                            // Adopted a newer cloud version as ours (our upload whose response
+                            // was lost): the old ancestor and plaintext hash describe the
+                            // version before it, and merging from there made our own edit
+                            // conflict with the other devices' edits built on it.
+                            if (!remoteChangedMeanwhile && knownHash && moved.hash && adoptedOwnUpload) {
+                                updatedEntry.ancestorHash = moved.hash;
+                                delete (updatedEntry as { plainHash?: string }).plainHash;
+                            }
                             ctx.index[path] = updatedEntry;
                             ctx.localIndex[path] = { ...updatedEntry };
                             recordActivity(ctx, "rename", path, moveInfo.oldPath);
