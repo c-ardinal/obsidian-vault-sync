@@ -854,6 +854,48 @@ async function checkScreens(page, lang, { mobile = false } = {}) {
     check(lang, `${tag}: diagnostics texts are not cut`, diagClipped.length === 0, diagClipped.join(" / "));
     await escape(page);
 
+    // Restore to a past time: the form, the plan (stubbed: no cloud here), then apply
+    await page.evaluate((id) => {
+        const sm = window.app.plugins.plugins[id].syncManager;
+        const now = Date.now();
+        sm.planPointInTimeRestore = async (folder, time, opts) => {
+            opts?.onProgress?.(3, 5);
+            return {
+                time,
+                folder: folder.trim(),
+                entries: [
+                    { path: "Notes/Plan.md", action: "restore", revision: { id: "r1", modifiedTime: now - 864e5, size: 10 } },
+                    { path: "Notes/Gone.md", action: "recreate", trashed: { id: "t1", originalPath: "Notes/Gone.md", day: "2026-11-19", size: 1, mtime: 0 } },
+                    { path: "Notes/New idea with a long name that wraps on a phone.md", action: "created-after" },
+                    { path: "Notes/Same.md", action: "unchanged" },
+                ],
+            };
+        };
+        window.__pitApplied = null;
+        sm.applyPointInTimeRestore = async (plan, opts) => {
+            window.__pitApplied = opts.removeCreatedAfter;
+            return { restored: 1, recreated: 1, removed: 0, failed: [] };
+        };
+    }, PLUGIN_ID);
+    await cmd(page, "restore-to-point-in-time");
+    await modalOpen(page, ".vault-sync-pit-folder");
+    await shotModal(page, lang, tag, "scr-pit-form", "point-in-time form");
+    await page.fill(".vault-sync-pit-folder", "Notes");
+    await page.click(".vault-sync-pit-modal .modal-button-container .mod-cta");
+    await page.waitForSelector(".vault-sync-pit-summary", { timeout: 5000 }).catch(() => {});
+    await shotModal(page, lang, tag, "scr-pit-plan", "point-in-time plan");
+    const pitRows = (await page.$$(".vault-sync-pit-row")).length;
+    check(lang, `${tag}: restore plan lists the files to change`, pitRows === 3, `rows=${pitRows}`);
+    const pitClipped = await page.$$eval(".vault-sync-pit-note, .vault-sync-pit-modal .setting-item-description", (els) =>
+        els.filter((e) => e.scrollHeight > e.clientHeight + 1).map((e) => e.textContent.slice(0, 30)),
+    );
+    check(lang, `${tag}: restore texts are not cut`, pitClipped.length === 0, pitClipped.join(" / "));
+    await page.click(".vault-sync-pit-modal .modal-button-container .mod-cta");
+    await sleep(400);
+    const pitApplied = await page.evaluate(() => window.__pitApplied);
+    check(lang, `${tag}: restore runs, keeping files created after`, pitApplied === false, String(pitApplied));
+    await escape(page);
+
     // Settings to another device: QR code, then the link read back on "another device"
     const orig = await page.evaluate((id) => {
         const p = window.app.plugins.plugins[id];
@@ -863,25 +905,25 @@ async function checkScreens(page, lang, { mobile = false } = {}) {
         return o;
     }, PLUGIN_ID);
     await cmd(page, "export-settings");
-    await modalOpen(page, ".vault-sync-transfer-qr svg");
+    await modalOpen(page, ".vault-sync-move-qr svg");
     await shotModal(page, lang, tag, "scr-settings-export", "settings export modal");
-    const qrSize = await page.$eval(".vault-sync-transfer-qr svg", (e) => e.getBoundingClientRect().width);
+    const qrSize = await page.$eval(".vault-sync-move-qr svg", (e) => e.getBoundingClientRect().width);
     check(lang, `${tag}: settings QR code is drawn`, qrSize >= 150, `width=${qrSize}`);
-    const link = await page.$eval(".vault-sync-transfer-qr", (e) => e.dataset.link || "");
+    const link = await page.$eval(".vault-sync-move-qr", (e) => e.dataset.link || "");
     check(lang, `${tag}: settings link is short`, link.startsWith("obsidian://") && link.length < 1500, `length=${link.length}`);
     await escape(page);
     // "Another device": the earlier values back, then the link read in
     await page.evaluate(([id, o]) => Object.assign(window.app.plugins.plugins[id].settings, o), [PLUGIN_ID, orig]);
     await cmd(page, "import-settings");
-    await modalOpen(page, ".vault-sync-transfer-input");
-    await page.fill(".vault-sync-transfer-input", link);
-    await page.click(".vault-sync-transfer-modal .modal-button-container .mod-cta");
-    await page.waitForSelector(".vault-sync-transfer-row", { timeout: 5000 }).catch(() => {});
+    await modalOpen(page, ".vault-sync-move-input");
+    await page.fill(".vault-sync-move-input", link);
+    await page.click(".vault-sync-move-modal .modal-button-container .mod-cta");
+    await page.waitForSelector(".vault-sync-move-row", { timeout: 5000 }).catch(() => {});
     await shotModal(page, lang, tag, "scr-settings-import", "settings import modal");
-    const importRows = (await page.$$(".vault-sync-transfer-row")).length;
+    const importRows = (await page.$$(".vault-sync-move-row")).length;
     const expectRows = (orig.concurrency !== 7 ? 1 : 0) + (orig.syncDotfiles !== true ? 1 : 0);
     check(lang, `${tag}: settings import lists the changes`, importRows === expectRows, `rows=${importRows}, expected ${expectRows}`);
-    if (importRows > 0) await page.click(".vault-sync-transfer-modal .modal-button-container .mod-cta");
+    if (importRows > 0) await page.click(".vault-sync-move-modal .modal-button-container .mod-cta");
     await sleep(500);
     const applied = await page.evaluate((id) => window.app.plugins.plugins[id].settings.concurrency, PLUGIN_ID);
     check(lang, `${tag}: settings import applies the link`, applied === 7, `concurrency ${applied}`);

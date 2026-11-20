@@ -45,7 +45,7 @@ export class SettingsExportModal extends Modal {
         private readonly plugin: VaultSync,
     ) {
         super(app);
-        this.modalEl.addClass("vault-sync-transfer-modal");
+        this.modalEl.addClass("vault-sync-move-modal");
     }
 
     onOpen(): void {
@@ -55,12 +55,12 @@ export class SettingsExportModal extends Modal {
         const link = settingsTransferLink(data);
         const changed = Object.keys(decodeSettingsTransfer(data, DEFAULT_SETTINGS)).length;
 
-        contentEl.createEl("p", { cls: "vault-sync-transfer-note", text: t("transferExportIntro") });
+        contentEl.createEl("p", { cls: "vault-sync-move-note", text: t("transferExportIntro") });
 
         const qr = qrcode(0, "L");
         qr.addData(link, "Byte");
         qr.make();
-        const box = contentEl.createDiv({ cls: "vault-sync-transfer-qr" });
+        const box = contentEl.createDiv({ cls: "vault-sync-move-qr" });
         // The generator's own SVG markup (paths only), parsed instead of set as HTML
         const svg = new DOMParser().parseFromString(qr.createSvgTag({ margin: 4, scalable: true }), "image/svg+xml");
         box.appendChild(activeDocument.importNode(svg.documentElement, true));
@@ -68,10 +68,10 @@ export class SettingsExportModal extends Modal {
         box.dataset.link = link;
 
         contentEl.createEl("p", {
-            cls: "vault-sync-transfer-note",
+            cls: "vault-sync-move-note",
             text: t("transferExportCount").replace("{n}", String(changed)),
         });
-        contentEl.createEl("p", { cls: "vault-sync-transfer-note", text: t("transferExportExcluded") });
+        contentEl.createEl("p", { cls: "vault-sync-move-note", text: t("transferExportExcluded") });
 
         const row = contentEl.createDiv({ cls: "modal-button-container" });
         row.createEl("button", { text: t("transferCopyLink") }).addEventListener("click", () => {
@@ -98,7 +98,7 @@ export class SettingsImportModal extends Modal {
         private readonly data: string | null,
     ) {
         super(app);
-        this.modalEl.addClass("vault-sync-transfer-modal");
+        this.modalEl.addClass("vault-sync-move-modal");
     }
 
     onOpen(): void {
@@ -114,11 +114,11 @@ export class SettingsImportModal extends Modal {
     private renderPaste(): void {
         const { contentEl } = this;
         contentEl.empty();
-        contentEl.createEl("p", { cls: "vault-sync-transfer-note", text: t("transferImportPaste") });
+        contentEl.createEl("p", { cls: "vault-sync-move-note", text: t("transferImportPaste") });
         let value = "";
         new Setting(contentEl).setName(t("transferImportLink")).addText((text) => {
             text.setPlaceholder("obsidian://…").onChange((v) => (value = v));
-            text.inputEl.addClass("vault-sync-transfer-input");
+            text.inputEl.addClass("vault-sync-move-input");
         });
         const row = contentEl.createDiv({ cls: "modal-button-container" });
         row.createEl("button", { cls: "mod-cta", text: t("transferImportRead") }).addEventListener("click", () => {
@@ -158,15 +158,15 @@ export class SettingsImportModal extends Modal {
             return;
         }
         contentEl.createEl("p", {
-            cls: "vault-sync-transfer-note",
+            cls: "vault-sync-move-note",
             text: t("transferImportIntro").replace("{n}", String(changes.length)),
         });
-        const list = contentEl.createDiv({ cls: "vault-sync-transfer-list" });
+        const list = contentEl.createDiv({ cls: "vault-sync-move-list" });
         for (const [key, value] of changes) {
-            const rowEl = list.createDiv({ cls: "vault-sync-transfer-row" });
-            rowEl.createDiv({ cls: "vault-sync-transfer-name", text: info.get(key)?.label ?? key });
+            const rowEl = list.createDiv({ cls: "vault-sync-move-row" });
+            rowEl.createDiv({ cls: "vault-sync-move-name", text: info.get(key)?.label ?? key });
             rowEl.createDiv({
-                cls: "vault-sync-transfer-value",
+                cls: "vault-sync-move-value",
                 text: `${showValue(current[key])} → ${showValue(value)}`,
             });
         }

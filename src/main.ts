@@ -1,10 +1,11 @@
-import { Notice, Plugin, TFile, setIcon, Platform, apiVersion } from "obsidian";
+import { Notice, Plugin, TFile, TFolder, setIcon, Platform, apiVersion } from "obsidian";
 import { createCloudAdapter, DEFAULT_CLOUD_PROVIDER } from "./cloud-adapters";
 import { MassDeleteGuard } from "./sync-manager/mass-change-guard";
 import { ConflictResolveModal, openConflictResolver } from "./ui/conflict-resolve-modal";
 import { isConflictCopyPath } from "./sync-manager/conflict-resolution";
 import { DevicesModal } from "./ui/devices-modal";
 import { DiagnosticsModal } from "./ui/diagnostics-modal";
+import { PointInTimeModal } from "./ui/point-in-time-modal";
 import { SettingsExportModal, SettingsImportModal } from "./ui/settings-transfer-modal";
 import { SETTINGS_TRANSFER_ACTION } from "./services/settings-transfer";
 import { formatDiagnostics } from "./sync-manager/diagnostics";
@@ -633,6 +634,16 @@ export default class VaultSync extends Plugin {
         });
 
         this.addCommand({
+            id: "restore-to-point-in-time",
+            name: t("labelPointInTimeCommand"),
+            checkCallback: (checking: boolean) => {
+                if (!this.syncManager?.supportsHistory) return false;
+                if (!checking) this.openPointInTime("");
+                return true;
+            },
+        });
+
+        this.addCommand({
             id: "export-settings",
             name: t("labelExportSettingsCommand"),
             callback: () => this.openSettingsExport(),
@@ -741,6 +752,13 @@ export default class VaultSync extends Plugin {
                                 .onClick(() => {
                                     new HistoryModal(this.app, this.syncManager, file).open();
                                 });
+                        });
+                    }
+                    if (file instanceof TFolder) {
+                        menu.addItem((item) => {
+                            item.setTitle(t("labelPointInTimeFolder"))
+                                .setIcon("history")
+                                .onClick(() => this.openPointInTime(file.isRoot() ? "" : file.path));
                         });
                     }
                 }
@@ -884,6 +902,15 @@ export default class VaultSync extends Plugin {
     /** The devices that sync this vault, and their changes */
     openDevices(): void {
         new DevicesModal(this.app, this.syncManager).open();
+    }
+
+    /** A folder (or the whole vault) back to a past time */
+    openPointInTime(folder: string): void {
+        if (!this.syncManager.supportsHistory) {
+            new Notice(t("pitNotSupported"));
+            return;
+        }
+        new PointInTimeModal(this.app, this.syncManager, folder).open();
     }
 
     /** This device's settings as a QR code for another device */

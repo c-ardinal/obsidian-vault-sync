@@ -1,10 +1,12 @@
 import { CloudAdapter } from "../types/adapter";
+import { TFile } from "obsidian";
 import { describeCtxState } from "./context-state";
 import { logTail, MAX_LOG_LINES, type DiagnosticsSnapshot } from "./diagnostics";
 import {
     forgetDevice as _forgetDevice,
     getDeviceName as _getDeviceName,
     listDevices as _listDevices,
+    isSettingsPath,
     setDeviceName as _setDeviceName,
     type DeviceRecord,
 } from "./device-registry";
@@ -32,7 +34,8 @@ import {
 } from "./notification-matrix";
 import { SyncProgressTracker } from "./sync-progress";
 import { RemoteDeletionService } from "./remote-deletion";
-import { TrashRemoteDeletion } from "./remote-trash";
+import { TrashRemoteDeletion, listTrash as _listTrash } from "./remote-trash";
+import { applyRestore, planRestore, type PlanOptions, type RestorePlan, type RestoreResult } from "./point-in-time";
 import { isFirstSyncDeferred, type FirstSyncGuard } from "./first-sync";
 import { approveAllPlanGuard, type PlanGuard } from "./sync-plan";
 import {
@@ -694,6 +697,61 @@ export class SyncManager {
         } catch {
             return [];
         }
+    }
+
+    // === Point-in-time restore (point-in-time.ts) ===
+
+    /** What a folder would get back from a past time (reads only) */
+    async planPointInTimeRestore(folder: string, time: number, options: PlanOptions = {}): Promise<RestorePlan> {
+        const ctx = this as unknown as SyncContext;
+        return planRestore(
+            {
+                files: () =>
+                    Object.entries(this.index)
+                        .filter(([path, e]) => !!e.fileId && path !== this.pluginDataPath)
+                        .map(([path, e]) => ({ path, fileId: e.fileId })),
+                listRevisions: (path, fileId) => _listRevisions(ctx, path, fileId),
+                listTrash: () => _listTrash(this.adapter),
+                exists: (path) => this.vault.getAbstractFileByPath(path) !== null,
+                excluded: (path) => this.isManagedSeparately(path) || isSettingsPath(ctx, path),
+            },
+            folder,
+            time,
+            { concurrency: this.settings.concurrency, ...options },
+        );
+    }
+
+    /** Write a plan into the vault; `remove` takes away files created after the time (when asked) */
+    async applyPointInTimeRestore(
+        plan: RestorePlan,
+        options: {
+            removeCreatedAfter: boolean;
+            remove: (path: string) => Promise<void>;
+            onProgress?: (done: number, total: number) => void;
+        },
+    ): Promise<RestoreResult> {
+        const ctx = this as unknown as SyncContext;
+        const result = await applyRestore(
+            {
+                revisionContent: (path, revisionId, fileId) => _getRevisionContent(ctx, path, revisionId, fileId),
+                trashContent: (file) => this.adapter.downloadFile(file.id),
+                write: async (path, data) => {
+                    await this.ensureLocalFolder(path);
+                    const file = this.vault.getAbstractFileByPath(path);
+                    if (file instanceof TFile) await this.vault.modifyBinary(file, data);
+                    else await this.vault.createBinary(path, data);
+                },
+                remove: options.remove,
+            },
+            plan,
+            options,
+        );
+        await this.log(
+            `[Restore] Point in time ${new Date(plan.time).toISOString()} folder="${plan.folder}": ` +
+                `restored ${result.restored}, recreated ${result.recreated}, removed ${result.removed}, failed ${result.failed.length}`,
+            "info",
+        );
+        return result;
     }
 
     // === Devices and their changes (device-registry.ts) ===

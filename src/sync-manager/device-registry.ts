@@ -90,7 +90,7 @@ export function deviceRecordPath(ctx: Pick<DeviceCtx, "pluginDir">, deviceId: st
 }
 
 /** The config folder (parent of the plugins folder): its files are settings, not notes */
-function isSettingsPath(ctx: Pick<DeviceCtx, "pluginDir">, path: string): boolean {
+export function isSettingsPath(ctx: Pick<DeviceCtx, "pluginDir">, path: string): boolean {
     const i = ctx.pluginDir.lastIndexOf("/plugins/");
     const configDir = i > 0 ? ctx.pluginDir.slice(0, i) : ctx.pluginDir;
     return path.startsWith(configDir + "/");

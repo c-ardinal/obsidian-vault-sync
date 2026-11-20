@@ -193,6 +193,15 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                     onClick: (p) => p.openRemoteTrash(),
                 },
                 {
+                    key: "_open_point_in_time",
+                    type: "button",
+                    label: t("settingOpenPointInTime"),
+                    desc: t("settingOpenPointInTimeDesc"),
+                    buttonText: t("settingOpenPointInTimeButton"),
+                    isHidden: (_s, p) => !p.syncManager.supportsHistory,
+                    onClick: (p) => p.openPointInTime(""),
+                },
+                {
                     key: "_open_devices",
                     type: "button",
                     label: t("settingOpenDevices"),
