@@ -852,6 +852,29 @@ async function checkScreens(page, lang, { mobile = false } = {}) {
         els.filter((e) => e.scrollHeight > e.clientHeight + 1).map((e) => e.textContent.slice(0, 30)),
     );
     check(lang, `${tag}: diagnostics texts are not cut`, diagClipped.length === 0, diagClipped.join(" / "));
+    // "Report on GitHub": the new-issue page with the text filled in (the browser is not opened here)
+    await page.evaluate(() => {
+        window.__openedUrl = null;
+        window.__realOpen = window.open;
+        window.open = (u) => {
+            window.__openedUrl = String(u);
+            return null;
+        };
+    });
+    await page.click(".vault-sync-diagnostics-modal .modal-button-container .mod-cta");
+    await sleep(300);
+    const opened = await page.evaluate(() => {
+        const u = window.__openedUrl;
+        window.open = window.__realOpen;
+        return u;
+    });
+    const openedBody = opened ? decodeURIComponent(new URL(opened).searchParams.get("body") || "") : "";
+    check(
+        lang,
+        `${tag}: report opens the new-issue page with the diagnostics`,
+        !!opened && opened.startsWith("https://github.com/c-ardinal/obsidian-vault-sync/issues/new?") && openedBody.includes("## Vault Sync diagnostics") && opened.length <= 7500,
+        opened ? `length=${opened.length}` : "not opened",
+    );
     await escape(page);
 
     // Restore to a past time: the form, the plan (stubbed: no cloud here), then apply

@@ -626,6 +626,12 @@ export default class VaultSync extends Plugin {
         });
 
         this.addCommand({
+            id: "report-issue",
+            name: t("labelReportIssueCommand"),
+            callback: () => this.openDiagnostics(),
+        });
+
+        this.addCommand({
             id: "copy-diagnostics",
             name: t("labelDiagnosticsCommand"),
             callback: () => this.openDiagnostics(),
@@ -895,7 +901,7 @@ export default class VaultSync extends Plugin {
     }
 
     /** Diagnostic info for a support request, to copy */
-    openDiagnostics(): void {
+    openDiagnostics(issueTitle = ""): void {
         new DiagnosticsModal(this.app, async (includeLog) => {
             const agreements = this.settings.addonAgreements ?? {};
             const snapshot = {
@@ -910,7 +916,7 @@ export default class VaultSync extends Plugin {
             };
             const log = includeLog ? await this.syncManager.readRecentLog() : null;
             return formatDiagnostics(snapshot, log);
-        }).open();
+        }, issueTitle).open();
     }
 
     /** The list of files kept in the cloud trash, with restore */

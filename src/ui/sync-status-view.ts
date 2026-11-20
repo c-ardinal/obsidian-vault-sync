@@ -433,6 +433,14 @@ export class SyncStatusView {
         foot.createSpan({ cls: "vault-sync-status-muted", text: note });
 
         const btns = foot.createDiv({ cls: "vault-sync-status-btns" });
+        if (!s.active && state === "error") {
+            // A failure the user cannot fix by signing in or going online: offer a report
+            const report = btns.createEl("button", { text: t("statusReport") });
+            report.addEventListener("click", () => {
+                this.closeDetails();
+                this.plugin.openDiagnostics(`Sync failed: ${(s.last?.message ?? "").slice(0, 120)}`);
+            });
+        }
         const details = btns.createEl("button", { text: t("statusTransferDetails") });
         details.addEventListener("click", () => {
             this.closeDetails();

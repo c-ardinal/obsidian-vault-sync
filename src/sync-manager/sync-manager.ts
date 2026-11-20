@@ -667,6 +667,7 @@ export class SyncManager {
         | "signedIn"
         | "addOnActive"
         | "syncState"
+        | "lastError"
         | "syncedFiles"
         | "pendingChanges"
         | "backgroundTransfers"
@@ -677,6 +678,10 @@ export class SyncManager {
             signedIn: this.baseAdapter.isAuthenticated(),
             addOnActive: this.cryptoEngine !== null,
             syncState: this.syncState,
+            lastError: (() => {
+                const last = this.progress.snapshot().last;
+                return last && last.outcome !== "ok" ? `${last.outcome}: ${last.message ?? ""}`.trim() : undefined;
+            })(),
             syncedFiles: this.syncedFileCount(),
             pendingChanges: this.dirtyPaths.size,
             backgroundTransfers: this.backgroundTransferQueue.getPendingTransfers().length,

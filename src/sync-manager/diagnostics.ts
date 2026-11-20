@@ -37,6 +37,8 @@ export interface DiagnosticsSnapshot {
     addOns: string[];
     addOnActive: boolean;
     syncState: string;
+    /** Reason of the last failed sync, if the last one failed */
+    lastError?: string;
     syncedFiles: number;
     pendingChanges: number;
     backgroundTransfers: number;
@@ -89,6 +91,7 @@ export function formatDiagnostics(s: DiagnosticsSnapshot, log: string[] | null, 
     out.push("");
     out.push("### Sync");
     out.push(`State: ${s.syncState}`);
+    if (s.lastError) out.push(`Last error: ${s.lastError}`);
     out.push(`First sync done: ${s.firstSyncDone}`);
     out.push(`Synced files: ${s.syncedFiles}`);
     out.push(`Local changes waiting: ${s.pendingChanges}`);
@@ -102,4 +105,83 @@ export function formatDiagnostics(s: DiagnosticsSnapshot, log: string[] | null, 
         out.push("", `### Log (last ${log.length} line(s))`, "```", ...log, "```");
     }
     return out.join("\n") + "\n";
+}
+
+/** New-issue page of the plugin's repository */
+export const ISSUE_URL = "https://github.com/c-ardinal/obsidian-vault-sync/issues/new";
+/** Longest link GitHub opens reliably (about 8 KB; kept below it) */
+export const MAX_ISSUE_URL = 7500;
+
+/** The issue text: a part for the user to write, then the diagnostic info */
+export function issueBody(diagnostics: string, note = ""): string {
+    return [
+        "### What happened",
+        "<!-- What did you do, what did you expect, and what happened instead? -->",
+        "",
+        "",
+        "### Diagnostics",
+        "<details><summary>Diagnostic info</summary>",
+        "",
+        diagnostics.trimEnd(),
+        "",
+        "</details>",
+        ...(note ? ["", note] : []),
+        "",
+    ].join("\n");
+}
+
+function issueLink(title: string, body: string): string {
+    return `${ISSUE_URL}?title=${encodeURIComponent(title)}&body=${encodeURIComponent(body)}`;
+}
+
+/** The text with only the last `keep` lines of its log block */
+export function keepLastLogLines(text: string, keep: number): string {
+    const lines = text.split("\n");
+    const head = lines.findIndex((l) => l.startsWith("### Log"));
+    if (head < 0 || lines[head + 1] !== "```") return text;
+    const end = lines.indexOf("```", head + 2);
+    if (end < 0) return text;
+    const log = lines.slice(head + 2, end);
+    const kept = keep > 0 ? log.slice(-keep) : [];
+    return [
+        ...lines.slice(0, head),
+        `### Log (last ${kept.length} line(s))`,
+        "```",
+        ...kept,
+        ...lines.slice(end),
+    ].join("\n");
+}
+
+/**
+ * A link to the new-issue page with title and text filled in. When the
+ * whole text does not fit in a link, the oldest log lines are left out and
+ * `shortened` is true (the caller copies the whole text for pasting).
+ */
+export function issueUrl(
+    title: string,
+    diagnostics: string,
+    shortenedNote: string,
+    max = MAX_ISSUE_URL,
+): { url: string; shortened: boolean } {
+    const full = issueLink(title, issueBody(diagnostics));
+    if (full.length <= max) return { url: full, shortened: false };
+    const logLines = (() => {
+        const m = /### Log \(last (\d+) line/.exec(diagnostics);
+        return m ? Number(m[1]) : 0;
+    })();
+    // Most log lines that still fit (binary search)
+    let lo = 0;
+    let hi = logLines;
+    const fits = (n: number) => issueLink(title, issueBody(keepLastLogLines(diagnostics, n), shortenedNote)).length <= max;
+    while (lo < hi) {
+        const mid = Math.ceil((lo + hi) / 2);
+        if (fits(mid)) lo = mid;
+        else hi = mid - 1;
+    }
+    let body = issueBody(keepLastLogLines(diagnostics, lo), shortenedNote);
+    // Still too long without any log: cut the text itself
+    while (issueLink(title, body).length > max && body.length > 0) {
+        body = body.slice(0, Math.floor(body.length * 0.9));
+    }
+    return { url: issueLink(title, body), shortened: true };
 }
