@@ -43,6 +43,8 @@ describe("sync-helpers", () => {
                 enableLogging: false,
                 isDeveloperMode: false,
                 exclusionPatterns: "",
+                desktopExclusionPatterns: "",
+                mobileExclusionPatterns: "",
                 bgTransferIntervalSec: 0,
                 syncAppearance: true,
                 syncCommunityPlugins: true,

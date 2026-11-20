@@ -13,6 +13,8 @@ export type SyncManagerSettings = Pick<
     | "enableLogging"
     | "isDeveloperMode"
     | "exclusionPatterns"
+    | "desktopExclusionPatterns"
+    | "mobileExclusionPatterns"
     | "syncAppearance"
     | "syncCommunityPlugins"
     | "syncCoreConfig"

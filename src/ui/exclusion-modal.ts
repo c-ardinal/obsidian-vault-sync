@@ -62,6 +62,15 @@ const toggleExclusions = (): ToggleExclusion[] => [
     },
 ];
 
+/** The two pattern lists: for every device (also removed from the cloud), or this device only */
+export type ExclusionListKey = "exclusionPatterns" | "desktopExclusionPatterns" | "mobileExclusionPatterns";
+
+const LIST_TEXTS: Record<ExclusionListKey, { title: string; note: string }> = {
+    exclusionPatterns: { title: "settingExclusionModalTitle", note: "settingExclusionModalNote" },
+    desktopExclusionPatterns: { title: "settingDesktopExclusionModalTitle", note: "settingDesktopExclusionModalNote" },
+    mobileExclusionPatterns: { title: "settingMobileExclusionModalTitle", note: "settingMobileExclusionModalNote" },
+};
+
 export class ExclusionPatternModal extends Modal {
     private plugin: VaultSync;
     private patterns: string[];
@@ -75,10 +84,14 @@ export class ExclusionPatternModal extends Modal {
     private expandedPatterns: Set<string> = new Set();
     private pathsLoaded = false;
 
-    constructor(app: App, plugin: VaultSync) {
+    constructor(
+        app: App,
+        plugin: VaultSync,
+        private readonly key: ExclusionListKey = "exclusionPatterns",
+    ) {
         super(app);
         this.plugin = plugin;
-        this.patterns = (plugin.settings.exclusionPatterns || "")
+        this.patterns = (plugin.settings[key] || "")
             .split("\n")
             .map((p) => p.trim())
             .filter((p) => p);
@@ -89,7 +102,12 @@ export class ExclusionPatternModal extends Modal {
         this.modalEl.addClass("vault-sync-exclusion-modal");
         contentEl.empty();
 
-        this.setTitle(t("settingExclusionModalTitle"));
+        const texts = LIST_TEXTS[this.key];
+        this.setTitle(t(texts.title));
+        contentEl.createEl("p", {
+            cls: "vault-sync-exclusion-note",
+            text: t(texts.note),
+        });
 
         const addRow = contentEl.createDiv({ cls: "vault-sync-exclusion-add-row" });
 
@@ -271,6 +289,8 @@ export class ExclusionPatternModal extends Modal {
     }
 
     private getActiveToggleExclusions(): ToggleExclusion[] {
+        // The toggles apply to every device: shown only with the list that does too
+        if (this.key !== "exclusionPatterns") return [];
         return toggleExclusions().filter((te) => !this.plugin.settings[te.settingKey]);
     }
 
@@ -423,7 +443,7 @@ export class ExclusionPatternModal extends Modal {
     }
 
     private savePatterns(): void {
-        this.plugin.settings.exclusionPatterns = this.patterns.join("\n");
+        this.plugin.settings[this.key] = this.patterns.join("\n");
         void this.plugin.saveSettings();
     }
 }

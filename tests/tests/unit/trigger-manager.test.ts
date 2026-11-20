@@ -15,7 +15,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { TriggerManager } from "../../../src/services/trigger-manager";
+import { TriggerManager, RESUME_MIN_HIDDEN_MS, HIDDEN_INTERVAL_MS } from "../../../src/services/trigger-manager";
 import { DEFAULT_SETTINGS, SETTINGS_LIMITS } from "../../../src/constants";
 import { TFile, TFolder } from "../../../tests/__mocks__/obsidian";
 
@@ -35,6 +35,7 @@ function createMockDeps(settingsOverrides: Record<string, any> = {}) {
     const syncManager = {
         requestSmartSync: vi.fn(),
         isSyncing: vi.fn(() => false),
+        pendingChangeCount: 0,
         shouldIgnore: vi.fn(() => false),
         markDirty: vi.fn(),
         markDeleted: vi.fn(),
@@ -261,6 +262,83 @@ describe("TriggerManager", () => {
             await new Promise((r) => process.nextTick(r));
             await new Promise((r) => process.nextTick(r));
             expect(syncManager.requestSmartSync).toHaveBeenCalled();
+        });
+    });
+
+    describe("near-realtime: back to the front, network back, hidden app", () => {
+        const flush = async () => {
+            await new Promise((r) => process.nextTick(r));
+            await new Promise((r) => process.nextTick(r));
+        };
+        const make = (autoSyncIntervalSec = 10) => {
+            const m = createMockDeps({
+                triggerConfigStrategy: "unified",
+                unifiedTriggers: { ...DEFAULT_SETTINGS.unifiedTriggers, autoSyncIntervalSec },
+            });
+            const tm = new TriggerManager(m.deps);
+            tm.setReady(true);
+            return { tm, ...m };
+        };
+
+        it("syncs at once when the app comes back after a while", async () => {
+            const { tm, syncManager } = make();
+            tm.onVisibilityChange(true, 1000);
+            tm.onVisibilityChange(false, 1000 + RESUME_MIN_HIDDEN_MS);
+            await flush();
+            expect(syncManager.requestSmartSync).toHaveBeenCalledWith("timer-sync");
+        });
+
+        it("does not sync for a short switch away", async () => {
+            const { tm, syncManager } = make();
+            tm.onVisibilityChange(true, 1000);
+            tm.onVisibilityChange(false, 1500);
+            await flush();
+            expect(syncManager.requestSmartSync).not.toHaveBeenCalled();
+        });
+
+        it("follows the timer setting: off means no resume or network sync", async () => {
+            const { tm, syncManager } = make(SETTINGS_LIMITS.autoSyncInterval.disabled);
+            tm.onVisibilityChange(true, 1000);
+            tm.onVisibilityChange(false, 100_000);
+            tm.onOnline();
+            await flush();
+            expect(syncManager.requestSmartSync).not.toHaveBeenCalled();
+        });
+
+        it("syncs when the network comes back", async () => {
+            const { tm, syncManager } = make();
+            tm.onOnline();
+            await flush();
+            expect(syncManager.requestSmartSync).toHaveBeenCalledWith("timer-sync");
+        });
+
+        it("runs the timer rarely while hidden, unless local changes wait", async () => {
+            const { tm, syncManager } = make();
+            tm.onVisibilityChange(true);
+            const tick = async () => {
+                await (tm as any).triggerSmartSync("interval");
+                await flush();
+            };
+            await tick();
+            expect(syncManager.requestSmartSync).toHaveBeenCalledTimes(1);
+            await tick();
+            expect(syncManager.requestSmartSync).toHaveBeenCalledTimes(1);
+            syncManager.pendingChangeCount = 2;
+            await tick();
+            expect(syncManager.requestSmartSync).toHaveBeenCalledTimes(2);
+            syncManager.pendingChangeCount = 0;
+            vi.setSystemTime(Date.now() + HIDDEN_INTERVAL_MS);
+            await tick();
+            expect(syncManager.requestSmartSync).toHaveBeenCalledTimes(3);
+        });
+
+        it("registers the page and network listeners", () => {
+            const m = createMockDeps();
+            const seen: string[] = [];
+            (globalThis as any).activeDocument = { visibilityState: "visible" };
+            const tm = new TriggerManager({ ...m.deps, registerDomEvent: (_t: unknown, type: string) => seen.push(type) } as any);
+            tm.registerResumeTriggers();
+            expect(seen.sort()).toEqual(["online", "visibilitychange"]);
         });
     });
 

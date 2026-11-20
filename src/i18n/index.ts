@@ -203,7 +203,7 @@ export const en: Record<string, string> = {
     settingStartupSyncDesc: "Sync with cloud automatically upon starting Obsidian.",
     settingAutoSyncInterval: "Trigger: Auto-sync Interval",
     settingAutoSyncIntervalDesc:
-        "Sync periodically in background.\nNote: To prevent data loss, sync is skipped while you are actively editing.",
+        "Sync periodically in background. Also syncs at once when the app comes back to the front or the network comes back; while the app is hidden, at most every 5 minutes unless local changes wait.\nNote: To prevent data loss, sync is skipped while you are actively editing.",
     settingTriggerSave: "Trigger: Save [Ctrl+S]",
     settingTriggerSaveDesc: "Sync when you explicitly save a file.",
     settingModify: "Trigger: Modify Delay",
@@ -259,7 +259,7 @@ export const en: Record<string, string> = {
     settingSyncFlexibleDataDesc: "Sync Vault-Sync plugin data (data/flexible/ directory).",
     settingSyncDeviceLogs: "Sync Device Logs",
     settingSyncDeviceLogsDesc: "Sync device-specific logs (logs/{deviceId}/).",
-    settingExclusionPatterns: "Exclude Files/Folders",
+    settingExclusionPatterns: "Exclude files/folders (all devices)",
     settingExclusionPatternsDesc:
         "Glob patterns (one per line).\nUse * for any chars, ** for recursive dirs.\nExample: *.tmp, temp/**",
     settingExclusionPatternsInvalid:
@@ -275,6 +275,19 @@ export const en: Record<string, string> = {
     settingExclusionModalDuplicate: "This pattern already exists.",
     settingExclusionModalScanning: "Scanning vault files...",
     settingExclusionModalFileCount: "{0} files scanned",
+    settingExclusionModalNote: "Matching files are not synced on any device, and are removed from the cloud.",
+    settingDesktopExclusionPatterns: "Exclude files/folders (PC only)",
+    settingDesktopExclusionPatternsDesc:
+        "Files and folders PCs do not sync. They stay in the cloud and keep syncing on mobile devices. Files already on a PC are kept, and deleting them there does not delete them in the cloud. Shared by all your PCs.",
+    settingDesktopExclusionModalTitle: "Exclusion patterns (PC only)",
+    settingDesktopExclusionModalNote:
+        "Matching files are not downloaded, uploaded or deleted by PCs. They stay in the cloud for mobile devices.",
+    settingMobileExclusionPatterns: "Exclude files/folders (mobile only)",
+    settingMobileExclusionPatternsDesc:
+        "Files and folders phones and tablets do not sync. They stay in the cloud and keep syncing on PCs. Files already on a mobile device are kept, and deleting them there does not delete them in the cloud. Shared by all your mobile devices.",
+    settingMobileExclusionModalTitle: "Exclusion patterns (mobile only)",
+    settingMobileExclusionModalNote:
+        "Matching files are not downloaded, uploaded or deleted by phones and tablets. They stay in the cloud for PCs.",
     settingCloudRootFolderInvalid:
         "This folder name cannot be used. Enter a name that does not start with / and contains none of \\ < > : \" | ? *",
     settingCloudRootFolderChange: "Change",

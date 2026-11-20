@@ -23,6 +23,8 @@ export const SIM_SETTINGS: SyncManagerSettings = {
     enableLogging: false,
     isDeveloperMode: false,
     exclusionPatterns: "",
+    desktopExclusionPatterns: "",
+    mobileExclusionPatterns: "",
     largeFileThresholdMB: 0,
     bgTransferIntervalSec: 0,
     syncAppearance: true,

@@ -3,7 +3,7 @@ import type { SyncContext } from "./context";
 import { parseIndex, providerNameOf, serializeIndex } from "./remote-layout";
 import { noteIndexFormat } from "./state";
 import type { LocalFileIndex } from "./types";
-import { tryDecompress, hashContent } from "./file-utils";
+import { tryDecompress, hashContent, matchesDeviceScope, deviceScopePatterns } from "./file-utils";
 import { storesTransformedContent } from "./content-identity";
 import { CtxState } from "./context-state";
 
@@ -179,6 +179,15 @@ export async function buildRemoteIndexPayload(ctx: SyncHelpersCtx): Promise<Arra
                     merged[path] = entry;
                     kept++;
                 }
+            }
+            // Files this device leaves out: it never changes them, so the cloud's
+            // entries win (our copy is stale: an edit, rename or delete made elsewhere
+            // would be undone in the shared index).
+            for (const p of Object.keys(merged)) {
+                if (p !== ctx.pluginDataPath && matchesDeviceScope(deviceScopePatterns(ctx.settings), p) && !remote[p]) delete merged[p];
+            }
+            for (const [p, e] of Object.entries(remote)) {
+                if (p !== ctx.pluginDataPath && matchesDeviceScope(deviceScopePatterns(ctx.settings), p)) merged[p] = e;
             }
             const carried: LocalFileIndex = {};
             for (const [path, entry] of Object.entries(merged)) {

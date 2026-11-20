@@ -2195,3 +2195,10 @@
 .vault-sync-pit-path {
     word-break: break-all;
 }
+
+/* Exclusion lists: which devices a list applies to */
+.vault-sync-exclusion-note {
+    margin: 0 0 var(--size-4-3);
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+}

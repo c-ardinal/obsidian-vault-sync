@@ -434,6 +434,23 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                     placeholder: "*.tmp\ntemp/**\n.git/**",
                     onChange: async (_val, p) => p.triggerFullCleanup(),
                 },
+                {
+                    key: "desktopExclusionPatterns",
+                    type: "textarea",
+                    label: t("settingDesktopExclusionPatterns"),
+                    desc: t("settingDesktopExclusionPatternsDesc"),
+                    // Called with the patterns before the change
+                    onChange: async (before, p) =>
+                        p.applyExclusionListChange("desktopExclusionPatterns", typeof before === "string" ? before : ""),
+                },
+                {
+                    key: "mobileExclusionPatterns",
+                    type: "textarea",
+                    label: t("settingMobileExclusionPatterns"),
+                    desc: t("settingMobileExclusionPatternsDesc"),
+                    onChange: async (before, p) =>
+                        p.applyExclusionListChange("mobileExclusionPatterns", typeof before === "string" ? before : ""),
+                },
             ],
         },
         {

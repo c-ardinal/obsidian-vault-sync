@@ -1,3 +1,4 @@
+import { Platform } from "obsidian";
 import { normalizePath, basename } from "../utils/path";
 import { matchWildcard } from "../utils/wildcard";
 import { contentFingerprint } from "./content-fingerprint";
@@ -434,7 +435,61 @@ export function shouldNotBeOnRemote(ctx: FileUtilsCtx, path: string): boolean {
 }
 
 export function shouldIgnore(ctx: FileUtilsCtx, path: string): boolean {
-    return isManagedSeparately(path) || shouldNotBeOnRemote(ctx, path);
+    return isManagedSeparately(path) || shouldNotBeOnRemote(ctx, path) || isDeviceExcluded(ctx, path);
+}
+
+function patternList(text: string | undefined): string[] {
+    return (text ?? "")
+        .split("\n")
+        .map((p) => p.trim().toLowerCase())
+        .filter((p) => p && !p.startsWith("#"));
+}
+
+/** The list of this kind of device (PC or mobile) */
+export function deviceScopePatterns(settings: {
+    desktopExclusionPatterns?: string;
+    mobileExclusionPatterns?: string;
+}): string {
+    return (Platform.isMobile ? settings.mobileExclusionPatterns : settings.desktopExclusionPatterns) ?? "";
+}
+
+/**
+ * Left out on this kind of device only (desktop/mobileExclusionPatterns). Such files are not
+ * "should not be on remote": the other devices keep syncing them, so no
+ * cleanup ever removes them from the cloud.
+ */
+export function isDeviceExcluded(ctx: FileUtilsCtx, path: string): boolean {
+    return matchesDeviceScope(deviceScopePatterns(ctx.settings), path);
+}
+
+/** The path matches one of the patterns (one per line, "#" lines are comments) */
+export function matchesDeviceScope(patternText: string | undefined, path: string): boolean {
+    const patterns = patternList(patternText);
+    if (patterns.length === 0) return false;
+    const normalizedPath = normalizePath(path).toLowerCase();
+    const withSlash = normalizedPath.endsWith("/") ? normalizedPath : normalizedPath + "/";
+    return patterns.some((p) => matchWildcard(p, normalizedPath) || matchWildcard(p, withSlash));
+}
+
+/**
+ * The folder holds synced files this device leaves out. Deleting the folder
+ * here must not remove it in the cloud (it would take those files from the
+ * other devices): only the files this device syncs are deleted, one by one.
+ */
+export function holdsDeviceExcluded(ctx: FileUtilsCtx, folderPath: string, indexed: string[]): boolean {
+    const patterns = patternList(deviceScopePatterns(ctx.settings));
+    if (patterns.length === 0) return false;
+    if (isDeviceExcluded(ctx, folderPath)) return true;
+    const prefix = folderPath + "/";
+    // Files left out may be missing from the index (never pulled here): a pattern
+    // that can match below the folder is enough. Deleting file by file is only slower.
+    const lowerPrefix = normalizePath(folderPath).toLowerCase() + "/";
+    const couldMatchBelow = (p: string) => {
+        const literal = p.split(/[*?[{]/)[0];
+        return literal.startsWith(lowerPrefix) || lowerPrefix.startsWith(literal);
+    };
+    if (patterns.some(couldMatchBelow)) return true;
+    return indexed.some((p) => p.startsWith(prefix) && isDeviceExcluded(ctx, p));
 }
 
 export function normalizeLineEndings(s: string): string {

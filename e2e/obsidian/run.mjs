@@ -1092,11 +1092,90 @@ async function checkScreens(page, lang, { mobile = false } = {}) {
             await sleep(500);
             await shot(sp, lang, `${tag}-scr-exclusion-typing`);
             await escape(sp);
+
+            // The list for this device only: its own note, no toggle-managed rows,
+            // and the patterns kept in this device's settings
+            const buttons = sp.locator(".vault-sync-settings-page button").filter({ hasText: /Configure|設定|編集|管理/ });
+            if ((await buttons.count()) >= 2) {
+                await buttons.nth(1).click();
+                await modalOpen(sp, ".vault-sync-exclusion-modal");
+                const info = await sp.evaluate(() => {
+                    const m = document.querySelector(".vault-sync-exclusion-modal");
+                    return {
+                        title: m?.querySelector(".modal-title")?.textContent ?? "",
+                        note: m?.querySelector(".vault-sync-exclusion-note")?.textContent ?? "",
+                        managed: m?.querySelectorAll(".vault-sync-exclusion-item-managed").length ?? -1,
+                    };
+                });
+                check(
+                    lang,
+                    `${tag}: PC exclusion list has its own title and note, without toggle rows`,
+                    /PC/.test(info.title) && info.note.length > 0 && info.managed === 0,
+                    JSON.stringify(info),
+                );
+                await sp.fill(".vault-sync-exclusion-add-input", "Archive/**");
+                await sp.press(".vault-sync-exclusion-add-input", "Enter");
+                await sleep(300);
+                await shotModal(sp, lang, tag, "scr-device-exclusion", "device exclusion modal");
+                const saved = await page.evaluate((id) => {
+                    const pl = window.app.plugins.plugins[id];
+                    return { device: pl.settings.desktopExclusionPatterns, shared: pl.settings.exclusionPatterns };
+                }, PLUGIN_ID);
+                check(
+                    lang,
+                    `${tag}: PC exclusion saved apart from the shared list`,
+                    saved.device === "Archive/**" && !saved.shared.includes("Archive/**"),
+                    JSON.stringify(saved),
+                );
+                await escape(sp);
+                await page.evaluate(async (id) => {
+                    const pl = window.app.plugins.plugins[id];
+                    pl.settings.desktopExclusionPatterns = "";
+                    await pl.saveSettings();
+                }, PLUGIN_ID);
+            } else {
+                check(lang, `${tag}: device exclusion button found`, false);
+            }
         } else {
             check(lang, `${tag}: exclusion button found on "${scopeName[2]}"`, false);
         }
     }
     await closeSettings(page);
+
+    // Near-realtime: coming back to the front and the network coming back start a sync
+    {
+        const setVisibility = (state) =>
+            page.evaluate((st) => {
+                Object.defineProperty(document, "visibilityState", { configurable: true, get: () => st });
+                document.dispatchEvent(new Event("visibilitychange"));
+            }, state);
+        await page.evaluate((id) => {
+            const pl = window.app.plugins.plugins[id];
+            window.__syncCalls = [];
+            window.__realRequest = pl.syncManager.requestSmartSync;
+            pl.syncManager.requestSmartSync = async (trigger) => {
+                window.__syncCalls.push(trigger);
+            };
+            pl.triggerManager.setReady(true);
+            pl.triggerManager.destroy(); // no timer sync in between
+        }, PLUGIN_ID);
+        await setVisibility("hidden");
+        await sleep(3300);
+        await setVisibility("visible");
+        await sleep(200);
+        const afterResume = await page.evaluate(() => window.__syncCalls.length);
+        await page.evaluate(() => window.dispatchEvent(new Event("online")));
+        await sleep(200);
+        const calls = await page.evaluate((id) => {
+            const pl = window.app.plugins.plugins[id];
+            pl.syncManager.requestSmartSync = window.__realRequest;
+            delete document.visibilityState;
+            pl.triggerManager.setupAutoSyncInterval();
+            return window.__syncCalls;
+        }, PLUGIN_ID);
+        check(lang, `${tag}: back to the front starts a sync`, afterResume === 1, JSON.stringify(calls));
+        check(lang, `${tag}: network back starts a sync`, calls.length === 2, JSON.stringify(calls));
+    }
 
     // File context menu entry, then the real history modal without an account.
     let menuShown = false;

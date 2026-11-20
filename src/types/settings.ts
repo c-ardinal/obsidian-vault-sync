@@ -58,6 +58,14 @@ export interface VaultSyncSettings {
 
     // Exclusion
     exclusionPatterns: string;
+    /**
+     * Patterns PCs / mobile devices leave out (synced, like the PC / mobile
+     * trigger settings). Unlike exclusionPatterns, matching files stay in the
+     * cloud for the other kind of device: devices of this kind just neither
+     * download, upload nor delete them.
+     */
+    desktopExclusionPatterns: string;
+    mobileExclusionPatterns: string;
 
     // Sync Scope Options
     syncAppearance: boolean; // .obsidian/themes, snippets, etc.

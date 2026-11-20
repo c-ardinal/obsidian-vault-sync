@@ -505,7 +505,12 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                 });
                 break;
             case "textarea":
-                if (item.key === "exclusionPatterns") {
+                if (
+                    item.key === "exclusionPatterns" ||
+                    item.key === "desktopExclusionPatterns" ||
+                    item.key === "mobileExclusionPatterns"
+                ) {
+                    const listKey = item.key;
                     // Render as a button that opens a modal
                     const patternCount = String((this.getSettingValue(item.key) as string | undefined) || "")
                         .split("\n")
@@ -517,13 +522,11 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                     setting.setDesc(summary);
                     setting.addButton((btn) => {
                         btn.setButtonText(t("settingExclusionConfigure")).onClick(() => {
-                            const modal = new ExclusionPatternModal(this.app, this.plugin);
+                            const before = String((this.getSettingValue(listKey) as string | undefined) || "");
+                            const modal = new ExclusionPatternModal(this.app, this.plugin, listKey);
                             modal.onClose = () => {
-                                if (item.onChange)
-                                    void item.onChange(
-                                        this.getSettingValue(item.key),
-                                        this.plugin,
-                                    );
+                                const after = String((this.getSettingValue(listKey) as string | undefined) || "");
+                                if (item.onChange && after !== before) void item.onChange(before, this.plugin);
                                 this.display();
                             };
                             modal.open();

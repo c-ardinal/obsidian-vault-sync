@@ -19,7 +19,13 @@ import {
     shouldNotBeOnRemote,
     shouldIgnore,
     isManagedSeparately,
+    isDeviceExcluded,
+    holdsDeviceExcluded,
+    matchesDeviceScope,
+    deviceScopePatterns,
 } from "../../../src/sync-manager/file-utils";
+import { Platform } from "obsidian";
+import { moveLegacyDeviceExclusion } from "../../../src/services/settings-manager";
 import type { SyncContext } from "../../../src/sync-manager/context";
 
 /** Minimal mock SyncContext with all sync toggles enabled by default */
@@ -480,5 +486,67 @@ describe("shouldIgnore", () => {
 
     it("should NOT ignore workspace.json when syncWorkspace=true", () => {
         expect(shouldIgnore(makeCtx({ syncWorkspace: true }), ".obsidian/workspace.json")).toBe(false);
+    });
+});
+
+// ═════════════════════════════════════════════════════════════════════
+// deviceExclusionPatterns (left out on this device only)
+// ═════════════════════════════════════════════════════════════════════
+
+describe("device exclusion", () => {
+    const ctx = makeCtx({ desktopExclusionPatterns: "Archive/**\n# comment\n**/*.mp4" } as never);
+
+    it("matches the patterns, case-insensitively, ignoring comment lines", () => {
+        expect(isDeviceExcluded(ctx, "Archive/2020/a.md")).toBe(true);
+        expect(isDeviceExcluded(ctx, "archive/b.md")).toBe(true);
+        expect(isDeviceExcluded(ctx, "Archive")).toBe(true);
+        expect(isDeviceExcluded(ctx, "video/clip.MP4")).toBe(true);
+        expect(isDeviceExcluded(ctx, "Notes/a.md")).toBe(false);
+        expect(isDeviceExcluded(ctx, "# comment")).toBe(false);
+        expect(matchesDeviceScope("", "Archive/a.md")).toBe(false);
+    });
+
+    it("is ignored by the sync but never cleaned up from the cloud", () => {
+        expect(shouldIgnore(ctx, "Archive/a.md")).toBe(true);
+        expect(shouldNotBeOnRemote(ctx, "Archive/a.md")).toBe(false);
+    });
+
+    it("keeps whole-folder deletes away from folders that may hold such files", () => {
+        const only = makeCtx({ desktopExclusionPatterns: "Notes/big/**" } as never);
+        expect(holdsDeviceExcluded(only, "Notes", [])).toBe(true); // pattern points below it
+        expect(holdsDeviceExcluded(only, "Notes/big", [])).toBe(true);
+        expect(holdsDeviceExcluded(only, "Other", [])).toBe(false);
+        // A pattern without a fixed folder can match anywhere
+        expect(holdsDeviceExcluded(ctx, "Other", [])).toBe(true);
+        expect(holdsDeviceExcluded(makeCtx(), "Notes", ["Notes/a.md"])).toBe(false);
+    });
+});
+
+describe("PC / mobile exclusion lists", () => {
+    it("uses the list of this kind of device", () => {
+        const settings = { desktopExclusionPatterns: "Big/**", mobileExclusionPatterns: "Media/**" };
+        const ctx = makeCtx(settings as never);
+        expect(deviceScopePatterns(settings)).toBe("Big/**");
+        expect(isDeviceExcluded(ctx, "Big/a.md")).toBe(true);
+        expect(isDeviceExcluded(ctx, "Media/a.png")).toBe(false);
+        (Platform as { isMobile: boolean }).isMobile = true;
+        try {
+            expect(deviceScopePatterns(settings)).toBe("Media/**");
+            expect(isDeviceExcluded(ctx, "Big/a.md")).toBe(false);
+            expect(isDeviceExcluded(ctx, "Media/a.png")).toBe(true);
+        } finally {
+            (Platform as { isMobile: boolean }).isMobile = false;
+        }
+    });
+
+    it("moves a list saved per device by an early build to its kind of device", () => {
+        const pc: Record<string, unknown> = { deviceExclusionPatterns: "Old/**", desktopExclusionPatterns: "", mobileExclusionPatterns: "" };
+        moveLegacyDeviceExclusion(pc, false);
+        expect(pc).toEqual({ desktopExclusionPatterns: "Old/**", mobileExclusionPatterns: "" });
+
+        const phone: Record<string, unknown> = { deviceExclusionPatterns: "Old/**", desktopExclusionPatterns: "", mobileExclusionPatterns: "Set/**" };
+        moveLegacyDeviceExclusion(phone, true);
+        // A list already set (synced from another device) wins
+        expect(phone).toEqual({ desktopExclusionPatterns: "", mobileExclusionPatterns: "Set/**" });
     });
 });
