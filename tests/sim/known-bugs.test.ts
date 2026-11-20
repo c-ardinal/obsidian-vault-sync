@@ -604,6 +604,18 @@ const FIXED_REGRESSIONS: Case[] = [
         config: { seed: 40952, ...CHAOS },
         expect: [],
     },
+    {
+        title: "a conflict keeps the note in place when the cloud version cannot be downloaded",
+        symptom: "An attachment stays only as a conflict copy and the cloud version never arrives",
+        config: { seed: 50606, ...CHAOS },
+        expect: [],
+    },
+    {
+        title: "non-MD5 cloud: a merged upload whose response was lost is checked for an overwrite",
+        symptom: "Another device's edit to a renamed note disappears",
+        config: { seed: 50258, ...NON_MD5 },
+        expect: [],
+    },
 ];
 
 function configOf(c: Case, name: string): SimConfig {

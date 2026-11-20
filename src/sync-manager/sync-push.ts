@@ -1041,12 +1041,18 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                             const mergedFileId =
                                                 ctx.index[file.path]?.fileId || remoteMeta.id;
 
+                                            // A lost response may still have been applied: remember
+                                            // what we sent, so the version is recognised as ours later
+                                            // (and checked for overwriting another device's edit).
+                                            const mergedSent = contentFingerprint(mergedContent);
+                                            recordAttemptedUpload(ctx, file.path, mergedSent);
                                             const mergedUploaded = await ctx.adapter.uploadFile(
                                                 file.path,
                                                 mergedContent,
                                                 mergedStat?.mtime || Date.now(),
                                                 mergedFileId,
                                             );
+                                            forgetAttemptedVersion(ctx, file.path, mergedSent);
 
                                             const mergedPlainHash = await hashContent(mergedContent);
 

@@ -1500,6 +1500,13 @@ async function pullFileUnchecked(
                         "warn",
                     );
 
+                    // Download first: if it fails (network), the note must still be here
+                    // under its name. Renaming it away first left it only as a conflict
+                    // copy, and the retried pull then waited for a rename event that
+                    // never came and gave up.
+                    const remoteContent = isRemoteDeleted
+                        ? null
+                        : await ctx.adapter.downloadFile(fileId || "");
                     const localFile = ctx.vault.getAbstractFileByPath(item.path);
                     if (localFile instanceof TFile) {
                         await ctx.vault.renameFile(localFile, conflictPath);
@@ -1512,8 +1519,7 @@ async function pullFileUnchecked(
                     let remoteSize = 0;
                     let remotePlainHash: string | undefined;
                     let remoteGotHash = item.hash?.toLowerCase() || "";
-                    if (!isRemoteDeleted) {
-                        const remoteContent = await ctx.adapter.downloadFile(fileId || "");
+                    if (remoteContent) {
                         if (await ctx.vault.exists(item.path)) {
                             // Another note took this name (moved or created here) after
                             // our version went to the conflict copy. Writing would replace
