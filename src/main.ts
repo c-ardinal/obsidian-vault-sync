@@ -6,8 +6,6 @@ import { isConflictCopyPath } from "./sync-manager/conflict-resolution";
 import { DevicesModal } from "./ui/devices-modal";
 import { DiagnosticsModal } from "./ui/diagnostics-modal";
 import { PointInTimeModal } from "./ui/point-in-time-modal";
-import { SettingsExportModal, SettingsImportModal } from "./ui/settings-transfer-modal";
-import { SETTINGS_TRANSFER_ACTION } from "./services/settings-transfer";
 import { formatDiagnostics } from "./sync-manager/diagnostics";
 import { MassDeleteModal } from "./ui/mass-delete-modal";
 import { RemoteTrashModal } from "./ui/remote-trash-modal";
@@ -644,18 +642,6 @@ export default class VaultSync extends Plugin {
         });
 
         this.addCommand({
-            id: "export-settings",
-            name: t("labelExportSettingsCommand"),
-            callback: () => this.openSettingsExport(),
-        });
-
-        this.addCommand({
-            id: "import-settings",
-            name: t("labelImportSettingsCommand"),
-            callback: () => this.openSettingsImport(null),
-        });
-
-        this.addCommand({
             id: "show-sync-status",
             name: t("labelShowSyncStatusCommand"),
             checkCallback: (checking: boolean) => {
@@ -768,11 +754,6 @@ export default class VaultSync extends Plugin {
         // 6. Protocol Handler for OAuth Callback (vault-sync-auth)
         this.registerObsidianProtocolHandler("vault-sync-auth", async (params) => {
             await this.credentialMgr.handleAuthCallback(params);
-        });
-
-        // Settings from another device (its QR code or copied link)
-        this.registerObsidianProtocolHandler(SETTINGS_TRANSFER_ACTION, (params) => {
-            this.openSettingsImport(typeof params.d === "string" ? params.d : null);
         });
     }
 
@@ -911,21 +892,6 @@ export default class VaultSync extends Plugin {
             return;
         }
         new PointInTimeModal(this.app, this.syncManager, folder).open();
-    }
-
-    /** This device's settings as a QR code for another device */
-    openSettingsExport(): void {
-        new SettingsExportModal(this.app, this).open();
-    }
-
-    /** Take settings from another device's link (null: paste one) */
-    openSettingsImport(data: string | null): void {
-        new SettingsImportModal(this.app, this, data).open();
-    }
-
-    /** Redraw the settings tab if it is built */
-    refreshSettingsTab(): void {
-        this.settingTab?.display();
     }
 
     /** Diagnostic info for a support request, to copy */

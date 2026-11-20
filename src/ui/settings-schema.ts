@@ -453,28 +453,6 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                         p.updateLoggerOptions();
                     },
                 },
-                // ── Moving settings to another device ──
-                {
-                    key: "_subheader_transfer",
-                    type: "subheader",
-                    label: t("settingSubheaderTransfer"),
-                },
-                {
-                    key: "_open_settings_export",
-                    type: "button",
-                    label: t("settingExportSettings"),
-                    desc: t("settingExportSettingsDesc"),
-                    buttonText: t("settingExportSettingsButton"),
-                    onClick: (p) => p.openSettingsExport(),
-                },
-                {
-                    key: "_open_settings_import",
-                    type: "button",
-                    label: t("settingImportSettings"),
-                    desc: t("settingImportSettingsDesc"),
-                    buttonText: t("settingImportSettingsButton"),
-                    onClick: (p) => p.openSettingsImport(null),
-                },
                 // ── Support ──
                 {
                     key: "_subheader_support",
