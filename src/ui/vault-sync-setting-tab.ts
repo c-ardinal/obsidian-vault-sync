@@ -8,7 +8,15 @@ import { ConfirmModal } from "./confirm-modal";
 /** Old accordion state; no longer used, removed on load. */
 const LEGACY_CLOSED_GROUPS_KEY = "vault-sync:closed-groups";
 
-type PageId = "root" | "account" | "triggers" | "scope" | "performance" | "addons" | "advanced";
+type PageId =
+    | "root"
+    | "account"
+    | "triggers"
+    | "scope"
+    | "performance"
+    | "display"
+    | "addons"
+    | "advanced";
 
 interface SettingsCategory {
     id: Exclude<PageId, "root">;
@@ -51,6 +59,13 @@ const CATEGORIES: SettingsCategory[] = [
         titleKey: "settingPerfSection",
         descKey: "settingCategoryPerformanceDesc",
         sectionIds: ["performance"],
+    },
+    {
+        id: "display",
+        icon: "monitor",
+        titleKey: "settingDisplaySection",
+        descKey: "settingCategoryDisplayDesc",
+        sectionIds: ["display"],
     },
     {
         id: "addons",
@@ -522,6 +537,27 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                 }
                 break;
             }
+            case "slider": {
+                // Obsidian's slider shows its own value next to it.
+                const limits = item.limits ?? { min: 0, max: 100, default: 0 };
+                setting.addSlider((slider) =>
+                    slider
+                        .setLimits(limits.min, limits.max, 1)
+                        .setValue(Number(this.getSettingValue(item.key) ?? limits.default))
+                        .setDynamicTooltip()
+                        .onChange(async (val) => {
+                            this.setSettingValue(item.key, val);
+                            this.updateDiffPreviews();
+                            await this.plugin.saveSettings();
+                            if (item.onChange) await item.onChange(val, this.plugin);
+                        }),
+                );
+                break;
+            }
+            case "diff-preview":
+                setting.settingEl.addClass("vault-sync-diff-preview-setting");
+                this.renderDiffPreview(setting.settingEl);
+                break;
             // subheader is handled in renderSection, never reaches here
             case "info":
                 setting.settingEl.addClass("vault-sync-info-setting");
@@ -532,6 +568,60 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                 setting.setDesc(""); // Clear description since we moved it to the control area
                 break;
         }
+    }
+
+    /** Sample diff in the history view's own styles, one pane per device type. */
+    private renderDiffPreview(el: HTMLElement): void {
+        const panes = el.createDiv({ cls: "vault-sync-diff-preview" });
+        const devices: Array<{ id: "desktop" | "mobile"; label: string }> = [
+            { id: "desktop", label: t("settingDiffPreviewDesktop") },
+            { id: "mobile", label: t("settingDiffPreviewMobile") },
+        ];
+        for (const d of devices) {
+            const pane = panes.createDiv({
+                cls: `vault-sync-diff-preview-pane mod-${d.id}`,
+                attr: { "data-device": d.id },
+            });
+            pane.createDiv({ cls: "vault-sync-diff-preview-label", text: d.label });
+            const table = pane.createDiv({ cls: "diff-table" });
+            const row = (
+                op: "" | "added" | "removed" | "modified",
+                l: number | "",
+                r: number | "",
+                segs: Array<[text: string, op?: "added" | "removed"]>,
+            ) => {
+                const rowEl = table.createDiv({ cls: "diff-row diff-row-unified" });
+                if (op) rowEl.addClass(`diff-op-${op}`);
+                const cell = rowEl.createDiv({ cls: "diff-cell" });
+                cell.createDiv({ cls: "diff-ln", text: String(l) });
+                cell.createDiv({ cls: "diff-ln", text: String(r) });
+                const cn = cell.createDiv({ cls: "diff-cn" });
+                for (const [text, segOp] of segs) {
+                    const s = cn.createSpan({ text });
+                    if (segOp) s.addClass(`diff-${segOp}-inline`);
+                }
+            };
+            row("", 1, 1, [[t("diffPreviewLine1")]]);
+            row("removed", 2, "", [[t("diffPreviewLine2")]]);
+            row("added", "", 2, [[t("diffPreviewLine3")]]);
+            row("modified", 3, 3, [
+                [t("diffPreviewLine4a")],
+                [t("diffPreviewLine4b"), "removed"],
+                [t("diffPreviewLine4c"), "added"],
+            ]);
+        }
+        this.updateDiffPreviews();
+    }
+
+    private updateDiffPreviews(): void {
+        const s = this.plugin.settings;
+        this.containerEl
+            .querySelectorAll<HTMLElement>(".vault-sync-diff-preview-pane")
+            .forEach((pane) => {
+                const px =
+                    pane.dataset.device === "mobile" ? s.diffFontSizeMobile : s.diffFontSizeDesktop;
+                pane.style.setProperty("--vault-sync-diff-font-size", `${px}px`);
+            });
     }
 
     private renderAddonManagement(el: HTMLElement): void {

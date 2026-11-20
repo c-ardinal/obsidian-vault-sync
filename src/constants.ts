@@ -14,6 +14,8 @@ export const SETTINGS_LIMITS = {
     largeFileThresholdMB: { min: 0, max: 100, default: 5 },
     bgTransferIntervalSec: { min: 0, max: 60, default: 0 },
     startupDelay: { min: 0, max: 600, default: 0 },
+    diffFontSizeDesktop: { min: 10, max: 24, default: 14 },
+    diffFontSizeMobile: { min: 10, max: 24, default: 13 },
 } as const;
 
 export const DEFAULT_SETTINGS: VaultSyncSettings = {
@@ -45,6 +47,8 @@ export const DEFAULT_SETTINGS: VaultSyncSettings = {
     bgTransferIntervalSec: 0,
     notificationLevel: "standard",
     showSyncStatus: true,
+    diffFontSizeDesktop: 14,
+    diffFontSizeMobile: 13,
     conflictResolutionStrategy: "smart-merge",
     isDeveloperMode: false,
     enableLogging: false,

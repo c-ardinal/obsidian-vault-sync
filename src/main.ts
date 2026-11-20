@@ -3,7 +3,7 @@ import { GoogleDriveAdapter } from "./cloud-adapters/google-drive";
 import { SyncManager, type SyncTrigger } from "./sync-manager";
 import type { SecureStorage } from "./services/secure-storage";
 import { HistoryModal } from "./ui/history-modal";
-import { TransferStatusModal } from "./ui/transfer-status-modal";
+import { TransferStatusModal, type TransferModalActions } from "./ui/transfer-status-modal";
 import { SyncStatusView } from "./ui/sync-status-view";
 import { DEFAULT_SETTINGS } from "./constants";
 import { DATA_REMOTE_DIR, VaultSyncSettings } from "./types/settings";
@@ -291,6 +291,7 @@ export default class VaultSync extends Plugin {
         });
 
         await this.loadSettings();
+        this.applyDiffFontSize();
 
         const revisionCache = new RevisionCache(this.vaultOps, this.manifest.dir || "");
         const backgroundQueue = new BackgroundTransferQueue();
@@ -557,14 +558,14 @@ export default class VaultSync extends Plugin {
         });
 
         this.addRibbonIcon("arrow-up-down", t("labelTransferStatus"), () => {
-            new TransferStatusModal(this.app, this.syncManager).open();
+            new TransferStatusModal(this.app, this.syncManager, this.transferModalActions()).open();
         });
 
         this.addCommand({
             id: "transfer-status",
             name: t("labelTransferStatusCommand"),
             callback: () => {
-                new TransferStatusModal(this.app, this.syncManager).open();
+                new TransferStatusModal(this.app, this.syncManager, this.transferModalActions()).open();
             },
         });
 
@@ -674,6 +675,7 @@ export default class VaultSync extends Plugin {
         this.triggerManager?.destroy();
         this.syncStatusView?.unmount();
         this.syncStatusView = null;
+        activeDocument.body.style.removeProperty("--vault-sync-diff-font-size");
         if (this.mobileSyncFabEl) {
             this.mobileSyncFabEl.remove();
         }
@@ -682,6 +684,14 @@ export default class VaultSync extends Plugin {
         if (this.syncManager) {
             this.syncManager.destroyTransferQueue();
         }
+    }
+
+    /** Diff view text size for this device type (history screen). */
+    applyDiffFontSize(): void {
+        const px = Platform.isMobile
+            ? this.settings.diffFontSizeMobile
+            : this.settings.diffFontSizeDesktop;
+        activeDocument.body.style.setProperty("--vault-sync-diff-font-size", `${px}px`);
     }
 
     /** Show or hide the sync status display to match the setting. */
@@ -712,6 +722,14 @@ export default class VaultSync extends Plugin {
         } else {
             await this.requestManualSync();
         }
+    }
+
+    /** Buttons for the status panel at the top of the transfer status screen. */
+    transferModalActions(): TransferModalActions {
+        return {
+            onSyncNow: () => void this.runManualSync(),
+            onOpenSettings: () => this.openSettingsTab(),
+        };
     }
 
     /** Open this plugin's settings tab. */
