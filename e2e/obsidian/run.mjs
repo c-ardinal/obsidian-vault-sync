@@ -535,6 +535,26 @@ async function checkSyncStatus(page, lang, { mobile = false } = {}) {
     await shot(page, lang, `${tag}-scr-status-panel-auth`);
     await panelChecks("auth");
     await closePanel();
+    if (!mobile) {
+        // A real click on the status bar item must show the panel on screen (the
+        // checks above open it through code, which missed a release-only CSS bug).
+        await page.click(".vault-sync-status-item");
+        await sleep(300);
+        const box = await page.evaluate(() => {
+            const el = document.querySelector(".vault-sync-status-popover");
+            if (!el) return null;
+            const r = el.getBoundingClientRect();
+            return { top: r.top, bottom: r.bottom, h: r.height, vh: innerHeight };
+        });
+        check(
+            lang,
+            `${tag}: clicking the status bar item shows the panel on screen`,
+            !!box && box.h > 50 && box.top >= 0 && box.bottom <= box.vh,
+            JSON.stringify(box),
+        );
+        await page.click(".vault-sync-status-item");
+        await sleep(200);
+    }
 
     // 2. Pretend to be signed in so the other states show as they would. Real sync
     // attempts (auto triggers) would fail with "not signed in" and overwrite the
