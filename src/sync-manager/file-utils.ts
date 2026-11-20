@@ -1,6 +1,7 @@
 import { normalizePath, basename } from "../utils/path";
 import { matchWildcard } from "../utils/wildcard";
 import { contentFingerprint } from "./content-fingerprint";
+import { REMOTE_FILES } from "./remote-layout";
 import type { SyncContext } from "./context";
 
 // === System-level Constants ===
@@ -31,11 +32,11 @@ export function setPluginDir(pluginDir: string, configDir: string): void {
 export const INTERNAL_LOCAL_ONLY = ["cache/", "data/local/"];
 
 /** Files managed by custom logic (e.g. saveIndex), skipped by generic sync loop */
-export const INTERNAL_REMOTE_MANAGED = [
-    "data/remote/sync-index.json",
-    "data/remote/sync-index_raw.json",
-    "data/remote/communication.json",
-    "data/remote/vault-lock.vault",
+export const INTERNAL_REMOTE_MANAGED: string[] = [
+    REMOTE_FILES.index,
+    REMOTE_FILES.rawIndex,
+    REMOTE_FILES.communication,
+    REMOTE_FILES.vaultLock,
     "migration.lock",
 ];
 

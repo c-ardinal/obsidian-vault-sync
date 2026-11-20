@@ -1,5 +1,6 @@
 import { plainHashVersion, restorePlainHashVersion } from "./plain-hash-migration";
 import { contentFingerprint } from "./content-fingerprint";
+import { parseIndex, providerNameOf, serializeIndex, type ParsedIndex } from "./remote-layout";
 import { toHex } from "../utils/format";
 import { normalizePath, dirname } from "../utils/path";
 import type { SyncContext } from "./context";
@@ -426,6 +427,22 @@ export async function checkMergeLock(
 
 // === Index Management ===
 
+/** Log what parseIndex() had to adapt (a foreign cursor, a document from a newer build) */
+export async function noteIndexFormat(ctx: SyncContext, parsed: ParsedIndex, which: "local" | "remote"): Promise<void> {
+    if (parsed.cursorDropped) {
+        await ctx.log(
+            `[Index] The ${which} index cursor belongs to another cloud provider; ignoring it (full comparison instead).`,
+            "warn",
+        );
+    }
+    if (parsed.fromNewerBuild) {
+        await ctx.log(
+            `[Index] The ${which} index was written by a newer version (format ${parsed.formatVersion}). Only the fields this version knows are read; consider updating the plugin on this device.`,
+            "warn",
+        );
+    }
+}
+
 export async function loadIndex(
     ctx: SyncContext,
     tryDecompress: (data: ArrayBuffer) => Promise<ArrayBuffer>,
@@ -434,9 +451,10 @@ export async function loadIndex(
         const data = await ctx.vault.readBinary(ctx.pluginDataPath);
         const decompressed = await tryDecompress(data);
         const text = new TextDecoder().decode(decompressed);
-        const parsed = JSON.parse(text) as { index?: LocalFileIndex; startPageToken?: string | null };
-        ctx.index = parsed.index || {};
-        ctx.startPageToken = parsed.startPageToken || null;
+        const parsed = parseIndex(text, providerNameOf(ctx.adapter));
+        ctx.index = parsed.index;
+        ctx.startPageToken = parsed.startPageToken;
+        await noteIndexFormat(ctx, parsed, "local");
 
         if (data.byteLength !== decompressed.byteLength) {
             await ctx.log(
@@ -457,9 +475,9 @@ export async function loadIndex(
             );
             if (await ctx.vault.exists(rawPath)) {
                 const data = await ctx.vault.read(rawPath);
-                const parsed = JSON.parse(data) as { index?: LocalFileIndex; startPageToken?: string | null };
-                ctx.index = parsed.index || {};
-                ctx.startPageToken = parsed.startPageToken || null;
+                const parsed = parseIndex(data, providerNameOf(ctx.adapter));
+                ctx.index = parsed.index;
+                ctx.startPageToken = parsed.startPageToken;
                 await ctx.log("[Index] Successfully recovered from raw index.", "info");
                 await saveIndex(ctx);
                 return;
@@ -558,10 +576,7 @@ export async function loadLocalIndex(ctx: SyncContext): Promise<void> {
 }
 
 export async function saveIndex(ctx: SyncContext): Promise<void> {
-    const data = JSON.stringify({
-        index: ctx.index,
-        startPageToken: ctx.startPageToken,
-    });
+    const data = serializeIndex(ctx.index, ctx.startPageToken, providerNameOf(ctx.adapter));
 
     // Ensure parent directory exists (may not on fresh install)
     const dir = ctx.pluginDataPath.replace(/\/[^/]+$/, "");
