@@ -1,5 +1,6 @@
+import type { CloudAdapter } from "../types/adapter";
 import type { SyncFlags } from "./context";
-import { contentFingerprint } from "./content-fingerprint";
+import { cloudHashIsFingerprint, contentFingerprint } from "./content-fingerprint";
 import { hashContent } from "./file-utils";
 
 /**
@@ -17,16 +18,25 @@ import { hashContent } from "./file-utils";
  * stored form: local content can be compared with `plainHash` alone, and a
  * cloud version can be identified only by reading it back.
  *
- * The sync code asks this module instead of checking add-on settings itself, so
- * the rule has one owner. A later cloud whose hash is not an MD5 (OneDrive,
- * Dropbox) needs the same "compare plainHash" rule, and only this module changes.
+ * A cloud whose hash is not an MD5 (OneDrive quickXorHash, Dropbox content
+ * hash) is in the same position: its `hash` changes with the content, but it
+ * can never be compared with the local fingerprint, so `plainHash` is used too.
+ *
+ * The sync code asks this module instead of checking add-on settings or the
+ * cloud's hash type itself, so the rule has one owner.
  */
 
-type Ctx = Pick<SyncFlags, "e2eeEnabled">;
+type Ctx = Pick<SyncFlags, "e2eeEnabled"> & { adapter?: Pick<CloudAdapter, "capabilities"> | null };
 
-/** True when the cloud holds a transformed form of the vault bytes */
+/**
+ * True when the cloud's hash cannot identify vault content: the cloud holds a
+ * transformed form of the bytes, or its hash is not the sync's fingerprint.
+ * Contexts without a declared adapter (test doubles) count as MD5 clouds.
+ */
 export function storesTransformedContent(ctx: Ctx): boolean {
-    return ctx.e2eeEnabled;
+    if (ctx.e2eeEnabled) return true;
+    const adapter = ctx.adapter;
+    return !!adapter?.capabilities && !cloudHashIsFingerprint(adapter);
 }
 
 /** Hash of local content in the form the index compares it with */

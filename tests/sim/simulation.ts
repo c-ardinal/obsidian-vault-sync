@@ -69,6 +69,8 @@ export interface SimConfig {
     settings?: Partial<SyncManagerSettings>;
     /** Run every device with end-to-end encryption (random IV per upload) */
     e2ee?: boolean;
+    /** The cloud reports a non-MD5 content hash (OneDrive / Dropbox style) */
+    foreignHash?: boolean;
 }
 
 export const DEFAULT_CONFIG: Omit<SimConfig, "name" | "seed"> = {
@@ -326,6 +328,7 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
     const randomSpy = vi.spyOn(Math, "random").mockImplementation(() => engineRng.next());
 
     const cloud = new SimCloud();
+    if (cfg.foreignHash) cloud.store.useForeignHash();
     cloud.onCall = (c) => {
         if (c.outcome !== "ok" || MUTATING_METHODS.has(c.method)) {
             log(c.device, `CLOUD ${c.method}(${c.arg}) ${c.outcome}`);

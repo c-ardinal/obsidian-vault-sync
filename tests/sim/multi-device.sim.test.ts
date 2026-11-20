@@ -102,6 +102,20 @@ export const SCENARIOS: Scenario[] = [
         network: { minLatencyMs: 5, maxLatencyMs: 800, failureRate: 0.02, lostResponseRate: 0.15 },
     },
     {
+        // The cloud's hash is not an MD5 (OneDrive quickXorHash, Dropbox content
+        // hash): local content can only be compared with plainHash, as with E2EE.
+        ...DEFAULT_CONFIG,
+        name: "non-md5-hash",
+        profile: "disjoint",
+        devices: 3,
+        actions: 45,
+        foreignHash: true,
+        fs: ["linux", "windows", "macos"],
+        windowsLineEndings: true,
+        binaryRate: 0.2,
+        network: { minLatencyMs: 5, maxLatencyMs: 800, failureRate: 0.02, lostResponseRate: 0.15 },
+    },
+    {
         // Files above the large-file threshold go through the background transfer
         // queue (resumable uploads, deferred pulls) on a lossy network. The tiny
         // threshold (~100 bytes) routes binaries and grown notes there.
