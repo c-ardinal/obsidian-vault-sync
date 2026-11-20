@@ -281,7 +281,7 @@ export function restoreOverwriteRepairs(ctx: object, data: unknown): void {
     const str = (v: unknown): v is string => typeof v === "string" && v.length > 0;
     if (repairs && typeof repairs === "object") {
         let map = pendingRepairs.get(ctx);
-        if (!map) pendingRepairs.set(ctx, (map = new Map()));
+        if (!map) pendingRepairs.set(ctx, (map = new Map<string, PendingRepair>()));
         for (const [path, r] of Object.entries(repairs as Record<string, Partial<PendingRepair>>)) {
             if (!r || !str(r.fileId) || !str(r.overwrittenId) || !str(r.overwrittenHash) || !str(r.baseHash)) continue;
             if (typeof r.since !== "number" || map.has(path)) continue;
@@ -290,7 +290,7 @@ export function restoreOverwriteRepairs(ctx: object, data: unknown): void {
     }
     if (checks && typeof checks === "object") {
         let map = pendingChecks.get(ctx);
-        if (!map) pendingChecks.set(ctx, (map = new Map()));
+        if (!map) pendingChecks.set(ctx, (map = new Map<string, PendingCheck>()));
         for (const [path, c] of Object.entries(checks as Record<string, Partial<PendingCheck>>)) {
             if (!c || !str(c.fileId) || !str(c.ourHash) || !Array.isArray(c.known)) continue;
             if (typeof c.since !== "number" || map.has(path)) continue;
