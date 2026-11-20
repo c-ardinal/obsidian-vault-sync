@@ -13,6 +13,7 @@ import type { SyncLogger, LogLevel } from "./logger";
 import type { BackgroundTransferQueue } from "./background-transfer";
 import type { SyncProgressTracker } from "./sync-progress";
 import type { RemoteDeletionService } from "./remote-deletion";
+import type { PlanGuard } from "./sync-plan";
 
 /**
  * Shared context interface for extracted sync-manager sub-modules.
@@ -79,6 +80,8 @@ export interface SyncContext {
     progress?: SyncProgressTracker;
     /** The single path for removals on the cloud (optional so test contexts can omit it) */
     remoteDeletion?: RemoteDeletionService;
+    /** Reviews destructive changes before they run (optional; absent = approve all) */
+    planGuard?: PlanGuard;
 
     // === Utility Methods (remain on SyncManager, called via ctx) ===
     log: (message: string, level?: LogLevel) => Promise<void>;
