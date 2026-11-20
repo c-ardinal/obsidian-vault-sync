@@ -1,5 +1,6 @@
 import { removeRemote } from "./remote-deletion";
 import { noteUploadedForRetention } from "./revision-retention";
+import { recordActivity } from "./device-registry";
 import { reviewPlan, type PlanDecision, type PlannedChange } from "./sync-plan";
 import { cloudHashMatches, contentFingerprint } from "./content-fingerprint";
 import type { CloudFile } from "../types/adapter";
@@ -121,6 +122,7 @@ async function executeFolderDeletions(
                         { id: meta.id, path: folderPath, kind: "folder" },
                         "user-folder",
                     );
+                    recordActivity(ctx, "delete", folderPath);
                     ctx.logger.markActionTaken();
                     folderDeletedCount++;
                     await ctx.log(`[Smart Push] Deleted remote folder: ${folderPath}`, "info");
@@ -403,6 +405,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
 
                                     await ctx.adapter.moveFile(oldMeta.id, newName, newParentPath);
                                     ctx.logger.markActionTaken();
+                                    recordActivity(ctx, "rename", path, oldPath);
                                     moveCount++;
                                     ctx.startActivity();
                                     await ctx.log(
@@ -521,6 +524,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                             };
                             ctx.index[path] = updatedEntry;
                             ctx.localIndex[path] = { ...updatedEntry };
+                            recordActivity(ctx, "rename", path, moveInfo.oldPath);
                             moveCount++;
                             ctx.startActivity();
 
@@ -1052,6 +1056,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                         ctx.localIndex[file.path] = { ...entry };
                         forgetAttemptedUpload(ctx, file.path);
                         noteUploadedForRetention(ctx, file.path, uploaded.id);
+                        recordActivity(ctx, targetFileId ? "edit" : "create", file.path);
 
                         if (ctx.dirtyPaths.get(file.path) === file.dirtyAt) {
                             ctx.dirtyPaths.delete(file.path);
@@ -1202,6 +1207,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                 { id: entry.fileId, path, kind: "file" },
                                 "user-file",
                             );
+                            recordActivity(ctx, "delete", path);
                         }
                         delete ctx.index[path];
                         delete ctx.localIndex[path];

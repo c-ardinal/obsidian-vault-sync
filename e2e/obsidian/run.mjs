@@ -775,6 +775,39 @@ async function checkScreens(page, lang, { mobile = false } = {}) {
     );
     await closeModals(page);
 
+    // Devices and changes, with sample records (no cloud account in this run).
+    await page.evaluate((id) => {
+        const sm = window.app.plugins.plugins[id].syncManager;
+        const now = Date.now();
+        const min = 60 * 1000;
+        const self = sm.thisDeviceId || "self0001";
+        const records = [
+            {
+                formatVersion: 1, id: self, name: "Linux (self)", platform: "Linux", lastSyncAt: now - 2 * min,
+                activity: [
+                    { t: now - 3 * min, op: "edit", path: "Welcome.md" },
+                    { t: now - 50 * min, op: "create", path: "Projects/Plan.md" },
+                ],
+            },
+            {
+                formatVersion: 1, id: "phone001", name: "iPhone", platform: "iPhone", lastSyncAt: now - 30 * min,
+                activity: [
+                    { t: now - 31 * min, op: "rename", path: "Journal/2026-11-20.md", from: "Untitled.md" },
+                    { t: now - 40 * min, op: "conflict", path: "Projects/Plan.md" },
+                    { t: now - 90 * min, op: "delete", path: "Old/Draft with a long name that wraps on a phone screen.md" },
+                ],
+            },
+        ];
+        sm.listDevices = async () => records;
+        sm.forgetDevice = async () => {};
+    }, PLUGIN_ID);
+    await cmd(page, "show-devices");
+    await modalOpen(page, ".vault-sync-activity-list");
+    await shotModal(page, lang, tag, "scr-devices", "devices modal");
+    const rows = await page.$$eval(".vault-sync-activity-row", (els) => els.length);
+    check(lang, `${tag}: devices modal lists all changes`, rows === 5, `rows=${rows}`);
+    await escape(page);
+
     // Add-on install (and, when a package is given, its terms review).
     await cmd(page, "install-addon");
     await modalOpen(page, ".vault-sync-addon-install");

@@ -92,6 +92,8 @@ export interface SyncServices {
     planGuard?: PlanGuard;
     /** Asks how a device's first sync starts when both sides have notes (absent = merge) */
     firstSyncGuard?: FirstSyncGuard;
+    /** Platform label and default name of this device, for the device list (set by the plugin) */
+    deviceInfo?: { platform: string; defaultName: string };
 }
 
 /** Logging, notices and the callbacks to the plugin */

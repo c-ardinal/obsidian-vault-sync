@@ -13,6 +13,7 @@ import { retryOverwriteRepairs } from "./overwrite-recovery";
 import { purgeTrashIfDue } from "./remote-trash";
 import { prepareFirstSync } from "./first-sync";
 import { keepRevisionsIfDue } from "./revision-retention";
+import { publishDeviceRecordIfDue } from "./device-registry";
 import { migratePlainHashes } from "./plain-hash-migration";
 
 
@@ -157,6 +158,7 @@ export async function executeSmartSync(ctx: SyncContext, scanVault: boolean): Pr
         await retryOverwriteRepairs(ctx);
         await purgeTrashIfDue(ctx);
         await keepRevisionsIfDue(ctx);
+        await publishDeviceRecordIfDue(ctx);
 
         if (!pulled && !pushed) {
             await ctx.notify("noticeVaultUpToDate");

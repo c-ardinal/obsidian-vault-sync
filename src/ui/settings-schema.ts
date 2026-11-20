@@ -192,6 +192,14 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                     buttonText: t("settingOpenRemoteTrashButton"),
                     onClick: (p) => p.openRemoteTrash(),
                 },
+                {
+                    key: "_open_devices",
+                    type: "button",
+                    label: t("settingOpenDevices"),
+                    desc: t("settingOpenDevicesDesc"),
+                    buttonText: t("settingOpenRemoteTrashButton"),
+                    onClick: (p) => p.openDevices(),
+                },
                 // ── Performance Tuning ──
                 {
                     key: "_subheader_performance",
