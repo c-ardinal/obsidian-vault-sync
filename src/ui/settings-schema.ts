@@ -6,7 +6,18 @@ import { SETTINGS_LIMITS } from "../constants";
 import { t } from "../i18n";
 import VaultSync from "../main";
 
-export type SettingType = "toggle" | "text" | "number" | "toggle-number" | "dropdown" | "textarea" | "info" | "subheader" | "button";
+export type SettingType =
+    | "toggle"
+    | "text"
+    | "number"
+    | "toggle-number"
+    | "dropdown"
+    | "textarea"
+    | "info"
+    | "subheader"
+    | "button"
+    | "slider"
+    | "diff-preview";
 
 export interface SettingItem {
     key: string; // Changed from keyof VaultSyncSettings to support nested paths
@@ -135,15 +146,6 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                         verbose: t("settingNotificationLevelVerbose"),
                         standard: t("settingNotificationLevelStandard"),
                         error: t("settingNotificationLevelError"),
-                    },
-                },
-                {
-                    key: "showSyncStatus",
-                    type: "toggle",
-                    label: t("settingShowSyncStatus"),
-                    desc: t("settingShowSyncStatusDesc"),
-                    onChange: async (_val, p) => {
-                        p.refreshSyncStatusView();
                     },
                 },
                 // ── Deletion Safety ──
@@ -431,6 +433,57 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                     desc: t("settingExclusionPatternsDesc"),
                     placeholder: "*.tmp\ntemp/**\n.git/**",
                     onChange: async (_val, p) => p.triggerFullCleanup(),
+                },
+            ],
+        },
+        {
+            id: "display",
+            title: t("settingDisplaySection"),
+            items: [
+                // ── Sync status ──
+                {
+                    key: "_subheader_sync_status",
+                    type: "subheader",
+                    label: t("settingSubheaderSyncStatus"),
+                },
+                {
+                    key: "showSyncStatus",
+                    type: "toggle",
+                    label: t("settingShowSyncStatus"),
+                    desc: t("settingShowSyncStatusDesc"),
+                    onChange: async (_val, p) => {
+                        p.refreshSyncStatusView();
+                    },
+                },
+                // ── Diff view ──
+                {
+                    key: "_subheader_diff",
+                    type: "subheader",
+                    label: t("settingSubheaderDiff"),
+                },
+                {
+                    key: "diffFontSizeDesktop",
+                    type: "slider",
+                    label: t("settingDiffFontSizeDesktop"),
+                    desc: t("settingDiffFontSizeDesktopDesc"),
+                    unit: "px",
+                    limits: SETTINGS_LIMITS.diffFontSizeDesktop,
+                    onChange: async (_val, p) => p.applyDiffFontSize(),
+                },
+                {
+                    key: "diffFontSizeMobile",
+                    type: "slider",
+                    label: t("settingDiffFontSizeMobile"),
+                    desc: t("settingDiffFontSizeMobileDesc"),
+                    unit: "px",
+                    limits: SETTINGS_LIMITS.diffFontSizeMobile,
+                    onChange: async (_val, p) => p.applyDiffFontSize(),
+                },
+                {
+                    key: "_diff_preview",
+                    type: "diff-preview",
+                    label: t("settingDiffPreview"),
+                    desc: t("settingDiffPreviewDesc"),
                 },
             ],
         },

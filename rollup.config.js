@@ -19,7 +19,8 @@ function minifyCss(css) {
     return css
         .replace(/\/\*[\s\S]*?\*\//g, "")
         .replace(/\s+/g, " ")
-        .replace(/\s*([{}:;,>~+])\s*/g, "$1")
+        // "+" is left alone: calc() needs the spaces around it ("a+b" is invalid)
+        .replace(/\s*([{}:;,>~])\s*/g, "$1")
         .replace(/;}/g, "}")
         .trim();
 }

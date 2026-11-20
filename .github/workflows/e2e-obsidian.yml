@@ -38,7 +38,7 @@ jobs:
               run: npm ci
 
             - name: Build plugin
-              run: npx rollup -c
+              run: npx rollup -c --environment BUILD:production
 
             - name: Install display and fonts
               run: |

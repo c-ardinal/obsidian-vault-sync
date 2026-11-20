@@ -20,6 +20,8 @@ export const SETTINGS_LIMITS = {
     massDeleteConfirmPercent: { min: 1, max: 100, default: 10, disabled: -1 },
     /** Days a file deleted from the cloud stays in the cloud trash (-1 = no trash) */
     remoteTrashRetentionDays: { min: 1, max: 3650, default: 30, disabled: -1 },
+    diffFontSizeDesktop: { min: 10, max: 24, default: 14 },
+    diffFontSizeMobile: { min: 10, max: 24, default: 13 },
     /** Keep one version of each note for good per this many days (-1 = off) */
     autoKeepRevisionDays: { min: 1, max: 365, default: 1, disabled: -1 },
 } as const;
@@ -57,6 +59,8 @@ export const DEFAULT_SETTINGS: VaultSyncSettings = {
     autoKeepRevisionDays: SETTINGS_LIMITS.autoKeepRevisionDays.default,
     notificationLevel: "standard",
     showSyncStatus: true,
+    diffFontSizeDesktop: 14,
+    diffFontSizeMobile: 13,
     conflictResolutionStrategy: "smart-merge",
     isDeveloperMode: false,
     enableLogging: false,
