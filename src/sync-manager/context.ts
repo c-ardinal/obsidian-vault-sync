@@ -11,6 +11,7 @@ import type {
 import type { SyncTrigger } from "./notification-matrix";
 import type { SyncLogger, LogLevel } from "./logger";
 import type { BackgroundTransferQueue } from "./background-transfer";
+import type { SyncProgressTracker } from "./sync-progress";
 
 /**
  * Shared context interface for extracted sync-manager sub-modules.
@@ -73,6 +74,8 @@ export interface SyncContext {
 
     // === Background Transfer ===
     backgroundTransferQueue: BackgroundTransferQueue;
+    /** Progress for the status display (optional so test contexts can omit it) */
+    progress?: SyncProgressTracker;
 
     // === Utility Methods (remain on SyncManager, called via ctx) ===
     log: (message: string, level?: LogLevel) => Promise<void>;

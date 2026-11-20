@@ -4,6 +4,7 @@ import { SyncManager, type SyncTrigger } from "./sync-manager";
 import type { SecureStorage } from "./services/secure-storage";
 import { HistoryModal } from "./ui/history-modal";
 import { TransferStatusModal } from "./ui/transfer-status-modal";
+import { SyncStatusView } from "./ui/sync-status-view";
 import { DEFAULT_SETTINGS } from "./constants";
 import { DATA_REMOTE_DIR, VaultSyncSettings } from "./types/settings";
 import { t, initI18n, setAddonStrings } from "./i18n";
@@ -50,6 +51,7 @@ export default class VaultSync extends Plugin {
     private syncRibbonIconEl: HTMLElement | null = null;
     private manualSyncInProgress = false;
     private mobileSyncFabEl: HTMLElement | null = null;
+    private syncStatusView: SyncStatusView | null = null;
     private settingTab: VaultSyncSettingTab | null = null;
     private triggerManager!: TriggerManager;
     private settingsMgr!: SettingsManager;
@@ -567,6 +569,16 @@ export default class VaultSync extends Plugin {
         });
 
         this.addCommand({
+            id: "show-sync-status",
+            name: t("labelShowSyncStatusCommand"),
+            checkCallback: (checking: boolean) => {
+                if (!this.syncStatusView?.mounted) return false;
+                if (!checking) this.syncStatusView.openDetails();
+                return true;
+            },
+        });
+
+        this.addCommand({
             id: "dev-demo-history",
             name: "[Dev] Screenshot: History / Diff Viewer",
             checkCallback: (checking: boolean) => {
@@ -626,14 +638,9 @@ export default class VaultSync extends Plugin {
             },
         });
 
-        // 3. Mobile Floating Action Button (FAB) -> Fixed Top Center Indicator
-        if (Platform.isMobile) {
-            this.app.workspace.onLayoutReady(() => {
-                this.mobileSyncFabEl = activeDocument.body.createDiv("vault-sync-mobile-fab");
-                setIcon(this.mobileSyncFabEl, "sync");
-                this.mobileSyncFabEl.setAttribute("aria-label", t("labelSyncTooltip"));
-            });
-        }
+        // 3. Sync status display (status bar / mobile pill). On mobile, the older
+        // spinning indicator (FAB) is used only when the status display is off.
+        this.app.workspace.onLayoutReady(() => this.refreshSyncStatusView());
 
         this.settingTab = new VaultSyncSettingTab(this.app, this);
         this.addSettingTab(this.settingTab);
@@ -665,13 +672,58 @@ export default class VaultSync extends Plugin {
 
     onunload() {
         this.triggerManager?.destroy();
+        this.syncStatusView?.unmount();
+        this.syncStatusView = null;
         if (this.mobileSyncFabEl) {
             this.mobileSyncFabEl.remove();
         }
+        this.syncManager?.progress.dispose();
         // Clean up background transfer queue (remove event listeners, flush history)
         if (this.syncManager) {
             this.syncManager.destroyTransferQueue();
         }
+    }
+
+    /** Show or hide the sync status display to match the setting. */
+    refreshSyncStatusView(): void {
+        if (this.settings.showSyncStatus) {
+            this.mobileSyncFabEl?.remove();
+            this.mobileSyncFabEl = null;
+            if (!this.syncStatusView) this.syncStatusView = new SyncStatusView(this);
+            this.syncStatusView.mount();
+        } else {
+            this.syncStatusView?.unmount();
+            this.syncStatusView = null;
+            if (Platform.isMobile && !this.mobileSyncFabEl) {
+                this.mobileSyncFabEl = activeDocument.body.createDiv("vault-sync-mobile-fab");
+                setIcon(this.mobileSyncFabEl, "sync");
+                this.mobileSyncFabEl.setAttribute("aria-label", t("labelSyncTooltip"));
+            }
+        }
+    }
+
+    /** Manual sync started from the status panel (same path as the ribbon). */
+    async runManualSync(): Promise<void> {
+        if (this.syncRibbonIconEl) {
+            await this.performSyncOperation(
+                [{ element: this.syncRibbonIconEl, originalIcon: "sync" }],
+                () => this.requestManualSync(),
+            );
+        } else {
+            await this.requestManualSync();
+        }
+    }
+
+    /** Open this plugin's settings tab. */
+    openSettingsTab(): void {
+        const setting = (
+            this.app as unknown as {
+                setting?: { open(): void; openTabById(id: string): void };
+            }
+        ).setting;
+        if (!setting) return;
+        setting.open();
+        setting.openTabById(this.manifest.id);
     }
 
     /**

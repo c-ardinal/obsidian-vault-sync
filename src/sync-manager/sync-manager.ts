@@ -18,7 +18,10 @@ import { SecureStorage } from "../services/secure-storage";
 import {
     type SyncTrigger,
     shouldShowNotification,
+    PROGRESS_NOTICE_KEYS,
+    CONFLICT_NOTICE_KEYS,
 } from "./notification-matrix";
+import { SyncProgressTracker } from "./sync-progress";
 import {
     PLUGIN_DIR,
     INTERNAL_LOCAL_ONLY,
@@ -151,6 +154,9 @@ export class SyncManager {
     /** Background transfer queue for large file async transfers */
     private backgroundTransferQueue: BackgroundTransferQueue;
 
+    /** Progress of the running sync, for the status display */
+    public readonly progress = new SyncProgressTracker();
+
     /** Current sync trigger — controls notification visibility via matrix lookup */
     public currentTrigger: SyncTrigger = "manual-sync";
 
@@ -274,6 +280,11 @@ export class SyncManager {
 
     // === Background Transfer Public API ===
 
+    /** Local changes waiting for the next upload */
+    public get pendingChangeCount(): number {
+        return this.dirtyPaths.size;
+    }
+
     public getActiveTransfers(): TransferItem[] {
         return this.backgroundTransferQueue.getPendingTransfers();
     }
@@ -361,7 +372,13 @@ export class SyncManager {
                 : `${message}: ${suffix}`;
         }
 
-        const show = shouldShowNotification(key, this.currentTrigger, level);
+        if (CONFLICT_NOTICE_KEYS.has(key)) this.progress.noteConflict();
+
+        // With the status display on, it shows progress; notices are kept for what
+        // needs attention (errors, conflicts) unless the user asked for everything.
+        const show =
+            shouldShowNotification(key, this.currentTrigger, level) &&
+            !(this.settings.showSyncStatus && level !== "verbose" && PROGRESS_NOTICE_KEYS.has(key));
 
         if (show) {
             this.logger.markNoticeShown();

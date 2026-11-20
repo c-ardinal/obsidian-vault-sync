@@ -125,6 +125,7 @@ class MockCloudAdapter implements CloudAdapter {
 const DEFAULT_SETTINGS: SyncManagerSettings = {
     concurrency: 1,
     notificationLevel: "standard",
+    showSyncStatus: false,
     conflictResolutionStrategy: "smart-merge",
     enableLogging: false,
     isDeveloperMode: false,
@@ -1365,5 +1366,56 @@ describe("Integration: Sync scenarios trigger correct notifications", () => {
                 ).toBe(false);
             }
         });
+    });
+});
+
+// ════════════════════════════════════════════════════════════════
+// Sync status display on: progress notices move to the status display
+// ════════════════════════════════════════════════════════════════
+describe("Notices with the sync status display on", () => {
+    let syncManager: SyncManager;
+
+    beforeEach(() => {
+        (Notice as any).mockClear();
+        const vaultOps = new MockVaultOperations(new MockApp() as any);
+        syncManager = new SyncManager(
+            vaultOps,
+            new MockCloudAdapter(),
+            "idx.json",
+            { ...DEFAULT_SETTINGS, showSyncStatus: true },
+            "dir",
+            (key) => i18nDict.ja[key] || key,
+            { show: (msg) => void new Notice(msg) },
+            new RevisionCache(vaultOps, "dir"),
+            new BackgroundTransferQueue(),
+        );
+        vi.spyOn(syncManager as any, "log").mockImplementation(async () => {});
+        syncManager.currentTrigger = "manual-sync";
+    });
+
+    it("progress notices are left out at the standard level", async () => {
+        for (const key of ["noticeSyncing", "noticeVaultUpToDate", "noticePushCompleted"]) {
+            await syncManager.notify(key);
+        }
+        expect(Notice).not.toHaveBeenCalled();
+    });
+
+    it("failures and conflicts are still shown", async () => {
+        await syncManager.notify("noticeSyncFailedNetwork");
+        await syncManager.notify("noticeConflictSaved", "a.md");
+        expect(Notice).toHaveBeenCalledTimes(2);
+    });
+
+    it("a conflict notice is counted by the progress tracker", async () => {
+        syncManager.progress.begin("manual-sync");
+        await syncManager.notify("noticeConflictSaved", "a.md");
+        expect(syncManager.progress.snapshot().conflicts).toBe(1);
+        syncManager.progress.dispose();
+    });
+
+    it("the verbose level still shows progress notices", async () => {
+        syncManager["settings"].notificationLevel = "verbose";
+        await syncManager.notify("noticeSyncing");
+        expect(Notice).toHaveBeenCalledTimes(1);
     });
 });

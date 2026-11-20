@@ -44,6 +44,7 @@ export const DEFAULT_SETTINGS: VaultSyncSettings = {
     largeFileThresholdMB: 5,
     bgTransferIntervalSec: 0,
     notificationLevel: "standard",
+    showSyncStatus: true,
     conflictResolutionStrategy: "smart-merge",
     isDeveloperMode: false,
     enableLogging: false,

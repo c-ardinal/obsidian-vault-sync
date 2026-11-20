@@ -113,6 +113,7 @@ export async function executeSmartSync(ctx: SyncContext, scanVault: boolean): Pr
     }
     await ctx.backgroundTransferQueue.pauseAndSettle();
     beginSyncCycle(ctx);
+    ctx.progress?.begin(ctx.currentTrigger);
     try {
         await ctx.log("=== SMART SYNC START ===", "info");
         await ctx.notify("noticeSyncing");
@@ -155,9 +156,18 @@ export async function executeSmartSync(ctx: SyncContext, scanVault: boolean): Pr
         }
 
         await ctx.log("=== SMART SYNC COMPLETED ===", "info");
+        ctx.progress?.finish("ok");
     } catch (e) {
         await ctx.log(`Smart Sync failed: ${String(e)}`, "error");
         const notice = syncErrorNotice(e);
+        ctx.progress?.finish(
+            notice.key === "noticeSyncFailedNetwork"
+                ? "offline"
+                : notice.key === "noticeSyncFailedAuth"
+                  ? "auth"
+                  : "error",
+            notice.suffix,
+        );
         if (notice.suffix === undefined) await ctx.notify(notice.key);
         else await ctx.notify(notice.key, notice.suffix);
         throw e;
@@ -254,10 +264,16 @@ export async function requestBackgroundScan(
 
     ctx.syncState = "FULL_SCANNING";
     ctx.isInterrupted = false;
+    ctx.progress?.begin("full-scan", "scanning");
     ctx.currentSyncPromise = executeFullScan(ctx);
 
     try {
         await ctx.currentSyncPromise;
+        // An interrupted scan hands over to the smart sync that interrupted it.
+        if (!ctx.isInterrupted) ctx.progress?.finish("ok");
+    } catch (e) {
+        ctx.progress?.finish("error", String(e).slice(0, 80));
+        throw e;
     } finally {
         if (ctx.syncState === "FULL_SCANNING") {
             ctx.syncState = "IDLE";
@@ -374,6 +390,7 @@ export async function executeFullScan(ctx: SyncContext): Promise<void> {
             }
 
             ctx.fullScanProgress.currentIndex += chunk.length;
+            ctx.progress?.scanProgress(ctx.fullScanProgress.currentIndex, remoteFiles.length);
 
             // Yield to allow interrupt check
             await new Promise((resolve) => setTimeout(resolve, 0));

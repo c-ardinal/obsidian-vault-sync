@@ -16,6 +16,7 @@ export const LOCAL_INDEX_PATH = `${PLUGIN_DIR}/data/local/local-index.json`;
 export const SIM_SETTINGS: SyncManagerSettings = {
     concurrency: 2,
     notificationLevel: "standard",
+    showSyncStatus: false,
     conflictResolutionStrategy: "smart-merge",
     enableLogging: false,
     isDeveloperMode: false,

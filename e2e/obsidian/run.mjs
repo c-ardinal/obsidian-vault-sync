@@ -441,6 +441,184 @@ async function escape(page) {
     await closeModals(page);
 }
 
+/**
+ * Sync status display: status bar + popover (desktop), progress line + pill + sheet
+ * (mobile). The real "not signed in" result comes from the manual sync run just
+ * before; the other states are driven through the progress tracker directly.
+ */
+async function checkSyncStatus(page, lang, { mobile = false } = {}) {
+    const tag = mobile ? "mobile" : "desktop";
+    const panelSel = mobile ? ".vault-sync-status-sheet" : ".vault-sync-status-popover";
+    const present = await page.evaluate(() => ({
+        item: !!document.querySelector(".status-bar .vault-sync-status-item"),
+        pill: !!document.querySelector(".vault-sync-status-pill"),
+        fab: !!document.querySelector(".vault-sync-mobile-fab"),
+    }));
+    if (mobile) {
+        check(lang, `${tag}: status pill mounted, old indicator gone`, present.pill && !present.fab);
+    } else {
+        check(lang, `${tag}: status bar item mounted`, present.item);
+    }
+
+    const openPanel = async () => {
+        await page.evaluate(
+            (id) => window.app.plugins.plugins[id].syncStatusView.openDetails(),
+            PLUGIN_ID,
+        );
+        await page.waitForSelector(panelSel, { timeout: 3000 });
+        await sleep(450); // bar transitions
+    };
+    const closePanel = () =>
+        page.evaluate(
+            (id) => window.app.plugins.plugins[id].syncStatusView.closeDetails(),
+            PLUGIN_ID,
+        );
+    const panelText = () =>
+        page.evaluate((sel) => document.querySelector(sel)?.textContent ?? "", panelSel);
+    const statusText = () =>
+        page.evaluate(
+            (sel) => document.querySelector(sel)?.textContent ?? "",
+            mobile ? ".vault-sync-status-pill" : ".vault-sync-status-item",
+        );
+    const fits = () =>
+        page.evaluate((sel) => {
+            const r = document.querySelector(sel)?.getBoundingClientRect();
+            if (!r) return false;
+            return r.left >= -1 && r.top >= -1 && r.right <= innerWidth + 1 && r.bottom <= innerHeight + 1;
+        }, panelSel);
+    const tracker = (fn, arg) =>
+        page.evaluate(
+            ({ id, src, arg }) => {
+                const p = window.app.plugins.plugins[id];
+                // eslint-disable-next-line no-new-func
+                return new Function("p", "tr", "arg", src)(p, p.syncManager.progress, arg);
+            },
+            { id: PLUGIN_ID, src: fn, arg },
+        );
+    const shotStatus = async (label) => {
+        if (mobile) await shot(page, lang, `${tag}-scr-status-${label}`, undefined, { keepNotices: true });
+        else await shot(page, lang, `${tag}-scr-status-${label}`, ".status-bar");
+    };
+    const panelChecks = async (label) => {
+        const text = await panelText();
+        check(lang, `${tag}: status panel (${label}) has no banned words`, !BANNED_UI_WORDS.test(text), text.slice(0, 120));
+        check(lang, `${tag}: status panel (${label}) fits the screen`, await fits());
+        const issues = await layoutIssues(page);
+        check(lang, `${tag}: status panel (${label}) has no clipped text`, issues.length === 0, issues.join("; "));
+    };
+
+    // 1. Real result of the manual sync without an account.
+    await sleep(300);
+    const authText = await statusText();
+    check(lang, `${tag}: status shows "not signed in"`, /Not signed in|未ログイン/.test(authText), authText);
+    await shotStatus("auth");
+    await openPanel();
+    await shot(page, lang, `${tag}-scr-status-panel-auth`);
+    await panelChecks("auth");
+    await closePanel();
+
+    // 2. Pretend to be signed in so the other states show as they would. Real sync
+    // attempts (auto triggers) would fail with "not signed in" and overwrite the
+    // demo states, so they are held off until the end of this check.
+    await tracker(`
+        p.isAdapterAuthenticated = () => true;
+        p.syncManager.requestSmartSync = async () => {};
+        p.syncManager.requestBackgroundScan = async () => {};
+    `);
+    await tracker(`
+        tr.begin("manual-sync");
+        const pulls = Array.from({ length: 30 }, (_, i) => ({ path: "Notes/Daily/2026-11-" + String(i + 1).padStart(2, "0") + ".md", size: 2400 + i * 37 }));
+        pulls.push({ path: "Attachments/Trip to Kyoto/IMG_2048 panorama.jpg", size: 6_800_000 });
+        const pushes = Array.from({ length: 17 }, (_, i) => ({ path: "Projects/Plan " + (i + 1) + ".md", size: 1800 }));
+        tr.plan("push", pushes);
+        tr.plan("pull", pulls);
+        tr.phase = "pulling";
+        for (const f of pulls.slice(0, 12)) { tr.fileStarted("pull", f.path, f.size); tr.fileFinished("pull", f.path); }
+        tr.fileStarted("pull", pulls[30].path, pulls[30].size);
+        tr.fileStarted("pull", pulls[12].path, pulls[12].size);
+        // Back-date the cycle so the time-left estimate is shown.
+        tr.startedAt -= 20000;
+        tr.samples = [{ t: Date.now() - 6000, bytes: 0 }, { t: Date.now() - 1000, bytes: tr.pull.bytesDone }];
+        tr.pull.bytesDone += 2_400_000;
+        tr.emit(true);
+    `);
+    await sleep(mobile ? 700 : 300);
+    const syncingText = await statusText();
+    check(lang, `${tag}: status shows the count while syncing`, /12\/48/.test(syncingText), syncingText);
+    await shotStatus("syncing");
+    await openPanel();
+    await shot(page, lang, `${tag}-scr-status-panel-syncing`);
+    await panelChecks("syncing");
+    await closePanel();
+
+    // 3. Finished.
+    await tracker(`
+        for (const [dir, m] of Object.entries(tr.planned)) for (const path of m.keys()) tr.fileFinished(dir, path);
+        tr.noteConflict();
+        tr.finish("ok");
+    `);
+    await sleep(300);
+    const doneText = await statusText();
+    check(lang, `${tag}: status shows "synced"`, /Synced|同期済み/.test(doneText), doneText);
+    await shotStatus("synced");
+    await openPanel();
+    await shot(page, lang, `${tag}-scr-status-panel-synced`);
+    await panelChecks("synced");
+    await closePanel();
+
+    // 4. Failed and offline.
+    for (const [outcome, msg] of [
+        ["error", "HTTP 500: the server could not complete the request"],
+        ["offline", undefined],
+    ]) {
+        await tracker(
+            `tr.begin("timer-sync"); tr.plan("push", [{ path: "a.md", size: 10 }, { path: "b.md", size: 10 }]); tr.fileFinished("push", "a.md"); tr.finish(arg.outcome, arg.msg);`,
+            { outcome, msg },
+        );
+        await sleep(300);
+        await shotStatus(outcome);
+        await openPanel();
+        await shot(page, lang, `${tag}-scr-status-panel-${outcome}`);
+        await panelChecks(outcome);
+        await closePanel();
+    }
+
+    // 5. Full scan.
+    await tracker(`tr.begin("full-scan", "scanning"); tr.scanProgress(120, 480);`);
+    await sleep(mobile ? 700 : 300);
+    await shotStatus("scanning");
+    await openPanel();
+    await shot(page, lang, `${tag}-scr-status-panel-scanning`);
+    await panelChecks("scanning");
+    await closePanel();
+    await tracker(`
+        tr.finish("ok");
+        delete p.isAdapterAuthenticated;
+        delete p.syncManager.requestSmartSync;
+        delete p.syncManager.requestBackgroundScan;
+    `);
+
+    // 6. The setting turns it off (and on mobile brings the old indicator back).
+    const off = await page.evaluate(async (id) => {
+        const p = window.app.plugins.plugins[id];
+        p.settings.showSyncStatus = false;
+        p.refreshSyncStatusView();
+        const r = {
+            item: !!document.querySelector(".vault-sync-status-item, .vault-sync-status-pill"),
+            fab: !!document.querySelector(".vault-sync-mobile-fab"),
+        };
+        p.settings.showSyncStatus = true;
+        p.refreshSyncStatusView();
+        return r;
+    }, PLUGIN_ID);
+    check(
+        lang,
+        `${tag}: status display follows the setting`,
+        !off.item && off.fab === mobile,
+        JSON.stringify(off),
+    );
+}
+
 async function checkScreens(page, lang, { mobile = false } = {}) {
     const tag = mobile ? "mobile" : "desktop";
     await page.evaluate((id) => {
@@ -487,6 +665,7 @@ async function checkScreens(page, lang, { mobile = false } = {}) {
     await shot(page, lang, `${tag}-scr-sync-not-signed-in`, undefined, {
         keepNotices: true,
     });
+    await checkSyncStatus(page, lang, { mobile });
     await page.evaluate(() =>
         document.querySelectorAll(".notice-container .notice").forEach((n) => n.remove()),
     );

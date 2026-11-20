@@ -36,6 +36,7 @@ describe("sync-helpers", () => {
                 largeFileThresholdMB: 10,
                 concurrency: 2,
                 notificationLevel: "standard",
+                showSyncStatus: false,
                 conflictResolutionStrategy: "smart-merge",
                 enableLogging: false,
                 isDeveloperMode: false,
