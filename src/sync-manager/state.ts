@@ -564,8 +564,12 @@ export async function loadLocalIndex(ctx: StateCtx): Promise<void> {
             ctx.localIndex = parsed.index || {};
             ctx.deviceId = parsed.deviceId || "";
             journalOf(ctx).seq = typeof parsed.journalSeq === "number" ? parsed.journalSeq : 0;
-            await applyJournal(ctx, journalOf(ctx).seq);
+            // The saved file holds the entries without the journal: only they count as
+            // written. Marked after the replay, the replayed entries left the next journal
+            // while the saved file still lacked them, and a second app kill lost them (a
+            // synced note then had no base and every edit became a conflict copy).
             rememberWritten(ctx);
+            await applyJournal(ctx, journalOf(ctx).seq);
             restoreAttemptedUploads(ctx, parsed.attemptedUploads);
             restorePendingPulls(ctx, parsed.pendingPulls);
             restoreOverwriteRepairs(ctx, parsed.overwriteRepairs);
@@ -1055,7 +1059,10 @@ function restoreUnsyncedRenames(ctx: StateCtx, data: unknown): void {
     if (!m) unsyncedRenames.set(ctx, (m = new Map<string, string>()));
     for (const [from, to] of Object.entries(data as Record<string, unknown>)) {
         // Only a rename whose upload is still unsettled matters after a restart
-        if (typeof to === "string" && !m.has(from) && peekAttemptedUpload(ctx, from)) m.set(from, to);
+        // (its record may follow the note to the new name, after a failed move)
+        if (typeof to === "string" && !m.has(from) && (peekAttemptedUpload(ctx, from) || peekAttemptedUpload(ctx, to))) {
+            m.set(from, to);
+        }
     }
 }
 

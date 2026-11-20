@@ -65,10 +65,10 @@ export function claimPullPath(ctx: PathCollisionCtx, path: string, fileId: strin
     };
 }
 
-/** Whether a pull of another file (not `fileId`) is writing `path` right now. */
+/** Whether a pull of another file (not `fileId`) is writing exactly `path` right now. */
 export function isPathClaimedByOther(ctx: PathCollisionCtx, path: string, fileId: string): boolean {
     const cur = inFlight(ctx).get(pathKey(path));
-    return !!cur && cur.fileId !== fileId;
+    return !!cur && cur.fileId !== fileId && cur.path === path;
 }
 
 const pulls = new CtxState<Map<string, { path: string; fileId: string }>>("pullsInFlight", "Pulls running now, by folded path");

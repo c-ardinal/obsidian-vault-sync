@@ -908,6 +908,42 @@ const FIXED_REGRESSIONS: Case[] = [
         config: { seed: 190441, ...RESTART },
         expect: [],
     },
+    {
+        title: "chaos: a stale-copy removal only waits for a pull of exactly that name",
+        symptom: "A note stayed under an old letter case on Windows next to the cloud's spelling",
+        config: { seed: 180563, ...CHAOS },
+        expect: [],
+    },
+    {
+        title: "chaos: on Windows a deleted note's name held by another spelling is not uploaded",
+        symptom: "Another note's text was written into a deleted note, and a note went missing",
+        config: { seed: 200300, ...CHAOS },
+        expect: [],
+    },
+    {
+        title: "chaos: same as above, the other note stays where it is",
+        symptom: "An extra local copy stayed after a deleted note's name was reused in another case",
+        config: { seed: 210244, ...CHAOS },
+        expect: [],
+    },
+    {
+        title: "chaos: a folder made again after its deletion keeps the notes put in it",
+        symptom: "A note moved into a re-created folder was never uploaded",
+        config: { seed: 210897, ...CHAOS },
+        expect: [],
+    },
+    {
+        title: "restart: journaled index entries survive a second app kill",
+        symptom: "After two app kills a synced note lost its base, and edits became conflict copies",
+        config: { seed: 200100, ...RESTART },
+        expect: [],
+    },
+    {
+        title: "restart: a rename whose upload record followed the note survives a restart",
+        symptom: "A new note whose move failed existed under both names after an app kill",
+        config: { seed: 200988, ...RESTART },
+        expect: [],
+    },
 ];
 
 function configOf(c: Case, name: string): SimConfig {

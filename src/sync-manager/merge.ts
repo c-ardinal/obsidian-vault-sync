@@ -291,7 +291,7 @@ async function pullFileSafelyClaimed(
     // the local file is that note, and pulling merged the two into one file.
     const heldByOtherSpelling =
         !!fileId && !isRemoteDeleted && !!ctx.index[item.path] && !!ctx.caseInsensitiveFs &&
-        !!findPathCollision(ctx, item.path, fileId);
+        hasDeleteIntent(ctx, item.path) && !!findPathCollision(ctx, item.path, fileId);
     if (fileId && !isRemoteDeleted && (!ctx.index[item.path] || sameNameDuplicate || heldByOtherSpelling)) {
         let clash = sameNameDuplicate ? item.path : findPathCollision(ctx, item.path, fileId);
         // A new note made here under another spelling ("Todo.md" while the cloud

@@ -16,7 +16,7 @@ import {
     isDeviceExcluded,
     hashContent,
 } from "./file-utils";
-import { loadCommunication, saveIndex, saveLocalIndex, releaseLockAfterPush, findForeignLock, renameLocal, confirmMissingForDeletion, clearDeleteIntent, noteDeleteIntent, takeUnsyncedRename, peekUnsyncedRename } from "./state";
+import { loadCommunication, saveIndex, saveLocalIndex, releaseLockAfterPush, findForeignLock, renameLocal, confirmMissingForDeletion, clearDeleteIntent, hasDeleteIntent, noteDeleteIntent, takeUnsyncedRename, peekUnsyncedRename } from "./state";
 import { pullFileSafely } from "./merge";
 import { isMergeableText, recoverOverwrittenVersion } from "./overwrite-recovery";
 import { findPathCollision, freeCollisionPath, moveIndexEntry, pathKey } from "./path-collision";
@@ -161,14 +161,17 @@ async function executeFolderDeletions(
             }
 
             const prefix = folderPath + "/";
+            // The folder may have been made again since (a note moved into a new folder
+            // of that name): what is in it now is not part of the deletion. Clearing it
+            // too left a new note there unsynced for good.
             for (const dirtyPath of Array.from(ctx.dirtyPaths.keys())) {
-                if (dirtyPath.startsWith(prefix)) {
+                if (dirtyPath.startsWith(prefix) && !(await ctx.vault.exists(dirtyPath))) {
                     ctx.dirtyPaths.delete(dirtyPath);
                 }
             }
             const allPaths = Object.keys(ctx.index);
             for (const path of allPaths) {
-                if (path.startsWith(prefix)) {
+                if (path.startsWith(prefix) && !(await ctx.vault.exists(path))) {
                     delete ctx.index[path];
                     delete ctx.localIndex[path];
                 }
@@ -533,7 +536,14 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                 return;
             }
 
-            const exists = await ctx.vault.exists(path);
+            // Deleted here, and on Windows/macOS another synced note now sits under the
+            // same name in another spelling: the file "found" is that note. Uploading it
+            // to this note's cloud file wrote the other note's text into it.
+            const shadowed =
+                !!ctx.caseInsensitiveFs &&
+                hasDeleteIntent(ctx, path) &&
+                !!findPathCollision(ctx, path, ctx.index[path]?.fileId);
+            const exists = !shadowed && (await ctx.vault.exists(path));
             if (exists) {
                 const stat = await ctx.vault.stat(path);
                 if (stat) {
