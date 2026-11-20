@@ -164,6 +164,17 @@ Project kickoff meeting.
 
 const DEMO_ACTIVE_TRANSFERS: TransferItem[] = [
     {
+        id: "inline-pull-demo",
+        direction: "pull",
+        path: "Projects/Roadmap 2027/Q1 planning.md",
+        size: 18_200,
+        priority: TransferPriority.HIGH,
+        status: "active",
+        retryCount: 0,
+        createdAt: now - 1500,
+        startedAt: now - 1200,
+    },
+    {
         id: "tr_active_1",
         direction: "push",
         path: "Notes/Meeting Notes.md",
@@ -191,7 +202,7 @@ const DEMO_ACTIVE_TRANSFERS: TransferItem[] = [
         size: 2048,
         priority: TransferPriority.NORMAL,
         status: "pending",
-        retryCount: 0,
+        retryCount: 1,
         createdAt: now - 1000,
     },
 ];
@@ -278,6 +289,19 @@ const DEMO_TRANSFER_HISTORY: TransferRecord[] = [
         completedAt: now - 1000 * 60 * 60 * 25 + 5000,
         transferMode: "background",
     },
+    // One sync cycle a few minutes ago with several files
+    ...["Daily/2026-02-18.md", "Daily/2026-02-19.md", "Daily/2026-02-20.md", "Inbox/Ideas.md"].map(
+        (path, i): TransferRecord => ({
+            id: `tr_b${i}`,
+            direction: i % 2 === 0 ? "pull" : "push",
+            path,
+            size: 1800 + i * 450,
+            status: "completed",
+            startedAt: now - 1000 * 60 * 4 - i * 1500,
+            completedAt: now - 1000 * 60 * 4 - i * 1500 + 600,
+            transferMode: "inline",
+        }),
+    ),
 ];
 
 // ---------------------------------------------------------------------------
@@ -373,7 +397,8 @@ export function openDemoHistoryModal(app: App, syncManager: SyncManager): void {
  */
 export function openDemoTransferStatusModal(app: App, syncManager: SyncManager): void {
     const mockSM = createTransferProxy(syncManager);
-    new TransferStatusModal(app, mockSM).open();
+    // Demo buttons do nothing.
+    new TransferStatusModal(app, mockSM, { onSyncNow: () => {}, onOpenSettings: () => {} }).open();
 }
 
 /**
