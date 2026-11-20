@@ -20,6 +20,7 @@
  * - クリーン同期時に競合/認証/履歴系通知が発火しないこと
  */
 
+import { testCapabilities } from "../../helpers/mock-cloud-adapter";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { SyncManager, SyncManagerSettings, type SyncTrigger } from "../../../src/sync-manager";
 import { MockApp, MockVaultOperations } from "../../helpers/mock-vault-adapter";
@@ -68,9 +69,7 @@ class MockCloudAdapter implements CloudAdapter {
     clientId = "mock";
     clientSecret = "mock";
     isReady = async () => true;
-    supportsChangesAPI = true;
-    supportsHash = false;
-    supportsHistory = false;
+    capabilities = testCapabilities({ changeFeed: true });
     initialize = async () => {};
     login = async () => {};
     logout = async () => {};

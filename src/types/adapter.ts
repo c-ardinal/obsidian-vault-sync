@@ -17,17 +17,65 @@ export interface CloudChanges {
     }[];
 }
 
+/**
+ * What a cloud can do, declared once per adapter. The sync decides by these
+ * values, never by the adapter's name, so each provider states its own nature
+ * instead of imitating Google Drive.
+ */
+export interface CloudCapabilities {
+    /**
+     * Incremental change listing: getStartPageToken() and getChanges() are
+     * implemented (Drive changes, OneDrive delta, Dropbox list_folder cursor).
+     */
+    readonly changeFeed: boolean;
+    /** Per-file revision history: listRevisions() and getRevisionContent() are implemented */
+    readonly revisions: boolean;
+    /**
+     * What CloudFile.hash holds. "md5" = MD5 of the stored bytes, the same value
+     * md5() computes locally. null = no comparable content hash.
+     */
+    readonly contentHash: "md5" | null;
+    /** A file keeps its id across rename and move */
+    readonly stableIds: boolean;
+    /**
+     * A folder can hold two items with the same name. When false, a createOnly
+     * upload to a taken name fails with a CloudError of kind "conflict".
+     */
+    readonly sameNameSiblings: boolean;
+    /**
+     * Chunked resumable upload (initiateResumableSession / uploadChunk): every
+     * chunk except the last must be a multiple of this many bytes. null = none.
+     */
+    readonly resumableChunkAlignment: number | null;
+    /** Removed items can go to a trash and be restored there (no adapter implements it yet) */
+    readonly trash: boolean;
+    /** Writes can be made conditional on the version read (no adapter implements it yet) */
+    readonly conditionalWrite: boolean;
+}
+
+/** Capabilities of an adapter that declares none (test doubles, older wrappers). */
+export const NO_CLOUD_CAPABILITIES: CloudCapabilities = Object.freeze({
+    changeFeed: false,
+    revisions: false,
+    contentHash: null,
+    stableIds: false,
+    sameNameSiblings: false,
+    resumableChunkAlignment: null,
+    trash: false,
+    conditionalWrite: false,
+});
+
+/** The adapter's capabilities; an adapter without a declaration can do nothing optional. */
+export function capabilitiesOf(adapter: Pick<CloudAdapter, "capabilities"> | null | undefined): CloudCapabilities {
+    return adapter?.capabilities ?? NO_CLOUD_CAPABILITIES;
+}
+
 export interface CloudAdapter {
     name: string;
     vaultName: string;
 
-    // === Feature Flags ===
-    // Changes API support (Google Drive, OneDrive, Dropbox)
-    // When true, getChanges() can be used for faster pull detection
-    readonly supportsChangesAPI: boolean;
-
-    // Hash support for file content verification
-    readonly supportsHash: boolean;
+    /** What this cloud can do (see CloudCapabilities) */
+    readonly capabilities: CloudCapabilities;
 
     // Initialization (optional - pre-warm root folder discovery)
     initialize?(): Promise<void>;
@@ -86,7 +134,7 @@ export interface CloudAdapter {
 
     /**
      * Upload a chunk to a resumable session using Content-Range (optional).
-     * All chunks except the last must be a multiple of 256 KiB.
+     * All chunks except the last must be a multiple of capabilities.resumableChunkAlignment.
      * Returns null for intermediate chunks (HTTP 308), CloudFile on final (HTTP 200).
      */
     uploadChunk?(
@@ -124,9 +172,9 @@ export interface CloudAdapter {
     ): Promise<void>;
     fileExistsById(fileId: string): Promise<boolean>;
 
-    // Fast Sync Support (optional - only if supportsChangesAPI is true)
-    getStartPageToken(): Promise<string>;
-    getChanges(pageToken: string): Promise<CloudChanges>;
+    // Change feed (only when capabilities.changeFeed)
+    getStartPageToken?(): Promise<string>;
+    getChanges?(pageToken: string): Promise<CloudChanges>;
     listFiles(folderId?: string): Promise<CloudFile[]>;
     setLogger(logger: (msg: string, level?: string) => void): void;
 
@@ -167,8 +215,7 @@ export interface CloudAdapter {
      */
     getFolderIdByName?(name: string, parentId?: string): Promise<string | null>;
 
-    // === History Support (optional) ===
-    readonly supportsHistory: boolean;
+    // === History (only when capabilities.revisions) ===
     /**
      * @param fileId When known, identifies the file directly. A by-path lookup
      *   fails once another device renamed the file, which made merges miss

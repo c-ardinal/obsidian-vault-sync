@@ -13,6 +13,7 @@
  * @coverage_target 100% statements, branches, functions, lines
  */
 
+import { testCapabilities } from "../../helpers/mock-cloud-adapter";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
     requestSmartSync,
@@ -46,7 +47,7 @@ function createMockCtx(overrides: Partial<SyncContext> = {}): SyncContext {
     const adapter: any = {
         initialize: vi.fn(),
         clearDownloadCache: vi.fn(),
-        supportsChangesAPI: false,
+        capabilities: testCapabilities({ changeFeed: false }),
         listFiles: vi.fn(async () => []),
     };
 
@@ -393,7 +394,7 @@ describe("executeSmartSync - Activity State Management", () => {
 
     it("should call smartPull for postPushPull when adapter doesn't support ChangesAPI", async () => {
         const ctx = createSmartSyncContext();
-        (ctx.adapter as any).supportsChangesAPI = false;
+        (ctx.adapter as any).capabilities = testCapabilities({ changeFeed: false });
         let smartPullCallCount = 0;
         (ctx.smartPull as any).mockImplementation(() => {
             smartPullCallCount++;
@@ -488,7 +489,7 @@ function createSmartSyncContext(): SyncContext {
     const ctx = createMockCtx({
         currentTrigger: "manual-sync",
     });
-    (ctx.adapter as any).supportsChangesAPI = true;
+    (ctx.adapter as any).capabilities = testCapabilities({ changeFeed: true });
     return ctx;
 }
 

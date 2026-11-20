@@ -1,4 +1,4 @@
-import { CloudAdapter, CloudChanges, CloudFile } from "../../types/adapter";
+import { CloudAdapter, CloudCapabilities, CloudChanges, CloudFile } from "../../types/adapter";
 import type { OAuthCloudAdapter } from "../../types/oauth-adapter";
 import { basename } from "../../utils/path";
 import { CloudError, isCloudNotFound } from "../cloud-error";
@@ -52,13 +52,25 @@ interface DriveUploadMetadata {
     parents?: string[];
 }
 
+/** Every resumable upload chunk but the last must be a multiple of this (Drive API rule) */
+export const DRIVE_RESUMABLE_ALIGNMENT = 256 * 1024;
+
+export const GOOGLE_DRIVE_CAPABILITIES: CloudCapabilities = Object.freeze({
+    changeFeed: true,
+    revisions: true,
+    contentHash: "md5", // md5Checksum of the stored bytes
+    stableIds: true,
+    sameNameSiblings: true, // a folder may hold several files with one name
+    resumableChunkAlignment: DRIVE_RESUMABLE_ALIGNMENT,
+    trash: false, // Drive has a trash, but this adapter does not use it yet
+    conditionalWrite: false, // Drive offers no compare-and-set on content
+});
+
 export class GoogleDriveAdapter implements OAuthCloudAdapter {
     name = "Google Drive";
 
     // Feature flags - Google Drive supports both
-    readonly supportsChangesAPI = true;
-    readonly supportsHash = true; // MD5 checksum
-    readonly supportsHistory = true;
+    readonly capabilities: CloudCapabilities = GOOGLE_DRIVE_CAPABILITIES;
 
     public auth: GoogleAuthService;
     private http: GoogleDriveHttpClient;

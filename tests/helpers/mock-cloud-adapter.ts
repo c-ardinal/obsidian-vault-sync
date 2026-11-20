@@ -1,5 +1,12 @@
-import type { CloudAdapter, CloudFile, CloudChanges, FileRevision } from "../../src/types/adapter";
+import type {
+    CloudAdapter,
+    CloudCapabilities,
+    CloudFile,
+    CloudChanges,
+    FileRevision,
+} from "../../src/types/adapter";
 import { md5 } from "../../src/utils/md5";
+import { CloudError } from "../../src/cloud-adapters/cloud-error";
 
 interface StoredFile {
     id: string;
@@ -25,9 +32,17 @@ interface StoredRevision {
  */
 export class MockCloudAdapter implements CloudAdapter {
     readonly name = "MockCloud";
-    readonly supportsChangesAPI = true;
-    readonly supportsHash = true;
-    readonly supportsHistory = true;
+    /** Drive-like. Tests may replace it to simulate a cloud that can do less. */
+    capabilities: CloudCapabilities = {
+        changeFeed: true,
+        revisions: true,
+        contentHash: "md5",
+        stableIds: true,
+        sameNameSiblings: true,
+        resumableChunkAlignment: 256 * 1024,
+        trash: false,
+        conditionalWrite: false,
+    };
     readonly vaultName = "MockVault";
     /**
      * Max changes returned per getChanges() call. Google Drive pages the
@@ -85,7 +100,7 @@ export class MockCloudAdapter implements CloudAdapter {
 
     async downloadFile(fileId: string): Promise<ArrayBuffer> {
         const file = this.files.get(fileId);
-        if (!file) throw new Error(`Cloud file not found: ${fileId}`);
+        if (!file) throw new CloudError(`Cloud file not found: ${fileId}`, "not-found", 404);
         return file.content.slice(0);
     }
 
@@ -153,7 +168,7 @@ export class MockCloudAdapter implements CloudAdapter {
         newParentPath: string | null,
     ): Promise<CloudFile> {
         const file = this.files.get(fileId);
-        if (!file) throw new Error(`Cloud file not found: ${fileId}`);
+        if (!file) throw new CloudError(`Cloud file not found: ${fileId}`, "not-found", 404);
 
         const oldPath = file.path;
         // 旧パスからパスマップを削除（同名の重複ファイルがあればそちらを指す）
@@ -287,7 +302,7 @@ export class MockCloudAdapter implements CloudAdapter {
     // --- History ---
     async listRevisions(path: string, fileId?: string): Promise<FileRevision[]> {
         const id = fileId ?? this.pathToId.get(path);
-        if (!id || !this.files.has(id)) throw new Error(`File not found: ${path}`);
+        if (!id || !this.files.has(id)) throw new CloudError(`File not found: ${path}`, "not-found", 404);
         const revs = this.revisions.get(id) || [];
         return revs.map((r) => ({
             id: r.id,
@@ -299,10 +314,10 @@ export class MockCloudAdapter implements CloudAdapter {
 
     async getRevisionContent(path: string, revisionId: string, fileId?: string): Promise<ArrayBuffer> {
         const id = fileId ?? this.pathToId.get(path);
-        if (!id || !this.files.has(id)) throw new Error(`File not found: ${path}`);
+        if (!id || !this.files.has(id)) throw new CloudError(`File not found: ${path}`, "not-found", 404);
         const rev = (this.revisions.get(id) || []).find((r) => r.id === revisionId);
         if (rev) return rev.content.slice(0);
-        throw new Error(`Revision not found: ${revisionId}`);
+        throw new CloudError(`Revision not found: ${revisionId}`, "not-found", 404);
     }
 
     async setRevisionKeepForever(
@@ -503,4 +518,22 @@ export class MockCloudAdapter implements CloudAdapter {
             hash: stored.hash,
         };
     }
+}
+
+/**
+ * Capabilities for hand-made adapter doubles: nothing optional unless named.
+ * `contentHash: "md5"` etc. as overrides.
+ */
+export function testCapabilities(overrides: Partial<CloudCapabilities> = {}): CloudCapabilities {
+    return {
+        changeFeed: false,
+        revisions: false,
+        contentHash: null,
+        stableIds: true,
+        sameNameSiblings: true,
+        resumableChunkAlignment: null,
+        trash: false,
+        conditionalWrite: false,
+        ...overrides,
+    };
 }

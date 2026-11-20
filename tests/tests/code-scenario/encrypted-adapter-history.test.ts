@@ -11,12 +11,13 @@
  * - MockCryptoEngine
  *
  * @pass_criteria
- * - supportsHistoryが基盤アダプタの値を反映すること
+ * - capabilities.revisions が基盤アダプタの値を反映すること
  * - listRevisionsが基盤アダプタに委譲されること
  * - getRevisionContentが暗号化コンテンツからIVを抽出して復号すること
  * - コンテンツが短すぎる場合(IV欠落)に例外を投げること
  * - 非対応メソッド呼び出し時に明確なエラーメッセージで例外を投げること
  */
+import { testCapabilities } from "../../helpers/mock-cloud-adapter";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { EncryptedAdapter } from "../../../src/encryption/encrypted-adapter";
 import type { CloudAdapter, FileRevision } from "../../../src/types/adapter";
@@ -30,9 +31,7 @@ function createMockBaseAdapter(overrides: Partial<CloudAdapter> = {}): CloudAdap
     return {
         name: "MockBase",
         vaultName: "TestVault",
-        supportsChangesAPI: true,
-        supportsHash: true,
-        supportsHistory: true,
+        capabilities: testCapabilities({ changeFeed: true, contentHash: "md5", revisions: true }),
         isAuthenticated: () => true,
         getAuthUrl: async () => "",
         handleCallback: async () => {},
@@ -92,15 +91,17 @@ describe("EncryptedAdapter History Support", () => {
         adapter = new EncryptedAdapter(baseAdapter, engine);
     });
 
-    describe("supportsHistory", () => {
-        it("should reflect base adapter's supportsHistory = true", () => {
-            expect(adapter.supportsHistory).toBe(true);
+    describe("capabilities.revisions", () => {
+        it("should reflect base adapter's revisions = true", () => {
+            expect(adapter.capabilities.revisions).toBe(true);
         });
 
-        it("should reflect base adapter's supportsHistory = false", () => {
-            const noHistoryAdapter = createMockBaseAdapter({ supportsHistory: false } as any);
+        it("should reflect base adapter's revisions = false", () => {
+            const noHistoryAdapter = createMockBaseAdapter({
+                capabilities: testCapabilities({ revisions: false }),
+            });
             const enc = new EncryptedAdapter(noHistoryAdapter, engine);
-            expect(enc.supportsHistory).toBe(false);
+            expect(enc.capabilities.revisions).toBe(false);
         });
     });
 

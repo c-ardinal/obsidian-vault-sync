@@ -578,7 +578,7 @@ describe("SyncManager - History Management", () => {
         // Mock adapter to support history with deleteRevision
         const mockDeleteRevision = vi.fn().mockResolvedValue(undefined);
         sm.baseAdapter.deleteRevision = mockDeleteRevision;
-        sm.baseAdapter.supportsHistory = true;
+        sm.baseAdapter.capabilities = { ...sm.baseAdapter.capabilities, revisions: true };
 
         // Should use adapter's deleteRevision when available
         await sm.deleteRevision("notes/test.md", "rev_123");

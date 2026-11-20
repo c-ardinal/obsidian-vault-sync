@@ -1,3 +1,4 @@
+import { capabilitiesOf } from "../types/adapter";
 import { md5 } from "../utils/md5";
 import type { SyncContext } from "./context";
 import type { SyncState } from "./types";
@@ -219,7 +220,7 @@ async function postPushPull(ctx: SyncContext, maxRetries: number = SYNC_POST_PUS
             if (attempt === 0 && !ctx.settings.hasCompletedFirstSync) {
                 await ctx.notify("noticeInitialSyncConfirmation");
             }
-            if (ctx.adapter.supportsChangesAPI) {
+            if (capabilitiesOf(ctx.adapter).changeFeed) {
                 await ctx.pullViaChangesAPI(true);
             } else {
                 await ctx.smartPull();

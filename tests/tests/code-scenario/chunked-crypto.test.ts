@@ -23,6 +23,7 @@
  * - Phase 2: 大容量ファイルでresumable upload使用、小容量は非使用
  * - 後方互換: VSC1/VSC2を自動判定して透過的に復号
  */
+import { testCapabilities } from "../../helpers/mock-cloud-adapter";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
     createMockEngine,
@@ -49,9 +50,7 @@ function createMockBaseAdapter(overrides: Partial<CloudAdapter> = {}): CloudAdap
     return {
         name: "MockBase",
         vaultName: "TestVault",
-        supportsChangesAPI: true,
-        supportsHash: true,
-        supportsHistory: true,
+        capabilities: testCapabilities({ changeFeed: true, contentHash: "md5", revisions: true }),
         isAuthenticated: () => true,
         getAuthUrl: async () => "",
         handleCallback: async () => {},

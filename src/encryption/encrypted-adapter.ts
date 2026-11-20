@@ -1,4 +1,11 @@
-import { CloudAdapter, CloudChanges, CloudFile, FileRevision } from "../types/adapter";
+import {
+    capabilitiesOf,
+    CloudAdapter,
+    CloudCapabilities,
+    CloudChanges,
+    CloudFile,
+    FileRevision,
+} from "../types/adapter";
 import { ICryptoEngine } from "./interfaces";
 import { DecryptionError } from "./errors";
 
@@ -11,22 +18,22 @@ import { DecryptionError } from "./errors";
  * and HTTP batching for streaming uploads.
  */
 export class EncryptedAdapter implements CloudAdapter {
-    readonly supportsChangesAPI: boolean;
-    readonly supportsHash: boolean;
-    readonly supportsHistory: boolean;
 
 
     private static readonly UPLOAD_BATCH_SIZE = 5 * 1024 * 1024; // 5 MiB
-    private static readonly ALIGN = 262144; // 256 KiB
+    /** Chunk alignment when the wrapped cloud declares none (Drive's 256 KiB, as before) */
+    private static readonly DEFAULT_ALIGN = 262144;
 
     constructor(
         private baseAdapter: CloudAdapter,
         private engine: ICryptoEngine,
         private largeFileThresholdBytes: number = 0,
     ) {
-        this.supportsChangesAPI = baseAdapter.supportsChangesAPI;
-        this.supportsHash = baseAdapter.supportsHash;
-        this.supportsHistory = baseAdapter.supportsHistory;
+    }
+
+    /** Same as the wrapped cloud's: encryption changes the bytes, not what the cloud can do. */
+    get capabilities(): CloudCapabilities {
+        return capabilitiesOf(this.baseAdapter);
     }
 
     get name(): string {
@@ -152,11 +159,11 @@ export class EncryptedAdapter implements CloudAdapter {
     }
 
     async getStartPageToken(): Promise<string> {
-        return this.baseAdapter.getStartPageToken();
+        return this.baseAdapter.getStartPageToken!();
     }
 
     async getChanges(pageToken: string): Promise<CloudChanges> {
-        return this.baseAdapter.getChanges(pageToken);
+        return this.baseAdapter.getChanges!(pageToken);
     }
 
     async listFiles(folderId?: string): Promise<CloudFile[]> {
@@ -268,7 +275,7 @@ export class EncryptedAdapter implements CloudAdapter {
     /**
      * Streaming chunked upload.
      * Delegates chunk encryption to the engine, then batches encrypted chunks
-     * into 256 KiB-aligned HTTP uploads. Peak memory: plaintext + ~6 MiB buffer.
+     * into HTTP uploads aligned as the cloud requires. Peak memory: plaintext + ~6 MiB buffer.
      */
     private async uploadChunkedStreaming(
         path: string,
@@ -286,7 +293,10 @@ export class EncryptedAdapter implements CloudAdapter {
         );
 
         const BATCH = EncryptedAdapter.UPLOAD_BATCH_SIZE;
-        const ALIGN = EncryptedAdapter.ALIGN;
+        // Every chunk but the last must be a multiple of what the cloud requires
+        // (256 KiB on Drive, 320 KiB on OneDrive).
+        const ALIGN =
+            capabilitiesOf(this.baseAdapter).resumableChunkAlignment ?? EncryptedAdapter.DEFAULT_ALIGN;
         // Buffer: BATCH + max encrypted chunk size + safety margin
         const maxEncChunkSize =
             this.engine.ivSize + this.engine.getOptimalChunkSize() + this.engine.tagSize;
@@ -326,7 +336,7 @@ export class EncryptedAdapter implements CloudAdapter {
                         return result;
                     }
                 } else {
-                    // Intermediate: flush 256 KiB-aligned portion
+                    // Intermediate: flush the aligned portion
                     const aligned = Math.floor(bufPos / ALIGN) * ALIGN;
                     if (aligned > 0) {
                         await this.baseAdapter.uploadChunk!(
