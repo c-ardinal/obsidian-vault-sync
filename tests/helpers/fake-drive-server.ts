@@ -214,6 +214,25 @@ export class FakeDriveServer {
         m = /^\/drive\/v3\/files\/([\w-]+)\/revisions(?:\/([\w-]+))?$/.exec(p);
         if (m) return this.revisions(method, m[1], m[2], qs, init);
 
+        // --- Server-side copy ---
+        m = /^\/drive\/v3\/files\/([\w-]+)\/copy$/.exec(p);
+        if (m && method === "POST") {
+            const src = this.items.get(m[1]);
+            if (!src) return this.error(404, `File not found: ${m[1]}.`);
+            const meta = JSON.parse(new TextDecoder().decode(await this.bodyBytes(init))) as {
+                name?: string;
+                parents?: string[];
+            };
+            const item = this.createItem({
+                name: meta.name ?? src.name,
+                mimeType: src.mimeType,
+                parents: meta.parents ?? src.parents,
+                modifiedTime: src.modifiedTime,
+            });
+            if (src.content) this.writeContent(item, src.content.slice(), src.modifiedTime);
+            return this.json(this.meta(item));
+        }
+
         // --- Files ---
         if (p === "/drive/v3/files") {
             if (method === "POST") {

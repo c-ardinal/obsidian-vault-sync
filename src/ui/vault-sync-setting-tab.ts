@@ -523,6 +523,11 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                 break;
             }
             // subheader is handled in renderSection, never reaches here
+            case "button":
+                setting.addButton((btn) =>
+                    btn.setButtonText(item.buttonText ?? item.label).onClick(() => item.onClick?.(this.plugin)),
+                );
+                break;
             case "info":
                 setting.settingEl.addClass("vault-sync-info-setting");
                 setting.controlEl.createSpan({

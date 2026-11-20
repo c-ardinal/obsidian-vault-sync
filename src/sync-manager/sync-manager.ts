@@ -23,6 +23,7 @@ import {
 } from "./notification-matrix";
 import { SyncProgressTracker } from "./sync-progress";
 import { RemoteDeletionService } from "./remote-deletion";
+import { TrashRemoteDeletion } from "./remote-trash";
 import { approveAllPlanGuard, type PlanGuard } from "./sync-plan";
 import {
     PLUGIN_DIR,
@@ -250,6 +251,9 @@ export class SyncManager {
         this.baseAdapter = adapter;
         this.revisionCache = revisionCache;
         this.backgroundTransferQueue = backgroundQueue;
+        this.remoteDeletion.setStrategy(
+            new TrashRemoteDeletion(() => this.settings.remoteTrashRetentionDays ?? -1),
+        );
         this.vaultLockService = new VaultLockService(this.baseAdapter, this.remoteDeletion);
         this.migrationService = new MigrationService(
             this.baseAdapter,

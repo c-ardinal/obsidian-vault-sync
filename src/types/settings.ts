@@ -33,6 +33,8 @@ export interface VaultSyncSettings {
     massDeleteConfirmFiles: number;
     /** Ask before one sync deletes this share (%) of the synced files or more (-1 = off) */
     massDeleteConfirmPercent: number;
+    /** Days a file deleted from the cloud stays in the cloud trash (-1 = removed at once) */
+    remoteTrashRetentionDays: number;
 
     notificationLevel: "verbose" | "standard" | "error";
     /** Status bar / mobile progress display of the running sync. Progress notices are

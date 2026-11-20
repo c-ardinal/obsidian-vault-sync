@@ -3,6 +3,7 @@ import type { VaultSyncSettings } from "../types/settings";
 export type SyncManagerSettings = Pick<
     VaultSyncSettings,
     | "concurrency"
+    | "remoteTrashRetentionDays"
     | "largeFileThresholdMB"
     | "bgTransferIntervalSec"
     | "notificationLevel"

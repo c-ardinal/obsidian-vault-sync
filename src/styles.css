@@ -2006,3 +2006,12 @@
     font-size: var(--font-ui-small);
     word-break: break-all;
 }
+
+.vault-sync-remote-trash-list {
+    max-height: 60vh;
+    overflow-y: auto;
+}
+
+.vault-sync-remote-trash-list .setting-item-name {
+    word-break: break-all;
+}

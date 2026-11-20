@@ -18,6 +18,8 @@ export const SETTINGS_LIMITS = {
     massDeleteConfirmFiles: { min: 1, max: 100000, default: 20, disabled: -1 },
     /** Ask before a sync deletes this share (%) of the synced files or more */
     massDeleteConfirmPercent: { min: 1, max: 100, default: 10, disabled: -1 },
+    /** Days a file deleted from the cloud stays in the cloud trash (-1 = no trash) */
+    remoteTrashRetentionDays: { min: 1, max: 3650, default: 30, disabled: -1 },
 } as const;
 
 export const DEFAULT_SETTINGS: VaultSyncSettings = {
@@ -49,6 +51,7 @@ export const DEFAULT_SETTINGS: VaultSyncSettings = {
     bgTransferIntervalSec: 0,
     massDeleteConfirmFiles: SETTINGS_LIMITS.massDeleteConfirmFiles.default,
     massDeleteConfirmPercent: SETTINGS_LIMITS.massDeleteConfirmPercent.default,
+    remoteTrashRetentionDays: SETTINGS_LIMITS.remoteTrashRetentionDays.default,
     notificationLevel: "standard",
     showSyncStatus: true,
     conflictResolutionStrategy: "smart-merge",

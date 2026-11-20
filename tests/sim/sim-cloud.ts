@@ -84,6 +84,8 @@ export class SimCloud {
     constructor() {
         // Like Google Drive: one entry per file with its current state (see MockCloudAdapter)
         this.store.changesLatestStateOnly = true;
+        // Like Drive: a clone with another vault name is a folder next to the vault (trash)
+        this.store.cloneRoots = true;
     }
 
     createDeviceView(
@@ -120,7 +122,8 @@ export class SimCloud {
                     };
                 }
                 if (prop === "cloneWithNewVaultName") {
-                    return () => proxy;
+                    return (name: string) =>
+                        name === target.vaultName ? proxy : target.cloneWithNewVaultName(name);
                 }
                 const value = Reflect.get(target, prop, receiver);
                 if (typeof value !== "function" || typeof prop !== "string") return value;
