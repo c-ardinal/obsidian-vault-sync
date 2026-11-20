@@ -1,5 +1,7 @@
 import { CloudAdapter, CloudChanges, CloudFile } from "../../types/adapter";
+import type { OAuthCloudAdapter } from "../../types/oauth-adapter";
 import { basename } from "../../utils/path";
+import { CloudError, isCloudNotFound } from "../cloud-error";
 import { GoogleAuthService, type AuthMethod } from "./auth-service";
 import { GoogleDriveHttpClient } from "./http-client";
 import { DrivePathResolver, isUnreachableFromVault } from "./path-resolver";
@@ -50,7 +52,7 @@ interface DriveUploadMetadata {
     parents?: string[];
 }
 
-export class GoogleDriveAdapter implements CloudAdapter {
+export class GoogleDriveAdapter implements OAuthCloudAdapter {
     name = "Google Drive";
 
     // Feature flags - Google Drive supports both
@@ -737,7 +739,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
     ): Promise<import("../../types/adapter").FileRevision[]> {
         this.validatePath(path);
         const meta = fileId ? { id: fileId } : await this.getFileMetadata(path);
-        if (!meta) throw new Error(`File not found: ${path}`);
+        if (!meta) throw new CloudError(`File not found: ${path}`, "not-found");
 
         const response = await this.http.fetchWithAuth(
             `https://www.googleapis.com/drive/v3/files/${meta.id}/revisions?fields=revisions(id,modifiedTime,size,lastModifyingUser,keepForever,md5Checksum)`,
@@ -757,7 +759,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
     async getRevisionContent(path: string, revisionId: string, fileId?: string): Promise<ArrayBuffer> {
         this.validatePath(path);
         const meta = fileId ? { id: fileId } : await this.getFileMetadata(path);
-        if (!meta) throw new Error(`File not found: ${path}`);
+        if (!meta) throw new CloudError(`File not found: ${path}`, "not-found");
 
         const metaResponse = await this.http.fetchWithAuth(
             `https://www.googleapis.com/drive/v3/files/${meta.id}/revisions/${revisionId}?fields=md5Checksum`,
@@ -791,7 +793,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
     ): Promise<void> {
         this.validatePath(path);
         const meta = await this.getFileMetadata(path);
-        if (!meta) throw new Error(`File not found: ${path}`);
+        if (!meta) throw new CloudError(`File not found: ${path}`, "not-found");
 
         await this.http.fetchWithAuth(
             `https://www.googleapis.com/drive/v3/files/${meta.id}/revisions/${revisionId}`,
@@ -806,7 +808,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
     async deleteRevision(path: string, revisionId: string): Promise<void> {
         this.validatePath(path);
         const meta = await this.getFileMetadata(path);
-        if (!meta) throw new Error(`File not found: ${path}`);
+        if (!meta) throw new CloudError(`File not found: ${path}`, "not-found");
 
         await this.http.fetchWithAuth(
             `https://www.googleapis.com/drive/v3/files/${meta.id}/revisions/${revisionId}`,
@@ -817,9 +819,5 @@ export class GoogleDriveAdapter implements CloudAdapter {
 
 /** A 404 from Drive, or our own "folder not found" while resolving a parent path */
 function isNotFound(e: unknown): boolean {
-    if (!e || typeof e !== "object") return false;
-    const err = e as { status?: unknown; message?: string };
-    if (err.status === 404) return true;
-    const msg: string = err.message ?? "";
-    return msg.startsWith("Folder not found") || msg.includes("API Error 404") || msg.includes("File not found");
+    return isCloudNotFound(e);
 }

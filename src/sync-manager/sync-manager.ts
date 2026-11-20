@@ -22,6 +22,7 @@ import {
     CONFLICT_NOTICE_KEYS,
 } from "./notification-matrix";
 import { SyncProgressTracker } from "./sync-progress";
+import { RemoteDeletionService } from "./remote-deletion";
 import {
     PLUGIN_DIR,
     INTERNAL_LOCAL_ONLY,
@@ -157,6 +158,9 @@ export class SyncManager {
     /** Progress of the running sync, for the status display */
     public readonly progress = new SyncProgressTracker();
 
+    /** Every removal on the cloud goes through this service */
+    public readonly remoteDeletion = new RemoteDeletionService();
+
     /** Current sync trigger — controls notification visibility via matrix lookup */
     public currentTrigger: SyncTrigger = "manual-sync";
 
@@ -237,7 +241,7 @@ export class SyncManager {
         this.baseAdapter = adapter;
         this.revisionCache = revisionCache;
         this.backgroundTransferQueue = backgroundQueue;
-        this.vaultLockService = new VaultLockService(this.baseAdapter);
+        this.vaultLockService = new VaultLockService(this.baseAdapter, this.remoteDeletion);
         this.migrationService = new MigrationService(
             this.baseAdapter,
             this.vaultLockService,

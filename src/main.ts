@@ -1,5 +1,6 @@
 import { Notice, Plugin, TFile, setIcon, Platform } from "obsidian";
-import { GoogleDriveAdapter } from "./cloud-adapters/google-drive";
+import { createCloudAdapter, DEFAULT_CLOUD_PROVIDER } from "./cloud-adapters";
+import type { OAuthCloudAdapter } from "./types/oauth-adapter";
 import { SyncManager, type SyncTrigger } from "./sync-manager";
 import type { SecureStorage } from "./services/secure-storage";
 import { HistoryModal } from "./ui/history-modal";
@@ -39,7 +40,7 @@ import { isLegacyCopyEnabled, migrateLegacyPluginData } from "./services/legacy-
 
 export default class VaultSync extends Plugin {
     settings!: VaultSyncSettings;
-    adapter!: GoogleDriveAdapter;
+    adapter!: OAuthCloudAdapter;
     syncManager!: SyncManager;
     secureStorage!: SecureStorage;
     public vaultOps!: IVaultOperations;
@@ -276,9 +277,8 @@ export default class VaultSync extends Plugin {
 
         this.vaultOps = new ObsidianVaultOperations(this.app);
 
-        this.adapter = new GoogleDriveAdapter(
-            "",
-            "",
+        this.adapter = createCloudAdapter(
+            DEFAULT_CLOUD_PROVIDER,
             this.vaultOps.getVaultName(),
             DEFAULT_SETTINGS.cloudRootFolder,
         );

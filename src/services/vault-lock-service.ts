@@ -1,5 +1,6 @@
 import { CloudAdapter, CloudFile } from "../types/adapter";
 import { LEGACY_PLUGIN_DIR, PLUGIN_DIR } from "../sync-manager/file-utils";
+import { RemoteDeletionService } from "../sync-manager/remote-deletion";
 
 const VAULT_LOCK_SUBPATH = "data/remote/vault-lock.vault";
 
@@ -22,7 +23,10 @@ export const MIGRATION_LOCK_FILENAME = "migration.lock";
  * The engine handles encryption/decryption internally.
  */
 export class VaultLockService {
-    constructor(private baseAdapter: CloudAdapter) {}
+    constructor(
+        private baseAdapter: CloudAdapter,
+        private deletion: RemoteDeletionService = new RemoteDeletionService(),
+    ) {}
 
     /**
      * The vault-lock to use: the one at this plugin's path or the one at the old
@@ -89,7 +93,13 @@ export class VaultLockService {
 
     async removeMigrationLock(): Promise<void> {
         const meta = await this.baseAdapter.getFileMetadata(MIGRATION_LOCK_FILENAME);
-        if (meta) await this.baseAdapter.deleteFile(meta.id);
+        if (meta) {
+            await this.deletion.remove(
+                this.baseAdapter,
+                { id: meta.id, path: MIGRATION_LOCK_FILENAME, kind: "file" },
+                "maintenance",
+            );
+        }
     }
 
     async getFolderId(name: string, parentId?: string): Promise<string | null> {

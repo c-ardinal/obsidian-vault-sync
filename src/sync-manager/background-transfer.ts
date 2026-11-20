@@ -1,3 +1,4 @@
+import { removeRemote } from "./remote-deletion";
 import { md5 } from "../utils/md5";
 import { formatSize } from "../utils/format";
 import { basename, dirname } from "../utils/path";
@@ -341,7 +342,7 @@ export class BackgroundTransferQueue {
                 ctx.dirtyPaths.set(now, ctx.dirtyPaths.get(now) ?? Date.now());
                 await ctx.log(`[Background Transfer] Moved our earlier upload of ${path} to ${now}.`, "info");
             } else {
-                await ctx.adapter.deleteFile(meta.id);
+                await removeRemote(ctx, { id: meta.id, path, kind: "file" }, "superseded-upload");
                 await ctx.log(`[Background Transfer] Removed our earlier upload of deleted ${path}.`, "info");
             }
             forgetAttemptedUpload(ctx, path);

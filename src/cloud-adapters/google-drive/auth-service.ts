@@ -1,3 +1,4 @@
+import type { OAuthMethod } from "../../types/oauth-adapter";
 import { generateCodeChallenge, generateCodeVerifier } from "./pkce";
 import { OAUTH_REDIRECT_URI, AUTH_PROXY_BASE_URL } from "../../constants";
 import { toHex } from "../../utils/format";
@@ -12,7 +13,7 @@ interface TokenResponse {
     error_description?: string;
 }
 
-export type AuthMethod = "default" | "custom-proxy" | "client-credentials";
+export type AuthMethod = OAuthMethod;
 
 export class GoogleAuthService {
     /** Exposed for HttpClient to attach Authorization header. */

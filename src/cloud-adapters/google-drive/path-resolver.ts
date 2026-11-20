@@ -1,4 +1,5 @@
 import type { GoogleDriveHttpClient } from "./http-client";
+import { CloudError } from "../cloud-error";
 
 /** Subset of a Drive v3 file resource used here. */
 interface DriveFile {
@@ -296,7 +297,7 @@ export class DrivePathResolver {
                 } else if (create) {
                     currentParentId = await this.createFolder(part, currentParentId);
                 } else {
-                    throw new Error(`Folder not found: ${pathAccumulator}`);
+                    throw new CloudError(`Folder not found: ${pathAccumulator}`, "not-found");
                 }
                 this.folderCache.set(pathAccumulator, currentParentId);
 
@@ -358,7 +359,7 @@ export class DrivePathResolver {
                 );
                 const file = (await response.json()) as { id?: string; name: string; parents?: string[] };
 
-                if (!file.id) throw new Error(`File not found: ${currentId}`);
+                if (!file.id) throw new CloudError(`File not found: ${currentId}`, "not-found");
 
                 encounteredIds.push(currentId);
                 pathParts.unshift(file.name);

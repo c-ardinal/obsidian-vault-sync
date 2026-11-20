@@ -1,5 +1,5 @@
 import type { IVaultOperations } from "../types/vault-operations";
-import type { GoogleDriveAdapter } from "../cloud-adapters/google-drive";
+import type { OAuthCloudAdapter } from "../types/oauth-adapter";
 import { SecureStorage, type SecretStorage } from "./secure-storage";
 import { DEFAULT_SETTINGS } from "../constants";
 import {
@@ -9,11 +9,12 @@ import {
     type VaultSyncSettings,
 } from "../types/settings";
 import { toHex } from "../utils/format";
+import { mergeWithDefaults, migrateSettings } from "./settings-migration";
 
 interface SettingsManagerDeps {
     vaultOps: IVaultOperations;
     manifestDir: string;
-    adapter: GoogleDriveAdapter;
+    adapter: OAuthCloudAdapter;
     appSecretStorage: SecretStorage | null | undefined;
 }
 
@@ -60,7 +61,11 @@ export class SettingsManager {
             }
         }
 
-        this.settings = Object.assign({}, DEFAULT_SETTINGS, loadedSettings);
+        // Nested groups get new fields' defaults, and the result shares no objects
+        // with DEFAULT_SETTINGS (a shallow copy let setting changes alter the defaults).
+        this.settings = mergeWithDefaults(DEFAULT_SETTINGS, loadedSettings);
+        // Brought to the current shape in memory; written with the next save.
+        migrateSettings(this.settings as unknown as Record<string, unknown>);
 
         // SEC-010: Initialize SecureStorage early to use its SecretStorage methods
         this.secureStorage = new SecureStorage(
