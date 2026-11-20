@@ -15,35 +15,41 @@ import type { SyncProgressTracker } from "./sync-progress";
 import type { RemoteDeletionService } from "./remote-deletion";
 import type { PlanGuard } from "./sync-plan";
 
-/**
- * Shared context interface for extracted sync-manager sub-modules.
- *
- * SyncManager implements this interface implicitly — extracted functions
- * receive `this` (cast as SyncContext) so they can access shared state
- * without depending on the SyncManager class directly.
+/*
+ * The context is split into roles so a module can state which part it uses
+ * (e.g. `ctx: SyncPlatform & SyncIndexState`) instead of taking all of it. A
+ * module that takes a role can be tested with a context holding only that role.
+ * SyncContext is the union of every role; SyncManager implements it.
  */
-export interface SyncContext {
-    // === Platform ===
+
+/** The vault, the cloud and the settings the sync works with */
+export interface SyncPlatform {
     vault: IVaultOperations;
     adapter: CloudAdapter;
     settings: SyncManagerSettings;
     logger: SyncLogger;
     t: (key: string) => string;
+}
 
-    // === Paths ===
+/** Where the plugin keeps its own files */
+export interface SyncPaths {
     pluginDataPath: string;
     pluginDir: string;
     localIndexPath: string;
     communicationPath: string;
     logFolder: string;
+}
 
-    // === Core Sync State ===
+/** What is known to be synced: the indexes and the change-feed cursor */
+export interface SyncIndexState {
     index: LocalFileIndex;
     localIndex: LocalFileIndex;
     startPageToken: string | null;
     deviceId: string;
+}
 
-    // === Hybrid Sync State ===
+/** Local changes waiting for a sync, and the state of the sync running now */
+export interface SyncRuntimeState {
     syncState: SyncState;
     dirtyPaths: Map<string, number>;
     syncingPaths: Set<string>;
@@ -56,25 +62,26 @@ export interface SyncContext {
     syncRequestedWhileSyncing: boolean;
     nextSyncParams: { trigger: SyncTrigger; scanVault: boolean } | null;
     readonly FULL_SCAN_MAX_AGE_MS: number;
-
-    // === Notification / Trigger ===
     currentTrigger: SyncTrigger;
+}
 
-    // === Flags ===
+/** One-off flags and the state of the add-on */
+export interface SyncFlags {
     forceCleanupNextSync: boolean;
     indexLoadFailed: boolean;
     isSpinning: boolean;
     settingsUpdated: boolean;
+    /** Read through content-identity.ts in the sync code, not directly */
     e2eeEnabled: boolean;
     e2eeLocked: boolean;
     /** The file system treats NFC and NFD names as one file (macOS / iOS) */
     unicodeInsensitiveFs?: boolean;
+}
 
-    // === Caches ===
+/** Services the sync steps delegate to */
+export interface SyncServices {
     revisionCache: RevisionCache;
     cryptoEngine: import("../encryption/interfaces").ICryptoEngine | null;
-
-    // === Background Transfer ===
     backgroundTransferQueue: BackgroundTransferQueue;
     /** Progress for the status display (optional so test contexts can omit it) */
     progress?: SyncProgressTracker;
@@ -82,8 +89,10 @@ export interface SyncContext {
     remoteDeletion?: RemoteDeletionService;
     /** Reviews destructive changes before they run (optional; absent = approve all) */
     planGuard?: PlanGuard;
+}
 
-    // === Utility Methods (remain on SyncManager, called via ctx) ===
+/** Logging, notices and the callbacks to the plugin */
+export interface SyncHooks {
     log: (message: string, level?: LogLevel) => Promise<void>;
     notify: (key: string, suffix?: string, options?: NoticeOptions) => Promise<void>;
     startActivity: () => void;
@@ -92,9 +101,28 @@ export interface SyncContext {
     onActivityEnd: () => void;
     onSettingsUpdated: () => Promise<void>;
     onSaveSettings: () => Promise<void>;
+}
 
-    // === Delegate Methods (called via ctx so vi.spyOn on facade class works) ===
+/** Sync steps called through the context, so vi.spyOn on the facade class works */
+export interface SyncSteps {
     smartPull: () => Promise<boolean>;
     smartPush: (scanVault: boolean) => Promise<boolean>;
     pullViaChangesAPI: (drainAll?: boolean) => Promise<void>;
 }
+
+/**
+ * Everything the extracted sync-manager modules can reach.
+ *
+ * SyncManager implements this interface implicitly: extracted functions
+ * receive `this` (cast as SyncContext) so they can access shared state
+ * without depending on the SyncManager class directly.
+ */
+export interface SyncContext
+    extends SyncPlatform,
+        SyncPaths,
+        SyncIndexState,
+        SyncRuntimeState,
+        SyncFlags,
+        SyncServices,
+        SyncHooks,
+        SyncSteps {}

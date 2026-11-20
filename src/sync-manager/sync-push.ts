@@ -31,6 +31,7 @@ import {
     isAttemptedUpload,
     forgetAttemptedVersion,
 } from "./sync-helpers";
+import { storesTransformedContent } from "./content-identity";
 
 
 /** Walk directory tree of missing files to infer deleted folders */
@@ -598,7 +599,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                             if (ctx.dirtyPaths.get(path) === dirtyAt) {
                                 ctx.dirtyPaths.delete(path);
                             }
-                            await ctx.log(`[Smart Push] Skipped (${ctx.e2eeEnabled ? "plainHash" : "hash"} match): ${path}`, "debug");
+                            await ctx.log(`[Smart Push] Skipped (${storesTransformedContent(ctx) ? "plainHash" : "hash"} match): ${path}`, "debug");
                             return;
                         } else if (
                             !localIndexEntry &&
@@ -872,7 +873,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                         "debug",
                                     );
                                 } else if (
-                                    !ctx.e2eeEnabled &&
+                                    !storesTransformedContent(ctx) &&
                                     isAttemptedUpload(ctx, file.path, remoteHash)
                                 ) {
                                     // The remote version is our own earlier upload whose result

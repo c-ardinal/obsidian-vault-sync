@@ -1996,3 +1996,13 @@
 .vault-sync-status-sheet .vault-sync-status-btns button {
     min-height: 40px;
 }
+
+/* Mass deletion confirmation: long path lists scroll inside the dialog */
+.vault-sync-mass-delete-list {
+    max-height: 40vh;
+    overflow-y: auto;
+    padding-inline-start: 1.25em;
+    font-family: var(--font-monospace);
+    font-size: var(--font-ui-small);
+    word-break: break-all;
+}

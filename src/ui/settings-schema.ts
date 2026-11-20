@@ -143,6 +143,28 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                         p.refreshSyncStatusView();
                     },
                 },
+                // ── Deletion Safety ──
+                {
+                    key: "_subheader_deletion_safety",
+                    type: "subheader",
+                    label: t("settingSubheaderDeletionSafety"),
+                },
+                {
+                    key: "massDeleteConfirmFiles",
+                    type: "toggle-number",
+                    label: t("settingMassDeleteFiles"),
+                    desc: t("settingMassDeleteFilesDesc"),
+                    limits: SETTINGS_LIMITS.massDeleteConfirmFiles,
+                    unit: t("unitFiles"),
+                },
+                {
+                    key: "massDeleteConfirmPercent",
+                    type: "toggle-number",
+                    label: t("settingMassDeletePercent"),
+                    desc: t("settingMassDeletePercentDesc"),
+                    limits: SETTINGS_LIMITS.massDeleteConfirmPercent,
+                    unit: t("unitPercent"),
+                },
                 // ── Performance Tuning ──
                 {
                     key: "_subheader_performance",

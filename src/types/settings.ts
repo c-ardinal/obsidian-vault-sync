@@ -29,6 +29,10 @@ export interface VaultSyncSettings {
     largeFileThresholdMB: number;
     /** Delay (seconds) between consecutive background transfer items. 0 = no throttling. */
     bgTransferIntervalSec: number;
+    /** Ask before one sync deletes this many files or more (-1 = never ask by count) */
+    massDeleteConfirmFiles: number;
+    /** Ask before one sync deletes this share (%) of the synced files or more (-1 = off) */
+    massDeleteConfirmPercent: number;
 
     notificationLevel: "verbose" | "standard" | "error";
     /** Status bar / mobile progress display of the running sync. Progress notices are
