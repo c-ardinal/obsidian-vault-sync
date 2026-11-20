@@ -1005,6 +1005,12 @@ export default class VaultSync extends Plugin {
         this.syncManager.triggerFullCleanup();
     }
 
+    /** This device's exclusion list changed: files no longer left out are fetched now */
+    async applyDeviceScopeChange(previous: string): Promise<void> {
+        await this.syncManager.applyDeviceScopeChange(previous);
+        if (this.settings.hasCompletedFirstSync) void this.requestManualSync();
+    }
+
     updateLoggerOptions(): void {
         this.syncManager.updateLoggerOptions();
     }

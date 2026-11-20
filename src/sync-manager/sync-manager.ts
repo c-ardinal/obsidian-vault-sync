@@ -107,6 +107,7 @@ import {
     executeFullScan as _executeFullScan,
 } from "./sync-orchestration";
 import { syncErrorNotice } from "./sync-coordinator";
+import { forgetReincludedFiles as _forgetReincludedFiles } from "./sync-pull";
 import { BackgroundTransferQueue } from "./background-transfer";
 import type { TransferItem, TransferRecord, TransferCallbacks } from "./transfer-types";
 export type { SyncManagerSettings, LocalFileIndex, SyncState, FullScanProgress, CommunicationData };
@@ -687,6 +688,14 @@ export class SyncManager {
             backgroundTransfers: this.backgroundTransferQueue.getPendingTransfers().length,
             internalState: describeCtxState(this),
         };
+    }
+
+    /**
+     * This device's exclusion list changed (`previous`: the patterns before).
+     * Files no longer left out come back with the next sync.
+     */
+    async applyDeviceScopeChange(previous: string): Promise<number> {
+        return _forgetReincludedFiles(this as unknown as SyncContext, previous);
     }
 
     /** The last lines of this device's log files (newest files first until enough) */

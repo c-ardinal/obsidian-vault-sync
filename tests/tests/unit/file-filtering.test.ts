@@ -19,6 +19,9 @@ import {
     shouldNotBeOnRemote,
     shouldIgnore,
     isManagedSeparately,
+    isDeviceExcluded,
+    holdsDeviceExcluded,
+    matchesDeviceScope,
 } from "../../../src/sync-manager/file-utils";
 import type { SyncContext } from "../../../src/sync-manager/context";
 
@@ -480,5 +483,38 @@ describe("shouldIgnore", () => {
 
     it("should NOT ignore workspace.json when syncWorkspace=true", () => {
         expect(shouldIgnore(makeCtx({ syncWorkspace: true }), ".obsidian/workspace.json")).toBe(false);
+    });
+});
+
+// ═════════════════════════════════════════════════════════════════════
+// deviceExclusionPatterns (left out on this device only)
+// ═════════════════════════════════════════════════════════════════════
+
+describe("device exclusion", () => {
+    const ctx = makeCtx({ deviceExclusionPatterns: "Archive/**\n# comment\n**/*.mp4" } as never);
+
+    it("matches the patterns, case-insensitively, ignoring comment lines", () => {
+        expect(isDeviceExcluded(ctx, "Archive/2020/a.md")).toBe(true);
+        expect(isDeviceExcluded(ctx, "archive/b.md")).toBe(true);
+        expect(isDeviceExcluded(ctx, "Archive")).toBe(true);
+        expect(isDeviceExcluded(ctx, "video/clip.MP4")).toBe(true);
+        expect(isDeviceExcluded(ctx, "Notes/a.md")).toBe(false);
+        expect(isDeviceExcluded(ctx, "# comment")).toBe(false);
+        expect(matchesDeviceScope("", "Archive/a.md")).toBe(false);
+    });
+
+    it("is ignored by the sync but never cleaned up from the cloud", () => {
+        expect(shouldIgnore(ctx, "Archive/a.md")).toBe(true);
+        expect(shouldNotBeOnRemote(ctx, "Archive/a.md")).toBe(false);
+    });
+
+    it("keeps whole-folder deletes away from folders that may hold such files", () => {
+        const only = makeCtx({ deviceExclusionPatterns: "Notes/big/**" } as never);
+        expect(holdsDeviceExcluded(only, "Notes", [])).toBe(true); // pattern points below it
+        expect(holdsDeviceExcluded(only, "Notes/big", [])).toBe(true);
+        expect(holdsDeviceExcluded(only, "Other", [])).toBe(false);
+        // A pattern without a fixed folder can match anywhere
+        expect(holdsDeviceExcluded(ctx, "Other", [])).toBe(true);
+        expect(holdsDeviceExcluded(makeCtx(), "Notes", ["Notes/a.md"])).toBe(false);
     });
 });

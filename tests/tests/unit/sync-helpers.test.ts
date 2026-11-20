@@ -43,6 +43,7 @@ describe("sync-helpers", () => {
                 enableLogging: false,
                 isDeveloperMode: false,
                 exclusionPatterns: "",
+                deviceExclusionPatterns: "",
                 bgTransferIntervalSec: 0,
                 syncAppearance: true,
                 syncCommunityPlugins: true,

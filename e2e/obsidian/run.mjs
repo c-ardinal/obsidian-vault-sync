@@ -1092,6 +1092,50 @@ async function checkScreens(page, lang, { mobile = false } = {}) {
             await sleep(500);
             await shot(sp, lang, `${tag}-scr-exclusion-typing`);
             await escape(sp);
+
+            // The list for this device only: its own note, no toggle-managed rows,
+            // and the patterns kept in this device's settings
+            const buttons = sp.locator(".vault-sync-settings-page button").filter({ hasText: /Configure|設定|編集|管理/ });
+            if ((await buttons.count()) >= 2) {
+                await buttons.nth(1).click();
+                await modalOpen(sp, ".vault-sync-exclusion-modal");
+                const info = await sp.evaluate(() => {
+                    const m = document.querySelector(".vault-sync-exclusion-modal");
+                    return {
+                        title: m?.querySelector(".modal-title")?.textContent ?? "",
+                        note: m?.querySelector(".vault-sync-exclusion-note")?.textContent ?? "",
+                        managed: m?.querySelectorAll(".vault-sync-exclusion-item-managed").length ?? -1,
+                    };
+                });
+                check(
+                    lang,
+                    `${tag}: device exclusion list has its own title and note, without toggle rows`,
+                    /this device|この端末/.test(info.title) && info.note.length > 0 && info.managed === 0,
+                    JSON.stringify(info),
+                );
+                await sp.fill(".vault-sync-exclusion-add-input", "Archive/**");
+                await sp.press(".vault-sync-exclusion-add-input", "Enter");
+                await sleep(300);
+                await shotModal(sp, lang, tag, "scr-device-exclusion", "device exclusion modal");
+                const saved = await page.evaluate((id) => {
+                    const pl = window.app.plugins.plugins[id];
+                    return { device: pl.settings.deviceExclusionPatterns, shared: pl.settings.exclusionPatterns };
+                }, PLUGIN_ID);
+                check(
+                    lang,
+                    `${tag}: device exclusion saved apart from the shared list`,
+                    saved.device === "Archive/**" && !saved.shared.includes("Archive/**"),
+                    JSON.stringify(saved),
+                );
+                await escape(sp);
+                await page.evaluate(async (id) => {
+                    const pl = window.app.plugins.plugins[id];
+                    pl.settings.deviceExclusionPatterns = "";
+                    await pl.saveSettings();
+                }, PLUGIN_ID);
+            } else {
+                check(lang, `${tag}: device exclusion button found`, false);
+            }
         } else {
             check(lang, `${tag}: exclusion button found on "${scopeName[2]}"`, false);
         }

@@ -5,7 +5,7 @@ import { toHex } from "../utils/format";
 import { normalizePath, dirname } from "../utils/path";
 import type { SyncContext } from "./context";
 import type { CommunicationData, LocalFileIndex, MergeLockEntry } from "./types";
-import { shouldIgnore } from "./file-utils";
+import { holdsDeviceExcluded, shouldIgnore } from "./file-utils";
 import {
     LOCK_MAX_ATTEMPTS,
     LOCK_TTL_MS,
@@ -818,8 +818,12 @@ export function markDeleted(ctx: StateCtx, path: string): void {
 
 export function markFolderDeleted(ctx: StateCtx, folderPath: string): void {
     if (shouldIgnore(ctx, folderPath)) return;
-    ctx.deletedFolders.add(folderPath);
-    void ctx.log(`[Dirty] Marked for deletion (folder root): ${folderPath}`, "debug");
+    if (holdsDeviceExcluded(ctx, folderPath, Object.keys(ctx.index))) {
+        void ctx.log(`[Dirty] Folder ${folderPath} holds files this device leaves out: its files are deleted one by one`, "debug");
+    } else {
+        ctx.deletedFolders.add(folderPath);
+        void ctx.log(`[Dirty] Marked for deletion (folder root): ${folderPath}`, "debug");
+    }
 
     const prefix = folderPath + "/";
     for (const path of Object.keys(ctx.index)) {

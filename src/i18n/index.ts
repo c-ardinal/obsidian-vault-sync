@@ -259,7 +259,7 @@ export const en: Record<string, string> = {
     settingSyncFlexibleDataDesc: "Sync Vault-Sync plugin data (data/flexible/ directory).",
     settingSyncDeviceLogs: "Sync Device Logs",
     settingSyncDeviceLogsDesc: "Sync device-specific logs (logs/{deviceId}/).",
-    settingExclusionPatterns: "Exclude Files/Folders",
+    settingExclusionPatterns: "Exclude files/folders (all devices)",
     settingExclusionPatternsDesc:
         "Glob patterns (one per line).\nUse * for any chars, ** for recursive dirs.\nExample: *.tmp, temp/**",
     settingExclusionPatternsInvalid:
@@ -275,6 +275,13 @@ export const en: Record<string, string> = {
     settingExclusionModalDuplicate: "This pattern already exists.",
     settingExclusionModalScanning: "Scanning vault files...",
     settingExclusionModalFileCount: "{0} files scanned",
+    settingExclusionModalNote: "Matching files are not synced on any device, and are removed from the cloud.",
+    settingDeviceExclusionPatterns: "Leave out on this device",
+    settingDeviceExclusionPatternsDesc:
+        "Files and folders this device does not sync. They stay in the cloud and keep syncing on your other devices. Files already here are kept, and deleting them here does not delete them in the cloud. This list is not synced to other devices.",
+    settingDeviceExclusionModalTitle: "Leave out on this device",
+    settingDeviceExclusionModalNote:
+        "Matching files are not downloaded, uploaded or deleted by this device. They stay in the cloud for your other devices.",
     settingCloudRootFolderInvalid:
         "This folder name cannot be used. Enter a name that does not start with / and contains none of \\ < > : \" | ? *",
     settingCloudRootFolderChange: "Change",

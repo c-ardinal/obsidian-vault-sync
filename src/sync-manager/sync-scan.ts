@@ -4,6 +4,7 @@ import {
     isManagedSeparately,
     shouldNotBeOnRemote,
     shouldIgnore,
+    isDeviceExcluded,
 } from "./file-utils";
 import { computeLocalHash } from "./sync-helpers";
 import { markRenamed } from "./state";
@@ -91,6 +92,7 @@ export async function scanObsidianChanges(ctx: ScanCtx): Promise<void> {
             if (!path.startsWith(".obsidian/")) continue;
             if (path === ctx.pluginDataPath) continue;
             if (isManagedSeparately(path)) continue;
+            if (isDeviceExcluded(ctx, path)) continue;
 
             const isIgnored = shouldNotBeOnRemote(ctx, path);
             const isMissing = !currentObsidianFiles.has(path);
@@ -181,6 +183,7 @@ export async function scanVaultChanges(ctx: ScanCtx): Promise<void> {
             if (path.startsWith(".obsidian/")) continue;
             if (path === ctx.pluginDataPath) continue;
             if (isManagedSeparately(path)) continue;
+            if (isDeviceExcluded(ctx, path)) continue;
 
             const isIgnored = shouldNotBeOnRemote(ctx, path);
             const isMissing = !currentPaths.has(path);

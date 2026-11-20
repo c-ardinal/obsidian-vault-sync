@@ -20,6 +20,7 @@ const DEFAULT_SETTINGS: SyncManagerSettings = {
     enableLogging: false,
     isDeveloperMode: false,
     exclusionPatterns: "",
+    deviceExclusionPatterns: "",
     largeFileThresholdMB: 0, // Disabled in tests (all files inline)
     bgTransferIntervalSec: 0,
     syncAppearance: true,

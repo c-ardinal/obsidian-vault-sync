@@ -12,6 +12,8 @@ import {
     isManagedSeparately,
     shouldNotBeOnRemote,
     shouldIgnore,
+    holdsDeviceExcluded,
+    isDeviceExcluded,
     hashContent,
 } from "./file-utils";
 import { loadCommunication, saveIndex, saveLocalIndex, releaseLockAfterPush, findForeignLock, renameLocal, confirmMissingForDeletion, noteDeleteIntent, takeUnsyncedRename } from "./state";
@@ -57,6 +59,7 @@ async function inferDeletedFolders(ctx: SyncContext): Promise<void> {
         while (folder) {
             if (checkedFolders.has(folder)) break;
             if (shouldIgnore(ctx, folder)) break;
+            if (holdsDeviceExcluded(ctx, folder, Object.keys(ctx.index))) break;
             if (ctx.deletedFolders.has(folder)) {
                 checkedFolders.add(folder);
                 break;
@@ -351,6 +354,12 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
 
             // Priority 1: 完全に外部(専用ロジック)で管理するファイル。汎用ループでは一切触らない。
             if (isManagedSeparately(path)) {
+                return;
+            }
+
+            // Left out on this device: never uploaded or deleted from here
+            if (isDeviceExcluded(ctx, path)) {
+                ctx.dirtyPaths.delete(path);
                 return;
             }
 

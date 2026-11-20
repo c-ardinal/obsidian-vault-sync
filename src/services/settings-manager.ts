@@ -141,7 +141,7 @@ export class SettingsManager {
             await vaultOps.createFolder(remoteDir).catch(() => {});
         }
 
-        const localKeys = ["encryptionSecret", "hasCompletedFirstSync"];
+        const localKeys = ["encryptionSecret", "hasCompletedFirstSync", "deviceExclusionPatterns"];
         const localData: Record<string, unknown> = {};
         const openData: Record<string, unknown> = {};
         const settingsRecord = this.settings as unknown as Record<string, unknown>;

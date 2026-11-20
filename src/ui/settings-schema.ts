@@ -434,6 +434,14 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                     placeholder: "*.tmp\ntemp/**\n.git/**",
                     onChange: async (_val, p) => p.triggerFullCleanup(),
                 },
+                {
+                    key: "deviceExclusionPatterns",
+                    type: "textarea",
+                    label: t("settingDeviceExclusionPatterns"),
+                    desc: t("settingDeviceExclusionPatternsDesc"),
+                    // Called with the patterns before the change
+                    onChange: async (before, p) => p.applyDeviceScopeChange(typeof before === "string" ? before : ""),
+                },
             ],
         },
         {

@@ -11,6 +11,8 @@ import {
     isManagedSeparately,
     isAlwaysForbiddenOnRemote,
     shouldIgnore,
+    isDeviceExcluded,
+    matchesDeviceScope,
 } from "./file-utils";
 import {
     loadCommunication,
@@ -131,6 +133,8 @@ async function detectPullChanges(
             toDeleteRemote.push({ path, fileId: remoteEntry.fileId });
             continue;
         }
+        // Left out on this device: never downloaded here
+        if (isDeviceExcluded(ctx, path)) continue;
 
         const localBaseEntry = ctx.localIndex[path];
 
@@ -1052,6 +1056,35 @@ export async function pullViaChangesAPI(
 const reconcilePending = new CtxFlag("reconcilePending", "The next sync must reconcile against the remote index");
 
 /**
+ * Patterns were taken off this device's exclusion list: the files they left out
+ * sync again. Those missing here are forgotten (index entries dropped), so the
+ * next sync pulls them as files never seen; those still here sync as usual.
+ * Returns how many were forgotten.
+ */
+export async function forgetReincludedFiles(ctx: SyncContext, previousPatterns: string): Promise<number> {
+    const paths = new Set([...Object.keys(ctx.index), ...Object.keys(ctx.localIndex)]);
+    let forgotten = 0;
+    for (const path of paths) {
+        if (path === ctx.pluginDataPath) continue;
+        if (!matchesDeviceScope(previousPatterns, path) || isDeviceExcluded(ctx, path)) continue;
+        if (await ctx.vault.exists(path)) continue;
+        delete ctx.index[path];
+        delete ctx.localIndex[path];
+        ctx.dirtyPaths.delete(path);
+        forgotten++;
+    }
+    // Also needed when nothing was forgotten: files never indexed here (left out
+    // since the first sync) are found only by comparing with the remote index.
+    reconcilePending.add(ctx);
+    if (forgotten > 0) {
+        await saveIndex(ctx);
+        await saveLocalIndex(ctx, true);
+        await ctx.log(`[Device scope] ${forgotten} file(s) no longer left out will be downloaded`, "info");
+    }
+    return forgotten;
+}
+
+/**
  * Pull files listed in the remote index that this device has no record of
  * at all (no index entry, fileId unknown, not dirty, not just deleted).
  * Existence is re-checked by id first so a stale index entry of a file that
@@ -1160,6 +1193,12 @@ async function processChangePage(
                 ([, entry]) => entry.fileId === change.fileId,
             )?.[0];
 
+            if (pathToDelete && pathToDelete !== ctx.pluginDataPath && isDeviceExcluded(ctx, pathToDelete)) {
+                // Left out on this device: forget it, a copy kept here stays untouched
+                delete ctx.index[pathToDelete];
+                delete ctx.localIndex[pathToDelete];
+                continue;
+            }
             if (pathToDelete && pathToDelete !== ctx.pluginDataPath) {
                 // Track this path to prevent re-upload if local deletion fails
                 ctx.recentlyDeletedFromRemote.add(pathToDelete);
@@ -1183,6 +1222,7 @@ async function processChangePage(
             const cloudFile: ChangedFile = change.file;
             if (cloudFile.path === ctx.pluginDataPath) continue;
             if (isManagedSeparately(cloudFile.path)) continue;
+            if (isDeviceExcluded(ctx, cloudFile.path)) continue;
 
             // Populate ancestorHash and plainHash from remote index.
             // Only when the index describes THIS version: the index is uploaded after the
