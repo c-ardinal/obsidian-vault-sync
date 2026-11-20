@@ -4,6 +4,7 @@ import { parseIndex, providerNameOf, serializeIndex } from "./remote-layout";
 import { noteIndexFormat } from "./state";
 import type { LocalFileIndex } from "./types";
 import { tryDecompress, hashContent } from "./file-utils";
+import { storesTransformedContent } from "./content-identity";
 
 export async function computeLocalHash(
     ctx: SyncContext,
@@ -12,9 +13,10 @@ export async function computeLocalHash(
     /** contentFingerprint(content) if the caller already computed it */
     rawMd5?: string,
 ): Promise<{ localHash: string; compareHash: string | undefined }> {
-    const useE2EE = ctx.e2eeEnabled && !!indexEntry.plainHash;
-    const localHash = useE2EE ? await hashContent(content) : (rawMd5 ?? contentFingerprint(content));
-    const compareHash = useE2EE ? indexEntry.plainHash : indexEntry.hash;
+    // An entry without plainHash (written before it existed) is compared by hash
+    const usePlain = storesTransformedContent(ctx) && !!indexEntry.plainHash;
+    const localHash = usePlain ? await hashContent(content) : (rawMd5 ?? contentFingerprint(content));
+    const compareHash = usePlain ? indexEntry.plainHash : indexEntry.hash;
     return { localHash, compareHash };
 }
 

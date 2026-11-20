@@ -4,11 +4,10 @@ import {
     isManagedSeparately,
     shouldNotBeOnRemote,
     shouldIgnore,
-    hashContent,
 } from "./file-utils";
-import { contentFingerprint } from "./content-fingerprint";
 import { computeLocalHash } from "./sync-helpers";
 import { markRenamed } from "./state";
+import { entryIdentityHash, localIdentityHash } from "./content-identity";
 
 /**
  * Scan .obsidian directory for changes
@@ -226,7 +225,7 @@ async function pairRenames(ctx: SyncContext, missing: string[], added: string[])
     for (const path of added) {
         try {
             const content = await ctx.vault.readBinary(path);
-            const localHash = ctx.e2eeEnabled ? await hashContent(content) : contentFingerprint(content);
+            const localHash = await localIdentityHash(ctx, content);
             if (!byHash.has(localHash)) byHash.set(localHash, path);
         } catch {
             // unreadable: leave it as a new file
@@ -234,7 +233,7 @@ async function pairRenames(ctx: SyncContext, missing: string[], added: string[])
     }
     for (const oldPath of missing) {
         const entry = ctx.localIndex[oldPath];
-        const known = (ctx.e2eeEnabled ? entry?.plainHash : entry?.hash)?.toLowerCase();
+        const known = entryIdentityHash(ctx, entry)?.toLowerCase();
         const newPath = known ? byHash.get(known) : undefined;
         if (!newPath || ctx.localIndex[newPath]) continue;
         byHash.delete(known!);

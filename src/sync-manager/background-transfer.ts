@@ -32,6 +32,7 @@ import {
     TRANSFER_HISTORY_FLUSH_BATCH,
     TRANSFER_LOG_RETENTION_DAYS,
 } from "./constants";
+import { storesTransformedContent } from "./content-identity";
 
 export class BackgroundTransferQueue {
     private queue: TransferItem[] = [];
@@ -418,7 +419,7 @@ export class BackgroundTransferQueue {
             if (
                 remoteHash &&
                 (!lastKnownHash || lastKnownHash.toLowerCase() !== remoteHash.toLowerCase()) &&
-                !ctx.e2eeEnabled &&
+                !storesTransformedContent(ctx) &&
                 cloudHashMatches(ctx.adapter, remoteHash, contentFingerprint(item.content!))
             ) {
                 // The cloud already has exactly this content: our own earlier upload whose

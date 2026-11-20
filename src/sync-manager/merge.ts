@@ -18,6 +18,7 @@ import { basename, dirname } from "../utils/path";
 import { MERGE_MAX_INLINE_DOWNLOAD_BYTES } from "./constants";
 import { peekAttemptedUpload, takeAttemptedUpload } from "./sync-helpers";
 import { getMergeStrategy } from "./strategies";
+import { storesTransformedContent } from "./content-identity";
 
 /**
  * A local file this device never synced that may simply be replaced by the
@@ -398,7 +399,7 @@ async function hashOfDownload(
     content: ArrayBuffer,
     plainHash: string,
 ): Promise<string> {
-    if (!ctx.e2eeEnabled) return contentFingerprint(content);
+    if (!storesTransformedContent(ctx)) return contentFingerprint(content);
     let hash = item.hash || "";
     if (!fileId) return hash;
     if (item.plainHash) {
@@ -419,6 +420,18 @@ async function hashOfDownload(
 }
 
 /**
+ * plainHash of the version the cloud holds now, read back through the adapter.
+ * The only way to identify a cloud version when its stored form is transformed
+ * and the index has no plainHash for it yet. Undefined when it cannot be read.
+ */
+async function readStoredPlainHash(ctx: SyncContext, fileId: string): Promise<string | undefined> {
+    return ctx.adapter
+        .downloadFile(fileId)
+        .then((b) => hashContent(b))
+        .catch(() => undefined);
+}
+
+/**
  * The revision holding what we sent in an upload whose response was lost (`sent`
  * is the md5 of the content we sent). With E2EE the cloud hashes are of the
  * encrypted bytes, so the (few) revisions are decrypted and compared instead.
@@ -432,7 +445,7 @@ async function findOwnUploadInHistory(
     if (!supportsHistory(ctx)) return null;
     try {
         const revisions = await listRevisions(ctx, path, fileId);
-        if (!ctx.e2eeEnabled) {
+        if (!storesTransformedContent(ctx)) {
             return revisions.some((r) => r.hash?.toLowerCase() === sent) ? { hash: sent } : null;
         }
         return await findRevisionByContent(ctx, path, fileId, sent);
@@ -473,7 +486,7 @@ async function isOurLostUpload(
     item: { path: string; hash?: string },
     fileId: string,
 ): Promise<boolean> {
-    if (!ctx.e2eeEnabled) return takeAttemptedUpload(ctx, item.path, item.hash);
+    if (!storesTransformedContent(ctx)) return takeAttemptedUpload(ctx, item.path, item.hash);
     const sent = peekAttemptedUpload(ctx, item.path);
     if (!sent || !item.hash || !supportsHistory(ctx)) return false;
     const found = await findRevisionByContent(ctx, item.path, fileId, sent).catch(() => null);
@@ -570,7 +583,7 @@ async function pullFileUnchecked(
 
     try {
         const exists = await ctx.vault.exists(item.path);
-        if (!exists && fileId && !ctx.e2eeEnabled && !ctx.index[item.path]) {
+        if (!exists && fileId && !storesTransformedContent(ctx) && !ctx.index[item.path]) {
             if (await adoptUploadOfRenamedFile(ctx, item, fileId, logPrefix)) return true;
         }
         if (exists && fileId && (await isOurLostUpload(ctx, item, fileId))) {
@@ -683,7 +696,7 @@ async function pullFileUnchecked(
                     (!localBase && !!item.hash) ||
                     isRemoteDeleted;
 
-                if (ctx.e2eeEnabled && localBase?.plainHash) {
+                if (storesTransformedContent(ctx) && localBase?.plainHash) {
                     // E2EE: detect local modification via plaintext hash comparison
                     const currentPlainHash = await hashContent(localContent);
                     isActuallyModified = localBase.plainHash !== currentPlainHash;
@@ -699,7 +712,7 @@ async function pullFileUnchecked(
                     } else if (isDisposableUntrackedLocal(item.path, localContent)) {
                         // Empty placeholder / default config on a fresh device: take the remote
                         isActuallyModified = false;
-                    } else if (ctx.e2eeEnabled) {
+                    } else if (storesTransformedContent(ctx)) {
                         // Remote hash is of the ciphertext; compare plaintext hashes instead
                         const localPlain = await hashContent(localContent);
                         if (item.plainHash) {
@@ -708,10 +721,7 @@ async function pullFileUnchecked(
                             // No plaintext hash in the index (e.g. our own upload whose response
                             // was lost, before our index was written): compare the content
                             // itself, or our own file came back as a "conflict" with itself.
-                            const remotePlain = await ctx.adapter
-                                .downloadFile(fileId)
-                                .then((b) => hashContent(b))
-                                .catch(() => undefined);
+                            const remotePlain = await readStoredPlainHash(ctx, fileId);
                             isActuallyModified = remotePlain !== localPlain;
                             if (!isActuallyModified) item = { ...item, plainHash: remotePlain };
                         } else {
@@ -726,19 +736,16 @@ async function pullFileUnchecked(
 
                 if (isModifiedLocally || hasRemoteConflict) {
                     let contentMatches = false;
-                    if (ctx.e2eeEnabled && item.plainHash) {
+                    if (storesTransformedContent(ctx) && item.plainHash) {
                         // E2EE with remote plainHash: compare plaintext hashes
                         contentMatches = await plainHashMatches(item.plainHash, localContent);
-                    } else if (!ctx.e2eeEnabled) {
+                    } else if (!storesTransformedContent(ctx)) {
                         contentMatches = !!(item.hash && currentHash === item.hash.toLowerCase());
                     } else if (fileId && hasRemoteConflict && isActuallyModified) {
                         // E2EE without a plaintext hash (the index does not describe this
                         // version yet, e.g. our own upload whose response was lost): compare
                         // the decrypted content, or our own upload comes back as a conflict.
-                        const remotePlain = await ctx.adapter
-                            .downloadFile(fileId)
-                            .then((b) => hashContent(b))
-                            .catch(() => undefined);
+                        const remotePlain = await readStoredPlainHash(ctx, fileId);
                         contentMatches = !!remotePlain && remotePlain === (await hashContent(localContent));
                     }
 
@@ -949,7 +956,7 @@ async function pullFileUnchecked(
 
                         let baseHash = localBase.ancestorHash;
                         let attempted = peekAttemptedUpload(ctx, item.path)?.toLowerCase();
-                        if (attempted && ctx.e2eeEnabled) {
+                        if (attempted && storesTransformedContent(ctx)) {
                             // Recorded as the plaintext md5: find its (encrypted) cloud version.
                             attempted =
                                 fileId && supportsHistory(ctx)

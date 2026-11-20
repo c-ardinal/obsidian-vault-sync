@@ -1,6 +1,7 @@
 import { contentFingerprint } from "./content-fingerprint";
 import type { SyncContext } from "./context";
 import { legacyHashContent, runParallel } from "./file-utils";
+import { storesTransformedContent } from "./content-identity";
 
 /**
  * Plaintext hashes (index `plainHash`) of files that are not valid UTF-8 used to be
@@ -36,7 +37,7 @@ export function plainHashVersion(ctx: SyncContext): number {
  * accept it (plainHashMatches), and the next upload of such a file replaces it.
  */
 export async function migratePlainHashes(ctx: SyncContext): Promise<number> {
-    if (!ctx.e2eeEnabled || plainHashVersion(ctx) >= PLAIN_HASH_VERSION) return -1;
+    if (!storesTransformedContent(ctx) || plainHashVersion(ctx) >= PLAIN_HASH_VERSION) return -1;
     const paths = Object.keys(ctx.localIndex).filter((p) => !!ctx.localIndex[p]?.plainHash);
     let converted = 0;
     await runParallel(
