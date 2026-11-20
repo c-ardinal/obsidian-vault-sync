@@ -15,6 +15,8 @@ interface StoredFile {
     mtime: number;
     size: number;
     hash: string;
+    /** Set by addFakeFolder; everything else is a file */
+    kind?: "file" | "folder";
 }
 
 interface StoredRevision {
@@ -452,6 +454,7 @@ export class MockCloudAdapter implements CloudAdapter {
             mtime: Date.now(),
             size: 0,
             hash: "",
+            kind: "folder",
         };
         this.files.set(folderId, stored);
         this.pathToId.set(path, folderId);
@@ -514,7 +517,7 @@ export class MockCloudAdapter implements CloudAdapter {
             path: stored.path,
             mtime: stored.mtime,
             size: stored.size,
-            kind: "file" as const,
+            kind: stored.kind ?? "file",
             hash: stored.hash,
         };
     }

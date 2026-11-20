@@ -23,6 +23,7 @@ import {
 } from "./notification-matrix";
 import { SyncProgressTracker } from "./sync-progress";
 import { RemoteDeletionService } from "./remote-deletion";
+import { approveAllPlanGuard, type PlanGuard } from "./sync-plan";
 import {
     PLUGIN_DIR,
     INTERNAL_LOCAL_ONLY,
@@ -160,6 +161,9 @@ export class SyncManager {
 
     /** Every removal on the cloud goes through this service */
     public readonly remoteDeletion = new RemoteDeletionService();
+
+    /** Reviews each sync step's deletions and overwrites before they run */
+    public planGuard: PlanGuard = approveAllPlanGuard;
 
     /** Current sync trigger — controls notification visibility via matrix lookup */
     public currentTrigger: SyncTrigger = "manual-sync";

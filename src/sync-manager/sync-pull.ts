@@ -1,5 +1,6 @@
 import { capabilitiesOf } from "../types/adapter";
 import { removeRemote } from "./remote-deletion";
+import { PlanDecision, reviewPlan } from "./sync-plan";
 import type { CommunicationData } from "./types";
 import type { SyncContext } from "./context";
 import type { LocalFileIndex } from "./types";
@@ -362,11 +363,23 @@ function buildInlineDownloadTasks(
  * Apply a deletion made on another device. If the local file changed since our
  * last sync (an edit made here, or a brand-new note created at the same path),
  * the edit wins: the file is kept and uploaded again as a new file instead of
- * being trashed. Returns true if the local file was deleted.
+ * being trashed. A deletion the plan guard held is treated the same way.
+ * Returns true if the local file was deleted.
  */
-async function applyRemoteDeletion(ctx: SyncContext, path: string): Promise<boolean> {
+async function applyRemoteDeletion(ctx: SyncContext, path: string, decision: PlanDecision): Promise<boolean> {
     const file = ctx.vault.getAbstractFileByPath(path);
     const base = ctx.localIndex[path] ?? ctx.index[path];
+    if (file && !decision.allows("delete-local", path)) {
+        delete ctx.index[path];
+        delete ctx.localIndex[path];
+        ctx.recentlyDeletedFromRemote.delete(path);
+        ctx.dirtyPaths.set(path, Date.now());
+        await ctx.log(
+            `[Smart Pull] ${path} was deleted on another device; the deletion was held back. Keeping it and uploading it again.`,
+            "warn",
+        );
+        return false;
+    }
     if (file && base && (await ctx.vault.exists(path))) {
         const content = await ctx.vault.readBinary(path);
         const { localHash, compareHash } = await computeLocalHash(ctx, content, base);
@@ -396,6 +409,7 @@ function buildLocalDeletionTasks(
     toDeleteLocal: string[],
     counter: { completed: number },
     total: number,
+    decision: PlanDecision,
 ): (() => Promise<void>)[] {
     const tasks: (() => Promise<void>)[] = [];
     for (const path of toDeleteLocal) {
@@ -403,7 +417,7 @@ function buildLocalDeletionTasks(
         ctx.recentlyDeletedFromRemote.add(path);
         tasks.push(async () => {
             try {
-                if (!(await applyRemoteDeletion(ctx, path))) return;
+                if (!(await applyRemoteDeletion(ctx, path, decision))) return;
 
                 counter.completed++;
                 await ctx.log(`[Smart Pull] [${counter.completed}/${total}] Deleted locally: ${path}`, "info");
@@ -700,11 +714,16 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
         inlineDownloads.map((i) => ({ path: i.path, size: remoteIndex[i.path]?.size ?? 0 })),
     );
 
+    const decision = await reviewPlan(ctx, {
+        step: "pull",
+        changes: toDeleteLocal.map((path) => ({ action: "delete-local", path, kind: "file" })),
+    });
+
     const counter: { completed: number; failed?: number } = { completed: 0 };
     const total = inlineDownloads.length + toDeleteLocal.length;
     const tasks: (() => Promise<void>)[] = [
         ...buildInlineDownloadTasks(ctx, inlineDownloads, counter, total),
-        ...buildLocalDeletionTasks(ctx, toDeleteLocal, counter, total),
+        ...buildLocalDeletionTasks(ctx, toDeleteLocal, counter, total, decision),
         ...buildForbiddenRemoteCleanupTasks(ctx, toDeleteRemote),
     ];
 
@@ -1129,6 +1148,10 @@ async function processChangePage(
     }
     const deferred = new Set<(typeof changes)[number]>();
     const queue = [...changes];
+    // Local deletions of this page, reviewed after the page is planned and
+    // before any task runs (tasks start only after this function returns)
+    const localDeletions: string[] = [];
+    let decision = PlanDecision.approveAll();
 
     for (const change of queue) {
         if (change.removed) {
@@ -1139,9 +1162,10 @@ async function processChangePage(
             if (pathToDelete && pathToDelete !== ctx.pluginDataPath) {
                 // Track this path to prevent re-upload if local deletion fails
                 ctx.recentlyDeletedFromRemote.add(pathToDelete);
+                localDeletions.push(pathToDelete);
                 tasks.push(async () => {
                     try {
-                        if (!(await applyRemoteDeletion(ctx, pathToDelete))) return;
+                        if (!(await applyRemoteDeletion(ctx, pathToDelete, decision))) return;
                         ctx.logger.markActionTaken();
                         completed.count++;
                         await ctx.log(`[Smart Pull] Deleted: ${pathToDelete}`, "info");
@@ -1507,6 +1531,11 @@ async function processChangePage(
             }
         }
     }
+
+    decision = await reviewPlan(ctx, {
+        step: "pull",
+        changes: localDeletions.map((path) => ({ action: "delete-local", path, kind: "file" })),
+    });
 
     return { tasks, completed, confirmedCount, failed };
 }

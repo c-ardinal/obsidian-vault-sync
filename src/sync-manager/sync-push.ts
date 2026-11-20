@@ -1,4 +1,5 @@
 import { removeRemote } from "./remote-deletion";
+import { reviewPlan, type PlanDecision, type PlannedChange } from "./sync-plan";
 import { md5 } from "../utils/md5";
 import type { CloudFile } from "../types/adapter";
 import type { SyncContext } from "./context";
@@ -71,22 +72,43 @@ async function inferDeletedFolders(ctx: SyncContext): Promise<void> {
     }
 }
 
-/** Delete folders from remote (deepest first) */
-async function executeFolderDeletions(ctx: SyncContext): Promise<{ folderDeletedCount: number; moveCount: number }> {
-    let folderDeletedCount = 0;
-    const moveCount = 0;
+interface PlannedFolderDeletion {
+    path: string;
+    /** Synced files inside the folder (removed with it) */
+    contains: string[];
+}
 
-    if (ctx.deletedFolders.size === 0) return { folderDeletedCount, moveCount };
+/** Folders deleted on this device, deepest first, with the synced files inside each */
+function planFolderDeletions(ctx: SyncContext): PlannedFolderDeletion[] {
+    const folders = Array.from(ctx.deletedFolders).sort((a, b) => b.length - a.length);
+    const indexed = Object.keys(ctx.index);
+    return folders.map((path) => ({
+        path,
+        contains: indexed.filter((p) => p.startsWith(path + "/")),
+    }));
+}
+
+/** Delete folders from remote (deepest first). Folders the guard held are left for a later sync. */
+async function executeFolderDeletions(
+    ctx: SyncContext,
+    planned: PlannedFolderDeletion[],
+    decision: PlanDecision,
+): Promise<{ folderDeletedCount: number }> {
+    let folderDeletedCount = 0;
+
+    // Only what was planned and reviewed (a folder deleted while this push ran waits for the next one)
+    const folders = planned
+        .map((f) => f.path)
+        .filter((p) => ctx.deletedFolders.has(p) && decision.allows("delete-remote", p));
+    if (folders.length === 0) return { folderDeletedCount };
 
     ctx.startActivity();
     await ctx.log(
-        `[Smart Push] Processing ${ctx.deletedFolders.size} deleted folder(s)...`,
+        `[Smart Push] Processing ${folders.length} deleted folder(s)...`,
         "debug",
     );
 
-    // Sort by depth (deepest first) to handle nested deletions cleanly
-    const folders = Array.from(ctx.deletedFolders).sort((a, b) => b.length - a.length);
-
+    // planned is sorted by depth (deepest first) to handle nested deletions cleanly
     for (const folderPath of folders) {
         try {
             const meta = await ctx.adapter.getFileMetadata(folderPath);
@@ -128,7 +150,7 @@ async function executeFolderDeletions(ctx: SyncContext): Promise<{ folderDeleted
         }
     }
 
-    return { folderDeletedCount, moveCount };
+    return { folderDeletedCount };
 }
 
 /**
@@ -275,9 +297,16 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
 
     await inferDeletedFolders(ctx);
 
-    let { folderDeletedCount, moveCount } = await executeFolderDeletions(ctx);
+    // Folder deletions are planned here but run only after the whole push was
+    // planned and reviewed. Their contents are left out of the per-file loop:
+    // the one folder removal removes them (as before, when it ran first).
+    const plannedFolders = planFolderDeletions(ctx);
+    const underPlannedFolder = (path: string) =>
+        plannedFolders.some((f) => path.startsWith(f.path + "/"));
+    let folderDeletedCount = 0;
+    let moveCount = 0;
 
-    if (ctx.dirtyPaths.size === 0 && folderDeletedCount === 0) {
+    if (ctx.dirtyPaths.size === 0 && plannedFolders.length === 0) {
         await ctx.log("[Smart Push] No dirty files to push. Skipping.", "debug");
         return false;
     }
@@ -305,8 +334,8 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
     const dirtyPathTasks: (() => Promise<void>)[] = [];
     const dirtyPathsSnapshot = Array.from(ctx.dirtyPaths.keys());
 
-    for (const path of dirtyPathsSnapshot) {
-        dirtyPathTasks.push(async () => {
+    const processDirtyPath = async (path: string): Promise<void> => {
+        {
             const mergeLock = findForeignLock(ctx, commData, path, undefined, now);
             if (mergeLock) {
                 await ctx.log(
@@ -631,10 +660,54 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                     await ctx.log(`[Smart Push] Dropped never-synced deleted path: ${path}`, "debug");
                 }
             }
-        });
+        }
+    };
+    for (const path of dirtyPathsSnapshot) {
+        if (underPlannedFolder(path)) continue;
+        dirtyPathTasks.push(() => processDirtyPath(path));
     }
     if (dirtyPathTasks.length > 0) {
         await runParallel(dirtyPathTasks, 20);
+    }
+
+    // === Plan -> review -> execute: nothing destructive has run yet ===
+    const planned: PlannedChange[] = [
+        ...plannedFolders.map((f): PlannedChange => ({
+            action: "delete-remote",
+            path: f.path,
+            kind: "folder",
+            contains: f.contains,
+        })),
+        ...deleteQueue.map((path): PlannedChange => ({ action: "delete-remote", path, kind: "file" })),
+        ...uploadQueue
+            .filter((f) => ctx.index[f.path]?.fileId)
+            .map((f): PlannedChange => ({ action: "overwrite-remote", path: f.path, kind: "file" })),
+    ];
+    const decision = await reviewPlan(ctx, { step: "push", changes: planned });
+
+    ({ folderDeletedCount } = await executeFolderDeletions(ctx, plannedFolders, decision));
+
+    // A folder whose removal failed: handle its contents one by one, as when
+    // folder deletions ran before the per-file loop (the folder is retried next sync).
+    const failedFolders = plannedFolders.filter(
+        (f) => decision.allows("delete-remote", f.path) && ctx.deletedFolders.has(f.path),
+    );
+    if (failedFolders.length > 0) {
+        const inside = Array.from(ctx.dirtyPaths.keys()).filter((p) =>
+            failedFolders.some((f) => p.startsWith(f.path + "/")),
+        );
+        await runParallel(
+            inside.map((p) => () => processDirtyPath(p)),
+            20,
+        );
+    }
+
+    // Held changes stay marked as changed and are planned again next sync
+    for (let i = deleteQueue.length - 1; i >= 0; i--) {
+        if (!decision.allows("delete-remote", deleteQueue[i])) deleteQueue.splice(i, 1);
+    }
+    for (let i = uploadQueue.length - 1; i >= 0; i--) {
+        if (!decision.allows("overwrite-remote", uploadQueue[i].path)) uploadQueue.splice(i, 1);
     }
 
     const thresholdBytes = getThresholdBytes(ctx);
