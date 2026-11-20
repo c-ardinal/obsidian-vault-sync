@@ -269,6 +269,11 @@ const unexplainedNew = new CtxState<Map<string, number>>(
     "New files found by a scan while a synced file is missing without an event (first seen at)",
 );
 
+const missingSince = new CtxState<Map<string, number>>(
+    "missingWithoutEvent",
+    "Synced notes a scan found missing with no delete event (first seen at)",
+);
+
 /** Whether a scan held back new files that a later scan must look at again */
 export function holdsNewFiles(ctx: object): boolean {
     return (unexplainedNew.get(ctx as ScanCtx)?.size ?? 0) > 0;
@@ -291,6 +296,7 @@ async function holdUnexplainedNewFiles(
     const stillMissing = missing.filter((p) => !!ctx.localIndex[p] && !hasDeleteIntent(ctx, p));
     if (stillMissing.length === 0) {
         held?.clear();
+        missingSince.get(ctx)?.clear();
         return;
     }
     if (!held) unexplainedNew.set(ctx, (held = new Map<string, number>()));
@@ -310,7 +316,18 @@ async function holdUnexplainedNewFiles(
         ctx.dirtyPaths.delete(path);
         await ctx.log(`[Vault Scan] ${path} may be a renamed file (its event not here yet). Waiting before uploading it.`, "debug");
     }
-    await pairLoneRename(ctx, stillMissing, expired);
+    // A note edited after a rename whose event was lost has events of its own (edits),
+    // so it is not held above; once the missing note has waited out the grace period,
+    // it is a candidate too.
+    let since = missingSince.get(ctx);
+    if (!since) missingSince.set(ctx, (since = new Map<string, number>()));
+    for (const p of [...since.keys()]) if (!stillMissing.includes(p)) since.delete(p);
+    for (const p of stillMissing) if (!since.has(p)) since.set(p, now);
+    const waited = stillMissing.filter((p) => now - since!.get(p)! >= MISSING_EVENT_GRACE_MS);
+    const edited = added.filter((p) => !unreported.has(p) && !ctx.localIndex[p]);
+    if (waited.length === stillMissing.length) {
+        await pairLoneRename(ctx, stillMissing, [...new Set([...expired, ...edited])]);
+    }
 }
 
 /**
@@ -326,7 +343,7 @@ async function pairLoneRename(ctx: ScanCtx, missing: string[], expired: string[]
     if (missing.length !== 1 || expired.length === 0) return;
     const [oldPath] = missing;
     const entry = ctx.index[oldPath];
-    if (!entry?.fileId || entry.pendingMove || !isNote(oldPath) || !ctx.adapter?.downloadFile) return;
+    if (!entry?.fileId || !isNote(oldPath) || !ctx.adapter?.downloadFile) return;
     const candidates = expired.filter((p) => !ctx.localIndex[p] && isNote(p));
     if (candidates.length === 0) return;
     let oldLines: string[];

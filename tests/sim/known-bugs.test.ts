@@ -859,6 +859,42 @@ const FIXED_REGRESSIONS: Case[] = [
         config: { seed: 150160, ...CHAOS },
         expect: [],
     },
+    {
+        title: "restart: a remote rename applied here is saved at once",
+        symptom: "After an app kill, a note renamed on another device stayed here as an extra copy",
+        config: { seed: 160290, ...RESTART },
+        expect: [],
+    },
+    {
+        title: "restart: a failed move is retried, not replaced by an upload",
+        symptom: "A note whose move response was lost existed under its old and new names",
+        config: { seed: 160429, ...RESTART },
+        expect: [],
+    },
+    {
+        title: "chaos: on macOS a note deleted here is not pulled onto another note's spelling",
+        symptom: "A note was merged into a different note whose name differed only in letter case",
+        config: { seed: 170270, ...CHAOS },
+        expect: [],
+    },
+    {
+        title: "e2ee: an upload renamed during the request is still checked for overwriting",
+        symptom: "Another device's edit made at the same moment was lost",
+        config: { seed: 170382, ...E2EE },
+        expect: [],
+    },
+    {
+        title: "restart: an event-less rename of a note with an unpushed move is paired",
+        symptom: "A renamed note existed under both names after an app kill",
+        config: { seed: 170464, ...RESTART },
+        expect: [],
+    },
+    {
+        title: "restart: an event-less rename is paired even when the new note was edited since",
+        symptom: "A renamed and then edited note existed under both names after an app kill",
+        config: { seed: 170822, ...RESTART },
+        expect: [],
+    },
 ];
 
 function configOf(c: Case, name: string): SimConfig {

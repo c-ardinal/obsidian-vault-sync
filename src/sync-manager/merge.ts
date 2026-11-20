@@ -286,7 +286,13 @@ async function pullFileSafelyClaimed(
     let release: (() => void) | null = null;
     const sameNameDuplicate =
         !!fileId && !isRemoteDeleted && (await isSameNameDuplicate(ctx, item.path, fileId));
-    if (fileId && !isRemoteDeleted && (!ctx.index[item.path] || sameNameDuplicate)) {
+    // Known here, but on Windows/macOS another synced note now holds its name in
+    // another spelling (this one was deleted here, that one renamed onto the name):
+    // the local file is that note, and pulling merged the two into one file.
+    const heldByOtherSpelling =
+        !!fileId && !isRemoteDeleted && !!ctx.index[item.path] && !!ctx.caseInsensitiveFs &&
+        !!findPathCollision(ctx, item.path, fileId);
+    if (fileId && !isRemoteDeleted && (!ctx.index[item.path] || sameNameDuplicate || heldByOtherSpelling)) {
         let clash = sameNameDuplicate ? item.path : findPathCollision(ctx, item.path, fileId);
         // A new note made here under another spelling ("Todo.md" while the cloud
         // has "todo.md") is not in the index yet, but on Windows/macOS it is the

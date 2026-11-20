@@ -719,6 +719,24 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                             }
                             // Don't return — fall through to hash check.
                         } catch (e) {
+                            // Still in the cloud (or unknown): the move may even have been
+                            // applied (response lost). Uploading instead updated the file by
+                            // id wherever it was, under a name this device no longer uses,
+                            // and the note ended up under two names. Retry the move.
+                            let remote: CloudFile | null | undefined;
+                            try {
+                                remote = await ctx.adapter.getFileMetadataById(indexEntry.fileId, path);
+                            } catch {
+                                remote = undefined;
+                            }
+                            if (remote !== null) {
+                                ctx.dirtyPaths.set(path, Date.now());
+                                await ctx.log(
+                                    `[Smart Push] Move failed for ${path}: ${String(e)}. Retrying it next sync.`,
+                                    "warn",
+                                );
+                                return;
+                            }
                             await ctx.log(
                                 `[Smart Push] Move API failed for ${path}, falling back to re-upload: ${String(e)}`,
                                 "warn",
@@ -1247,6 +1265,9 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
 
                     const targetFileId = remoteMeta?.id || ctx.index[file.path]?.fileId;
 
+                    // Read before the upload: a rename during it moves the entry away
+                    const previousAncestorHash = ctx.localIndex[file.path]?.ancestorHash;
+                    const previousHash = ctx.localIndex[file.path]?.hash;
                     uploadStarted = true;
                     const uploaded = await ctx.adapter.uploadFile(
                         file.path,
@@ -1261,8 +1282,6 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
 
                     const plainHash = await hashContent(file.content);
 
-                    const previousAncestorHash = ctx.localIndex[file.path]?.ancestorHash;
-                    const previousHash = ctx.localIndex[file.path]?.hash;
                     const entry = {
                         fileId: uploaded.id,
                         mtime: file.mtime,
@@ -1278,6 +1297,18 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                         // for a deleted note and removed it while the note lived on
                         // under its new name (a second copy once another device edited it).
                         await saveIndex(ctx);
+                        // Our upload may still have replaced another device's version made
+                        // at the same moment: check it under the note's new name. Skipped,
+                        // that device merged onto our upload and its edit was gone.
+                        const renamedTo = Object.keys(ctx.index).find(
+                            (p) => p !== file.path && ctx.index[p].fileId === uploaded.id,
+                        );
+                        if (renamedTo && targetFileId && uploaded.hash && isMergeableText(renamedTo)) {
+                            await recoverOverwrittenVersion(ctx, renamedTo, uploaded.id, uploaded.hash, [
+                                previousAncestorHash,
+                                previousHash,
+                            ]);
+                        }
                     } else {
                         ctx.index[file.path] = entry;
                         ctx.localIndex[file.path] = { ...entry };

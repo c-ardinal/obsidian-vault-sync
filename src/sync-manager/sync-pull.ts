@@ -177,6 +177,8 @@ async function detectPullChanges(
                             }
 
                             await markIfEditedSinceSync(ctx, newPath);
+                            await saveLocalIndex(ctx);
+                            await saveIndex(ctx);
 
                             // Update ID map so subsequent iterations see the correct path
                             localIdToPath.set(remoteEntry.fileId, newPath);
@@ -1423,6 +1425,11 @@ async function processChangePage(
                                 } else {
                                     await markIfEditedSinceSync(ctx, newPath);
                                 }
+                                // Journal it now: killed before the next save, the restarted
+                                // app still listed the old name, found the note gone and the
+                                // renamed file unknown, and kept it as an extra copy.
+                                await saveLocalIndex(ctx);
+                                await saveIndex(ctx);
 
                                 localIdToPath.set(cloudFile.id, newPath);
 
