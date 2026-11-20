@@ -435,6 +435,11 @@ export default class VaultSync extends Plugin {
             syncManager: this.syncManager,
             registerEvent: (evt) => this.registerEvent(evt),
             registerInterval: (id) => this.registerInterval(id),
+            registerDomEvent: (target, type, cb) => {
+                if (type === "online" && target instanceof Window) this.registerDomEvent(target, "online", cb);
+                else if (type === "visibilitychange" && !(target instanceof Window))
+                    this.registerDomEvent(target, "visibilitychange", cb);
+            },
         });
 
         this.app.workspace.onLayoutReady(() => {

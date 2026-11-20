@@ -26,7 +26,7 @@
     "settingStartupSync": "トリガー: 起動時",
     "settingStartupSyncDesc": "Obsidian 起動時に自動でクラウドと同期します。",
     "settingAutoSyncInterval": "トリガー: タイマー",
-    "settingAutoSyncIntervalDesc": "バックグラウンドで定期的に同期します。\n注意: データ損失防止のため、編集操作中は同期をスキップします。",
+    "settingAutoSyncIntervalDesc": "バックグラウンドで定期的に同期します。アプリの再表示時・ネットワーク復帰時にも即時に同期し、アプリの非表示中は 5 分間隔に抑制します（未送信の変更がある場合を除く）。\n注意: データ損失防止のため、編集操作中は同期をスキップします。",
     "settingTriggerSave": "トリガー: 保存時 [Ctrl+S押下時]",
     "settingTriggerSaveDesc": "明示的にファイルを保存した際に、一定時間後に同期を実行。",
     "settingModify": "トリガー: 編集時",

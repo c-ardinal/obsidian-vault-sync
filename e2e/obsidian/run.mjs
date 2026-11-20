@@ -1142,6 +1142,41 @@ async function checkScreens(page, lang, { mobile = false } = {}) {
     }
     await closeSettings(page);
 
+    // Near-realtime: coming back to the front and the network coming back start a sync
+    {
+        const setVisibility = (state) =>
+            page.evaluate((st) => {
+                Object.defineProperty(document, "visibilityState", { configurable: true, get: () => st });
+                document.dispatchEvent(new Event("visibilitychange"));
+            }, state);
+        await page.evaluate((id) => {
+            const pl = window.app.plugins.plugins[id];
+            window.__syncCalls = [];
+            window.__realRequest = pl.syncManager.requestSmartSync;
+            pl.syncManager.requestSmartSync = async (trigger) => {
+                window.__syncCalls.push(trigger);
+            };
+            pl.triggerManager.setReady(true);
+            pl.triggerManager.destroy(); // no timer sync in between
+        }, PLUGIN_ID);
+        await setVisibility("hidden");
+        await sleep(3300);
+        await setVisibility("visible");
+        await sleep(200);
+        const afterResume = await page.evaluate(() => window.__syncCalls.length);
+        await page.evaluate(() => window.dispatchEvent(new Event("online")));
+        await sleep(200);
+        const calls = await page.evaluate((id) => {
+            const pl = window.app.plugins.plugins[id];
+            pl.syncManager.requestSmartSync = window.__realRequest;
+            delete document.visibilityState;
+            pl.triggerManager.setupAutoSyncInterval();
+            return window.__syncCalls;
+        }, PLUGIN_ID);
+        check(lang, `${tag}: back to the front starts a sync`, afterResume === 1, JSON.stringify(calls));
+        check(lang, `${tag}: network back starts a sync`, calls.length === 2, JSON.stringify(calls));
+    }
+
     // File context menu entry, then the real history modal without an account.
     let menuShown = false;
     if (!mobile) {

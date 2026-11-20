@@ -9,7 +9,18 @@ interface TriggerManagerDeps {
     syncManager: SyncManager;
     registerEvent: (evt: import("obsidian").EventRef) => void;
     registerInterval: (id: number) => void;
+    /** Plugin.registerDomEvent: removed with the plugin */
+    registerDomEvent?: (
+        target: Window | Document,
+        type: "visibilitychange" | "online",
+        callback: () => void,
+    ) => void;
 }
+
+/** Hidden at least this long: coming back syncs at once (the timer may not have run meanwhile) */
+export const RESUME_MIN_HIDDEN_MS = 3000;
+/** While the app is hidden and nothing local waits, the timer syncs at most this often */
+export const HIDDEN_INTERVAL_MS = 5 * 60 * 1000;
 
 /** Shape of an Obsidian command entry (internal API) that we hook for save detection. */
 interface HookableCommand {
@@ -30,9 +41,16 @@ export class TriggerManager {
     private lastSaveRequestTime = 0;
     private lastModifyTime = 0;
     private autoSyncInterval: number | null = null;
+    /** When the app was hidden (0: visible) */
+    private hiddenSince = 0;
+    /** Last timer sync run while hidden */
+    private lastHiddenRun = 0;
 
     private static readonly TRIGGER_MAP: Record<string, SyncTrigger> = {
         interval: "timer-sync",
+        // Quiet like the timer: the user did not ask for these
+        resume: "timer-sync",
+        online: "timer-sync",
         save: "save-sync",
         modify: "modify-sync",
         "layout-change": "layout-sync",
@@ -71,8 +89,44 @@ export class TriggerManager {
         }
     }
 
+    /** Timer sync is on: the resume and network triggers follow it */
+    private get timerSyncEnabled(): boolean {
+        const sec = this.currentTriggers.autoSyncIntervalSec;
+        return sec !== SETTINGS_LIMITS.autoSyncInterval.disabled && sec >= SETTINGS_LIMITS.autoSyncInterval.min;
+    }
+
+    /** The app went to the background (true) or came back (false) */
+    onVisibilityChange(hidden: boolean, now = Date.now()): void {
+        if (hidden) {
+            if (!this.hiddenSince) this.hiddenSince = now;
+            return;
+        }
+        const since = this.hiddenSince;
+        this.hiddenSince = 0;
+        this.lastHiddenRun = 0;
+        // Back in front: the other devices' changes come in before the user edits a stale note
+        if (since && now - since >= RESUME_MIN_HIDDEN_MS && this.timerSyncEnabled) {
+            void this.triggerSmartSync("resume");
+        }
+    }
+
+    /** The network came back: what waited goes out, what changed comes in */
+    onOnline(): void {
+        if (this.timerSyncEnabled) void this.triggerSmartSync("online");
+    }
+
+    /** Sync when the app comes back to the front or the network comes back */
+    registerResumeTriggers(): void {
+        const register = this.deps.registerDomEvent;
+        if (!register) return;
+        const doc = activeDocument;
+        register(doc, "visibilitychange", () => this.onVisibilityChange(doc.visibilityState === "hidden"));
+        register(window, "online", () => this.onOnline());
+    }
+
     registerTriggers(): void {
         const { app, syncManager } = this.deps;
+        this.registerResumeTriggers();
 
         // Save Trigger (Obsidian Command Hook)
         app.workspace.onLayoutReady(async () => {
@@ -234,6 +288,13 @@ export class TriggerManager {
 
         // Respect debounce: If user is actively editing, suppressed triggers (layout, interval)
         // should NOT interrupt. The 'modify' trigger (debounced) will handle it eventually.
+        if (source === "interval" && this.hiddenSince) {
+            // In the background nobody looks: sync now and then, unless local changes wait
+            const now = Date.now();
+            if (syncManager.pendingChangeCount === 0 && now - this.lastHiddenRun < HIDDEN_INTERVAL_MS) return;
+            this.lastHiddenRun = now;
+        }
+
         if (source === "interval") {
             const timeSinceModify = Date.now() - this.lastModifyTime;
             if (timeSinceModify < this.currentTriggers.onModifyDelaySec * 1000) {
