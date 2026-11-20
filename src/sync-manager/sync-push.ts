@@ -1027,6 +1027,28 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                         } else {
                             remoteMeta = await ctx.adapter.getFileMetadata(file.path);
                         }
+                        // The cloud file at this name belongs to another note here (our own
+                        // move of it away from this name ran in this push, after the lookup).
+                        // Taken as a remote edit of this new note, the conflict path pulled
+                        // that note in under this name: a third copy once it was renamed.
+                        const ownedElsewhere = (id: string | undefined) =>
+                            !!id &&
+                            Object.entries(ctx.index).some(([p, e]) => p !== file.path && e.fileId === id);
+                        if (!params.fileId && remoteMeta && ownedElsewhere(remoteMeta.id)) {
+                            if (remoteMeta === file.remoteLookup) {
+                                remoteMeta = await ctx.adapter.getFileMetadata(file.path);
+                            }
+                            if (remoteMeta && ownedElsewhere(remoteMeta.id)) {
+                                // Still there: our move has not reached the cloud. Uploading by
+                                // name would overwrite that note; push this one next sync.
+                                ctx.dirtyPaths.set(file.path, Date.now());
+                                await ctx.log(
+                                    `[Smart Push] ${file.path}: the cloud file of that name is another note here, moving away. Pushing it next sync.`,
+                                    "info",
+                                );
+                                return;
+                            }
+                        }
 
                         if (remoteMeta) {
                             const lastKnownHash = ctx.localIndex[file.path]?.hash;

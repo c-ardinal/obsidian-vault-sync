@@ -1645,12 +1645,14 @@ async function processChangePage(
                 );
                 await ctx.notify("noticeWaitOtherDeviceMerge", basename(cloudFile.path));
                 // Mark as pending conflict so next sync shows "merge result applied"
-                if (ctx.localIndex[cloudFile.path]) {
-                    ctx.localIndex[cloudFile.path].pendingConflict = true;
+                const known = ctx.localIndex[cloudFile.path];
+                if (known && (!known.fileId || known.fileId === cloudFile.id)) {
+                    known.pendingConflict = true;
                     await saveLocalIndex(ctx);
                 } else {
-                    // A file we don't have yet: no pendingConflict re-check covers it and
-                    // the change is consumed. Retry it on the next syncs instead.
+                    // A file we don't have yet (or a new cloud file under a name whose
+                    // old file is being deleted: that entry, and its re-check, goes with
+                    // the deletion): the change is consumed. Retry it on the next syncs.
                     failed.push(cloudFile);
                 }
                 continue; // Skip this file, wait for merge to complete

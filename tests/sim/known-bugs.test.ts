@@ -847,6 +847,18 @@ const FIXED_REGRESSIONS: Case[] = [
         config: { seed: 130647, ...RESTART },
         expect: [],
     },
+    {
+        title: "chaos: a new cloud file waiting for another device's merge is retried after the old name is deleted",
+        symptom: "A device never received a note recreated under the name of one it had deleted",
+        config: { seed: 140671, ...CHAOS },
+        expect: [],
+    },
+    {
+        title: "chaos: a stale lookup of a name we just moved away from is not a remote edit",
+        symptom: "A moved note was pulled back under its old name and stayed as an extra copy",
+        config: { seed: 150160, ...CHAOS },
+        expect: [],
+    },
 ];
 
 function configOf(c: Case, name: string): SimConfig {
