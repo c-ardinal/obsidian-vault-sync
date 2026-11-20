@@ -165,6 +165,11 @@ export class SyncManager {
     /** Reviews each sync step's deletions and overwrites before they run */
     public planGuard: PlanGuard = approveAllPlanGuard;
 
+    /** Files the shared index lists (the plugin's own index file not counted) */
+    syncedFileCount(): number {
+        return Object.keys(this.index).filter((p) => p !== this.pluginDataPath).length;
+    }
+
     /** Current sync trigger — controls notification visibility via matrix lookup */
     public currentTrigger: SyncTrigger = "manual-sync";
 

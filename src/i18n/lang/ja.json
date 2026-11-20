@@ -317,5 +317,20 @@
     "statusTransferDetails": "転送詳細",
     "statusOpenSettings": "設定を表示",
     "statusRetry": "再試行",
-    "statusSyncNow": "即時同期"
+    "statusSyncNow": "即時同期",
+    "unitPercent": "%",
+    "settingSubheaderDeletionSafety": "削除の安全対策",
+    "settingMassDeleteFiles": "件数による削除確認",
+    "settingMassDeleteFilesDesc": "1 回の同期で削除するファイルが指定件数以上の場合、実行前に確認します。",
+    "settingMassDeletePercent": "割合による削除確認",
+    "settingMassDeletePercentDesc": "1 回の同期で削除するファイルが同期済みファイルの指定割合以上の場合、実行前に確認します。\n削除 5 件以上の場合に適用します。",
+    "massDeleteTitle": "削除の確認",
+    "massDeleteBodyPush": "今回の同期で、クラウド上の {n} 件のファイルを削除します。",
+    "massDeleteBodyPull": "他端末での削除に伴い、今回の同期で本端末の {n} 件のファイルを削除します。",
+    "massDeleteFolderFiles": "{n} 件",
+    "massDeleteMore": "ほか {n} 件",
+    "massDeleteHoldNote": "保留時の扱い：本端末での削除は、次回同期時に再確認します。他端末での削除は、本端末のファイルを保持し、クラウドへ再送信します。",
+    "massDeleteRun": "削除を実行",
+    "massDeleteHold": "今回は保留",
+    "noticeMassDeleteHeld": "削除を保留しました。次回同期時に再確認します。"
 }

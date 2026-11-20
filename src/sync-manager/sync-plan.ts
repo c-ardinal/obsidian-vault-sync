@@ -86,7 +86,12 @@ export class PlanDecision {
     }
 
     static holdAll(plan: SyncPlan): PlanDecision {
-        return new PlanDecision(plan.changes.map((c) => keyOf(c.action, c.path)));
+        return PlanDecision.holdWhere(plan, () => true);
+    }
+
+    /** Hold the planned changes the predicate selects, approve the rest */
+    static holdWhere(plan: SyncPlan, select: (change: PlannedChange) => boolean): PlanDecision {
+        return new PlanDecision(plan.changes.filter(select).map((c) => keyOf(c.action, c.path)));
     }
 
     /** True when the change may run. A change that was never planned is allowed. */

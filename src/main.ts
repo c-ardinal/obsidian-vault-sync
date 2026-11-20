@@ -1,5 +1,7 @@
 import { Notice, Plugin, TFile, setIcon, Platform } from "obsidian";
 import { createCloudAdapter, DEFAULT_CLOUD_PROVIDER } from "./cloud-adapters";
+import { MassDeleteGuard } from "./sync-manager/mass-change-guard";
+import { MassDeleteModal } from "./ui/mass-delete-modal";
 import type { OAuthCloudAdapter } from "./types/oauth-adapter";
 import { SyncManager, type SyncTrigger } from "./sync-manager";
 import type { SecureStorage } from "./services/secure-storage";
@@ -308,6 +310,15 @@ export default class VaultSync extends Plugin {
             backgroundQueue,
         );
         this.syncManager.secureStorage = this.secureStorage;
+        this.syncManager.planGuard = new MassDeleteGuard(
+            () => this.settings,
+            () => this.syncManager.syncedFileCount(),
+            async (plan, summary) => {
+                const ok = await new MassDeleteModal(this.app, plan, summary).ask();
+                if (!ok) new Notice(t("noticeMassDeleteHeld"));
+                return ok;
+            },
+        );
         this.syncManager.unicodeInsensitiveFs = Platform.isMacOS || Platform.isIosApp;
 
         this.syncManager.onSettingsUpdated = async () => {

@@ -14,6 +14,10 @@ export const SETTINGS_LIMITS = {
     largeFileThresholdMB: { min: 0, max: 100, default: 5 },
     bgTransferIntervalSec: { min: 0, max: 60, default: 0 },
     startupDelay: { min: 0, max: 600, default: 0 },
+    /** Ask before a sync deletes this many files or more */
+    massDeleteConfirmFiles: { min: 1, max: 100000, default: 20, disabled: -1 },
+    /** Ask before a sync deletes this share (%) of the synced files or more */
+    massDeleteConfirmPercent: { min: 1, max: 100, default: 10, disabled: -1 },
 } as const;
 
 export const DEFAULT_SETTINGS: VaultSyncSettings = {
@@ -43,6 +47,8 @@ export const DEFAULT_SETTINGS: VaultSyncSettings = {
     concurrency: SETTINGS_LIMITS.concurrency.default,
     largeFileThresholdMB: 5,
     bgTransferIntervalSec: 0,
+    massDeleteConfirmFiles: SETTINGS_LIMITS.massDeleteConfirmFiles.default,
+    massDeleteConfirmPercent: SETTINGS_LIMITS.massDeleteConfirmPercent.default,
     notificationLevel: "standard",
     showSyncStatus: true,
     conflictResolutionStrategy: "smart-merge",
