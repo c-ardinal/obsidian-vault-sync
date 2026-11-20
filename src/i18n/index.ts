@@ -292,7 +292,7 @@ export const en: Record<string, string> = {
     transferTitle: "Transfer Status",
     transferActiveSection: "Active Transfers",
     transferHistorySection: "Recent History",
-    transferNoActive: "No active transfers",
+    transferNoActive: "Nothing waiting to transfer",
     transferNoHistory: "No transfer history",
     transferPush: "Upload",
     transferPull: "Download",
@@ -300,10 +300,23 @@ export const en: Record<string, string> = {
     transferFailed: "Failed",
     transferCancelled: "Cancelled",
     transferPending: "Pending",
-    transferActive: "Transferring...",
+    transferActive: "Transferring",
     transferInline: "Inline",
     transferBackground: "Background",
     transferCancelAll: "Cancel All",
+    transferStatsTitle: "Last 24 hours",
+    transferStatCount: "{0} files",
+    transferQueueTitle: "Queue",
+    transferMore: "{0} more",
+    transferRetrying: "Retry {0}/{1}",
+    transferFilterAll: "All",
+    transferFilterPull: "Download",
+    transferFilterPush: "Upload",
+    transferFilterFailed: "Failed",
+    transferToday: "Today",
+    transferYesterday: "Yesterday",
+    transferNoMatch: "No matching transfers",
+    transferBatchFailed: "{0} failed",
 
     // Settings
     settingLargeFileThreshold: "Large File Threshold (Background Transfer)",
@@ -327,6 +340,26 @@ export const en: Record<string, string> = {
 
     // Add-on specific text (its settings, commands, dialogs and notices) is not
     // here: the add-on supplies it at runtime (see setAddonStrings).
+
+    // Display settings (diff text size + preview)
+    settingDisplaySection: "Display",
+    settingCategoryDisplayDesc: "Sync status display, diff text size",
+    settingSubheaderSyncStatus: "Sync status",
+    settingSubheaderDiff: "Diff view",
+    settingDiffFontSizeDesktop: "Text size (desktop)",
+    settingDiffFontSizeDesktopDesc: "Text size of the diff in the file history on desktop.",
+    settingDiffFontSizeMobile: "Text size (mobile)",
+    settingDiffFontSizeMobileDesc: "Text size of the diff in the file history on phones and tablets.",
+    settingDiffPreview: "Preview",
+    settingDiffPreviewDesc: "How the diff looks with the sizes above.",
+    settingDiffPreviewDesktop: "Desktop",
+    settingDiffPreviewMobile: "Mobile",
+    diffPreviewLine1: "# Meeting notes",
+    diffPreviewLine2: "- Next meeting: Monday 10:00",
+    diffPreviewLine3: "- Next meeting: Tuesday 10:00",
+    diffPreviewLine4a: "- Owner: ",
+    diffPreviewLine4b: "Alex",
+    diffPreviewLine4c: "Sam",
 
     // Sync status display (status bar / mobile pill / detail panel)
     labelShowSyncStatusCommand: "Show Sync Status",

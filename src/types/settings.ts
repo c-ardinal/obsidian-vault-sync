@@ -32,6 +32,9 @@ export interface VaultSyncSettings {
     /** Status bar / mobile progress display of the running sync. Progress notices are
      *  folded into it unless the notification level is verbose. */
     showSyncStatus: boolean;
+    /** Text size (px) of the history diff view, per device type */
+    diffFontSizeDesktop: number;
+    diffFontSizeMobile: number;
 
     // Conflict Resolution
     conflictResolutionStrategy: "smart-merge" | "force-local" | "force-remote" | "always-fork";

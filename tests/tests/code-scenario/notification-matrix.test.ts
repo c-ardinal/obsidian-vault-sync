@@ -1377,7 +1377,8 @@ describe("Notices with the sync status display on", () => {
 
     beforeEach(() => {
         (Notice as any).mockClear();
-        const vaultOps = new MockVaultOperations(new MockApp() as any);
+        const mockApp = new MockApp();
+        const vaultOps = new MockVaultOperations(mockApp.vaultAdapter, mockApp.vault);
         syncManager = new SyncManager(
             vaultOps,
             new MockCloudAdapter(),

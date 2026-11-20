@@ -13,7 +13,7 @@ import { t } from "../i18n";
 import type { SyncProgressSnapshot } from "../sync-manager/sync-progress";
 import { TransferStatusModal } from "./transfer-status-modal";
 
-type DisplayState = "syncing" | "scanning" | "synced" | "error" | "offline" | "auth" | "never";
+export type DisplayState = "syncing" | "scanning" | "synced" | "error" | "offline" | "auth" | "never";
 
 /** Triggers the user started or waits on: their syncs always show on mobile. */
 const LOUD_TRIGGERS = new Set(["manual-sync", "initial-sync", "startup-sync", "full-scan"]);
@@ -31,37 +31,37 @@ export function displayState(s: SyncProgressSnapshot, signedIn: boolean): Displa
     return s.last.outcome;
 }
 
-function formatBytes(n: number): string {
+export function formatBytes(n: number): string {
     if (n < 1024) return `${n} B`;
     if (n < 1024 * 1024) return `${(n / 1024).toFixed(n < 10 * 1024 ? 1 : 0)} KB`;
     if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
     return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
-function formatDuration(sec: number): string {
+export function formatDuration(sec: number): string {
     if (sec < 60) return t("statusSeconds").replace("{0}", String(Math.max(1, Math.round(sec))));
     return t("statusMinutes").replace("{0}", String(Math.round(sec / 60)));
 }
 
-function formatClock(ms: number): string {
+export function formatClock(ms: number): string {
     // Obsidian sets moment's locale to the app language.
     return moment(ms).format("LT");
 }
 
-function formatAgo(ms: number): string {
+export function formatAgo(ms: number): string {
     const min = Math.floor((Date.now() - ms) / 60000);
     if (min < 1) return t("statusJustNow");
     if (min < 60) return t("statusMinutesAgo").replace("{0}", String(min));
     return formatClock(ms);
 }
 
-function triggerLabel(trigger: string | null): string {
+export function triggerLabel(trigger: string | null): string {
     const key = `statusTrigger_${trigger ?? ""}`;
     const label = t(key);
     return label === key ? t("statusTrigger_default") : label;
 }
 
-function percent(s: SyncProgressSnapshot): number {
+export function percent(s: SyncProgressSnapshot): number {
     return Math.round((s.fraction ?? 0) * 100);
 }
 

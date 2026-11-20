@@ -291,6 +291,7 @@ export default class VaultSync extends Plugin {
         });
 
         await this.loadSettings();
+        this.applyDiffFontSize();
 
         const revisionCache = new RevisionCache(this.vaultOps, this.manifest.dir || "");
         const backgroundQueue = new BackgroundTransferQueue();
@@ -674,6 +675,7 @@ export default class VaultSync extends Plugin {
         this.triggerManager?.destroy();
         this.syncStatusView?.unmount();
         this.syncStatusView = null;
+        activeDocument.body.style.removeProperty("--vault-sync-diff-font-size");
         if (this.mobileSyncFabEl) {
             this.mobileSyncFabEl.remove();
         }
@@ -682,6 +684,14 @@ export default class VaultSync extends Plugin {
         if (this.syncManager) {
             this.syncManager.destroyTransferQueue();
         }
+    }
+
+    /** Diff view text size for this device type (history screen). */
+    applyDiffFontSize(): void {
+        const px = Platform.isMobile
+            ? this.settings.diffFontSizeMobile
+            : this.settings.diffFontSizeDesktop;
+        activeDocument.body.style.setProperty("--vault-sync-diff-font-size", `${px}px`);
     }
 
     /** Show or hide the sync status display to match the setting. */
