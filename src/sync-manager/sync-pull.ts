@@ -43,7 +43,7 @@ import {
     moveAttemptedUploads,
     peekAttemptedUpload,
 } from "./sync-helpers";
-import { CtxFlag } from "./context-state";
+import { CtxFlag, CtxState } from "./context-state";
 
 
 /** Check for active merge locks from other devices */
@@ -974,6 +974,8 @@ export async function pullViaChangesAPI(
         }
     }
 
+    await retrySkippedRenames(ctx);
+
     // Retry pulls that failed in earlier syncs and were not superseded by a newer change
     const retries = [...retryCandidates.values()];
     if (retries.length > 0) {
@@ -1505,6 +1507,10 @@ async function processChangePage(
                             `[Changes API] Remote Rename: Target ${newPath} exists. Skipping rename to avoid overwrite.`,
                             "warn",
                         );
+                        // The note in the way may leave that name later (its own rename can
+                        // come in a later change): follow this rename then, or this device
+                        // keeps the old name for good.
+                        skippedRenamesOf(ctx).set(cloudFile.id, newPath);
                     }
                 }
             }
@@ -1792,4 +1798,41 @@ async function resolveDuplicateIds(ctx: SyncContext, remoteIndex: LocalFileIndex
         }
     }
     return out;
+}
+
+const skippedRenames = new CtxState<Map<string, string>>(
+    "skippedRemoteRenames",
+    "Remote renames not followed because the new name was taken here: file id to new path",
+);
+
+function skippedRenamesOf(ctx: SyncContext): Map<string, string> {
+    let m = skippedRenames.get(ctx);
+    if (!m) skippedRenames.set(ctx, (m = new Map<string, string>()));
+    return m;
+}
+
+/** Follow remote renames skipped earlier once their new name is free here */
+async function retrySkippedRenames(ctx: SyncContext): Promise<void> {
+    const m = skippedRenames.get(ctx);
+    if (!m || m.size === 0) return;
+    for (const [id, target] of [...m]) {
+        const oldPath = Object.entries(ctx.index).find(([, e]) => e.fileId === id)?.[0];
+        if (!oldPath || oldPath === target || ctx.index[oldPath].pendingMove) {
+            m.delete(id);
+            continue;
+        }
+        if (ctx.dirtyPaths.has(oldPath) || (await ctx.vault.exists(target)) || !(await ctx.vault.exists(oldPath))) continue;
+        const meta = await ctx.adapter.getFileMetadataById(id, target).catch(() => undefined);
+        if (meta === undefined) continue; // unknown now: try again later
+        m.delete(id);
+        if (!meta || meta.path !== target) continue; // moved on since: that is a change of its own
+        try {
+            await renameLocal(ctx, oldPath, target);
+            moveIndexEntry(ctx, oldPath, target);
+            moveAttemptedUploads(ctx, oldPath, target);
+            await ctx.log(`[Changes API] Remote Rename (deferred): ${oldPath} -> ${target}. The name is free now.`, "info");
+        } catch (e) {
+            await ctx.log(`[Changes API] Failed to rename ${oldPath} -> ${target}: ${String(e)}`, "warn");
+        }
+    }
 }

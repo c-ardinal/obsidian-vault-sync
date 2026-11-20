@@ -1050,6 +1050,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                             // (and checked for overwriting another device's edit).
                                             const mergedSent = contentFingerprint(mergedContent);
                                             recordAttemptedUpload(ctx, file.path, mergedSent);
+                                            await saveLocalIndex(ctx, true); // survives an app kill
                                             const mergedUploaded = await ctx.adapter.uploadFile(
                                                 file.path,
                                                 mergedContent,
@@ -1414,7 +1415,10 @@ async function collapseCollidingNewPaths(ctx: SyncContext): Promise<void> {
             if (contentFingerprint(a) === contentFingerprint(b)) {
                 // Keep the spelling the disk lists: the other one only reaches the
                 // same file because the disk ignores case / Unicode form.
-                const listed = (p: string) => ctx.vault.getFiles().some((f) => f.path === p);
+                // (The folder part may be spelled differently again: compare the file name.)
+                const onDisk = ctx.vault.getFiles().find((f) => pathKey(f.path) === key)?.path;
+                const listed = (p: string) =>
+                    onDisk !== undefined && (p === onDisk || basename(p) === basename(onDisk));
                 const [keep, drop] = listed(path) && !listed(first) ? [path, first] : [first, path];
                 ctx.dirtyPaths.delete(drop);
                 firstByKey.set(key, keep);

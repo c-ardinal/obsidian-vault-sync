@@ -40,11 +40,16 @@ export class SmartMergeStrategy implements IMergeStrategy {
         remoteContent: remoteContentStr,
         baseHash,
         fileId,
+        knownRevisions,
     }: MergeParams): Promise<ArrayBuffer | null> {
         await ctx.log(`[Merge] Attempting 3-way merge for ${path}...`, "info");
         await ctx.log(`[Merge] Looking for base revision with hash: ${baseHash}`, "debug");
 
-        const revisions = await listRevisions(ctx, path, fileId);
+        const hasBase = (list: { hash?: string }[] | undefined) =>
+            !!list?.some((r) => r.hash && r.hash.toLowerCase() === baseHash.toLowerCase());
+        const revisions = hasBase(knownRevisions)
+            ? knownRevisions!
+            : await listRevisions(ctx, path, fileId);
         await ctx.log(
             `[Merge] Found ${revisions.length} revisions: ${revisions.map((r) => r.hash?.substring(0, 8) || "no-hash").join(", ")}`,
             "debug",

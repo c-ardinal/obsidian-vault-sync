@@ -183,6 +183,23 @@ describe("names that differ between operating systems", () => {
         expect(Object.values(linux.userFiles()).sort()).toEqual(["lower", "upper"]);
     });
 
+    it("keeps a new Windows note when the cloud already has the name in another letter case", async () => {
+        const { make, sync, cloudFiles } = await setup();
+        const linux = await make("A", "linux");
+        const win = await make("B", "windows");
+        await linux.userCreate("inbox/todo.md", "from linux");
+        await sync(linux);
+        await win.userCreate("inbox/Todo.md", "from windows");
+        await sync(win);
+        await sync(linux);
+        await sync(win);
+
+        expect(Object.values(await cloudFiles()).sort()).toEqual(["from linux", "from windows"]);
+        expect(Object.values(win.userFiles()).sort()).toEqual(["from linux", "from windows"]);
+        expect(Object.values(linux.userFiles()).sort()).toEqual(["from linux", "from windows"]);
+        expect(win.describe().dirtyPaths).toEqual([]);
+    });
+
     it("follows a letter-case-only rename on every system", async () => {
         const { make, sync, cloudFiles } = await setup();
         const win = await make("A", "windows");

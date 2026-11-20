@@ -2,6 +2,7 @@ import { TFile } from "obsidian";
 import { recordActivity } from "./device-registry";
 import { contentFingerprint } from "./content-fingerprint";
 import type { SyncContext } from "./context";
+import type { FileRevision } from "../types/adapter";
 import { ensureLocalFolder, hashContent, normalizeLineEndings, plainHashMatches } from "./file-utils";
 import {
     checkMergeLock,
@@ -185,6 +186,7 @@ export async function perform3WayMerge(
     remoteContentStr: string,
     baseHash: string,
     fileId?: string,
+    knownRevisions?: FileRevision[],
 ): Promise<ArrayBuffer | null> {
     try {
         const strategy = getMergeStrategy(ctx.settings.conflictResolutionStrategy);
@@ -195,6 +197,7 @@ export async function perform3WayMerge(
             remoteContent: remoteContentStr,
             baseHash,
             fileId,
+            knownRevisions,
         });
     } catch (e) {
         if (e instanceof TransientHistoryError) throw e;
@@ -251,6 +254,10 @@ export async function pullFileSafely(
         !!fileId && !isRemoteDeleted && (await isSameNameDuplicate(ctx, item.path, fileId));
     if (fileId && !isRemoteDeleted && (!ctx.index[item.path] || sameNameDuplicate)) {
         let clash = sameNameDuplicate ? item.path : findPathCollision(ctx, item.path, fileId);
+        // A new note made here under another spelling ("Todo.md" while the cloud
+        // has "todo.md") is not in the index yet, but on Windows/macOS it is the
+        // same local file: pulling would overwrite it or take it for this file.
+        if (!clash) clash = await unsyncedNoteUnderOtherSpelling(ctx, item.path);
         if (!clash) {
             release = claimPullPath(ctx, item.path, fileId);
             if (!release) clash = findPathCollision(ctx, item.path, fileId) ?? item.path;
@@ -1220,6 +1227,8 @@ async function pullFileUnchecked(
                             baseHash = localBase.hash;
                         }
 
+                        // History listed below, reused by the merge to find the base revision
+                        let knownRevisions: FileRevision[] | undefined;
                         // Our content is exactly a cloud version newer than our recorded base
                         // (we pulled or merged it, but were closed before saving the index):
                         // we have no edits beyond it, so it is the base. The stale base made
@@ -1233,11 +1242,16 @@ async function pullFileUnchecked(
                             currentHash !== baseHash.toLowerCase() &&
                             currentHash !== item.hash.toLowerCase()
                         ) {
-                            const later = await revisionOrder(ctx, item.path, fileId, baseHash, currentHash);
-                            const before = await revisionOrder(ctx, item.path, fileId, currentHash, item.hash);
-                            if (later && later.declared > later.ours && before && before.declared > before.ours) {
-                                baseHash = currentHash;
-                            }
+                            knownRevisions = await listRevisions(ctx, item.path, fileId).catch((e) => {
+                                if (e instanceof TransientHistoryError) throw e;
+                                return undefined;
+                            });
+                            const at = (h: string) =>
+                                knownRevisions?.map((r) => r.hash?.toLowerCase()).lastIndexOf(h.toLowerCase()) ?? -1;
+                            const b = at(baseHash);
+                            const c = at(currentHash);
+                            const r = at(item.hash);
+                            if (b !== -1 && c > b && r > c) baseHash = currentHash;
                         }
 
                         await ctx.log(
@@ -1333,6 +1347,7 @@ async function pullFileUnchecked(
                                 remoteContentStr,
                                 baseHashFound,
                                 fileId,
+                                knownRevisions,
                             );
 
                             // The merge downloads revisions and can take seconds. If the user
@@ -1360,6 +1375,7 @@ async function pullFileUnchecked(
                                     remoteContentStr,
                                     baseHashFound,
                                     fileId,
+                                    knownRevisions,
                                 );
                             }
 
@@ -1726,4 +1742,14 @@ async function pullFileUnchecked(
     } finally {
         ctx.syncingPaths.delete(item.path);
     }
+}
+
+/** A new local note (not synced yet) whose name differs from `path` only in case or Unicode form */
+async function unsyncedNoteUnderOtherSpelling(ctx: SyncContext, path: string): Promise<string | null> {
+    const key = pathKey(path);
+    for (const other of ctx.dirtyPaths.keys()) {
+        if (other === path || ctx.index[other] || pathKey(other) !== key) continue;
+        if (await ctx.vault.exists(other)) return other;
+    }
+    return null;
 }

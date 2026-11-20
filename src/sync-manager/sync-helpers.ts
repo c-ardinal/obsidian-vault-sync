@@ -137,6 +137,9 @@ export function markIndexUploadOwed(ctx: Pick<SyncContext, "index" | "pluginData
     indexUploadOwed.add(ctx);
     const own = ctx.index[ctx.pluginDataPath];
     if (own) own.forcePush = true;
+    // Never uploaded yet (no entry): record the debt anyway, or a restart forgot it and
+    // the files just pushed stayed out of the shared index
+    else ctx.index[ctx.pluginDataPath] = { fileId: "", mtime: 0, size: 0, hash: "", forcePush: true } as SyncContext["index"][string];
 }
 
 export function owesIndexUpload(ctx: Pick<SyncContext, "index" | "pluginDataPath">): boolean {

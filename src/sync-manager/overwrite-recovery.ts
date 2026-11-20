@@ -218,7 +218,14 @@ async function repairUnderLock(
         return false;
     }
     try {
-        const head = await ctx.adapter.getFileMetadataById(repair.fileId, path).catch(() => null);
+        let head: Awaited<ReturnType<typeof ctx.adapter.getFileMetadataById>>;
+        try {
+            head = await ctx.adapter.getFileMetadataById(repair.fileId, path);
+        } catch (e) {
+            // Network: keep the repair (dropping it lost the overwritten edit for good)
+            await ctx.log(`[Overwrite Check] Could not read ${path} from the cloud: ${String(e)}. Repairing later.`, "debug");
+            return false;
+        }
         if (!head) {
             pending.delete(path);
             return false;

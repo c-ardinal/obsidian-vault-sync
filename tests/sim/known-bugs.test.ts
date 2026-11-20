@@ -652,6 +652,48 @@ const FIXED_REGRESSIONS: Case[] = [
         config: { seed: 60193, ...NON_MD5 },
         expect: [],
     },
+    {
+        title: "chaos: a new note under another letter case is not taken for the cloud file",
+        symptom: "A new note disappears on Windows/macOS when the cloud has the same name in another case",
+        config: { seed: 70428, ...CHAOS },
+        expect: [],
+    },
+    {
+        title: "chaos: a rename skipped because the target was busy is retried",
+        symptom: "A note keeps its old name on one device",
+        config: { seed: 70728, ...CHAOS },
+        expect: [],
+    },
+    {
+        title: "e2ee: a merged upload of a moved note is written to its new index entry",
+        symptom: "A note renamed during a merge is uploaded twice",
+        config: { seed: 70190, ...E2EE },
+        expect: [],
+    },
+    {
+        title: "e2ee: an index overwrite lost to a network error is repaired later",
+        symptom: "Another device's index changes are lost",
+        config: { seed: 70562, ...E2EE },
+        expect: [],
+    },
+    {
+        title: "restart: a missing index entry still owes its index upload",
+        symptom: "A device never publishes its index after a restart",
+        config: { seed: 70505, ...RESTART },
+        expect: [],
+    },
+    {
+        title: "chaos: an overwrite repair survives a network error",
+        symptom: "A lost upload is never repaired",
+        config: { seed: 60658, ...CHAOS },
+        expect: [],
+    },
+    {
+        title: "restart: the merged upload is recorded before it is sent",
+        symptom: "A merge is uploaded twice after the app was closed",
+        config: { seed: 60757, ...RESTART },
+        expect: [],
+    },
 ];
 
 function configOf(c: Case, name: string): SimConfig {
