@@ -2167,3 +2167,20 @@
     font-size: var(--font-ui-smaller);
     color: var(--text-muted);
 }
+
+/* Diagnostic info */
+.vault-sync-diagnostics-modal .modal-content > * {
+    flex-shrink: 0;
+}
+
+.vault-sync-diagnostics-note {
+    margin: var(--size-4-2) 0;
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+}
+
+.vault-sync-diagnostics-text {
+    width: 100%;
+    font-family: var(--font-monospace);
+    font-size: var(--font-ui-smaller);
+}

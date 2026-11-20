@@ -1,9 +1,11 @@
-import { Notice, Plugin, TFile, setIcon, Platform } from "obsidian";
+import { Notice, Plugin, TFile, setIcon, Platform, apiVersion } from "obsidian";
 import { createCloudAdapter, DEFAULT_CLOUD_PROVIDER } from "./cloud-adapters";
 import { MassDeleteGuard } from "./sync-manager/mass-change-guard";
 import { ConflictResolveModal, openConflictResolver } from "./ui/conflict-resolve-modal";
 import { isConflictCopyPath } from "./sync-manager/conflict-resolution";
 import { DevicesModal } from "./ui/devices-modal";
+import { DiagnosticsModal } from "./ui/diagnostics-modal";
+import { formatDiagnostics } from "./sync-manager/diagnostics";
 import { MassDeleteModal } from "./ui/mass-delete-modal";
 import { RemoteTrashModal } from "./ui/remote-trash-modal";
 import { FirstSyncModal } from "./ui/first-sync-modal";
@@ -15,7 +17,7 @@ import { TransferStatusModal } from "./ui/transfer-status-modal";
 import { SyncStatusView } from "./ui/sync-status-view";
 import { DEFAULT_SETTINGS } from "./constants";
 import { DATA_REMOTE_DIR, VaultSyncSettings } from "./types/settings";
-import { t, initI18n, setAddonStrings } from "./i18n";
+import { t, initI18n, setAddonStrings, currentLanguage } from "./i18n";
 import type { ICryptoEngine } from "./encryption/interfaces";
 import { VaultSyncSettingTab } from "./ui/vault-sync-setting-tab";
 import {
@@ -623,6 +625,12 @@ export default class VaultSync extends Plugin {
         });
 
         this.addCommand({
+            id: "copy-diagnostics",
+            name: t("labelDiagnosticsCommand"),
+            callback: () => this.openDiagnostics(),
+        });
+
+        this.addCommand({
             id: "show-sync-status",
             name: t("labelShowSyncStatusCommand"),
             checkCallback: (checking: boolean) => {
@@ -854,11 +862,31 @@ export default class VaultSync extends Plugin {
         this.secureStorage = this.settingsMgr.secureStorage;
     }
 
-    /** The list of files kept in the cloud trash, with restore */
+    /** The devices that sync this vault, and their changes */
     openDevices(): void {
         new DevicesModal(this.app, this.syncManager).open();
     }
 
+    /** Diagnostic info for a support request, to copy */
+    openDiagnostics(): void {
+        new DiagnosticsModal(this.app, async (includeLog) => {
+            const agreements = this.settings.addonAgreements ?? {};
+            const snapshot = {
+                pluginVersion: this.manifest.version,
+                obsidianVersion: apiVersion,
+                platform: this.syncManager.deviceInfo?.platform ?? "",
+                language: currentLanguage(),
+                addOns: Object.values(agreements).map((a) => `${a.name} ${a.version}`),
+                firstSyncDone: this.settings.hasCompletedFirstSync,
+                settings: this.settings as unknown as Record<string, unknown>,
+                ...this.syncManager.diagnosticsState(),
+            };
+            const log = includeLog ? await this.syncManager.readRecentLog() : null;
+            return formatDiagnostics(snapshot, log);
+        }).open();
+    }
+
+    /** The list of files kept in the cloud trash, with restore */
     openRemoteTrash(): void {
         new RemoteTrashModal(this.app, this.syncManager.adapter, this.settings.remoteTrashRetentionDays).open();
     }

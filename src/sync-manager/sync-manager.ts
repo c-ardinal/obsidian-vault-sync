@@ -1,4 +1,6 @@
 import { CloudAdapter } from "../types/adapter";
+import { describeCtxState } from "./context-state";
+import { logTail, MAX_LOG_LINES, type DiagnosticsSnapshot } from "./diagnostics";
 import {
     forgetDevice as _forgetDevice,
     getDeviceName as _getDeviceName,
@@ -651,6 +653,47 @@ export class SyncManager {
 
     get supportsHistory(): boolean {
         return _supportsHistory(this as unknown as SyncContext);
+    }
+
+    // === Diagnostic info (diagnostics.ts) ===
+
+    /** The sync's part of the diagnostic info */
+    diagnosticsState(): Pick<
+        DiagnosticsSnapshot,
+        | "cloud"
+        | "signedIn"
+        | "addOnActive"
+        | "syncState"
+        | "syncedFiles"
+        | "pendingChanges"
+        | "backgroundTransfers"
+        | "internalState"
+    > {
+        return {
+            cloud: this.baseAdapter.name,
+            signedIn: this.baseAdapter.isAuthenticated(),
+            addOnActive: this.cryptoEngine !== null,
+            syncState: this.syncState,
+            syncedFiles: this.syncedFileCount(),
+            pendingChanges: this.dirtyPaths.size,
+            backgroundTransfers: this.backgroundTransferQueue.getPendingTransfers().length,
+            internalState: describeCtxState(this),
+        };
+    }
+
+    /** The last lines of this device's log files (newest files first until enough) */
+    async readRecentLog(max = MAX_LOG_LINES): Promise<string[]> {
+        try {
+            if (!(await this.vault.exists(this.logFolder))) return [];
+            const files = (await this.vault.list(this.logFolder)).files.filter((f) => f.endsWith(".log")).sort();
+            let lines: string[] = [];
+            for (let i = files.length - 1; i >= 0 && lines.length < max; i--) {
+                lines = [...logTail(await this.vault.read(files[i]), max), ...lines];
+            }
+            return lines.slice(Math.max(0, lines.length - max));
+        } catch {
+            return [];
+        }
     }
 
     // === Devices and their changes (device-registry.ts) ===

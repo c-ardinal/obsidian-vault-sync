@@ -813,6 +813,22 @@ async function checkScreens(page, lang, { mobile = false } = {}) {
     check(lang, `${tag}: devices modal texts are not cut`, clipped.length === 0, clipped.join(" / "));
     await escape(page);
 
+    // Diagnostic info: the text is built, and nothing private or add-on specific shows
+    await cmd(page, "copy-diagnostics");
+    await modalOpen(page, ".vault-sync-diagnostics-text");
+    await page
+        .waitForFunction(() => document.querySelector(".vault-sync-diagnostics-text")?.value.includes("### Settings"), null, { timeout: 5000 })
+        .catch(() => {});
+    await shotModal(page, lang, tag, "scr-diagnostics", "diagnostics modal");
+    const diag = await page.$eval(".vault-sync-diagnostics-text", (e) => e.value);
+    check(lang, `${tag}: diagnostics text is built`, diag.includes("## Vault Sync diagnostics") && diag.includes("### Settings"), diag.slice(0, 80));
+    check(lang, `${tag}: diagnostics hide private settings`, !/encryptionSecret|e2ee|clientSecret|token/i.test(diag.split("### Log")[0]), "");
+    const diagClipped = await page.$$eval(".vault-sync-diagnostics-note, .vault-sync-diagnostics-modal .setting-item-description", (els) =>
+        els.filter((e) => e.scrollHeight > e.clientHeight + 1).map((e) => e.textContent.slice(0, 30)),
+    );
+    check(lang, `${tag}: diagnostics texts are not cut`, diagClipped.length === 0, diagClipped.join(" / "));
+    await escape(page);
+
     // Add-on install (and, when a package is given, its terms review).
     await cmd(page, "install-addon");
     await modalOpen(page, ".vault-sync-addon-install");

@@ -444,6 +444,14 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                         p.updateLoggerOptions();
                     },
                 },
+                {
+                    key: "_open_diagnostics",
+                    type: "button",
+                    label: t("settingOpenDiagnostics"),
+                    desc: t("settingOpenDiagnosticsDesc"),
+                    buttonText: t("settingOpenDiagnosticsButton"),
+                    onClick: (p) => p.openDiagnostics(),
+                },
             ],
         },
         {
