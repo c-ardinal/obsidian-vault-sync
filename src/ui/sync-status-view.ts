@@ -324,6 +324,10 @@ export class SyncStatusView {
                 this.closeDetails();
                 this.plugin.openSettingsTab();
             },
+            onReport: (title) => {
+                this.closeDetails();
+                this.plugin.openDiagnostics(title);
+            },
         });
     }
 }
@@ -354,6 +358,8 @@ export interface SyncPanelOptions {
     onOpenTransfers?: () => void;
     onSyncNow?: () => void;
     onOpenSettings?: () => void;
+    /** After a failed sync: report it, with a suggested issue title */
+    onReport?: (title: string) => void;
 }
 
 /** The sync status panel: used by the popover, the phone sheet and the transfer status screen. */
@@ -484,6 +490,12 @@ export function renderSyncPanel(el: HTMLElement, s: SyncProgressSnapshot, o: Syn
     foot.createSpan({ cls: "vault-sync-status-muted", text: note });
 
     const btns = foot.createDiv({ cls: "vault-sync-status-btns" });
+    if (!s.active && state === "error" && o.onReport) {
+        // A failure the user cannot fix by signing in or going online: offer a report
+        const report = o.onReport;
+        const title = `Sync failed: ${(s.last?.message ?? "").slice(0, 120)}`;
+        btns.createEl("button", { text: t("statusReport") }).addEventListener("click", () => report(title));
+    }
     if (o.onOpenTransfers) {
         const open = o.onOpenTransfers;
         btns.createEl("button", { text: t("statusTransferDetails") }).addEventListener("click", () => open());

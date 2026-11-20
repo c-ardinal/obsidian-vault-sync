@@ -1412,15 +1412,15 @@
 }
 
 /* Settings: hierarchical navigation */
-.vault-sync-settings-nav-item {
+.vault-sync-settings-nav-row {
     cursor: pointer;
     align-items: center;
     gap: 12px;
     border-radius: var(--radius-s);
 }
 
-.vault-sync-settings-nav-item:hover,
-.vault-sync-settings-nav-item:focus-visible {
+.vault-sync-settings-nav-row:hover,
+.vault-sync-settings-nav-row:focus-visible {
     background-color: var(--background-modifier-hover);
 }
 
@@ -2085,4 +2085,113 @@
 
 .vault-sync-devices-heading h4 {
     margin: 0;
+}
+
+/* Full-height phone modals lay out their content as a flex column: never let
+   a paragraph or list shrink below its content (it was cut to one line). */
+.vault-sync-devices-modal .modal-content > * {
+    flex-shrink: 0;
+}
+
+.vault-sync-devices-note {
+    margin: var(--size-4-2) 0;
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+}
+
+/* Diagnostic info */
+.vault-sync-diagnostics-modal .modal-content > * {
+    flex-shrink: 0;
+}
+
+.vault-sync-diagnostics-note {
+    margin: var(--size-4-2) 0;
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+}
+
+.vault-sync-diagnostics-text {
+    width: 100%;
+    font-family: var(--font-monospace);
+    font-size: var(--font-ui-smaller);
+}
+
+/* Settings search (top page) */
+.vault-sync-settings-search {
+    margin-bottom: var(--size-4-3);
+}
+
+.vault-sync-settings-search .search-input-container {
+    width: 100%;
+}
+
+.vault-sync-settings-search-group a.vault-sync-subheader-text {
+    text-decoration: none;
+}
+
+.vault-sync-settings-search-group a.vault-sync-subheader-text:hover {
+    color: var(--text-accent);
+}
+
+.vault-sync-settings-search-none {
+    color: var(--text-muted);
+}
+
+/* Restore to a past time */
+.vault-sync-pit-modal .modal-content > * {
+    flex-shrink: 0;
+}
+
+.vault-sync-pit-note {
+    margin: var(--size-4-2) 0;
+    font-size: var(--font-ui-small);
+    color: var(--text-muted);
+}
+
+.vault-sync-pit-progress {
+    font-variant-numeric: tabular-nums;
+}
+
+.vault-sync-pit-summary {
+    margin: var(--size-4-2) 0;
+}
+
+.vault-sync-pit-count {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--size-4-2);
+    padding: var(--size-2-2) 0;
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.vault-sync-pit-count-n {
+    font-variant-numeric: tabular-nums;
+    color: var(--text-muted);
+}
+
+.vault-sync-pit-list {
+    max-height: 40vh;
+    overflow-y: auto;
+    margin: var(--size-4-2) 0;
+    font-size: var(--font-ui-small);
+}
+
+.vault-sync-pit-row {
+    display: flex;
+    gap: var(--size-4-2);
+    padding: var(--size-2-1) 0;
+}
+
+.vault-sync-pit-tag {
+    flex-shrink: 0;
+    min-width: 6em;
+    color: var(--text-muted);
+}
+
+.vault-sync-pit-tag.mod-created-after {
+    color: var(--text-warning);
+}
+
+.vault-sync-pit-path {
+    word-break: break-all;
 }

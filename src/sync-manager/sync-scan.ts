@@ -8,12 +8,29 @@ import {
 import { computeLocalHash } from "./sync-helpers";
 import { markRenamed } from "./state";
 import { entryIdentityHash, localIdentityHash } from "./content-identity";
+import type { FileUtilsCtx } from "./file-utils";
+import type { StateCtx } from "./state";
+import type { SyncHelpersCtx } from "./sync-helpers";
+
+/** What this module reads from the sync context */
+export type ScanCtx = Pick<
+    SyncContext,
+    | "dirtyPaths"
+    | "e2eeEnabled"
+    | "index"
+    | "localIndex"
+    | "log"
+    | "pluginDataPath"
+    | "recentlyDeletedFromRemote"
+    | "syncingPaths"
+    | "vault"
+> & FileUtilsCtx & StateCtx & SyncHelpersCtx;
 
 /**
  * Scan .obsidian directory for changes
  * Vault events don't fire for .obsidian files, so we need to scan manually
  */
-export async function scanObsidianChanges(ctx: SyncContext): Promise<void> {
+export async function scanObsidianChanges(ctx: ScanCtx): Promise<void> {
     try {
         const obsidianFiles = await listFilesRecursive(ctx, ".obsidian");
 
@@ -100,7 +117,7 @@ export async function scanObsidianChanges(ctx: SyncContext): Promise<void> {
  * Scan all vault files for changes (missing events while app was closed)
  * This is O(N) but fast because it uses Obsidian's cached file metadata
  */
-export async function scanVaultChanges(ctx: SyncContext): Promise<void> {
+export async function scanVaultChanges(ctx: ScanCtx): Promise<void> {
     try {
         await ctx.log("[Vault Scan] Starting full vault scan...", "debug");
         const start = Date.now();
@@ -219,7 +236,7 @@ export async function scanVaultChanges(ctx: SyncContext): Promise<void> {
  * came after all, and edits other devices made under the old name stayed there.
  * Treat it as the rename it is.
  */
-async function pairRenames(ctx: SyncContext, missing: string[], added: string[]): Promise<void> {
+async function pairRenames(ctx: ScanCtx, missing: string[], added: string[]): Promise<void> {
     if (missing.length === 0 || added.length === 0) return;
     const byHash = new Map<string, string>();
     for (const path of added) {

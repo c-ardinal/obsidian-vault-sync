@@ -31,6 +31,7 @@ const REFRESH_MS = 1000;
 export interface TransferModalActions {
     onSyncNow: () => void;
     onOpenSettings: () => void;
+    onReport?: (title: string) => void;
 }
 
 export class TransferStatusModal extends Modal {
@@ -109,6 +110,12 @@ export class TransferStatusModal extends Modal {
                 ? () => {
                       this.close();
                       actions.onOpenSettings();
+                  }
+                : undefined,
+            onReport: actions?.onReport
+                ? (title) => {
+                      this.close();
+                      actions.onReport?.(title);
                   }
                 : undefined,
         });

@@ -1,9 +1,12 @@
-import { Notice, Plugin, TFile, setIcon, Platform } from "obsidian";
+import { Notice, Plugin, TFile, TFolder, setIcon, Platform, apiVersion } from "obsidian";
 import { createCloudAdapter, DEFAULT_CLOUD_PROVIDER } from "./cloud-adapters";
 import { MassDeleteGuard } from "./sync-manager/mass-change-guard";
 import { ConflictResolveModal, openConflictResolver } from "./ui/conflict-resolve-modal";
 import { isConflictCopyPath } from "./sync-manager/conflict-resolution";
 import { DevicesModal } from "./ui/devices-modal";
+import { DiagnosticsModal } from "./ui/diagnostics-modal";
+import { PointInTimeModal } from "./ui/point-in-time-modal";
+import { formatDiagnostics } from "./sync-manager/diagnostics";
 import { MassDeleteModal } from "./ui/mass-delete-modal";
 import { RemoteTrashModal } from "./ui/remote-trash-modal";
 import { FirstSyncModal } from "./ui/first-sync-modal";
@@ -15,7 +18,7 @@ import { TransferStatusModal, type TransferModalActions } from "./ui/transfer-st
 import { SyncStatusView } from "./ui/sync-status-view";
 import { DEFAULT_SETTINGS } from "./constants";
 import { DATA_REMOTE_DIR, VaultSyncSettings } from "./types/settings";
-import { t, initI18n, setAddonStrings } from "./i18n";
+import { t, initI18n, setAddonStrings, currentLanguage } from "./i18n";
 import type { ICryptoEngine } from "./encryption/interfaces";
 import { VaultSyncSettingTab } from "./ui/vault-sync-setting-tab";
 import {
@@ -624,6 +627,28 @@ export default class VaultSync extends Plugin {
         });
 
         this.addCommand({
+            id: "report-issue",
+            name: t("labelReportIssueCommand"),
+            callback: () => this.openDiagnostics(),
+        });
+
+        this.addCommand({
+            id: "copy-diagnostics",
+            name: t("labelDiagnosticsCommand"),
+            callback: () => this.openDiagnostics(),
+        });
+
+        this.addCommand({
+            id: "restore-to-point-in-time",
+            name: t("labelPointInTimeCommand"),
+            checkCallback: (checking: boolean) => {
+                if (!this.syncManager?.supportsHistory) return false;
+                if (!checking) this.openPointInTime("");
+                return true;
+            },
+        });
+
+        this.addCommand({
             id: "show-sync-status",
             name: t("labelShowSyncStatusCommand"),
             checkCallback: (checking: boolean) => {
@@ -722,6 +747,13 @@ export default class VaultSync extends Plugin {
                                 });
                         });
                     }
+                    if (file instanceof TFolder) {
+                        menu.addItem((item) => {
+                            item.setTitle(t("labelPointInTimeFolder"))
+                                .setIcon("history")
+                                .onClick(() => this.openPointInTime(file.isRoot() ? "" : file.path));
+                        });
+                    }
                 }
             }),
         );
@@ -790,6 +822,7 @@ export default class VaultSync extends Plugin {
         return {
             onSyncNow: () => void this.runManualSync(),
             onOpenSettings: () => this.openSettingsTab(),
+            onReport: (title) => this.openDiagnostics(title),
         };
     }
 
@@ -872,11 +905,40 @@ export default class VaultSync extends Plugin {
         this.secureStorage = this.settingsMgr.secureStorage;
     }
 
-    /** The list of files kept in the cloud trash, with restore */
+    /** The devices that sync this vault, and their changes */
     openDevices(): void {
         new DevicesModal(this.app, this.syncManager).open();
     }
 
+    /** A folder (or the whole vault) back to a past time */
+    openPointInTime(folder: string): void {
+        if (!this.syncManager.supportsHistory) {
+            new Notice(t("pitNotSupported"));
+            return;
+        }
+        new PointInTimeModal(this.app, this.syncManager, folder).open();
+    }
+
+    /** Diagnostic info for a support request, to copy */
+    openDiagnostics(issueTitle = ""): void {
+        new DiagnosticsModal(this.app, async (includeLog) => {
+            const agreements = this.settings.addonAgreements ?? {};
+            const snapshot = {
+                pluginVersion: this.manifest.version,
+                obsidianVersion: apiVersion,
+                platform: this.syncManager.deviceInfo?.platform ?? "",
+                language: currentLanguage(),
+                addOns: Object.values(agreements).map((a) => `${a.name} ${a.version}`),
+                firstSyncDone: this.settings.hasCompletedFirstSync,
+                settings: this.settings as unknown as Record<string, unknown>,
+                ...this.syncManager.diagnosticsState(),
+            };
+            const log = includeLog ? await this.syncManager.readRecentLog() : null;
+            return formatDiagnostics(snapshot, log);
+        }, issueTitle).open();
+    }
+
+    /** The list of files kept in the cloud trash, with restore */
     openRemoteTrash(): void {
         new RemoteTrashModal(this.app, this.syncManager.adapter, this.settings.remoteTrashRetentionDays).open();
     }

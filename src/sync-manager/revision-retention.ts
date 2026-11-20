@@ -1,5 +1,6 @@
 import { capabilitiesOf, type CloudAdapter } from "../types/adapter";
 import type { LogLevel } from "./logger";
+import { CtxState } from "./context-state";
 
 /**
  * Keeps one version of each note per interval for good.
@@ -25,10 +26,10 @@ interface RetentionCtx {
     log: (message: string, level?: LogLevel) => Promise<void>;
 }
 
-const uploaded = new WeakMap<object, Map<string, string>>();
-const checkedAt = new WeakMap<object, Map<string, number>>();
+const uploaded = new CtxState<Map<string, string>>("retentionUploaded", "Notes uploaded this sync, waiting for the keep-forever check");
+const checkedAt = new CtxState<Map<string, number>>("retentionCheckedAt", "When each note's versions were last checked for keep-forever");
 
-function mapOf<V>(store: WeakMap<object, Map<string, V>>, ctx: object): Map<string, V> {
+function mapOf<V>(store: CtxState<Map<string, V>>, ctx: object): Map<string, V> {
     let m = store.get(ctx);
     if (!m) store.set(ctx, (m = new Map<string, V>()));
     return m;

@@ -324,6 +324,31 @@ async function checkHierarchy(main, lang, { mobile = false } = {}) {
         leaked.join(", "),
     );
 
+    // Search on the top page: matching settings with their controls, page list hidden
+    const searchInput = ".vault-sync-settings-search input";
+    await page.fill(searchInput, lang === "ja" ? "削除" : "trash");
+    await sleep(300);
+    const hits = (await page.$$(".vault-sync-settings-search-results .setting-item")).length;
+    const navHidden = await page.$eval(".vault-sync-settings-nav", (el) => el.offsetParent === null);
+    check(lang, `${tag}: settings search shows matches`, hits > 0 && navHidden, `${hits} hits, nav hidden=${navHidden}`);
+    check(lang, `${tag}: settings search results name no add-on internals`, !BANNED_UI_WORDS.test(await settingsText(page)));
+    await shotSettings(page, lang, `${tag}-search`, target);
+    await page.fill(searchInput, "zzqx-no-such-setting");
+    await sleep(300);
+    check(
+        lang,
+        `${tag}: settings search says when nothing matches`,
+        (await page.$$(".vault-sync-settings-search-none")).length === 1,
+    );
+    await page.fill(searchInput, "");
+    await sleep(300);
+    check(
+        lang,
+        `${tag}: clearing the search shows the category list again`,
+        (await navNames(page)).join("|") === names.join("|") &&
+            (await page.$$(".vault-sync-settings-search-results .setting-item")).length === 0,
+    );
+
     if (!mobile) {
         // Keyboard: Enter on a focused row opens the page.
         await page.focus(".vault-sync-settings-nav-item");
@@ -935,6 +960,92 @@ async function checkScreens(page, lang, { mobile = false } = {}) {
     await shotModal(page, lang, tag, "scr-devices", "devices modal");
     const rows = await page.$$eval(".vault-sync-activity-row", (els) => els.length);
     check(lang, `${tag}: devices modal lists all changes`, rows === 5, `rows=${rows}`);
+    // Every note paragraph shows all its lines (none is squeezed by the modal layout)
+    const clipped = await page.$$eval(".vault-sync-devices-note", (els) =>
+        els.filter((e) => e.scrollHeight > e.clientHeight + 1).map((e) => e.textContent.slice(0, 30)),
+    );
+    check(lang, `${tag}: devices modal texts are not cut`, clipped.length === 0, clipped.join(" / "));
+    await escape(page);
+
+    // Diagnostic info: the text is built, and nothing private or add-on specific shows
+    await cmd(page, "copy-diagnostics");
+    await modalOpen(page, ".vault-sync-diagnostics-text");
+    await page
+        .waitForFunction(() => document.querySelector(".vault-sync-diagnostics-text")?.value.includes("### Settings"), null, { timeout: 5000 })
+        .catch(() => {});
+    await shotModal(page, lang, tag, "scr-diagnostics", "diagnostics modal");
+    const diag = await page.$eval(".vault-sync-diagnostics-text", (e) => e.value);
+    check(lang, `${tag}: diagnostics text is built`, diag.includes("## Vault Sync diagnostics") && diag.includes("### Settings"), diag.slice(0, 80));
+    check(lang, `${tag}: diagnostics hide private settings`, !/encryptionSecret|e2ee|clientSecret|token/i.test(diag.split("### Log")[0]), "");
+    const diagClipped = await page.$$eval(".vault-sync-diagnostics-note, .vault-sync-diagnostics-modal .setting-item-description", (els) =>
+        els.filter((e) => e.scrollHeight > e.clientHeight + 1).map((e) => e.textContent.slice(0, 30)),
+    );
+    check(lang, `${tag}: diagnostics texts are not cut`, diagClipped.length === 0, diagClipped.join(" / "));
+    // "Report on GitHub": the new-issue page with the text filled in (the browser is not opened here)
+    await page.evaluate(() => {
+        window.__openedUrl = null;
+        window.__realOpen = window.open;
+        window.open = (u) => {
+            window.__openedUrl = String(u);
+            return null;
+        };
+    });
+    await page.click(".vault-sync-diagnostics-modal .modal-button-container .mod-cta");
+    await sleep(300);
+    const opened = await page.evaluate(() => {
+        const u = window.__openedUrl;
+        window.open = window.__realOpen;
+        return u;
+    });
+    const openedBody = opened ? decodeURIComponent(new URL(opened).searchParams.get("body") || "") : "";
+    check(
+        lang,
+        `${tag}: report opens the new-issue page with the diagnostics`,
+        !!opened && opened.startsWith("https://github.com/c-ardinal/obsidian-vault-sync/issues/new?") && openedBody.includes("## Vault Sync diagnostics") && opened.length <= 7500,
+        opened ? `length=${opened.length}` : "not opened",
+    );
+    await escape(page);
+
+    // Restore to a past time: the form, the plan (stubbed: no cloud here), then apply
+    await page.evaluate((id) => {
+        const sm = window.app.plugins.plugins[id].syncManager;
+        const now = Date.now();
+        sm.planPointInTimeRestore = async (folder, time, opts) => {
+            opts?.onProgress?.(3, 5);
+            return {
+                time,
+                folder: folder.trim(),
+                entries: [
+                    { path: "Notes/Plan.md", action: "restore", revision: { id: "r1", modifiedTime: now - 864e5, size: 10 } },
+                    { path: "Notes/Gone.md", action: "recreate", trashed: { id: "t1", originalPath: "Notes/Gone.md", day: "2026-11-19", size: 1, mtime: 0 } },
+                    { path: "Notes/New idea with a long name that wraps on a phone.md", action: "created-after" },
+                    { path: "Notes/Same.md", action: "unchanged" },
+                ],
+            };
+        };
+        window.__pitApplied = null;
+        sm.applyPointInTimeRestore = async (plan, opts) => {
+            window.__pitApplied = opts.removeCreatedAfter;
+            return { restored: 1, recreated: 1, removed: 0, failed: [] };
+        };
+    }, PLUGIN_ID);
+    await cmd(page, "restore-to-point-in-time");
+    await modalOpen(page, ".vault-sync-pit-folder");
+    await shotModal(page, lang, tag, "scr-pit-form", "point-in-time form");
+    await page.fill(".vault-sync-pit-folder", "Notes");
+    await page.click(".vault-sync-pit-modal .modal-button-container .mod-cta");
+    await page.waitForSelector(".vault-sync-pit-summary", { timeout: 5000 }).catch(() => {});
+    await shotModal(page, lang, tag, "scr-pit-plan", "point-in-time plan");
+    const pitRows = (await page.$$(".vault-sync-pit-row")).length;
+    check(lang, `${tag}: restore plan lists the files to change`, pitRows === 3, `rows=${pitRows}`);
+    const pitClipped = await page.$$eval(".vault-sync-pit-note, .vault-sync-pit-modal .setting-item-description", (els) =>
+        els.filter((e) => e.scrollHeight > e.clientHeight + 1).map((e) => e.textContent.slice(0, 30)),
+    );
+    check(lang, `${tag}: restore texts are not cut`, pitClipped.length === 0, pitClipped.join(" / "));
+    await page.click(".vault-sync-pit-modal .modal-button-container .mod-cta");
+    await sleep(400);
+    const pitApplied = await page.evaluate(() => window.__pitApplied);
+    check(lang, `${tag}: restore runs, keeping files created after`, pitApplied === false, String(pitApplied));
     await escape(page);
 
     // Add-on install (and, when a package is given, its terms review).

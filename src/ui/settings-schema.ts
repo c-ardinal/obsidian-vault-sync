@@ -195,6 +195,15 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                     onClick: (p) => p.openRemoteTrash(),
                 },
                 {
+                    key: "_open_point_in_time",
+                    type: "button",
+                    label: t("settingOpenPointInTime"),
+                    desc: t("settingOpenPointInTimeDesc"),
+                    buttonText: t("settingOpenPointInTimeButton"),
+                    isHidden: (_s, p) => !p.syncManager.supportsHistory,
+                    onClick: (p) => p.openPointInTime(""),
+                },
+                {
                     key: "_open_devices",
                     type: "button",
                     label: t("settingOpenDevices"),
@@ -496,6 +505,20 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                     onChange: async (_val, p) => {
                         p.updateLoggerOptions();
                     },
+                },
+                // ── Support ──
+                {
+                    key: "_subheader_support",
+                    type: "subheader",
+                    label: t("settingSubheaderSupport"),
+                },
+                {
+                    key: "_open_diagnostics",
+                    type: "button",
+                    label: t("settingOpenDiagnostics"),
+                    desc: t("settingOpenDiagnosticsDesc"),
+                    buttonText: t("settingOpenDiagnosticsButton"),
+                    onClick: (p) => p.openDiagnostics(),
                 },
             ],
         },

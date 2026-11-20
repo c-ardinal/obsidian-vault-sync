@@ -3,6 +3,7 @@ import type { IVaultOperations } from "../types/vault-operations";
 import type { LogLevel } from "./logger";
 import { REMOTE_DEVICE_DIR } from "./remote-layout";
 import { removeRemote, type RemoteDeletionService } from "./remote-deletion";
+import { CtxState } from "./context-state";
 
 /**
  * Which devices sync this vault, and what each of them changed.
@@ -73,7 +74,7 @@ interface DeviceState {
     name: string | null;
 }
 
-const states = new WeakMap<object, DeviceState>();
+const states = new CtxState<DeviceState>("deviceRecord", "This device's record and its changes not written yet");
 
 function stateOf(ctx: object): DeviceState {
     let s = states.get(ctx);
@@ -89,7 +90,7 @@ export function deviceRecordPath(ctx: Pick<DeviceCtx, "pluginDir">, deviceId: st
 }
 
 /** The config folder (parent of the plugins folder): its files are settings, not notes */
-function isSettingsPath(ctx: Pick<DeviceCtx, "pluginDir">, path: string): boolean {
+export function isSettingsPath(ctx: Pick<DeviceCtx, "pluginDir">, path: string): boolean {
     const i = ctx.pluginDir.lastIndexOf("/plugins/");
     const configDir = i > 0 ? ctx.pluginDir.slice(0, i) : ctx.pluginDir;
     return path.startsWith(configDir + "/");

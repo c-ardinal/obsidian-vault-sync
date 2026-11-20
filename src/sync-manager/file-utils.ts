@@ -4,6 +4,14 @@ import { contentFingerprint } from "./content-fingerprint";
 import { REMOTE_DEVICE_DIR, REMOTE_FILES } from "./remote-layout";
 import type { SyncContext } from "./context";
 
+/** What this module reads from the sync context */
+export type FileUtilsCtx = Pick<
+    SyncContext,
+    | "log"
+    | "settings"
+    | "vault"
+>;
+
 // === System-level Constants ===
 
 /** Plugin ID before the community-directory release (IDs may not contain "obsidian"). */
@@ -55,7 +63,7 @@ export const OBSIDIAN_WORKSPACE_FILES = ["workspace.json", "workspace-mobile.jso
 
 // === File Operations ===
 
-export async function ensureLocalFolder(ctx: SyncContext, filePath: string) {
+export async function ensureLocalFolder(ctx: FileUtilsCtx, filePath: string) {
     filePath = normalizePath(filePath);
     const parts = filePath.split("/");
     if (parts.length <= 1) return;
@@ -76,7 +84,7 @@ export async function ensureLocalFolder(ctx: SyncContext, filePath: string) {
     }
 }
 
-export async function listFilesRecursive(ctx: SyncContext, path: string): Promise<string[]> {
+export async function listFilesRecursive(ctx: FileUtilsCtx, path: string): Promise<string[]> {
     const result: string[] = [];
     const listed = await ctx.vault.list(path);
 
@@ -92,7 +100,7 @@ export async function listFilesRecursive(ctx: SyncContext, path: string): Promis
     return result;
 }
 
-export async function getLocalFiles(ctx: SyncContext) {
+export async function getLocalFiles(ctx: FileUtilsCtx) {
     const standardFiles = ctx.vault.getFiles().map((f) => ({
         path: f.path,
         mtime: f.stat.mtime,
@@ -260,7 +268,7 @@ export function isAlwaysForbiddenOnRemote(path: string): boolean {
 /**
  * リモートに存在してはいけない（クリーンアップ対象）ファイルかどうかを判定。
  */
-export function shouldNotBeOnRemote(ctx: SyncContext, path: string): boolean {
+export function shouldNotBeOnRemote(ctx: FileUtilsCtx, path: string): boolean {
     const normalizedPath = normalizePath(path).toLowerCase();
     const normalizedWithSlash = normalizedPath.endsWith("/")
         ? normalizedPath
@@ -425,7 +433,7 @@ export function shouldNotBeOnRemote(ctx: SyncContext, path: string): boolean {
     return false;
 }
 
-export function shouldIgnore(ctx: SyncContext, path: string): boolean {
+export function shouldIgnore(ctx: FileUtilsCtx, path: string): boolean {
     return isManagedSeparately(path) || shouldNotBeOnRemote(ctx, path);
 }
 

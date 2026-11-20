@@ -15,6 +15,7 @@ import { prepareFirstSync } from "./first-sync";
 import { keepRevisionsIfDue } from "./revision-retention";
 import { publishDeviceRecordIfDue } from "./device-registry";
 import { migratePlainHashes } from "./plain-hash-migration";
+import { CtxFlag } from "./context-state";
 
 
 /**
@@ -102,7 +103,7 @@ export async function requestSmartSync(
  * one; when it fails (offline at launch, a network error, the E2EE check) or
  * startup sync is disabled, the first sync that gets through scans instead.
  */
-const scanDone = new WeakSet<object>();
+const scanDone = new CtxFlag("vaultScanDone", "A sync with a full vault scan went through since the plugin started");
 
 /**
  * Execute Smart Sync logic
