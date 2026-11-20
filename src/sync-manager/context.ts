@@ -14,6 +14,7 @@ import type { BackgroundTransferQueue } from "./background-transfer";
 import type { SyncProgressTracker } from "./sync-progress";
 import type { RemoteDeletionService } from "./remote-deletion";
 import type { PlanGuard } from "./sync-plan";
+import type { FirstSyncGuard } from "./first-sync";
 
 /*
  * The context is split into roles so a module can state which part it uses
@@ -89,6 +90,10 @@ export interface SyncServices {
     remoteDeletion?: RemoteDeletionService;
     /** Reviews destructive changes before they run (optional; absent = approve all) */
     planGuard?: PlanGuard;
+    /** Asks how a device's first sync starts when both sides have notes (absent = merge) */
+    firstSyncGuard?: FirstSyncGuard;
+    /** Platform label and default name of this device, for the device list (set by the plugin) */
+    deviceInfo?: { platform: string; defaultName: string };
 }
 
 /** Logging, notices and the callbacks to the plugin */

@@ -4,6 +4,7 @@ export type SyncManagerSettings = Pick<
     VaultSyncSettings,
     | "concurrency"
     | "remoteTrashRetentionDays"
+    | "autoKeepRevisionDays"
     | "largeFileThresholdMB"
     | "bgTransferIntervalSec"
     | "notificationLevel"

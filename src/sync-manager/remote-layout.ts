@@ -14,6 +14,8 @@ import type { LocalFileIndex } from "./types";
 
 /** Plugin files under the plugin folder that sync by their own logic (relative to the plugin dir) */
 export const REMOTE_DATA_DIR = "data/remote";
+/** One record file per device (device-registry.ts), each written only by its device */
+export const REMOTE_DEVICE_DIR = `${REMOTE_DATA_DIR}/devices`;
 export const REMOTE_FILES = {
     index: `${REMOTE_DATA_DIR}/sync-index.json`,
     rawIndex: `${REMOTE_DATA_DIR}/sync-index_raw.json`,

@@ -1,8 +1,12 @@
 import { Notice, Plugin, TFile, setIcon, Platform } from "obsidian";
 import { createCloudAdapter, DEFAULT_CLOUD_PROVIDER } from "./cloud-adapters";
 import { MassDeleteGuard } from "./sync-manager/mass-change-guard";
+import { ConflictResolveModal, openConflictResolver } from "./ui/conflict-resolve-modal";
+import { isConflictCopyPath } from "./sync-manager/conflict-resolution";
+import { DevicesModal } from "./ui/devices-modal";
 import { MassDeleteModal } from "./ui/mass-delete-modal";
 import { RemoteTrashModal } from "./ui/remote-trash-modal";
+import { FirstSyncModal } from "./ui/first-sync-modal";
 import type { OAuthCloudAdapter } from "./types/oauth-adapter";
 import { SyncManager, type SyncTrigger } from "./sync-manager";
 import type { SecureStorage } from "./services/secure-storage";
@@ -305,7 +309,8 @@ export default class VaultSync extends Plugin {
             this.manifest.dir || "",
             t,
             new ObsidianNotificationService((path) => {
-                void this.app.workspace.openLinkText(path, "", true);
+                if (isConflictCopyPath(path)) new ConflictResolveModal(this.app, path).open();
+                else void this.app.workspace.openLinkText(path, "", true);
             }),
             revisionCache,
             backgroundQueue,
@@ -320,6 +325,25 @@ export default class VaultSync extends Plugin {
                 return ok;
             },
         );
+        this.syncManager.firstSyncGuard = {
+            choose: (summary) => new FirstSyncModal(this.app, summary).ask(),
+        };
+        const platform = Platform.isIosApp
+            ? Platform.isTablet
+                ? "iPad"
+                : "iPhone"
+            : Platform.isAndroidApp
+              ? Platform.isTablet
+                  ? "Android tablet"
+                  : "Android"
+              : Platform.isMacOS
+                ? "Mac"
+                : Platform.isWin
+                  ? "Windows"
+                  : Platform.isLinux
+                    ? "Linux"
+                    : "";
+        this.syncManager.deviceInfo = { platform, defaultName: platform || "Device" };
         this.syncManager.unicodeInsensitiveFs = Platform.isMacOS || Platform.isIosApp;
 
         this.syncManager.onSettingsUpdated = async () => {
@@ -587,6 +611,18 @@ export default class VaultSync extends Plugin {
         });
 
         this.addCommand({
+            id: "resolve-conflicts",
+            name: t("labelResolveConflictCommand"),
+            callback: () => openConflictResolver(this.app),
+        });
+
+        this.addCommand({
+            id: "show-devices",
+            name: t("labelDevicesCommand"),
+            callback: () => this.openDevices(),
+        });
+
+        this.addCommand({
             id: "show-sync-status",
             name: t("labelShowSyncStatusCommand"),
             checkCallback: (checking: boolean) => {
@@ -668,6 +704,13 @@ export default class VaultSync extends Plugin {
 
         this.registerEvent(
             this.app.workspace.on("file-menu", (menu, file) => {
+                if (file instanceof TFile && isConflictCopyPath(file.path)) {
+                    menu.addItem((item) => {
+                        item.setTitle(t("labelResolveConflict"))
+                            .setIcon("git-merge")
+                            .onClick(() => new ConflictResolveModal(this.app, file.path).open());
+                    });
+                }
                 if (this.syncManager && this.syncManager.supportsHistory) {
                     if (file instanceof TFile) {
                         menu.addItem((item) => {
@@ -812,6 +855,10 @@ export default class VaultSync extends Plugin {
     }
 
     /** The list of files kept in the cloud trash, with restore */
+    openDevices(): void {
+        new DevicesModal(this.app, this.syncManager).open();
+    }
+
     openRemoteTrash(): void {
         new RemoteTrashModal(this.app, this.syncManager.adapter, this.settings.remoteTrashRetentionDays).open();
     }

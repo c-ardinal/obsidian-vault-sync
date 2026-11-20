@@ -36,6 +36,7 @@ describe("sync-helpers", () => {
                 largeFileThresholdMB: 10,
                 concurrency: 2,
                 remoteTrashRetentionDays: 30,
+                autoKeepRevisionDays: -1,
                 notificationLevel: "standard",
                 showSyncStatus: false,
                 conflictResolutionStrategy: "smart-merge",

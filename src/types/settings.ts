@@ -35,6 +35,8 @@ export interface VaultSyncSettings {
     massDeleteConfirmPercent: number;
     /** Days a file deleted from the cloud stays in the cloud trash (-1 = removed at once) */
     remoteTrashRetentionDays: number;
+    /** Keep one version of each note for good per this many days (-1 = off) */
+    autoKeepRevisionDays: number;
 
     notificationLevel: "verbose" | "standard" | "error";
     /** Status bar / mobile progress display of the running sync. Progress notices are

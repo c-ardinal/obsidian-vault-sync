@@ -1,7 +1,7 @@
 import { normalizePath, basename } from "../utils/path";
 import { matchWildcard } from "../utils/wildcard";
 import { contentFingerprint } from "./content-fingerprint";
-import { REMOTE_FILES } from "./remote-layout";
+import { REMOTE_DEVICE_DIR, REMOTE_FILES } from "./remote-layout";
 import type { SyncContext } from "./context";
 
 // === System-level Constants ===
@@ -186,7 +186,7 @@ export function isManagedSeparately(path: string): boolean {
     if (LEGACY_PLUGIN_DIR && path.startsWith(LEGACY_PLUGIN_DIR)) return true;
     if (!path.startsWith(PLUGIN_DIR)) return false;
     const subPath = path.substring(PLUGIN_DIR.length);
-    return INTERNAL_REMOTE_MANAGED.includes(subPath);
+    return INTERNAL_REMOTE_MANAGED.includes(subPath) || subPath.startsWith(REMOTE_DEVICE_DIR + "/");
 }
 
 /**
