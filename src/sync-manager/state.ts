@@ -556,6 +556,7 @@ export async function loadLocalIndex(ctx: StateCtx): Promise<void> {
                 attemptedUploads?: unknown;
                 pendingPulls?: unknown;
                 overwriteRepairs?: unknown;
+                unsyncedRenames?: unknown;
                 journalSeq?: unknown;
                 plainHashVersion?: unknown;
             };
@@ -567,6 +568,7 @@ export async function loadLocalIndex(ctx: StateCtx): Promise<void> {
             restoreAttemptedUploads(ctx, parsed.attemptedUploads);
             restorePendingPulls(ctx, parsed.pendingPulls);
             restoreOverwriteRepairs(ctx, parsed.overwriteRepairs);
+            restoreUnsyncedRenames(ctx, parsed.unsyncedRenames);
             restorePlainHashVersion(ctx, parsed.plainHashVersion, false);
             // The background queue does not survive a restart. Its owed pulls are in
             // pendingPulls (retried by the next sync) and unpushed files are found by
@@ -747,6 +749,7 @@ export async function saveLocalIndex(ctx: StateCtx, immediate = false): Promise<
             attemptedUploads: attemptedUploadsSnapshot(ctx),
             pendingPulls: pendingPullsSnapshot(ctx),
             overwriteRepairs: overwriteRepairsSnapshot(ctx),
+            unsyncedRenames: unsyncedRenamesSnapshot(ctx),
             journalSeq: j.seq,
             plainHashVersion: plainHashVersion(ctx),
         });
@@ -1026,8 +1029,33 @@ const unsyncedRenames = new CtxState<Map<string, string>>("unsyncedRenames", "Re
 function noteUnsyncedRename(ctx: StateCtx, from: string, to: string): void {
     let m = unsyncedRenames.get(ctx);
     if (!m) unsyncedRenames.set(ctx, (m = new Map<string, string>()));
-    for (const [k, v] of m) if (v === from) m.set(k, to);
+    let ownsUpload = !!peekAttemptedUpload(ctx, from);
+    for (const [k, v] of m) {
+        if (v !== from) continue;
+        m.set(k, to);
+        if (peekAttemptedUpload(ctx, k)) ownsUpload = true;
+    }
     m.set(from, to);
+    // An upload of the old name may be in flight: killed before the next save, the
+    // restarted app took that upload for a deleted note and removed it from the cloud
+    // (a second copy once another device had edited it). Save the rename at once.
+    if (ownsUpload) void saveLocalIndex(ctx, true);
+}
+
+/** Renames of never-synced files, for persisting with the local index */
+function unsyncedRenamesSnapshot(ctx: StateCtx): Record<string, string> | undefined {
+    const m = unsyncedRenames.get(ctx);
+    return m && m.size > 0 ? Object.fromEntries(m) : undefined;
+}
+
+function restoreUnsyncedRenames(ctx: StateCtx, data: unknown): void {
+    if (!data || typeof data !== "object") return;
+    let m = unsyncedRenames.get(ctx);
+    if (!m) unsyncedRenames.set(ctx, (m = new Map<string, string>()));
+    for (const [from, to] of Object.entries(data as Record<string, unknown>)) {
+        // Only a rename whose upload is still unsettled matters after a restart
+        if (typeof to === "string" && !m.has(from) && peekAttemptedUpload(ctx, from)) m.set(from, to);
+    }
 }
 
 /** Where a never-synced file once at `path` lives now, if it was renamed (keeps it). */
@@ -1058,7 +1086,13 @@ export function markRenamed(ctx: StateCtx, oldPath: string, newPath: string): vo
     // 未同期ファイルのリネーム/移動（oldPath がインデックスになく dirtyPaths にある）
     // After a restart the dirty set is empty, but a saved upload record still says the
     // file was never confirmed: its lost upload may be in the cloud under the old name.
-    if (!ctx.index[oldPath] && (ctx.dirtyPaths.has(oldPath) || peekAttemptedUpload(ctx, oldPath))) {
+    // A never-synced file renamed again (after a restart nothing else marks it): follow
+    // the recorded chain, or the first name's upload was taken for a deleted note.
+    const renamedAgain = [...(unsyncedRenames.get(ctx)?.values() ?? [])].includes(oldPath);
+    if (
+        !ctx.index[oldPath] &&
+        (ctx.dirtyPaths.has(oldPath) || peekAttemptedUpload(ctx, oldPath) || renamedAgain)
+    ) {
         noteUnsyncedRename(ctx, oldPath, newPath);
         ctx.dirtyPaths.delete(oldPath);
         ctx.dirtyPaths.set(newPath, Date.now());

@@ -733,6 +733,36 @@ const FIXED_REGRESSIONS: Case[] = [
         config: { seed: 80132, ...RESTART },
         expect: [],
     },
+    {
+        title: "restart: a rename of a note whose first upload is unsettled survives an app kill",
+        symptom: "A note renamed during its first upload exists twice after a restart",
+        config: { seed: 90893, ...RESTART },
+        expect: [],
+    },
+    {
+        title: "restart: the shared index is owed before a background upload",
+        symptom: "An attachment pushed just before the app was closed never reaches the other devices",
+        config: { seed: 90697, ...RESTART },
+        expect: [],
+    },
+    {
+        title: "restart: a second rename of a never-synced note follows the recorded chain",
+        symptom: "A note renamed twice around a restart exists under two names",
+        config: { seed: 90070, ...RESTART },
+        expect: [],
+    },
+    {
+        title: "restart: an upload whose index save was lost is still the move's base",
+        symptom: "A conflict copy appears after a restart, a move and an edit",
+        config: { seed: 90231, ...RESTART },
+        expect: [],
+    },
+    {
+        title: "chaos: files of a deleted folder that the cloud cannot find by path are deleted one by one",
+        symptom: "A deleted note stays in the cloud while the device forgets it",
+        config: { seed: 90699, ...CHAOS },
+        expect: [],
+    },
 ];
 
 function configOf(c: Case, name: string): SimConfig {

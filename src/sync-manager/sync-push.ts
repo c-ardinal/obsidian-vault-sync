@@ -142,6 +142,21 @@ async function executeFolderDeletions(
                     `[Smart Push] Folder not found on remote (already deleted?): ${folderPath}`,
                     "warn",
                 );
+                // Its files may still be in the cloud (found by id, not by folder path):
+                // forgetting them here left them there for good while this device no
+                // longer had them. Leave them to be deleted one by one (as for a folder
+                // whose removal failed); the folder is settled once none is left.
+                const children = Object.keys(ctx.index).filter(
+                    (p) => p.startsWith(folderPath + "/") && ctx.index[p].fileId,
+                );
+                let stillInCloud = false;
+                for (const p of children) {
+                    if (await ctx.adapter.getFileMetadataById(ctx.index[p].fileId)) {
+                        stillInCloud = true;
+                        break;
+                    }
+                }
+                if (stillInCloud) continue;
             }
 
             const prefix = folderPath + "/";
@@ -607,10 +622,23 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                             // our known base hash so the push/pull sees the remote change and
                             // merges it.
                             const knownHash = ctx.index[path]?.hash;
-                            const remoteChangedMeanwhile =
+                            let remoteChangedMeanwhile =
                                 !!knownHash &&
                                 !!moved.hash &&
-                                knownHash.toLowerCase() !== moved.hash.toLowerCase();
+                                knownHash.toLowerCase() !== moved.hash.toLowerCase() &&
+                                // this device's own record (journaled at once) already has it
+                                ctx.localIndex[path]?.hash?.toLowerCase() !== moved.hash.toLowerCase();
+                            // ...unless it is our own upload whose index save was lost to an
+                            // app kill: our later edits build on it, and merging them from the
+                            // older base turned them into a conflict with our own version.
+                            if (remoteChangedMeanwhile && !storesTransformedContent(ctx)) {
+                                const h = moved.hash!.toLowerCase();
+                                const owner = [path, moveInfo.oldPath].find((p) => isAttemptedUpload(ctx, p, h));
+                                if (owner) {
+                                    forgetAttemptedVersion(ctx, owner, h);
+                                    remoteChangedMeanwhile = false;
+                                }
+                            }
                             if (remoteChangedMeanwhile) {
                                 await ctx.log(
                                     `[Smart Push] ${path} changed on another device before the move. Keeping base hash so the change is merged.`,
@@ -1204,6 +1232,10 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                     } else {
                         ctx.index[file.path] = entry;
                         ctx.localIndex[file.path] = { ...entry };
+                        // Journal it now: the attempt record is gone, and killed before the
+                        // index save the restarted app took this upload for another device's
+                        // edit (our later edits then conflicted with our own version).
+                        await saveLocalIndex(ctx);
                         forgetAttemptedUpload(ctx, file.path);
                         noteUploadedForRetention(ctx, file.path, uploaded.id);
                         recordActivity(ctx, targetFileId ? "edit" : "create", file.path);

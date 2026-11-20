@@ -474,7 +474,9 @@ export class BackgroundTransferQueue {
         // Write-ahead record (as for inline uploads): if the app is closed while this
         // upload is in flight, the next start recognises the cloud version as ours.
         recordAttemptedUpload(ctx, item.path, contentFingerprint(item.content!));
-        await saveLocalIndex(ctx, true);
+        // The shared index listing this file is owed from now on (kept across an app kill)
+        markIndexUploadOwed(ctx);
+        await saveIndex(ctx);
         let uploaded: CloudFile;
         if (ctx.adapter.uploadFileResumable) {
             uploaded = await ctx.adapter.uploadFileResumable(
