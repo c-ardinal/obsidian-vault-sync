@@ -24,6 +24,7 @@ import {
 import { SyncProgressTracker } from "./sync-progress";
 import { RemoteDeletionService } from "./remote-deletion";
 import { TrashRemoteDeletion } from "./remote-trash";
+import { isFirstSyncDeferred, type FirstSyncGuard } from "./first-sync";
 import { approveAllPlanGuard, type PlanGuard } from "./sync-plan";
 import {
     PLUGIN_DIR,
@@ -165,6 +166,9 @@ export class SyncManager {
 
     /** Reviews each sync step's deletions and overwrites before they run */
     public planGuard: PlanGuard = approveAllPlanGuard;
+
+    /** Asks how this device's first sync starts (unset = merge, as before) */
+    public firstSyncGuard?: FirstSyncGuard;
 
     /** Files the shared index lists (the plugin's own index file not counted) */
     syncedFileCount(): number {
@@ -596,6 +600,10 @@ export class SyncManager {
             return;
         }
         this.vaultLockedNotified = false;
+        if (isFirstSyncDeferred(this) && trigger !== "manual-sync" && trigger !== "full-scan") {
+            await this.log(`Sync request (${trigger}) skipped: first sync held until a manual sync.`, "debug");
+            return;
+        }
         this.currentTrigger = trigger;
         return _requestSmartSync(this as unknown as SyncContext, scanVault);
     }

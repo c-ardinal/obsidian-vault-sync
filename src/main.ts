@@ -3,6 +3,7 @@ import { createCloudAdapter, DEFAULT_CLOUD_PROVIDER } from "./cloud-adapters";
 import { MassDeleteGuard } from "./sync-manager/mass-change-guard";
 import { MassDeleteModal } from "./ui/mass-delete-modal";
 import { RemoteTrashModal } from "./ui/remote-trash-modal";
+import { FirstSyncModal } from "./ui/first-sync-modal";
 import type { OAuthCloudAdapter } from "./types/oauth-adapter";
 import { SyncManager, type SyncTrigger } from "./sync-manager";
 import type { SecureStorage } from "./services/secure-storage";
@@ -320,6 +321,9 @@ export default class VaultSync extends Plugin {
                 return ok;
             },
         );
+        this.syncManager.firstSyncGuard = {
+            choose: (summary) => new FirstSyncModal(this.app, summary).ask(),
+        };
         this.syncManager.unicodeInsensitiveFs = Platform.isMacOS || Platform.isIosApp;
 
         this.syncManager.onSettingsUpdated = async () => {

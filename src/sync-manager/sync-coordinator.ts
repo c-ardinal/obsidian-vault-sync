@@ -11,6 +11,7 @@ import {
 } from "./constants";
 import { retryOverwriteRepairs } from "./overwrite-recovery";
 import { purgeTrashIfDue } from "./remote-trash";
+import { prepareFirstSync } from "./first-sync";
 import { migratePlainHashes } from "./plain-hash-migration";
 
 
@@ -132,6 +133,13 @@ export async function executeSmartSync(ctx: SyncContext, scanVault: boolean): Pr
         }
 
         if ((await migratePlainHashes(ctx)) > 0) await saveIndex(ctx);
+
+        if (!(await prepareFirstSync(ctx))) {
+            await ctx.log("[First Sync] Held by the user. Automatic syncs wait for a manual sync.", "info");
+            await ctx.notify("noticeFirstSyncDeferred");
+            ctx.progress?.finish("ok");
+            return;
+        }
 
         // Call via ctx so vi.spyOn on SyncManager instance methods works in tests
         const pulled = await ctx.smartPull();
