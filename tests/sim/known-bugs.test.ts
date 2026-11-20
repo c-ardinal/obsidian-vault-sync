@@ -616,6 +616,42 @@ const FIXED_REGRESSIONS: Case[] = [
         config: { seed: 50258, ...NON_MD5 },
         expect: [],
     },
+    {
+        title: "files another device's index lists are pulled when our Changes token started after them",
+        symptom: "A device that was offline at first never receives the notes others made meanwhile",
+        config: { seed: 60124, ...FLAKY },
+        expect: [],
+    },
+    {
+        title: "restart: unconfirmed uploads follow a remote rename",
+        symptom: "A conflict copy appears for edits made on different lines",
+        config: { seed: 60134, ...RESTART },
+        expect: [],
+    },
+    {
+        title: "restart: a queued download renamed in the cloud is pulled under its new name",
+        symptom: "A renamed attachment never reaches a device that joined late",
+        config: { seed: 60108, ...RESTART },
+        expect: [],
+    },
+    {
+        title: "restart: a moved lost upload is saved in both indexes at once",
+        symptom: "A note renamed twice exists under both names",
+        config: { seed: 60402, ...RESTART },
+        expect: [],
+    },
+    {
+        title: "restart: local content equal to a newer cloud version is used as the merge base",
+        symptom: "A conflict copy appears after the app was closed during a merge",
+        config: { seed: 60387, ...RESTART },
+        expect: [],
+    },
+    {
+        title: "non-MD5 cloud: an adopted lost upload does not keep the previous plaintext hash",
+        symptom: "Two devices keep an older text of a note and think they are in sync",
+        config: { seed: 60193, ...NON_MD5 },
+        expect: [],
+    },
 ];
 
 function configOf(c: Case, name: string): SimConfig {

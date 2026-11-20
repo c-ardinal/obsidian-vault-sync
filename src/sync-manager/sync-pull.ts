@@ -40,6 +40,7 @@ import {
     generateTransferId,
     markPendingTransfer,
     pendingPullsOf,
+    moveAttemptedUploads,
     peekAttemptedUpload,
 } from "./sync-helpers";
 import { CtxFlag } from "./context-state";
@@ -164,6 +165,7 @@ async function detectPullChanges(
                             );
                             await renameLocal(ctx, oldPath, newPath);
                             await followFolderSpelling(ctx, oldPath, newPath);
+                            moveAttemptedUploads(ctx, oldPath, newPath);
 
                             if (ctx.index[oldPath]) {
                                 ctx.index[newPath] = { ...ctx.index[oldPath] };
@@ -1384,6 +1386,7 @@ async function processChangePage(
 
                                 await renameLocal(ctx, oldPath, newPath);
                                 await followFolderSpelling(ctx, oldPath, newPath);
+                                moveAttemptedUploads(ctx, oldPath, newPath);
                                 ctx.logger.markActionTaken();
 
                                 if (ctx.index[oldPath]) {

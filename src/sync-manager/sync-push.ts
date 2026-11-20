@@ -339,6 +339,10 @@ async function settleOrphanedUploads(ctx: SyncContext): Promise<void> {
                 ctx.index[now] = { ...entry };
                 ctx.localIndex[now] = { ...entry };
                 ctx.dirtyPaths.set(now, ctx.dirtyPaths.get(now) ?? Date.now());
+                // Persist both indexes now: killed before the next save, the note
+                // looked unsynced after the restart and its next rename left the moved
+                // cloud file behind as a duplicate.
+                await saveIndex(ctx);
                 await ctx.log(`[Smart Push] Moved our earlier upload of ${path} to ${now}.`, "info");
             } else {
                 await removeRemote(ctx, { id: meta.id, path, kind: "file" }, "superseded-upload");

@@ -21,6 +21,7 @@ import {
     recordAttemptedUpload,
     releasePendingPull,
     settlePendingPull,
+    pendingPullsOf,
 } from "./sync-helpers";
 import type {
     TransferItem,
@@ -577,6 +578,27 @@ export class BackgroundTransferQueue {
                     delete ctx.localIndex[item.path].pendingTransfer;
                 }
                 this.completeItem(item, "cancelled");
+                // (after completeItem, which settles the pending pull of this id)
+                // Not here under any name: the rename may predate our Changes token
+                // (first sync from an index written before it), so no change will
+                // bring it. Pull it under its current name.
+                if (
+                    meta &&
+                    meta.path !== item.path &&
+                    (holder === undefined || holder === item.path) &&
+                    !(await ctx.vault.exists(item.path))
+                ) {
+                    // A placeholder entry under the old name (never downloaded) goes too
+                    if (holder === item.path) {
+                        delete ctx.index[item.path];
+                        delete ctx.localIndex[item.path];
+                    }
+                    pendingPullsOf(ctx).set(item.fileId, {
+                        file: { id: item.fileId, path: meta.path, hash: meta.hash, size: meta.size ?? 0, mtime: meta.mtime },
+                        attempts: 0,
+                    });
+                    await ctx.log(`[Background Transfer] Pulling ${meta.path} under its current name next sync.`, "info");
+                }
                 return;
             }
         }

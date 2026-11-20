@@ -803,6 +803,10 @@ async function pullFileUnchecked(
                 ancestorHash: item.hash!.toLowerCase(),
             };
             delete (entry as { pendingConflict?: boolean }).pendingConflict;
+            // The plaintext hash we had belongs to the version before this upload. Kept
+            // next to the new cloud hash, it went into the shared index and other devices
+            // took their older copy for this version ("content match").
+            delete (entry as { plainHash?: string }).plainHash;
             ctx.index[item.path] = { ...entry };
             ctx.localIndex[item.path] = { ...entry };
             ctx.dirtyPaths.set(item.path, Date.now());
@@ -1214,6 +1218,26 @@ async function pullFileUnchecked(
                             // The older ancestorHash made our own pushed lines look like edits we
                             // made again, conflicting with the remote's copy of them.
                             baseHash = localBase.hash;
+                        }
+
+                        // Our content is exactly a cloud version newer than our recorded base
+                        // (we pulled or merged it, but were closed before saving the index):
+                        // we have no edits beyond it, so it is the base. The stale base made
+                        // the other devices' later edits look like a conflict with ours.
+                        if (
+                            fileId &&
+                            item.hash &&
+                            baseHash &&
+                            !storesTransformedContent(ctx) &&
+                            supportsHistory(ctx) &&
+                            currentHash !== baseHash.toLowerCase() &&
+                            currentHash !== item.hash.toLowerCase()
+                        ) {
+                            const later = await revisionOrder(ctx, item.path, fileId, baseHash, currentHash);
+                            const before = await revisionOrder(ctx, item.path, fileId, currentHash, item.hash);
+                            if (later && later.declared > later.ours && before && before.declared > before.ours) {
+                                baseHash = currentHash;
+                            }
                         }
 
                         await ctx.log(

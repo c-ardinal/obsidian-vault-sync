@@ -1,6 +1,7 @@
 import type { SyncContext } from "./context";
 import { basename, dirname } from "../utils/path";
 import { CtxState } from "./context-state";
+import { moveAttemptedUploads, type SyncHelpersCtx } from "./sync-helpers";
 
 /** What this module reads from the sync context */
 export type PathCollisionCtx = Pick<
@@ -116,6 +117,9 @@ export function moveIndexEntry(ctx: PathCollisionCtx, from: string, to: string):
         ctx.dirtyPaths.delete(from);
         ctx.dirtyPaths.set(to, Date.now());
     }
+    // Unconfirmed uploads go with the file: found under the old name only, our own
+    // lost upload looked like another device's edit (a needless conflict copy)
+    moveAttemptedUploads(ctx as unknown as SyncHelpersCtx, from, to);
 }
 
 /**

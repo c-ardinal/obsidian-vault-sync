@@ -196,12 +196,20 @@ async function owePullsFromIndex(ctx: SyncContext, remote: LocalFileIndex): Prom
         if (pending.has(entry.fileId) || ctx.dirtyPaths.has(path)) continue;
         if (matchesDeviceScope(deviceScopePatterns(ctx.settings), path)) continue;
         if (!(await ctx.adapter.fileExistsById(entry.fileId).catch(() => false))) continue;
-        pending.set(entry.fileId, {
-            file: { id: entry.fileId, path, hash: entry.hash, size: entry.size ?? 0, mtime: entry.mtime },
-            attempts: 0,
-        });
+        oweUnseenPull(ctx, path, entry);
         await ctx.log(`[Index] ${path} is listed by another device but was never pulled here. Pulling it next sync.`, "info");
     }
+}
+
+function oweUnseenPull(ctx: SyncHelpersCtx & { dirtyPaths?: Map<string, number> }, path: string, entry: LocalFileIndex[string]): void {
+    if (!entry.fileId || ctx.dirtyPaths?.has(path)) return;
+    if (ctx.settings && matchesDeviceScope(deviceScopePatterns(ctx.settings), path)) return; // left out here
+    const pending = pendingPullsOf(ctx);
+    if (pending.has(entry.fileId)) return;
+    pending.set(entry.fileId, {
+        file: { id: entry.fileId, path, hash: entry.hash, size: entry.size ?? 0, mtime: entry.mtime },
+        attempts: 0,
+    });
 }
 
 const carriedRemoteEntries = new CtxState<LocalFileIndex>("carriedRemoteEntries", "Remote index entries kept for files this device has not pulled yet");
@@ -241,6 +249,7 @@ export async function buildRemoteIndexPayload(ctx: SyncHelpersCtx): Promise<Arra
                         : await ctx.adapter.fileExistsById(entry.fileId).catch(() => true);
                     if (!exists) {
                         delete carried[path];
+                        pendingPulls.get(ctx)?.delete(entry.fileId); // nothing left to pull
                         continue;
                     }
                 }
@@ -281,6 +290,10 @@ export async function buildRemoteIndexPayload(ctx: SyncHelpersCtx): Promise<Arra
                     ) {
                         continue; // deleted (on a lookup error keep the entry: dropping
                         // it would hide the file from devices doing their first sync)
+                    } else if (entry.fileId) {
+                        // Another device's file that never reached us (our Changes token
+                        // may start after its upload): pull it, or it stays missing here.
+                        oweUnseenPull(ctx, path, entry);
                     }
                     merged[path] = entry;
                     kept++;
