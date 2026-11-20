@@ -552,8 +552,14 @@ async function checkSyncStatus(page, lang, { mobile = false } = {}) {
     };
 
     // 1. Real result of the manual sync without an account.
-    await sleep(300);
-    const authText = await statusText();
+    // The no-account sync ends fast, but a slow CI machine can still show "Syncing"
+    // after a fixed pause: wait (bounded) for it to settle instead.
+    let authText = "";
+    for (let i = 0; i < 20; i++) {
+        await sleep(i === 0 ? 300 : 250);
+        authText = await statusText();
+        if (/Not signed in|未ログイン/.test(authText)) break;
+    }
     check(lang, `${tag}: status shows "not signed in"`, /Not signed in|未ログイン/.test(authText), authText);
     await shotStatus("auth");
     await openPanel();
