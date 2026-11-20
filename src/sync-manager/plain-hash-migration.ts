@@ -1,4 +1,4 @@
-import { md5 } from "../utils/md5";
+import { contentFingerprint } from "./content-fingerprint";
 import type { SyncContext } from "./context";
 import { legacyHashContent, runParallel } from "./file-utils";
 
@@ -52,7 +52,7 @@ export async function migratePlainHashes(ctx: SyncContext): Promise<number> {
             if (!legacy) return; // valid UTF-8: the hash did not change
             const entry = ctx.localIndex[path];
             if (!entry?.plainHash || entry.plainHash.toLowerCase() !== legacy) return;
-            const next = md5(content);
+            const next = contentFingerprint(content);
             entry.plainHash = next;
             const remote = ctx.index[path];
             if (remote?.plainHash?.toLowerCase() === legacy) remote.plainHash = next;

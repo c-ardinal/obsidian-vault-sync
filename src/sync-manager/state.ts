@@ -1,5 +1,5 @@
 import { plainHashVersion, restorePlainHashVersion } from "./plain-hash-migration";
-import { md5 } from "../utils/md5";
+import { contentFingerprint } from "./content-fingerprint";
 import { toHex } from "../utils/format";
 import { normalizePath, dirname } from "../utils/path";
 import type { SyncContext } from "./context";
@@ -23,7 +23,7 @@ function generateDeviceId(): string {
     const randomArray = new Uint8Array(4);
     if (typeof crypto !== "undefined") crypto.getRandomValues(randomArray);
     const suffix = toHex(randomArray);
-    return md5(new TextEncoder().encode(Date.now().toString() + suffix).buffer).substring(0, 8);
+    return contentFingerprint(new TextEncoder().encode(Date.now().toString() + suffix).buffer).substring(0, 8);
 }
 
 // === Per-sync-cycle state (performance) ===

@@ -1,4 +1,4 @@
-import { md5 } from "../utils/md5";
+import { contentFingerprint } from "./content-fingerprint";
 import type { SyncContext } from "./context";
 import type { LocalFileIndex } from "./types";
 import { tryDecompress, hashContent } from "./file-utils";
@@ -7,11 +7,11 @@ export async function computeLocalHash(
     ctx: SyncContext,
     content: ArrayBuffer,
     indexEntry: { hash?: string; plainHash?: string },
-    /** md5(content) if the caller already computed it */
+    /** contentFingerprint(content) if the caller already computed it */
     rawMd5?: string,
 ): Promise<{ localHash: string; compareHash: string | undefined }> {
     const useE2EE = ctx.e2eeEnabled && !!indexEntry.plainHash;
-    const localHash = useE2EE ? await hashContent(content) : (rawMd5 ?? md5(content));
+    const localHash = useE2EE ? await hashContent(content) : (rawMd5 ?? contentFingerprint(content));
     const compareHash = useE2EE ? indexEntry.plainHash : indexEntry.hash;
     return { localHash, compareHash };
 }

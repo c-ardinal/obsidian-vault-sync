@@ -32,8 +32,12 @@ export class EncryptedAdapter implements CloudAdapter {
     }
 
     /** Same as the wrapped cloud's: encryption changes the bytes, not what the cloud can do. */
+    /**
+     * The base cloud's capabilities, except contentHash: the cloud hashes the
+     * stored (transformed) bytes, so its hash never describes the vault content.
+     */
     get capabilities(): CloudCapabilities {
-        return capabilitiesOf(this.baseAdapter);
+        return { ...capabilitiesOf(this.baseAdapter), contentHash: null };
     }
 
     get name(): string {

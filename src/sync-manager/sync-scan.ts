@@ -6,7 +6,7 @@ import {
     shouldIgnore,
     hashContent,
 } from "./file-utils";
-import { md5 } from "../utils/md5";
+import { contentFingerprint } from "./content-fingerprint";
 import { computeLocalHash } from "./sync-helpers";
 import { markRenamed } from "./state";
 
@@ -226,7 +226,7 @@ async function pairRenames(ctx: SyncContext, missing: string[], added: string[])
     for (const path of added) {
         try {
             const content = await ctx.vault.readBinary(path);
-            const localHash = ctx.e2eeEnabled ? await hashContent(content) : md5(content);
+            const localHash = ctx.e2eeEnabled ? await hashContent(content) : contentFingerprint(content);
             if (!byHash.has(localHash)) byHash.set(localHash, path);
         } catch {
             // unreadable: leave it as a new file

@@ -1,6 +1,6 @@
 import { removeRemote } from "./remote-deletion";
 import { reviewPlan, type PlanDecision, type PlannedChange } from "./sync-plan";
-import { md5 } from "../utils/md5";
+import { cloudHashMatches, contentFingerprint } from "./content-fingerprint";
 import type { CloudFile } from "../types/adapter";
 import type { SyncContext } from "./context";
 import type { LocalFileIndex } from "./types";
@@ -203,14 +203,14 @@ export async function reconcileVanishedAfterUpload(
         );
         return true;
     }
-    const uploadedHash = md5(content);
+    const uploadedHash = contentFingerprint(content);
     for (const candidate of ctx.dirtyPaths.keys()) {
         if (candidate === path || ctx.index[candidate]) continue;
         try {
             if (!(await ctx.vault.exists(candidate))) continue;
             const stat = await ctx.vault.stat(candidate);
             if (stat?.type === "folder" || stat?.size !== content.byteLength) continue;
-            if (md5(await ctx.vault.readBinary(candidate)) !== uploadedHash) continue;
+            if (contentFingerprint(await ctx.vault.readBinary(candidate)) !== uploadedHash) continue;
         } catch {
             continue;
         }
@@ -357,7 +357,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                 if (clash && (await ctx.vault.exists(clash))) {
                     const mine = await ctx.vault.readBinary(path);
                     const theirs = await ctx.vault.readBinary(clash);
-                    if (md5(mine) === md5(theirs)) {
+                    if (contentFingerprint(mine) === contentFingerprint(theirs)) {
                         // Same physical file seen under another spelling (case-insensitive
                         // FS): sync it under its known name.
                         ctx.dirtyPaths.delete(path);
@@ -565,7 +565,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                         const statAfterRead = await ctx.vault.stat(path);
                         const mtimeAfterRead = statAfterRead?.mtime ?? stat.mtime;
 
-                        const currentHash = md5(content);
+                        const currentHash = contentFingerprint(content);
                         const localIndexEntry = ctx.localIndex[path];
 
                         let alreadyOnRemoteFile: CloudFile | null = null;
@@ -603,7 +603,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                         } else if (
                             !localIndexEntry &&
                             alreadyOnRemoteFile?.hash &&
-                            alreadyOnRemoteFile.hash.toLowerCase() === currentHash
+                            cloudHashMatches(ctx.adapter, alreadyOnRemoteFile.hash, currentHash)
                         ) {
                             const entry = {
                                 fileId: alreadyOnRemoteFile.id,
@@ -972,7 +972,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                             const latest = await ctx.vault
                                                 .readBinary(file.path)
                                                 .catch(() => null);
-                                            if (latest && md5(latest) !== md5(mergedContent)) {
+                                            if (latest && contentFingerprint(latest) !== contentFingerprint(mergedContent)) {
                                                 ctx.dirtyPaths.set(file.path, Date.now());
                                             } else {
                                                 ctx.dirtyPaths.delete(file.path);
@@ -1273,7 +1273,7 @@ async function collapseCollidingNewPaths(ctx: SyncContext): Promise<void> {
                 continue;
             }
             const [a, b] = [await ctx.vault.readBinary(first), await ctx.vault.readBinary(path)];
-            if (md5(a) === md5(b)) {
+            if (contentFingerprint(a) === contentFingerprint(b)) {
                 ctx.dirtyPaths.delete(path);
                 await ctx.log(`[Smart Push] ${path} is the same note as ${first}. Syncing it once.`, "debug");
                 continue;

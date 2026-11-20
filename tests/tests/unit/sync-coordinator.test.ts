@@ -47,7 +47,8 @@ function createMockCtx(overrides: Partial<SyncContext> = {}): SyncContext {
     const adapter: any = {
         initialize: vi.fn(),
         clearDownloadCache: vi.fn(),
-        capabilities: testCapabilities({ changeFeed: false }),
+        // Its CloudFile.hash is an MD5 of the content, as on Google Drive
+        capabilities: testCapabilities({ changeFeed: false, contentHash: "md5" }),
         listFiles: vi.fn(async () => []),
     };
 
@@ -785,6 +786,25 @@ describe("executeFullScan - Comprehensive Coverage", () => {
         expect(ctx.index["notes/adopt.md"]).toBeDefined();
         expect(ctx.index["notes/adopt.md"].lastAction).toBe("pull");
         expect(ctx.index["notes/adopt.md"].ancestorHash).toBe(hash);
+    });
+
+    it("does not adopt by hash when the cloud's hash is another kind of hash", async () => {
+        const ctx = createMockCtx();
+        (ctx.adapter as any).capabilities = testCapabilities({ changeFeed: false, contentHash: null });
+        const content = new TextEncoder().encode("test").buffer;
+        const hash = "098f6bcd4621d373cade4e832627b4f6"; // md5("test"), by coincidence
+        ctx.fullScanProgress = {
+            currentIndex: 0,
+            totalFiles: 1,
+            localFiles: [{ path: "notes/adopt.md", mtime: Date.now(), size: 4 }],
+            remoteFiles: [{ id: "file1", path: "notes/adopt.md", mtime: Date.now(), size: 4, hash }] as any[],
+            startedAt: Date.now(),
+        };
+        (ctx.vault.readBinary as any).mockResolvedValue(content);
+
+        await executeFullScan(ctx);
+
+        expect(ctx.index["notes/adopt.md"]).toBeUndefined();
     });
 
     it("should not adopt file when local hash doesn't match remote", async () => {

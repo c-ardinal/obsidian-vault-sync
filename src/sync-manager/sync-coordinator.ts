@@ -1,5 +1,5 @@
 import { capabilitiesOf } from "../types/adapter";
-import { md5 } from "../utils/md5";
+import { cloudHashMatches, contentFingerprint } from "./content-fingerprint";
 import type { SyncContext } from "./context";
 import type { SyncState } from "./types";
 import { ALWAYS_SHOW_ACTIVITY, TRIGGER_PRIORITY } from "./notification-matrix";
@@ -371,8 +371,8 @@ export async function executeFullScan(ctx: SyncContext): Promise<void> {
                     // File exists locally but not in index - check if it matches remote
                     try {
                         const content = await ctx.vault.readBinary(remoteFile.path);
-                        const localHash = md5(content);
-                        if (localHash === remoteFile.hash.toLowerCase()) {
+                        const localHash = contentFingerprint(content);
+                        if (cloudHashMatches(ctx.adapter, remoteFile.hash, localHash)) {
                             // Adopt into index - treat as "pull" since we're accepting remote state
                             ctx.index[remoteFile.path] = {
                                 fileId: remoteFile.id,

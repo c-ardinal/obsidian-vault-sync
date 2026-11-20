@@ -1,6 +1,6 @@
 import { normalizePath, basename } from "../utils/path";
 import { matchWildcard } from "../utils/wildcard";
-import { md5 } from "../utils/md5";
+import { contentFingerprint } from "./content-fingerprint";
 import type { SyncContext } from "./context";
 
 // === System-level Constants ===
@@ -456,13 +456,13 @@ function decodeUtf8(bytes: Uint8Array): string | null {
 export async function hashContent(content: ArrayBuffer): Promise<string> {
     const bytes = new Uint8Array(content);
     const text = decodeUtf8(bytes);
-    if (text === null) return md5(content);
+    if (text === null) return contentFingerprint(content);
     // Fast path: valid UTF-8 without CR and without BOM decodes and re-encodes to the
     // very same bytes, so hash them directly.
     const hasBom = bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf;
-    if (!hasBom && bytes.indexOf(0x0d) === -1) return md5(content);
+    if (!hasBom && bytes.indexOf(0x0d) === -1) return contentFingerprint(content);
     // The decoder already dropped the BOM; normalize line endings.
-    return md5(new TextEncoder().encode(normalizeLineEndings(text)).buffer);
+    return contentFingerprint(new TextEncoder().encode(normalizeLineEndings(text)).buffer);
 }
 
 /**
@@ -473,7 +473,7 @@ export async function hashContent(content: ArrayBuffer): Promise<string> {
 export function legacyHashContent(content: ArrayBuffer): string | null {
     if (decodeUtf8(new Uint8Array(content)) !== null) return null;
     const lossy = normalizeLineEndings(new TextDecoder().decode(content));
-    return md5(new TextEncoder().encode(lossy).buffer);
+    return contentFingerprint(new TextEncoder().encode(lossy).buffer);
 }
 
 /**
