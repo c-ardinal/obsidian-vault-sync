@@ -854,6 +854,44 @@ async function checkScreens(page, lang, { mobile = false } = {}) {
     check(lang, `${tag}: diagnostics texts are not cut`, diagClipped.length === 0, diagClipped.join(" / "));
     await escape(page);
 
+    // Settings to another device: QR code, then the link read back on "another device"
+    const orig = await page.evaluate((id) => {
+        const p = window.app.plugins.plugins[id];
+        const o = { concurrency: p.settings.concurrency, syncDotfiles: p.settings.syncDotfiles };
+        p.settings.concurrency = 7;
+        p.settings.syncDotfiles = true;
+        return o;
+    }, PLUGIN_ID);
+    await cmd(page, "export-settings");
+    await modalOpen(page, ".vault-sync-transfer-qr svg");
+    await shotModal(page, lang, tag, "scr-settings-export", "settings export modal");
+    const qrSize = await page.$eval(".vault-sync-transfer-qr svg", (e) => e.getBoundingClientRect().width);
+    check(lang, `${tag}: settings QR code is drawn`, qrSize >= 150, `width=${qrSize}`);
+    const link = await page.$eval(".vault-sync-transfer-qr", (e) => e.dataset.link || "");
+    check(lang, `${tag}: settings link is short`, link.startsWith("obsidian://") && link.length < 1500, `length=${link.length}`);
+    await escape(page);
+    // "Another device": the earlier values back, then the link read in
+    await page.evaluate(([id, o]) => Object.assign(window.app.plugins.plugins[id].settings, o), [PLUGIN_ID, orig]);
+    await cmd(page, "import-settings");
+    await modalOpen(page, ".vault-sync-transfer-input");
+    await page.fill(".vault-sync-transfer-input", link);
+    await page.click(".vault-sync-transfer-modal .modal-button-container .mod-cta");
+    await page.waitForSelector(".vault-sync-transfer-row", { timeout: 5000 }).catch(() => {});
+    await shotModal(page, lang, tag, "scr-settings-import", "settings import modal");
+    const importRows = (await page.$$(".vault-sync-transfer-row")).length;
+    const expectRows = (orig.concurrency !== 7 ? 1 : 0) + (orig.syncDotfiles !== true ? 1 : 0);
+    check(lang, `${tag}: settings import lists the changes`, importRows === expectRows, `rows=${importRows}, expected ${expectRows}`);
+    if (importRows > 0) await page.click(".vault-sync-transfer-modal .modal-button-container .mod-cta");
+    await sleep(500);
+    const applied = await page.evaluate((id) => window.app.plugins.plugins[id].settings.concurrency, PLUGIN_ID);
+    check(lang, `${tag}: settings import applies the link`, applied === 7, `concurrency ${applied}`);
+    await page.evaluate(([id, o]) => {
+        const p = window.app.plugins.plugins[id];
+        Object.assign(p.settings, o);
+        return p.saveSettings();
+    }, [PLUGIN_ID, orig]);
+    await escape(page);
+
     // Add-on install (and, when a package is given, its terms review).
     await cmd(page, "install-addon");
     await modalOpen(page, ".vault-sync-addon-install");
