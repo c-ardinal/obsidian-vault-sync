@@ -23,6 +23,7 @@ import {
     releaseOrphanedOwnLocks,
     findForeignLock,
     renameLocal,
+    hasDeleteIntent,
 } from "./state";
 import { pullFileSafely } from "./merge";
 import { TransferPriority } from "./transfer-types";
@@ -38,6 +39,7 @@ import {
     generateTransferId,
     markPendingTransfer,
     pendingPullsOf,
+    peekAttemptedUpload,
 } from "./sync-helpers";
 import { CtxFlag } from "./context-state";
 
@@ -1291,7 +1293,14 @@ async function processChangePage(
                     // leaving the old path behind forever and losing edits made under it. The
                     // dirty flag moves with the file, and the content is reconciled below.
                     const localIndexEntry = ctx.index[oldPath];
-                    if (localIndexEntry?.pendingMove && !(await ctx.vault.exists(oldPath))) {
+                    if (
+                        localIndexEntry?.pendingMove &&
+                        // Only a deletion the vault reported: a file merely missing may have
+                        // been renamed again a moment ago (its event not here yet), and the
+                        // cloud name may be just our own move not pushed yet.
+                        hasDeleteIntent(ctx, oldPath) &&
+                        !(await ctx.vault.exists(oldPath))
+                    ) {
                         // We renamed it and then deleted it, while another device renamed it
                         // (and maybe edited it). Skipping kept a stale entry that a different
                         // note later took over under this name, and the file never arrived
@@ -1338,7 +1347,20 @@ async function processChangePage(
                         continue;
                     }
 
-                    const targetExists = await ctx.vault.exists(newPath);
+                    // A rename that only changes letter case / Unicode form: on Windows and
+                    // macOS the "target" exists because it is this very file. Skipping
+                    // it kept the old spelling here for good while the cloud had the new one.
+                    // A name that differs only in letter case or Unicode form is the same
+                    // file on a case/normalization-insensitive disk, but a separate file
+                    // on Linux: there both exact names are listed (or only the new one,
+                    // when the old name is gone).
+                    const listed = (p: string) => ctx.vault.getFiles().some((f) => f.path === p);
+                    const sameFileOnDisk =
+                        oldPath !== newPath &&
+                        pathKey(oldPath) === pathKey(newPath) &&
+                        (await ctx.vault.exists(oldPath)) &&
+                        !(listed(oldPath) && listed(newPath));
+                    const targetExists = !sameFileOnDisk && (await ctx.vault.exists(newPath));
 
                     if (!targetExists) {
                         try {
@@ -1393,7 +1415,8 @@ async function processChangePage(
                     } else if (
                         !ctx.index[newPath] &&
                         !ctx.localIndex[newPath] &&
-                        !(await ctx.vault.exists(oldPath))
+                        !(await ctx.vault.exists(oldPath)) &&
+                        (await holdsSyncedContent(ctx, newPath, oldPath))
                     ) {
                         // The rename is already done here, only its index update was lost
                         // (the app was killed after renaming, before the index was saved,
@@ -1430,6 +1453,38 @@ async function processChangePage(
                         } catch (e) {
                             await ctx.log(`[Changes API] Failed to rename ${oldPath} -> ${alt}: ${String(e)}`, "warn");
                         }
+                    } else if (
+                        pathKey(oldPath) === pathKey(newPath) &&
+                        !ctx.index[newPath] &&
+                        !ctx.localIndex[newPath] &&
+                        (await ctx.vault.exists(oldPath))
+                    ) {
+                        // Linux: the new spelling is a separate note made here and never
+                        // synced. Skipping the rename left the old spelling behind for good
+                        // (the cloud no longer has it). Move the local note to a free name
+                        // and follow the rename.
+                        const alt = await freeCollisionPath(ctx, newPath);
+                        try {
+                            await renameLocal(ctx, newPath, alt);
+                            ctx.dirtyPaths.delete(newPath);
+                            ctx.dirtyPaths.set(alt, Date.now());
+                            await renameLocal(ctx, oldPath, newPath);
+                            ctx.logger.markActionTaken();
+                            moveIndexEntry(ctx, oldPath, newPath);
+                            if (ctx.dirtyPaths.has(oldPath)) {
+                                ctx.dirtyPaths.delete(oldPath);
+                                ctx.dirtyPaths.set(newPath, Date.now());
+                            } else {
+                                await markIfEditedSinceSync(ctx, newPath);
+                            }
+                            localIdToPath.set(cloudFile.id, newPath);
+                            await ctx.log(
+                                `[Changes API] Remote Rename: ${newPath} was a separate local note. Moved it to ${alt} and renamed ${oldPath}.`,
+                                "warn",
+                            );
+                        } catch (e) {
+                            await ctx.log(`[Changes API] Failed to rename ${oldPath} -> ${newPath}: ${String(e)}`, "warn");
+                        }
                     } else {
                         await ctx.log(
                             `[Changes API] Remote Rename: Target ${newPath} exists. Skipping rename to avoid overwrite.`,
@@ -1441,7 +1496,55 @@ async function processChangePage(
 
             // Skip if local index hash matches (already synced by this client).
             // Read after the rename above so a renamed entry is found under its new path.
+            const heldByMove = ctx.index[cloudFile.path];
+            if (
+                heldByMove?.pendingMove &&
+                heldByMove.fileId &&
+                heldByMove.fileId !== cloudFile.id &&
+                (await ctx.vault.exists(cloudFile.path))
+            ) {
+                // We moved another note to this name here (not pushed yet) while a
+                // different note took the name in the cloud. Treating that note as an
+                // edit of ours turned ours into a conflict copy and lost its move.
+                // Give our note a free name; the push then moves it there.
+                const alt = await freeCollisionPath(ctx, cloudFile.path);
+                try {
+                    await renameLocal(ctx, cloudFile.path, alt);
+                    moveIndexEntry(ctx, cloudFile.path, alt);
+                    ctx.dirtyPaths.set(alt, ctx.dirtyPaths.get(alt) ?? Date.now());
+                    localIdToPath.set(heldByMove.fileId, alt);
+                    await ctx.log(
+                        `[Changes API] ${cloudFile.path} is now another note in the cloud. Moved the note renamed here to ${alt}.`,
+                        "warn",
+                    );
+                } catch (e) {
+                    await ctx.log(`[Changes API] Could not move ${cloudFile.path} to ${alt}: ${String(e)}`, "warn");
+                }
+            }
             const localEntry = ctx.index[cloudFile.path];
+
+            // Our entry for this name belongs to another cloud file (that one was moved
+            // away and a new file with the same content took the name). Without taking
+            // over the new file's id, the entry was later dropped as a stale copy of the
+            // moved file and the note at this name was deleted here.
+            if (
+                localEntry?.fileId &&
+                localEntry.fileId !== cloudFile.id &&
+                cloudFile.hash &&
+                [localEntry.ancestorHash, localEntry.hash].some(
+                    (h) => !!h && h.toLowerCase() === cloudFile.hash!.toLowerCase(),
+                )
+            ) {
+                const previousId = localEntry.fileId;
+                localEntry.fileId = cloudFile.id;
+                if (ctx.localIndex[cloudFile.path]) ctx.localIndex[cloudFile.path].fileId = cloudFile.id;
+                if (localIdToPath.get(previousId) === cloudFile.path) localIdToPath.delete(previousId);
+                localIdToPath.set(cloudFile.id, cloudFile.path);
+                await ctx.log(
+                    `[Changes API] ${cloudFile.path} is now a different cloud file with the same content. Index updated.`,
+                    "debug",
+                );
+            }
 
             // Guard: If remote hash matches our ancestorHash, it's likely a stale echo
             if (localEntry?.ancestorHash && cloudFile.hash === localEntry.ancestorHash) {
@@ -1520,9 +1623,14 @@ async function processChangePage(
             const changesThreshold = getThresholdBytes(ctx);
             const hasLocalConflict = ctx.dirtyPaths.has(cloudFile.path);
 
+            // Possibly our own upload whose response was lost (a new file renamed or
+            // deleted here since): decided inline, where it is recognised and not pulled
+            // back as a second copy.
+            const maybeOurLostUpload = !ctx.index[cloudFile.path] && !!peekAttemptedUpload(ctx, cloudFile.path);
             if (
                 changesThreshold > 0 &&
                 !hasLocalConflict &&
+                !maybeOurLostUpload &&
                 cloudFile.size > changesThreshold
             ) {
                 ctx.backgroundTransferQueue.enqueue({
@@ -1583,6 +1691,28 @@ async function processChangePage(
     });
 
     return { tasks, completed, confirmedCount, failed };
+}
+
+/**
+ * The file at `path` is the synced file known as `knownAs`: it has exactly that name, or
+ * the content we last synced. On Windows/macOS a different, new note with the same name in other
+ * letter case ("Todo.md" for "todo.md") also "exists": taking it for the renamed file
+ * uploaded that note over the renamed one.
+ */
+async function holdsSyncedContent(ctx: SyncContext, path: string, knownAs: string): Promise<boolean> {
+    const entry = ctx.localIndex[knownAs] ?? ctx.index[knownAs];
+    if (!entry) return false;
+    try {
+        if (!(await ctx.vault.exists(path))) return false;
+        // Under exactly this name (not just the same name in other letter case): ours,
+        // possibly edited since the rename.
+        if (ctx.vault.getFiles().some((f) => f.path === path)) return true;
+        const content = await ctx.vault.readBinary(path);
+        const { localHash, compareHash } = await computeLocalHash(ctx, content, entry);
+        return !!compareHash && localHash === compareHash.toLowerCase();
+    } catch {
+        return false;
+    }
 }
 
 /**

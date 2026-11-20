@@ -11,6 +11,7 @@ import { saveIndex, saveLocalIndex, takeUnsyncedRename } from "./state";
 import { compress } from "./file-utils";
 import {
     buildRemoteIndexPayload,
+    checkIndexOverwrite,
     clearIndexUploadOwed,
     handBackToSyncCycle,
     markIndexUploadOwed,
@@ -803,6 +804,7 @@ export class BackgroundTransferQueue {
                 hash: uploadedIndex.hash,
             };
             clearIndexUploadOwed(ctx);
+            await checkIndexOverwrite(ctx, uploadedIndex);
             await saveIndex(ctx);
         } catch (e) {
             markIndexUploadOwed(ctx);

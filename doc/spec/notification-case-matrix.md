@@ -25,6 +25,7 @@
 | :------------------------------------------------------------------------ | :----------------------------------------------------------------------- |
 | `noticeConflictSaved` / `noticeConflictRemoteSaved` / `noticeCheckOtherDevice` | 競合ファイルは同期対象外で他デバイスから不可視。本通知が唯一の認知手段 |
 | `noticeAddonRequired` / `noticeAddonUpdateRequired` / `noticeEngineVerifyFailed` / `noticeVaultLocked` | 利用者の操作まで同期が停止する状態                                       |
+| `noticeNameNotSupported` | 本端末のOS（Windows / Android）で使用不可能なファイル名のクラウド上ファイルは本端末に未保存。本通知が唯一の認知手段（ファイル単位で起動中1回のみ） |
 
 `noticeConflictSaved` は手動消去まで表示を継続し、押下で競合ファイルを表示する。
 

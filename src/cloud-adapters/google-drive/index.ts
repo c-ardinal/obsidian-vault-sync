@@ -764,8 +764,14 @@ export class GoogleDriveAdapter implements OAuthCloudAdapter {
 
     // === History & Revisions Support ===
 
+    /**
+     * Only path traversal is refused. Characters that Windows forbids (< > : " | ? *)
+     * are valid in note names made on macOS, Linux and iOS, and ".." can be part of a
+     * name ("v1..v2.md"): refusing them made the history of such notes unreadable, so
+     * every concurrent edit of them ended in a conflict copy instead of a merge.
+     */
     private validatePath(path: string) {
-        if (path.includes("..") || path.includes("\\") || /[<>:"|?*]/.test(path)) {
+        if (path.startsWith("/") || path.includes("\\") || path.split("/").some((seg) => seg === ".." || seg === ".")) {
             throw new Error(`Invalid path: ${path}`);
         }
     }

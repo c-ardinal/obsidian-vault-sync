@@ -77,6 +77,10 @@ export interface SyncFlags {
     e2eeLocked: boolean;
     /** The file system treats NFC and NFD names as one file (macOS / iOS) */
     unicodeInsensitiveFs?: boolean;
+    /** The file system treats "Note.md" and "note.md" as one file (Windows / macOS / iOS / Android) */
+    caseInsensitiveFs?: boolean;
+    /** The file system refuses names Windows refuses (Windows / Android) */
+    windowsNameRules?: boolean;
 }
 
 /** Services the sync steps delegate to */

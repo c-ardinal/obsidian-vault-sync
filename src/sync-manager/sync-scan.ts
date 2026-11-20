@@ -7,7 +7,8 @@ import {
     isDeviceExcluded,
 } from "./file-utils";
 import { computeLocalHash } from "./sync-helpers";
-import { markRenamed, takeEventsDuringSync } from "./state";
+import { hasDeleteIntent, markRenamed, MISSING_EVENT_GRACE_MS, takeEventsDuringSync } from "./state";
+import { CtxState } from "./context-state";
 import { entryIdentityHash, localIdentityHash } from "./content-identity";
 import type { FileUtilsCtx } from "./file-utils";
 import type { StateCtx } from "./state";
@@ -155,6 +156,8 @@ export async function scanVaultChanges(ctx: ScanCtx): Promise<void> {
         const currentPaths = new Set<string>();
         const newPaths: string[] = [];
         const missingPaths: string[] = [];
+        // New files no vault event told us about (only this scan found them)
+        const unreported = new Set<string>();
 
         for (const file of files) {
             if (shouldIgnore(ctx, file.path)) continue;
@@ -175,6 +178,7 @@ export async function scanVaultChanges(ctx: ScanCtx): Promise<void> {
                     );
                     continue;
                 }
+                if (!ctx.dirtyPaths.has(file.path)) unreported.add(file.path);
                 ctx.dirtyPaths.set(file.path, Date.now());
                 newPaths.push(file.path);
                 await ctx.log(`[Vault Scan] New: ${file.path}`, "debug");
@@ -252,10 +256,50 @@ export async function scanVaultChanges(ctx: ScanCtx): Promise<void> {
         }
 
         await pairRenames(ctx, missingPaths, newPaths);
+        await holdUnexplainedNewFiles(ctx, missingPaths, newPaths, unreported);
 
         await ctx.log(`[Vault Scan] Completed in ${Date.now() - start}ms`, "debug");
     } catch (e) {
         await ctx.log(`[Vault Scan] Error: ${String(e)}`, "error");
+    }
+}
+
+const unexplainedNew = new CtxState<Map<string, number>>(
+    "unexplainedNewFiles",
+    "New files found by a scan while a synced file is missing without an event (first seen at)",
+);
+
+/**
+ * A synced file is missing and a file no event reported appeared, with different
+ * content (edited, then renamed): most likely one rename whose vault event is still
+ * on its way. Uploading the new name as a new file before the event arrived left the
+ * note twice in the cloud. Wait for the event (the missing file waits too, see
+ * confirmMissingForDeletion); without one the new file is uploaded after a while.
+ */
+async function holdUnexplainedNewFiles(
+    ctx: ScanCtx,
+    missing: string[],
+    added: string[],
+    unreported: Set<string>,
+): Promise<void> {
+    let held = unexplainedNew.get(ctx);
+    const stillMissing = missing.filter((p) => !!ctx.localIndex[p] && !hasDeleteIntent(ctx, p));
+    if (stillMissing.length === 0) {
+        held?.clear();
+        return;
+    }
+    if (!held) unexplainedNew.set(ctx, (held = new Map<string, number>()));
+    const now = Date.now();
+    for (const path of added) {
+        if (!unreported.has(path) || ctx.localIndex[path]) continue;
+        const since = held.get(path) ?? now;
+        if (now - since >= MISSING_EVENT_GRACE_MS) {
+            held.delete(path);
+            continue;
+        }
+        held.set(path, since);
+        ctx.dirtyPaths.delete(path);
+        await ctx.log(`[Vault Scan] ${path} may be a renamed file (its event not here yet). Waiting before uploading it.`, "debug");
     }
 }
 

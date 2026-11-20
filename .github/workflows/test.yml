@@ -66,8 +66,8 @@ jobs:
 
             # Deterministic, minimized reproductions of known multi-device bugs.
             # Fails when a bug stops reproducing (= fixed) so it gets promoted to a regression test.
-            - name: Harness self-tests and known-bug scenarios
-              run: npx vitest run --config vitest.sim.config.ts tests/sim/harness.test.ts tests/sim/known-bugs.test.ts
+            - name: Harness self-tests, known-bug scenarios and OS name differences
+              run: npx vitest run --config vitest.sim.config.ts tests/sim/harness.test.ts tests/sim/known-bugs.test.ts tests/sim/os-names.test.ts
 
             # Randomized multi-device runs. Non-blocking until the known bugs are fixed:
             # results are shown in the job summary and uploaded as an artifact.

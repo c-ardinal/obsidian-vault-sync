@@ -5,6 +5,7 @@ import { getRevisionContent, listRevisions, supportsHistory } from "./history";
 import { perform3WayMerge } from "./merge";
 import { acquireMergeLock, releaseMergeLock, saveLocalIndex } from "./state";
 import { CtxState } from "./context-state";
+import { forgetAttemptedUpload, recordAttemptedUpload } from "./sync-helpers";
 
 /** Files we can merge line by line; anything else keeps the newest version. */
 export function isMergeableText(path: string): boolean {
@@ -73,6 +74,26 @@ export async function recoverOverwrittenVersion(
     const repair = await detectOverwrite(ctx, path, check);
     if (!repair) return false;
     return repairUnderLock(ctx, path, repair, check.ourHash);
+}
+
+/**
+ * The overwrite check for an upload of ours we only learned about later (its response
+ * was lost, and the pull found it in the cloud). The upload may have replaced another
+ * device's version just like a confirmed one. Only queues the repair: our copy may
+ * have changed since, and the repair runs once it has been pushed (see
+ * retryOverwriteRepairs).
+ */
+export async function checkLateUploadForOverwrite(
+    ctx: SyncContext,
+    path: string,
+    fileId: string,
+    ourHash: string,
+    knownHashes: (string | undefined)[],
+): Promise<void> {
+    if (!supportsHistory(ctx) || !isMergeableText(path)) return;
+    const known = knownHashes.filter((h): h is string => !!h).map((h) => h.toLowerCase());
+    if (known.length === 0) return;
+    await detectOverwrite(ctx, path, { fileId, ourHash: ourHash.toLowerCase(), known, since: Date.now() });
 }
 
 /** An overwrite check that could not read the history yet (network error). */
@@ -150,7 +171,19 @@ export async function retryOverwriteRepairs(ctx: SyncContext): Promise<void> {
     }
     const pending = pendingRepairs.get(ctx);
     if (!pending || pending.size === 0) return;
-    for (const [path, repair] of [...pending]) {
+    for (const [listedPath, repair] of [...pending]) {
+        let path = listedPath;
+        if (ctx.localIndex[path]?.fileId !== repair.fileId) {
+            // Renamed (here or on another device) since: the repair goes with the note.
+            // Dropping it lost the overwritten edit when the note was renamed meanwhile.
+            const moved = Object.keys(ctx.localIndex).find((p) => ctx.localIndex[p].fileId === repair.fileId);
+            if (moved && !pending.has(moved)) {
+                pending.delete(path);
+                pending.set(moved, repair);
+                await saveLocalIndex(ctx, true);
+                path = moved;
+            }
+        }
         if (Date.now() - repair.since > REPAIR_TIMEOUT_MS) {
             pending.delete(path);
             await ctx.log(
@@ -235,7 +268,15 @@ async function repairUnderLock(
         }
         await ctx.vault.writeBinary(path, merged);
         const stat = await ctx.vault.stat(path);
+        // Recorded like any push: if the response is lost, the next pull recognises the
+        // repaired version as ours instead of merging it with itself as another
+        // device's edit. The note is dirty until the upload is confirmed, so a failed
+        // upload is pushed again by the next sync (the merged lines are in the note).
+        recordAttemptedUpload(ctx, path, contentFingerprint(merged));
+        ctx.dirtyPaths.set(path, Date.now());
+        await saveLocalIndex(ctx, true);
         const uploaded = await ctx.adapter.uploadFile(path, merged, stat?.mtime ?? Date.now(), repair.fileId);
+        forgetAttemptedUpload(ctx, path);
         const entry = {
             fileId: uploaded.id,
             mtime: stat?.mtime ?? Date.now(),
@@ -243,8 +284,12 @@ async function repairUnderLock(
             hash: uploaded.hash,
             plainHash: await hashContent(merged),
             lastAction: "push" as const,
-            // Built on the overwritten version: that device sees its version included.
-            ancestorHash: repair.overwrittenHash,
+            // Built on the version the cloud held (which every other device merges from).
+            // The device whose version was overwritten finds its own upload earlier in
+            // the history and merges from that (see the base selection in merge.ts).
+            // Naming the overwritten version here made third devices merge from that
+            // older version, and lines changed since looked like conflicting edits.
+            ancestorHash: head.hash.toLowerCase(),
         };
         ctx.index[path] = { ...entry };
         ctx.localIndex[path] = { ...entry };

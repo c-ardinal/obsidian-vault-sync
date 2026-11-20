@@ -253,6 +253,11 @@ export class SimDevice {
         this.ctx = this.sm as any;
         this.ctx.unicodeInsensitiveFs =
             this.fs === "macos" || (this.fs === "real-fs" && process.platform === "darwin");
+        this.ctx.windowsNameRules = this.fs === "windows" || (this.fs === "real-fs" && process.platform === "win32");
+        this.ctx.caseInsensitiveFs =
+            this.fs === "macos" ||
+            this.fs === "windows" ||
+            (this.fs === "real-fs" && (process.platform === "darwin" || process.platform === "win32"));
         this.ctx.log = async (msg: string, level = "info") => {
             if (alive()) opts.log(this.name, `${level.toUpperCase()} ${msg}`);
         };
@@ -285,9 +290,18 @@ export class SimDevice {
 
     // ─── Vault events (TriggerManager equivalent) ───
 
+    /** Delivery time of the latest scheduled vault event (events never overtake it) */
+    private lastEventAt = 0;
+
     private scheduleEvent(ev: VaultEvent, gen: number): void {
         if (isInternalPath(ev.path)) return; // Obsidian doesn't emit vault events for config dir
-        const delay = this.opts.maxEventDelayMs > 0 ? this.opts.rng.int(0, this.opts.maxEventDelayMs) : 0;
+        let delay = this.opts.maxEventDelayMs > 0 ? this.opts.rng.int(0, this.opts.maxEventDelayMs) : 0;
+        // Late, but in order: Obsidian hands vault events to plugins one by one in the
+        // order the file system reported them. Independent delays reordered them (the
+        // second of two quick renames arriving first), which no real vault does.
+        const now = Date.now();
+        delay = Math.max(delay, this.lastEventAt - now);
+        this.lastEventAt = now + delay;
         this.pendingEvents++;
         setTimeout(() => {
             this.pendingEvents--;
@@ -366,7 +380,11 @@ export class SimDevice {
 
     async userRename(oldPath: string, newPath: string): Promise<boolean> {
         const file = this.ops.getAbstractFileByPath(oldPath);
-        if (!file || (await this.vaultAdapter.exists(newPath))) return false;
+        // A rename that only changes letter case / Unicode form is allowed: on Windows
+        // and macOS the "existing" target is this very file.
+        const sameName = (p: string) => p.normalize("NFC").toLowerCase();
+        const caseOnly = this.fs !== "linux" && sameName(oldPath) === sameName(newPath) && oldPath !== newPath;
+        if (!file || (!caseOnly && (await this.vaultAdapter.exists(newPath)))) return false;
         await this.ensureParent(newPath);
         await this.ops.renameFile(file, newPath);
         return true;

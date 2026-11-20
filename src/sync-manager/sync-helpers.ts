@@ -6,6 +6,7 @@ import type { LocalFileIndex } from "./types";
 import { tryDecompress, hashContent, matchesDeviceScope, deviceScopePatterns } from "./file-utils";
 import { storesTransformedContent } from "./content-identity";
 import { CtxFlag, CtxState } from "./context-state";
+import { capabilitiesOf } from "../types/adapter";
 
 
 /** What this module reads from the sync context */
@@ -146,6 +147,36 @@ export function clearIndexUploadOwed(ctx: Pick<SyncContext, "index" | "pluginDat
     indexUploadOwed.delete(ctx);
 }
 
+const indexMergedFrom = new CtxState<string>("indexMergedFrom", "Hash of the cloud index our next index upload is merged with");
+
+/**
+ * The cloud cannot replace a file only if it is unchanged, so another device can
+ * upload its index between our read (to merge) and our upload. Ours then replaced
+ * theirs and the files they had just pushed were missing from the shared index:
+ * a device doing its first sync from it never received them. When the revision
+ * before ours is not the one we merged with, upload again on the next sync (by
+ * then the pull has brought their changes into our index).
+ */
+export async function checkIndexOverwrite(ctx: SyncContext, uploaded: { id: string; hash?: string }): Promise<void> {
+    const mergedFrom = indexMergedFrom.get(ctx);
+    indexMergedFrom.delete(ctx);
+    if (mergedFrom === undefined || !uploaded.hash || !capabilitiesOf(ctx.adapter).revisions) return;
+    if (!ctx.adapter.listRevisions) return;
+    try {
+        const revisions = [...(await ctx.adapter.listRevisions(ctx.pluginDataPath, uploaded.id))].sort(
+            (a, b) => a.modifiedTime - b.modifiedTime,
+        );
+        const ours = revisions.map((r) => r.hash?.toLowerCase()).lastIndexOf(uploaded.hash.toLowerCase());
+        if (ours < 0) return;
+        const before = ours > 0 ? revisions[ours - 1].hash?.toLowerCase() : "";
+        if (before === undefined || before === mergedFrom) return;
+        markIndexUploadOwed(ctx);
+        await ctx.log("[Index] Another device uploaded the index at the same time. Uploading ours again next sync.", "info");
+    } catch {
+        // History unavailable: nothing to check against
+    }
+}
+
 const carriedRemoteEntries = new CtxState<LocalFileIndex>("carriedRemoteEntries", "Remote index entries kept for files this device has not pulled yet");
 
 export async function buildRemoteIndexPayload(ctx: SyncHelpersCtx): Promise<ArrayBuffer> {
@@ -158,6 +189,7 @@ export async function buildRemoteIndexPayload(ctx: SyncHelpersCtx): Promise<Arra
     try {
         const meta = await ctx.adapter.getFileMetadata(ctx.pluginDataPath);
         readingRemote = false;
+        indexMergedFrom.set(ctx, meta?.hash?.toLowerCase() ?? "");
         const lastSeen = ctx.index[ctx.pluginDataPath]?.hash?.toLowerCase() || "";
         if (meta?.id && meta.hash && meta.hash.toLowerCase() === lastSeen) {
             const carried = carriedRemoteEntries.get(ctx) ?? {};
@@ -336,9 +368,27 @@ export function peekAttemptedUpload(ctx: SyncHelpersCtx, path: string): string |
     return list?.[list.length - 1];
 }
 
+/** Every version we tried to upload to `path` with an unknown outcome, newest first. */
+export function attemptedUploadsOf(ctx: SyncHelpersCtx, path: string): string[] {
+    return [...(attemptedUploads.get(ctx)?.get(path) ?? [])].reverse();
+}
+
 /** Forget the unknown-outcome upload of `path` (a later upload succeeded). */
 export function forgetAttemptedUpload(ctx: SyncHelpersCtx, path: string): void {
     attemptedUploads.get(ctx)?.delete(path);
+}
+
+/**
+ * The file was renamed here: its unknown-outcome uploads went to the same cloud file,
+ * now known by the new name. Without them a merge after the rename took the version
+ * before that upload as the base, and the uploaded lines looked like a remote change.
+ */
+export function moveAttemptedUploads(ctx: SyncHelpersCtx, from: string, to: string): void {
+    const m = attemptedUploads.get(ctx);
+    const list = m?.get(from);
+    if (!list) return;
+    m!.delete(from);
+    m!.set(to, list);
 }
 
 /** Forget only the given version (an upload of it was never sent). */

@@ -205,6 +205,10 @@ export class SyncManager {
     private isSpinning = false;
     /** Set on macOS / iOS, whose file systems treat NFC and NFD names as one file */
     unicodeInsensitiveFs = false;
+    /** Set on Windows / macOS / iOS / Android, whose file systems ignore letter case */
+    caseInsensitiveFs = false;
+    /** Set on Windows / Android, which refuse names such as "a?.md" or "con.md" */
+    windowsNameRules = false;
     public settingsUpdated = false;
 
     private startActivity() {

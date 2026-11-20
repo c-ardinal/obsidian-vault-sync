@@ -117,3 +117,17 @@ export function moveIndexEntry(ctx: PathCollisionCtx, from: string, to: string):
         ctx.dirtyPaths.set(to, Date.now());
     }
 }
+
+/**
+ * Why Windows (and Android shared storage) cannot store this path, or null. macOS,
+ * Linux and iOS accept these names, so such a note can reach the cloud from there.
+ */
+export function windowsNameProblem(path: string): string | null {
+    for (const seg of path.split("/")) {
+        if (/[<>:"|?*\\\u0000-\u001f]/.test(seg)) return "character";
+        if (/[. ]$/.test(seg)) return "trailing dot or space";
+        const base = seg.split(".")[0].trimEnd().toUpperCase();
+        if (/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/.test(base)) return "reserved name";
+    }
+    return null;
+}

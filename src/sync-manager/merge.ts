@@ -12,14 +12,26 @@ import {
     saveLocalIndex,
     renameLocal,
     takeUnsyncedRename,
+    peekUnsyncedRename,
+    hasDeleteIntent,
+    MISSING_EVENT_GRACE_MS,
 } from "./state";
 import { getRevisionContent, listRevisions, supportsHistory, TransientHistoryError } from "./history";
-import { claimPullPath, findPathCollision, freeCollisionPath, moveIndexEntry, pathKey } from "./path-collision";
+import { claimPullPath, findPathCollision, freeCollisionPath, moveIndexEntry, pathKey, windowsNameProblem } from "./path-collision";
 import { basename, dirname } from "../utils/path";
 import { MERGE_MAX_INLINE_DOWNLOAD_BYTES } from "./constants";
-import { peekAttemptedUpload, takeAttemptedUpload } from "./sync-helpers";
+import {
+    attemptedUploadsOf,
+    forgetAttemptedUpload,
+    isAttemptedUpload,
+    peekAttemptedUpload,
+    takeAttemptedUpload,
+} from "./sync-helpers";
+import { removeRemote } from "./remote-deletion";
 import { getMergeStrategy } from "./strategies";
 import { storesTransformedContent } from "./content-identity";
+import { CtxState } from "./context-state";
+import { checkLateUploadForOverwrite } from "./overwrite-recovery";
 
 /**
  * A local file this device never synced that may simply be replaced by the
@@ -223,6 +235,14 @@ export async function pullFileSafely(
     const fileId = item.fileId || item.id;
     if (!fileId && !isRemoteDeleted) return false;
 
+    // Made on macOS/Linux/iOS under a name this system refuses: writing it fails on
+    // every sync. Leave it in the cloud (never delete it from here) and tell the user
+    // once, so they know why the note is missing on this device.
+    if (!isRemoteDeleted && ctx.windowsNameRules && windowsNameProblem(item.path)) {
+        await noteUnstorableName(ctx, item.path);
+        return false;
+    }
+
     // Two cloud names that are one file on Windows/macOS ("Note.md" / "note.md",
     // NFC / NFD): give the incoming one a distinct name everywhere before pulling.
     let release: (() => void) | null = null;
@@ -399,8 +419,13 @@ async function hashOfDownload(
     fileId: string | undefined,
     content: ArrayBuffer,
     plainHash: string,
+    /** Fail (the pull is retried) when the version cannot be looked up, instead of guessing */
+    strict = false,
 ): Promise<string> {
     if (!storesTransformedContent(ctx)) return contentFingerprint(content);
+    // A lookup that failed (network) must not decide: recording the listed hash next to
+    // newer content made the next merge start from the wrong version.
+    const lookup = <T,>(p: Promise<T>): Promise<T | null> => (strict ? p : p.catch(() => null));
     let hash = item.hash || "";
     if (!fileId) return hash;
     if (item.plainHash) {
@@ -412,7 +437,7 @@ async function hashOfDownload(
             // version by content; failing that keep the listed hash, which only costs
             // one more download when the newer version is reported.
             if (supportsHistory(ctx)) {
-                const found = await findRevisionByContent(ctx, item.path, fileId, contentFingerprint(content)).catch(() => null);
+                const found = await lookup(findRevisionByContent(ctx, item.path, fileId, contentFingerprint(content)));
                 if (found) hash = found.hash;
             }
         }
@@ -420,12 +445,42 @@ async function hashOfDownload(
     }
     // No plaintext hash to tell: if the file changed since it was listed, find out
     // which version we actually got.
-    const current = await ctx.adapter.getFileMetadataById(fileId, item.path).catch(() => null);
+    const current = await lookup(ctx.adapter.getFileMetadataById(fileId, item.path));
     if (current?.hash && hash && current.hash.toLowerCase() !== hash.toLowerCase() && supportsHistory(ctx)) {
-        const found = await findRevisionByContent(ctx, item.path, fileId, contentFingerprint(content)).catch(() => null);
+        const found = await lookup(findRevisionByContent(ctx, item.path, fileId, contentFingerprint(content)));
         if (found) hash = found.hash;
     }
     return hash;
+}
+
+/**
+ * The newest of our unknown-outcome uploads of `path` that reached the cloud (it is in
+ * the file's history), as its cloud hash. The newest attempt is often one still being
+ * sent, so older ones are checked too: an earlier upload whose response was lost is
+ * what our local content builds on.
+ */
+async function attemptedUploadInHistory(
+    ctx: SyncContext,
+    path: string,
+    fileId: string | undefined,
+): Promise<string | undefined> {
+    const attempts = attemptedUploadsOf(ctx, path);
+    if (attempts.length === 0) return undefined;
+    if (!fileId || !supportsHistory(ctx)) {
+        // Without history only the plain (untransformed) hash can be compared.
+        return storesTransformedContent(ctx) ? undefined : attempts[0];
+    }
+    if (storesTransformedContent(ctx)) {
+        // Recorded as the plaintext md5: find its (encrypted / differently hashed) cloud version.
+        for (const sent of attempts) {
+            const found = await findRevisionByContent(ctx, path, fileId, sent).catch(() => null);
+            if (found?.hash) return found.hash.toLowerCase();
+        }
+        return undefined;
+    }
+    const revisions = await listRevisions(ctx, path, fileId).catch(() => []);
+    const inHistory = new Set(revisions.map((r) => r.hash?.toLowerCase()).filter(Boolean));
+    return attempts.find((h) => inHistory.has(h)) ?? attempts[0];
 }
 
 /**
@@ -538,21 +593,44 @@ async function adoptUploadOfRenamedFile(
     fileId: string,
     logPrefix: string,
 ): Promise<boolean> {
-    if (!takeAttemptedUpload(ctx, item.path, item.hash)) return false;
-    const now = takeUnsyncedRename(ctx, item.path);
-    if (!now || ctx.index[now] || !(await ctx.vault.exists(now))) return false;
+    let sent = item.hash;
+    let plainHash: string | undefined;
+    const before = peekUnsyncedRename(ctx, item.path);
+    if (!before) return false;
+    // The record of the attempt follows the note's renames: look under both names.
+    if (![item.path, before].some((p) => peekAttemptedUpload(ctx, p))) return false;
+    if (storesTransformedContent(ctx)) {
+        // The cloud hash is not the md5 we recorded (E2EE, non-MD5 cloud): compare the
+        // content instead. Only downloaded when we did lose an upload of this name.
+        const content = await ctx.adapter.downloadFile(fileId).catch(() => null);
+        if (!content) return false;
+        // Recorded as the exact bytes sent (not line-ending normalized)
+        sent = contentFingerprint(content);
+        plainHash = await hashContent(content);
+    }
+    // Renamed again while we downloaded: follow it to its current name
+    const now = peekUnsyncedRename(ctx, item.path);
+    const attemptedAs = [item.path, before, now].find((p) => p && isAttemptedUpload(ctx, p, sent));
+    if (!now || !attemptedAs || ctx.index[now] || !(await ctx.vault.exists(now))) {
+        return false;
+    }
     try {
         await ctx.adapter.moveFile(fileId, basename(now), dirname(now) || null);
     } catch (e) {
+        // Keep the records and fail this pull: it is retried, and pulling the file back
+        // now made a second copy of the note under its old name.
         await ctx.log(`[${logPrefix}] Could not move our lost upload ${item.path} to ${now}: ${String(e)}`, "warn");
-        return false;
+        throw e;
     }
+    takeAttemptedUpload(ctx, attemptedAs, sent);
+    takeUnsyncedRename(ctx, item.path);
     const hash = item.hash!.toLowerCase();
     const entry = {
         fileId,
         mtime: item.mtime ?? Date.now(),
         size: item.size ?? 0,
         hash,
+        ...(plainHash ? { plainHash } : {}),
         lastAction: "push" as const,
         ancestorHash: hash,
     };
@@ -564,6 +642,88 @@ async function adoptUploadOfRenamedFile(
         `[${logPrefix}] ${item.path} is our own upload (response lost) of the note now at ${now}. Moved it there.`,
         "info",
     );
+    return true;
+}
+
+/**
+ * The cloud file is exactly a new note we uploaded (the response was lost), nobody
+ * changed it since, and the note is no longer here under that name: it was deleted or
+ * renamed here before the upload was confirmed (after an app restart we cannot tell
+ * which). Pulling it back put a second copy next to the renamed note. Nothing in it
+ * is lost by removing it: a renamed note is uploaded under its new name, and a deleted
+ * one was meant to go.
+ */
+async function dropOrphanedOwnUpload(
+    ctx: SyncContext,
+    item: Parameters<typeof pullFileSafely>[1],
+    fileId: string,
+    logPrefix: string,
+): Promise<boolean> {
+    if (ctx.localIndex[item.path] || !peekAttemptedUpload(ctx, item.path)) return false;
+    let sent = item.hash;
+    if (storesTransformedContent(ctx)) {
+        const content = await ctx.adapter.downloadFile(fileId).catch(() => null);
+        if (!content) return false;
+        sent = contentFingerprint(content); // recorded as the exact bytes sent
+    }
+    if (!sent || !isAttemptedUpload(ctx, item.path, sent)) return false;
+    if (await ctx.vault.exists(item.path)) return false;
+    try {
+        await removeRemote(ctx, { id: fileId, path: item.path, kind: "file" }, "superseded-upload");
+    } catch (e) {
+        await ctx.log(`[${logPrefix}] Could not remove our orphaned upload ${item.path}: ${String(e)}`, "warn");
+        return false;
+    }
+    forgetAttemptedUpload(ctx, item.path);
+    await saveLocalIndex(ctx, true);
+    await ctx.log(
+        `[${logPrefix}] ${item.path} is our own upload (response lost) of a note no longer here under that name. Removed it from the cloud.`,
+        "info",
+    );
+    return true;
+}
+
+const vanishedLocally = new CtxState<Map<string, number>>(
+    "vanishedLocally",
+    "Synced files found missing during a pull, waiting for their rename/delete event (first seen at)",
+);
+
+/**
+ * A synced file is gone from the vault, but no rename or delete reached us yet: the
+ * vault event may still be on its way. Writing the remote version now recreated the
+ * note under its old name next to the renamed one (a stray copy on this device only).
+ * The pull is retried by later syncs; still gone without an event after a while, the
+ * file is restored.
+ */
+const unstorableNotified = new CtxState<Set<string>>("unstorableNotified", "Cloud files whose names this system cannot store (user told once)");
+
+async function noteUnstorableName(ctx: SyncContext, path: string): Promise<void> {
+    let told = unstorableNotified.get(ctx);
+    if (!told) unstorableNotified.set(ctx, (told = new Set()));
+    if (told.has(path)) return;
+    told.add(path);
+    await ctx.log(`[Pull] ${path}: this system cannot store a file under this name (${windowsNameProblem(path)}). Left in the cloud only.`, "warn");
+    await ctx.notify("noticeNameNotSupported", path);
+}
+
+async function waitForVanishEvent(ctx: SyncContext, path: string): Promise<boolean> {
+    const entry = ctx.localIndex[path];
+    // A pull queued earlier (never written here yet) is not a vanished file
+    if (!entry || entry.pendingTransfer || hasDeleteIntent(ctx, path) || (await ctx.vault.exists(path))) {
+        vanishedLocally.get(ctx)?.delete(path);
+        return false;
+    }
+    let seen = vanishedLocally.get(ctx);
+    if (!seen) vanishedLocally.set(ctx, (seen = new Map<string, number>()));
+    const since = seen.get(path);
+    if (since !== undefined && Date.now() - since >= MISSING_EVENT_GRACE_MS) {
+        seen.delete(path);
+        return false;
+    }
+    if (since === undefined) {
+        seen.set(path, Date.now());
+        await ctx.log(`[Pull] ${path} is missing here without a rename or delete. Pulling it later.`, "info");
+    }
     return true;
 }
 
@@ -590,14 +750,18 @@ async function pullFileUnchecked(
         return false;
     }
 
+    if (!isRemoteDeleted && fileId && (await waitForVanishEvent(ctx, item.path))) return false;
+
     try {
         const exists = await ctx.vault.exists(item.path);
-        if (!exists && fileId && !storesTransformedContent(ctx) && !ctx.index[item.path]) {
+        if (!exists && fileId && !ctx.index[item.path]) {
             if (await adoptUploadOfRenamedFile(ctx, item, fileId, logPrefix)) return true;
+            if (await dropOrphanedOwnUpload(ctx, item, fileId, logPrefix)) return true;
         }
         if (exists && fileId && (await isOurLostUpload(ctx, item, fileId))) {
             // Our own upload of this file: the request "failed" but the server applied
             // it. Adopt it as pushed; the push uploads any later local edits.
+            const before = ctx.localIndex[item.path];
             const entry = {
                 ...(ctx.localIndex[item.path] ?? {}),
                 fileId,
@@ -616,6 +780,11 @@ async function pullFileUnchecked(
                 `[${logPrefix}] ${item.path}: adopted our own upload whose response was lost.`,
                 "info",
             );
+            // It may have replaced a version another device uploaded meanwhile.
+            await checkLateUploadForOverwrite(ctx, item.path, fileId, item.hash!, [
+                before?.ancestorHash,
+                before?.hash,
+            ]);
             return true;
         }
         if (exists && fileId && !ctx.localIndex[item.path]) {
@@ -885,7 +1054,7 @@ async function pullFileUnchecked(
                             // download: record the version we actually got (looked up before
                             // the edit check below, since the lookup takes a while too).
                             const plainHash = await hashContent(remoteContent);
-                            const gotHash = await hashOfDownload(ctx, item, fileId, remoteContent, plainHash);
+                            const gotHash = await hashOfDownload(ctx, item, fileId, remoteContent, plainHash, true);
                             // The download takes a while, and vault events for this path are
                             // suppressed meanwhile (syncingPaths). If the user edited the note
                             // during the download, writing now would silently discard the edit.
@@ -964,14 +1133,7 @@ async function pullFileUnchecked(
                         await ctx.notify("noticeMergingFile", basename(item.path));
 
                         let baseHash = localBase.ancestorHash;
-                        let attempted = peekAttemptedUpload(ctx, item.path)?.toLowerCase();
-                        if (attempted && storesTransformedContent(ctx)) {
-                            // Recorded as the plaintext md5: find its (encrypted) cloud version.
-                            attempted =
-                                fileId && supportsHistory(ctx)
-                                    ? (await findRevisionByContent(ctx, item.path, fileId, attempted).catch(() => null))?.hash
-                                    : undefined;
-                        }
+                        const attempted = await attemptedUploadInHistory(ctx, item.path, fileId);
 
                         // The remote version was built directly on the version we pushed
                         // (e.g. another device merged our push before we saw it confirmed).
@@ -1082,6 +1244,23 @@ async function pullFileUnchecked(
                                 fileId || "",
                             );
                             const remoteContentStr = new TextDecoder().decode(remoteContentBuffer);
+                            // The version we actually downloaded: one uploaded after the listing
+                            // has a newer hash than item.hash. Recording item.hash as the merge
+                            // base made the next merge start from a version without the remote
+                            // lines we already merged, so they looked like our own edits.
+                            // Strict: a guessed hash recorded as the merge base made the next
+                            // merge start from the wrong version (a false conflict). On a
+                            // lookup failure nothing is written and the pull is retried.
+                            const remoteGotHash = (
+                                await hashOfDownload(
+                                    ctx,
+                                    item,
+                                    fileId,
+                                    remoteContentBuffer,
+                                    await hashContent(remoteContentBuffer),
+                                    true,
+                                )
+                            ).toLowerCase();
                             const currentContentStr = new TextDecoder().decode(localContent);
 
                             let merged = await perform3WayMerge(
@@ -1161,7 +1340,7 @@ async function pullFileUnchecked(
                                 const remoteNorm = normalizeLineEndings(remoteContentStr);
 
                                 const isIdenticalToRemote =
-                                    (item.hash && mergedHash === item.hash.toLowerCase()) ||
+                                    (!!remoteGotHash && mergedHash === remoteGotHash) ||
                                     normalizedMerged === remoteNorm;
 
                                 if (isIdenticalToRemote) {
@@ -1176,10 +1355,10 @@ async function pullFileUnchecked(
                                         fileId: fileId || "",
                                         mtime: stat?.mtime || Date.now(),
                                         size: merged.byteLength,
-                                        hash: item.hash?.toLowerCase() || "",
+                                        hash: remoteGotHash,
                                         plainHash: mergedPlainHash,
                                         lastAction: "pull" as const,
-                                        ancestorHash: item.hash?.toLowerCase() || "",
+                                        ancestorHash: remoteGotHash,
                                     };
                                     await ctx.notify(
                                         "noticeRemoteMergeSynced",
@@ -1198,15 +1377,15 @@ async function pullFileUnchecked(
                                             size: merged.byteLength,
                                             hash: mergedHash,
                                             lastAction: "merge" as const,
-                                            ancestorHash: item.hash?.toLowerCase() || "",
+                                            ancestorHash: remoteGotHash,
                                         };
                                         const entryCloud = {
                                             fileId: fileId || "",
                                             mtime: item.mtime || Date.now(),
                                             size: item.size || 0,
-                                            hash: item.hash,
+                                            hash: remoteGotHash || item.hash,
                                             lastAction: "pull" as const,
-                                            ancestorHash: item.hash,
+                                            ancestorHash: remoteGotHash || item.hash,
                                         };
                                         ctx.index[item.path] = entryCloud;
                                         ctx.localIndex[item.path] = entryLocal;
@@ -1293,12 +1472,17 @@ async function pullFileUnchecked(
 
                     let remoteSize = 0;
                     let remotePlainHash: string | undefined;
+                    let remoteGotHash = item.hash?.toLowerCase() || "";
                     if (!isRemoteDeleted) {
                         const remoteContent = await ctx.adapter.downloadFile(fileId || "");
                         await ensureLocalFolder(ctx, item.path);
                         await ctx.vault.writeBinary(item.path, remoteContent);
                         remoteSize = remoteContent.byteLength;
                         remotePlainHash = await hashContent(remoteContent);
+                        // The version we got (newer than item.hash if uploaded since the listing)
+                        remoteGotHash = (
+                            await hashOfDownload(ctx, item, fileId, remoteContent, remotePlainHash)
+                        ).toLowerCase();
 
                         markSettingsUpdatedIfNeeded(ctx, item.path);
                     } else {
@@ -1313,10 +1497,10 @@ async function pullFileUnchecked(
                         fileId: fileId || "",
                         mtime: stat?.mtime || Date.now(),
                         size: remoteSize,
-                        hash: item.hash?.toLowerCase() || "",
+                        hash: remoteGotHash,
                         plainHash: remotePlainHash,
                         lastAction: "pull" as const,
-                        ancestorHash: item.hash?.toLowerCase() || "",
+                        ancestorHash: remoteGotHash,
                     };
                     ctx.index[item.path] = entry;
                     ctx.localIndex[item.path] = { ...entry };
@@ -1410,7 +1594,7 @@ async function pullFileUnchecked(
         // (or a Changes API entry) and can be stale relative to the bytes we just fetched; a
         // stale base hash makes the next pull think this unmodified file was edited locally.
         // With E2EE the bytes are decrypted plaintext, so the (encrypted) remote hash is kept.
-        const downloadedHash = await hashOfDownload(ctx, item, fileId, content, plainHash);
+        const downloadedHash = await hashOfDownload(ctx, item, fileId, content, plainHash, true);
         if (!exists && (await ctx.vault.exists(item.path))) {
             // Created locally during the lookup: same as above.
             ctx.dirtyPaths.set(item.path, Date.now());

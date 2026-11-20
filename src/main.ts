@@ -350,6 +350,9 @@ export default class VaultSync extends Plugin {
                     : "";
         this.syncManager.deviceInfo = { platform, defaultName: platform || "Device" };
         this.syncManager.unicodeInsensitiveFs = Platform.isMacOS || Platform.isIosApp;
+        this.syncManager.caseInsensitiveFs =
+            Platform.isWin || Platform.isMacOS || Platform.isIosApp || Platform.isAndroidApp;
+        this.syncManager.windowsNameRules = Platform.isWin || Platform.isAndroidApp;
 
         this.syncManager.onSettingsUpdated = async () => {
             const scopeBefore = deviceScopePatterns(this.settings);

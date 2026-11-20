@@ -440,8 +440,9 @@ describe("GoogleDriveAdapter", () => {
             await expect(adapter.listRevisions("../etc/passwd")).rejects.toThrow("Invalid path");
         });
 
-        it("should reject paths with special characters", async () => {
-            await expect(adapter.listRevisions("file<name>.md")).rejects.toThrow("Invalid path");
+        it("should accept characters Windows forbids (valid on macOS / Linux / iOS)", async () => {
+            mockFetch.mockResolvedValueOnce(jsonResponse({ revisions: [] }));
+            await expect(adapter.listRevisions("file<name>.md", "file-1")).resolves.toEqual([]);
         });
     });
 

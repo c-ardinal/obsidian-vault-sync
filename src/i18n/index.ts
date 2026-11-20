@@ -334,6 +334,7 @@ export const en: Record<string, string> = {
     noticeSyncFailedAuth: "[Sync] Not authenticated. Please login from Settings.",
     noticeSyncFailedNetwork: "[Sync] Network error. Check your connection and try again.",
     noticeSyncFailed: "[Sync] Sync failed: {0}",
+    noticeNameNotSupported: "[Sync] Not synced to this device: its name is not allowed on this system (rename it on another device to sync it): {0}",
 
     noticeMergeLockLost:
         "[Conflict] Merge lock expired. Result saved locally, will push on next sync.",
