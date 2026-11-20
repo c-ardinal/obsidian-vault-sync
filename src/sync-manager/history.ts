@@ -1,3 +1,4 @@
+import { isCloudNotFound } from "../cloud-adapters/cloud-error";
 import { TFile } from "obsidian";
 import type { FileRevision } from "../types/adapter";
 import type { SyncContext } from "./context";
@@ -20,11 +21,12 @@ export class TransientHistoryError extends Error {
 
 function isPermanentHistoryError(e: unknown): boolean {
     if (!e) return false;
-    const err = e as { name?: unknown; status?: unknown; message?: unknown };
+    const err = e as { name?: unknown; message?: unknown };
     if (err.name === "DecryptionError") return true;
-    if (err.status === 404 || err.status === 410) return true;
+    if (isCloudNotFound(e)) return true;
+    // Wrappers word their own misses ("Revision ... not found"): also permanent.
     const msg = typeof err.message === "string" ? err.message : "";
-    return /not found|API Error 404|API Error 410/i.test(msg);
+    return /not found/i.test(msg);
 }
 
 async function wrapHistoryCall<T>(fn: () => Promise<T>): Promise<T> {

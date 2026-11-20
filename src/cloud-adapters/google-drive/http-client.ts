@@ -1,4 +1,5 @@
 import type { GoogleAuthService } from "./auth-service";
+import { CloudError, kindFromHttpStatus } from "../cloud-error";
 
 export interface FetchExtras {
     /** Non-2xx statuses that are a normal answer for this request (e.g. 308 Resume Incomplete) */
@@ -144,7 +145,7 @@ export class GoogleDriveHttpClient {
         retryCount: number = 0,
         extra: FetchExtras = {},
     ): Promise<Response> {
-        if (!this.auth.accessToken) throw new Error("Not authenticated");
+        if (!this.auth.accessToken) throw new CloudError("Not authenticated", "auth-expired");
 
         // Proactive token refresh: refresh 5 minutes before expiry
         const REFRESH_BUFFER_MS = 5 * 60 * 1000;
@@ -177,7 +178,10 @@ export class GoogleDriveHttpClient {
                     await this.auth.refreshTokens();
                 } catch {
                     // Token refresh failed (e.g. proxy unreachable) — don't retry with stale token
-                    throw new Error("Authentication failed: unable to refresh access token");
+                    throw new CloudError(
+                        "Authentication failed: unable to refresh access token",
+                        "auth-expired",
+                    );
                 }
                 return this.fetchWithAuth(url, options, retryCount + 1, extra);
             }
@@ -228,9 +232,11 @@ export class GoogleDriveHttpClient {
                 // Throw the actual error message so callers can handle specific cases.
                 // The HTTP status is kept on the error so callers can tell "not found /
                 // no access" apart from transient failures.
-                const err = new Error(errorMsg) as Error & { status?: number };
-                err.status = response.status;
-                throw err;
+                throw new CloudError(
+                    errorMsg,
+                    kindFromHttpStatus(response.status, errorMsg),
+                    response.status,
+                );
             }
 
             return response;

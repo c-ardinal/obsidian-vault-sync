@@ -1,3 +1,4 @@
+import { removeRemote } from "./remote-deletion";
 import type { CommunicationData } from "./types";
 import type { SyncContext } from "./context";
 import type { LocalFileIndex } from "./types";
@@ -68,7 +69,11 @@ async function cleanupForbiddenDirectories(ctx: SyncContext): Promise<void> {
             try {
                 const meta = await ctx.adapter.getFileMetadata(fullDirPath);
                 if (meta?.id) {
-                    await ctx.adapter.deleteFile(meta.id);
+                    await removeRemote(
+                        ctx,
+                        { id: meta.id, path: fullDirPath, kind: "folder" },
+                        "system-cleanup",
+                    );
                     await ctx.log(
                         `[Smart Pull] [System Cleanup] Forced wipe of internal directory: ${fullDirPath}`,
                         "debug",
@@ -443,7 +448,11 @@ function buildForbiddenRemoteCleanupTasks(
             try {
                 const meta = await ctx.adapter.getFileMetadata(folder);
                 if (meta?.id) {
-                    await ctx.adapter.deleteFile(meta.id);
+                    await removeRemote(
+                        ctx,
+                        { id: meta.id, path: folder, kind: "folder" },
+                        "excluded-cleanup",
+                    );
                     await ctx.log(`[Smart Pull] [Cleanup] Wiped forbidden folder: ${folder}`, "info");
                     const prefix = folder + "/";
                     for (const path of Object.keys(ctx.index)) {
@@ -465,7 +474,11 @@ function buildForbiddenRemoteCleanupTasks(
     for (const file of separateFiles) {
         tasks.push(async () => {
             try {
-                await ctx.adapter.deleteFile(file.fileId);
+                await removeRemote(
+                    ctx,
+                    { id: file.fileId, path: file.path, kind: "file" },
+                    "excluded-cleanup",
+                );
                 await ctx.log(`[Smart Pull] [Cleanup] Deleted forbidden file: ${file.path}`, "info");
                 delete ctx.index[file.path];
                 delete ctx.localIndex[file.path];
@@ -1166,7 +1179,11 @@ async function processChangePage(
             if (isAlwaysForbiddenOnRemote(cloudFile.path)) {
                 tasks.push(async () => {
                     try {
-                        await ctx.adapter.deleteFile(cloudFile.id);
+                        await removeRemote(
+                            ctx,
+                            { id: cloudFile.id, path: cloudFile.path, kind: "file" },
+                            "system-cleanup",
+                        );
                         ctx.logger.markActionTaken();
                         await ctx.log(
                             `[Smart Pull] [Cleanup] Deleted forbidden file (via Changes API): ${cloudFile.path}`,

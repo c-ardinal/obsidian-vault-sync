@@ -1,4 +1,5 @@
 import { CloudAdapter } from "../types/adapter";
+import { remoteDeletionOf } from "../sync-manager/remote-deletion";
 import { ICryptoEngine } from "../encryption/interfaces";
 import { VaultLockService } from "./vault-lock-service";
 import { EncryptedAdapter } from "../encryption/encrypted-adapter";
@@ -248,7 +249,11 @@ export class MigrationService {
 
         if (originalId) {
             try {
-                await this.baseAdapter.deleteFile(originalId);
+                await remoteDeletionOf(this.ctx).remove(
+                    this.baseAdapter,
+                    { id: originalId, path: backupName, kind: "folder" },
+                    "maintenance",
+                );
                 await this.ctx.log(`[Migration] Deleted backup folder: ${backupName}`, "info");
             } catch (e) {
                 await this.ctx.log(`[Migration] Failed to delete backup folder: ${String(e)}`, "warn");
@@ -274,7 +279,11 @@ export class MigrationService {
         const tempName = `${this.baseAdapter.vaultName}-Temp-Encrypted`;
         const tempId = await this.lockService.getFolderId(tempName);
         if (tempId) {
-            await this.baseAdapter.deleteFile(tempId);
+            await remoteDeletionOf(this.ctx).remove(
+                this.baseAdapter,
+                { id: tempId, path: tempName, kind: "folder" },
+                "maintenance",
+            );
         }
         await this.lockService.removeMigrationLock();
         this.ctx.syncState = "IDLE";

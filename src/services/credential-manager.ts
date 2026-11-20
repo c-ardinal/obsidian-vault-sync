@@ -1,9 +1,9 @@
-import type { GoogleDriveAdapter } from "../cloud-adapters/google-drive";
+import type { OAuthCloudAdapter, OAuthMethod } from "../types/oauth-adapter";
 import type { SecureStorage } from "./secure-storage";
 import type { SyncManager } from "../sync-manager";
 
 interface CredentialManagerDeps {
-    adapter: GoogleDriveAdapter;
+    adapter: OAuthCloudAdapter;
     getSecureStorage: () => SecureStorage;
     getSyncManager: () => SyncManager;
     getVaultName: () => string;
@@ -132,10 +132,7 @@ export class CredentialManager {
 
     // === Adapter Facade ===
 
-    setAuthConfig(
-        method: "default" | "custom-proxy" | "client-credentials",
-        proxyUrl: string,
-    ): void {
+    setAuthConfig(method: OAuthMethod, proxyUrl: string): void {
         this.deps.adapter.setAuthConfig(method, proxyUrl);
     }
 

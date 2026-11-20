@@ -1,3 +1,5 @@
+import type { OAuthMethod } from "./oauth-adapter";
+
 export const DATA_LOCAL_DIR = "data/local";
 export const DATA_REMOTE_DIR = "data/remote";
 export const DATA_FLEXIBLE_DIR = "data/flexible";
@@ -60,7 +62,7 @@ export interface VaultSyncSettings {
     syncWorkspace: boolean; // workspace.json, workspace-mobile.json
 
     // Authentication
-    authMethod: "default" | "custom-proxy" | "client-credentials";
+    authMethod: OAuthMethod;
     customProxyUrl: string;
 
     // Security
@@ -74,4 +76,6 @@ export interface VaultSyncSettings {
     >;
     // Internal State
     hasCompletedFirstSync: boolean;
+    /** Shape version of these settings (see services/settings-migration.ts). Absent = 0. */
+    settingsVersion?: number;
 }

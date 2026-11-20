@@ -1,3 +1,4 @@
+import { removeRemote } from "./remote-deletion";
 import { md5 } from "../utils/md5";
 import type { CloudFile } from "../types/adapter";
 import type { SyncContext } from "./context";
@@ -91,7 +92,11 @@ async function executeFolderDeletions(ctx: SyncContext): Promise<{ folderDeleted
             const meta = await ctx.adapter.getFileMetadata(folderPath);
             if (meta && meta.id) {
                 if (meta.kind === "folder") {
-                    await ctx.adapter.deleteFile(meta.id);
+                    await removeRemote(
+                        ctx,
+                        { id: meta.id, path: folderPath, kind: "folder" },
+                        "user-folder",
+                    );
                     ctx.logger.markActionTaken();
                     folderDeletedCount++;
                     await ctx.log(`[Smart Push] Deleted remote folder: ${folderPath}`, "info");
@@ -1041,7 +1046,11 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                 try {
                     const meta = await ctx.adapter.getFileMetadata(folderPath);
                     if (meta && meta.id) {
-                        await ctx.adapter.deleteFile(meta.id);
+                        await removeRemote(
+                            ctx,
+                            { id: meta.id, path: folderPath, kind: "folder" },
+                            "excluded-cleanup",
+                        );
                         await ctx.log(
                             `[Smart Push] [Folder Wipe] Deleted ignored folder: ${folderPath}`,
                             "debug",
@@ -1111,7 +1120,13 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                             await pullFileSafely(ctx, remote, "Smart Push");
                             return;
                         }
-                        if (remote) await ctx.adapter.deleteFile(entry.fileId);
+                        if (remote) {
+                            await removeRemote(
+                                ctx,
+                                { id: entry.fileId, path, kind: "file" },
+                                "user-file",
+                            );
+                        }
                         delete ctx.index[path];
                         delete ctx.localIndex[path];
                         ctx.dirtyPaths.delete(path);
