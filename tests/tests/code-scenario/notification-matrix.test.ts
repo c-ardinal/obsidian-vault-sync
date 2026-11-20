@@ -144,6 +144,7 @@ const DEFAULT_SETTINGS: SyncManagerSettings = {
     hasCompletedFirstSync: false,
     e2eeEnabled: false,
     remoteTrashRetentionDays: -1,
+    autoKeepRevisionDays: -1,
 };
 
 // ════════════════════════════════════════════════════════════════

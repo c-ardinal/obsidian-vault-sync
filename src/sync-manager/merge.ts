@@ -1,4 +1,5 @@
 import { TFile } from "obsidian";
+import { recordActivity } from "./device-registry";
 import { contentFingerprint } from "./content-fingerprint";
 import type { SyncContext } from "./context";
 import { ensureLocalFolder, hashContent, normalizeLineEndings, plainHashMatches } from "./file-utils";
@@ -1280,6 +1281,7 @@ async function pullFileUnchecked(
                         await ctx.vault.rename(item.path, conflictPath);
                     }
                     await ctx.log(`[${logPrefix}] Renamed local version to ${conflictPath}`, "info");
+                    recordActivity(ctx, "conflict", item.path);
 
                     let remoteSize = 0;
                     let remotePlainHash: string | undefined;

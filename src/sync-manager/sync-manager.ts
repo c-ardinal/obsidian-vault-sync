@@ -1,4 +1,11 @@
 import { CloudAdapter } from "../types/adapter";
+import {
+    forgetDevice as _forgetDevice,
+    getDeviceName as _getDeviceName,
+    listDevices as _listDevices,
+    setDeviceName as _setDeviceName,
+    type DeviceRecord,
+} from "./device-registry";
 import type { IVaultOperations } from "../types/vault-operations";
 import type { INotificationService, NoticeOptions } from "../services/notification-service";
 import { RevisionCache } from "../services/revision-cache";
@@ -24,6 +31,7 @@ import {
 import { SyncProgressTracker } from "./sync-progress";
 import { RemoteDeletionService } from "./remote-deletion";
 import { TrashRemoteDeletion } from "./remote-trash";
+import { isFirstSyncDeferred, type FirstSyncGuard } from "./first-sync";
 import { approveAllPlanGuard, type PlanGuard } from "./sync-plan";
 import {
     PLUGIN_DIR,
@@ -165,6 +173,12 @@ export class SyncManager {
 
     /** Reviews each sync step's deletions and overwrites before they run */
     public planGuard: PlanGuard = approveAllPlanGuard;
+
+    /** Asks how this device's first sync starts (unset = merge, as before) */
+    public firstSyncGuard?: FirstSyncGuard;
+
+    /** Platform label and default name of this device (set by the plugin) */
+    public deviceInfo?: { platform: string; defaultName: string };
 
     /** Files the shared index lists (the plugin's own index file not counted) */
     syncedFileCount(): number {
@@ -596,6 +610,10 @@ export class SyncManager {
             return;
         }
         this.vaultLockedNotified = false;
+        if (isFirstSyncDeferred(this) && trigger !== "manual-sync" && trigger !== "full-scan") {
+            await this.log(`Sync request (${trigger}) skipped: first sync held until a manual sync.`, "debug");
+            return;
+        }
         this.currentTrigger = trigger;
         return _requestSmartSync(this as unknown as SyncContext, scanVault);
     }
@@ -633,6 +651,28 @@ export class SyncManager {
 
     get supportsHistory(): boolean {
         return _supportsHistory(this as unknown as SyncContext);
+    }
+
+    // === Devices and their changes (device-registry.ts) ===
+
+    get thisDeviceId(): string {
+        return this.deviceId;
+    }
+
+    async listDevices(): Promise<DeviceRecord[]> {
+        return _listDevices(this as unknown as SyncContext);
+    }
+
+    async forgetDevice(deviceId: string): Promise<void> {
+        return _forgetDevice(this as unknown as SyncContext, deviceId);
+    }
+
+    async getDeviceName(): Promise<string> {
+        return _getDeviceName(this as unknown as SyncContext);
+    }
+
+    async setDeviceName(name: string): Promise<void> {
+        return _setDeviceName(this as unknown as SyncContext, name);
     }
 
     async listRevisions(path: string): Promise<import("../types/adapter").FileRevision[]> {

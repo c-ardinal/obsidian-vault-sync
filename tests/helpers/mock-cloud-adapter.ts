@@ -47,6 +47,20 @@ export class MockCloudAdapter implements CloudAdapter {
     };
     readonly vaultName = "MockVault";
     /**
+     * Report a hash that is not an MD5 (like OneDrive's quickXorHash): it still
+     * changes with the content, but never equals the sync's own fingerprint.
+     */
+    private foreignHash = false;
+
+    useForeignHash(): void {
+        this.foreignHash = true;
+        this.capabilities = { ...this.capabilities, contentHash: null };
+    }
+
+    private exposedHash(hash: string | undefined): string | undefined {
+        return hash && this.foreignHash ? `qx:${hash.split("").reverse().join("")}` : hash;
+    }
+    /**
      * Max changes returned per getChanges() call. Google Drive pages the
      * Changes API (nextPageToken); Infinity keeps the old single-page behaviour.
      */
@@ -332,7 +346,7 @@ export class MockCloudAdapter implements CloudAdapter {
             id: r.id,
             modifiedTime: r.modifiedTime,
             size: r.size,
-            hash: r.hash,
+            hash: this.exposedHash(r.hash),
         }));
     }
 
@@ -556,7 +570,7 @@ export class MockCloudAdapter implements CloudAdapter {
             mtime: stored.mtime,
             size: stored.size,
             kind: stored.kind ?? "file",
-            hash: stored.hash,
+            hash: this.exposedHash(stored.hash),
         };
     }
 }

@@ -29,6 +29,7 @@ const SYNC_INDEX_PATH = `${PLUGIN_DIR}/sync-index.json`;
 const DEFAULT_SETTINGS: SyncManagerSettings = {
     concurrency: 2,
     remoteTrashRetentionDays: 30,
+    autoKeepRevisionDays: -1,
     notificationLevel: "standard",
     showSyncStatus: false,
     conflictResolutionStrategy: "smart-merge",
