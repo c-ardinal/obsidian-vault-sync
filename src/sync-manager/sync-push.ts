@@ -1,4 +1,5 @@
 import { removeRemote } from "./remote-deletion";
+import { noteUploadedForRetention } from "./revision-retention";
 import { reviewPlan, type PlanDecision, type PlannedChange } from "./sync-plan";
 import { cloudHashMatches, contentFingerprint } from "./content-fingerprint";
 import type { CloudFile } from "../types/adapter";
@@ -1050,6 +1051,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                         ctx.index[file.path] = entry;
                         ctx.localIndex[file.path] = { ...entry };
                         forgetAttemptedUpload(ctx, file.path);
+                        noteUploadedForRetention(ctx, file.path, uploaded.id);
 
                         if (ctx.dirtyPaths.get(file.path) === file.dirtyAt) {
                             ctx.dirtyPaths.delete(file.path);

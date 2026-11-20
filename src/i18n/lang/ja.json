@@ -351,6 +351,8 @@
     "remoteTrashDelete": "完全削除",
     "remoteTrashDeleteConfirm": "再度押下で完全削除",
     "noticeRemoteTrashRestored": "復元完了：{path}（次回同期時に反映）",
+    "settingAutoKeepRevisions": "ノート版の自動保持",
+    "settingAutoKeepRevisionsDesc": "ノートの版を指定日数ごとに 1 版、無期限保持に設定します。クラウドによる旧版の自動削除から版履歴を保護します。\n対象は Markdown ファイルのみです。",
     "firstSyncTitle": "本端末の初回同期",
     "firstSyncIntro": "本端末とクラウドの双方にノートが存在します。同期の開始方法を選択してください。",
     "firstSyncIdentical": "双方で同一内容：{n} 件",

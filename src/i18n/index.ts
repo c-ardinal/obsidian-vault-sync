@@ -70,6 +70,8 @@ export const en: Record<string, string> = {
     remoteTrashDelete: "Delete for good",
     remoteTrashDeleteConfirm: "Click again to delete for good",
     noticeRemoteTrashRestored: "Restored: {path}. It arrives with the next sync.",
+    settingAutoKeepRevisions: "Keep Note Versions",
+    settingAutoKeepRevisionsDesc: "Mark one version of each note as kept forever per this many days, so the cloud does not remove old versions on its own.\nMarkdown notes only.",
     firstSyncTitle: "First sync of this device",
     firstSyncIntro: "This device and the cloud both have notes. Choose how to start syncing.",
     firstSyncIdentical: "Same on both sides: {n}",
