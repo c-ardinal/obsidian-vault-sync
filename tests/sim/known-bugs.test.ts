@@ -793,6 +793,60 @@ const FIXED_REGRESSIONS: Case[] = [
         config: { seed: 100737, ...RESTART },
         expect: [],
     },
+    {
+        title: "clean: a moved upload record is settled when the rename is handled during the upload",
+        symptom: "Non-overlapping edits after a rename made conflict copies (wrong merge base)",
+        config: { seed: 120224, ...CLEAN },
+        expect: [],
+    },
+    {
+        title: "clean (instant events): same as above without file-watcher delay",
+        symptom: "Non-overlapping edits after a rename made conflict copies (wrong merge base)",
+        config: { seed: 120224, ...CLEAN, maxEventDelayMs: 0 },
+        expect: [],
+    },
+    {
+        title: "large-files: an adopted lost upload is listed in the shared index",
+        symptom: "Devices syncing from the cloud index never received a note whose upload response was lost",
+        config: { seed: 120204, ...LARGE },
+        expect: [],
+    },
+    {
+        title: "large-files: a move of our lost upload whose response was lost is recognised at the new name",
+        symptom: "An edited, renamed new note became a conflict copy of our own upload",
+        config: { seed: 120610, ...LARGE },
+        expect: [],
+    },
+    {
+        title: "chaos: two cloud files with one name are never pulled at the same time",
+        symptom: "Two notes sharing a name were merged into one, and one note vanished",
+        config: { seed: 130965, ...CHAOS },
+        expect: [],
+    },
+    {
+        title: "e2ee: typing during an overwrite-repair upload keeps the note dirty",
+        symptom: "An edit made while the repaired note was uploading never reached the cloud",
+        config: { seed: 130176, ...E2EE },
+        expect: [],
+    },
+    {
+        title: "non-md5: a note gone during its upload waits for a late rename event before deletion",
+        symptom: "A note renamed during its upload existed under both names",
+        config: { seed: 130305, ...NON_MD5 },
+        expect: [],
+    },
+    {
+        title: "non-md5: an adopted lost upload follows a rename made while the pull ran",
+        symptom: "A new note renamed right after its lost upload existed under both names",
+        config: { seed: 130869, ...NON_MD5 },
+        expect: [],
+    },
+    {
+        title: "restart: a rename with no event for either file is paired by its lines and title",
+        symptom: "A note renamed just before an app kill, then edited, existed under both names",
+        config: { seed: 130647, ...RESTART },
+        expect: [],
+    },
 ];
 
 function configOf(c: Case, name: string): SimConfig {

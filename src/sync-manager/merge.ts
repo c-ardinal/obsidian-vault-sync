@@ -25,6 +25,8 @@ import {
     attemptedUploadsOf,
     forgetAttemptedUpload,
     isAttemptedUpload,
+    markIndexUploadOwed,
+    moveAttemptedUploads,
     pendingPullsOf,
     peekAttemptedUpload,
     takeAttemptedUpload,
@@ -211,6 +213,38 @@ export async function perform3WayMerge(
  * @returns true if downloaded/merged, false if skipped or failed
  */
 export async function pullFileSafely(
+    ctx: SyncContext,
+    item: Parameters<typeof pullFileSafelyClaimed>[1],
+    logPrefix: string,
+): Promise<boolean> {
+    // Another file is being pulled under this name right now (pulls run in parallel):
+    // renaming or writing one apart mid-pull merged one note into the other. Wait.
+    if (!item) return pullFileSafelyClaimed(ctx, item, logPrefix);
+    const fileId = item.fileId || item.id;
+    const removed = !item.hash && !item.fileId;
+    let claim: (() => void) | null = null;
+    if (fileId && !removed) {
+        claim = claimPullPath(ctx, item.path, fileId);
+        if (!claim) {
+            await ctx.log(
+                `[${logPrefix}] Another file named ${item.path} is being pulled now. Pulling this one next sync.`,
+                "debug",
+            );
+            return false;
+        }
+    }
+    try {
+        return await pullFileSafelyClaimed(ctx, item, logPrefix);
+    } finally {
+        claim?.();
+    }
+}
+
+/**
+ * Pull a single file from remote with conflict detection and auto-merge
+ * @returns true if downloaded/merged, false if skipped or failed
+ */
+async function pullFileSafelyClaimed(
     ctx: SyncContext,
     item: {
         path: string;
@@ -660,6 +694,13 @@ async function adoptUploadOfRenamedFile(
         // Keep the records and fail this pull: it is retried, and pulling the file back
         // now made a second copy of the note under its old name.
         await ctx.log(`[${logPrefix}] Could not move our lost upload ${item.path} to ${now}: ${String(e)}`, "warn");
+        // The move may have reached the cloud (response lost): the next pull then sees
+        // the file at its new name, and without the record there our edited note became
+        // a conflict copy of our own upload. A retry under the old name looks here too.
+        if (attemptedAs !== now) {
+            moveAttemptedUploads(ctx, attemptedAs, now);
+            await saveLocalIndex(ctx);
+        }
         throw e;
     }
     if (base) forgetAttemptedUpload(ctx, attemptedAs);
@@ -823,6 +864,30 @@ async function pullFileUnchecked(
             ctx.index[item.path] = { ...entry };
             ctx.localIndex[item.path] = { ...entry };
             ctx.dirtyPaths.set(item.path, Date.now());
+            // Renamed while this pull ran: the rename found no synced entry to move, so
+            // the note was a new file at its new name and the push uploaded it as a
+            // second copy. Hand the adopted cloud file to the new name instead.
+            const to = peekUnsyncedRename(ctx, item.path);
+            if (to && !ctx.index[to] && !(await ctx.vault.exists(item.path)) && (await ctx.vault.exists(to))) {
+                takeUnsyncedRename(ctx, item.path);
+                const moved = { ...entry, forcePush: true, pendingMove: { oldPath: item.path } };
+                delete ctx.index[item.path];
+                delete ctx.localIndex[item.path];
+                ctx.dirtyPaths.delete(item.path);
+                ctx.index[to] = moved;
+                ctx.localIndex[to] = { ...moved };
+                ctx.dirtyPaths.set(to, Date.now());
+                await saveLocalIndex(ctx);
+                await ctx.log(
+                    `[${logPrefix}] ${item.path}: adopted our own upload whose response was lost (renamed to ${to} since). Will move the remote file.`,
+                    "info",
+                );
+                return true;
+            }
+            // The push finds nothing to upload (the cloud already has this content), so
+            // without this the shared index never listed the file and devices syncing
+            // from it never received it.
+            markIndexUploadOwed(ctx);
             await saveLocalIndex(ctx);
             await ctx.log(
                 `[${logPrefix}] ${item.path}: adopted our own upload whose response was lost.`,

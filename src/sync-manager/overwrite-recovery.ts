@@ -300,7 +300,10 @@ async function repairUnderLock(
         };
         ctx.index[path] = { ...entry };
         ctx.localIndex[path] = { ...entry };
-        ctx.dirtyPaths.delete(path);
+        // Typed into during the upload: that edit is still to be pushed. Clearing the
+        // mark here dropped it, and the note stayed different from the cloud for good.
+        const now = await ctx.vault.readBinary(path).catch(() => null);
+        if (now && contentFingerprint(now) === contentFingerprint(merged)) ctx.dirtyPaths.delete(path);
         await saveLocalIndex(ctx);
         await ctx.log(`[Overwrite Check] Merged the overwritten edits back into ${path} and uploaded it.`, "info");
         return true;

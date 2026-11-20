@@ -221,6 +221,10 @@ export async function reconcileVanishedAfterUpload(
             };
         }
         ctx.dirtyPaths.delete(path);
+        // The rename moved our upload record with the entry: the upload is settled now,
+        // and a stale record later made this version look like an unconfirmed upload
+        // (a wrong merge base, so a false conflict)
+        forgetAttemptedVersion(ctx, p, contentFingerprint(content));
         await ctx.log(`[Smart Push] ${path} was renamed to ${p} during upload.`, "info");
         return true;
     }
@@ -246,6 +250,7 @@ export async function reconcileVanishedAfterUpload(
         ctx.localIndex[renamedTo] = { ...moved };
         ctx.dirtyPaths.delete(path);
         ctx.dirtyPaths.set(renamedTo, Date.now());
+        forgetAttemptedVersion(ctx, renamedTo, contentFingerprint(content));
         await ctx.log(
             `[Smart Push] ${path} was renamed to ${renamedTo} during upload. Will move the remote file.`,
             "info",
@@ -267,6 +272,7 @@ export async function reconcileVanishedAfterUpload(
         ctx.index[candidate] = moved;
         ctx.localIndex[candidate] = { ...moved };
         ctx.dirtyPaths.delete(path);
+        forgetAttemptedVersion(ctx, candidate, uploadedHash);
         await ctx.log(
             `[Smart Push] ${path} was renamed to ${candidate} during upload. Will move the remote file.`,
             "info",
@@ -277,7 +283,10 @@ export async function reconcileVanishedAfterUpload(
     ctx.index[path] = entry;
     ctx.localIndex[path] = { ...entry };
     ctx.dirtyPaths.set(path, Date.now());
-    noteDeleteIntent(ctx, path);
+    // Not marked as a deletion: the vault event of a rename made during the upload may
+    // still be on its way. Deleting at once (before the event) and creating the note
+    // anew under its new name left two copies once another device had edited it. The
+    // usual wait for a late rename event applies; a delete event marks it right away.
     await ctx.log(`[Smart Push] ${path} disappeared during upload. Will remove it remotely.`, "info");
     return true;
 }

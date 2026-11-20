@@ -26,7 +26,7 @@ export type ScanCtx = Pick<
     | "recentlyDeletedFromRemote"
     | "syncingPaths"
     | "vault"
-> & FileUtilsCtx & StateCtx & SyncHelpersCtx;
+> & Partial<Pick<SyncContext, "adapter">> & FileUtilsCtx & StateCtx & SyncHelpersCtx;
 
 /**
  * Edits the vault reported while the engine held the path (markDirty set them
@@ -297,17 +297,83 @@ async function holdUnexplainedNewFiles(
     // Gone, or no longer new (its event arrived): nothing to wait for
     for (const p of [...held.keys()]) if (!added.includes(p)) held.delete(p);
     const now = Date.now();
+    const expired: string[] = [];
     for (const path of added) {
         if (!unreported.has(path) || ctx.localIndex[path]) continue;
         const since = held.get(path) ?? now;
         if (now - since >= MISSING_EVENT_GRACE_MS) {
             held.delete(path);
+            expired.push(path);
             continue;
         }
         held.set(path, since);
         ctx.dirtyPaths.delete(path);
         await ctx.log(`[Vault Scan] ${path} may be a renamed file (its event not here yet). Waiting before uploading it.`, "debug");
     }
+    await pairLoneRename(ctx, stillMissing, expired);
+}
+
+/**
+ * No event came for either file (the app was killed right after a rename, and the
+ * note was edited before that): one synced note is gone and an unexplained note
+ * appeared that holds most of its lines. Taken as a delete plus a new note, edits
+ * other devices made under the old name brought it back, and the note existed
+ * twice. As a rename, those edits are merged into it instead. Only with exactly one
+ * missing note and one clear match, checked against the synced version in the
+ * cloud (one download, only in this rare case; unreachable: left as it was).
+ */
+async function pairLoneRename(ctx: ScanCtx, missing: string[], expired: string[]): Promise<void> {
+    if (missing.length !== 1 || expired.length === 0) return;
+    const [oldPath] = missing;
+    const entry = ctx.index[oldPath];
+    if (!entry?.fileId || entry.pendingMove || !isNote(oldPath) || !ctx.adapter?.downloadFile) return;
+    const candidates = expired.filter((p) => !ctx.localIndex[p] && isNote(p));
+    if (candidates.length === 0) return;
+    let oldLines: string[];
+    try {
+        oldLines = noteLines(await ctx.adapter.downloadFile(entry.fileId));
+    } catch {
+        return;
+    }
+    if (oldLines.length === 0) return;
+    // The first line (usually the title heading) tells notes made from one template
+    // apart, where the body lines match equally well
+    const title = oldLines[0] === "---" ? null : oldLines[0];
+    let best: string | null = null;
+    let bestScore = 0;
+    let tie = false;
+    for (const newPath of candidates) {
+        let lines: string[];
+        try {
+            lines = noteLines(await ctx.vault.readBinary(newPath));
+        } catch {
+            continue;
+        }
+        const newLines = new Set(lines);
+        const overlap = oldLines.filter((l) => newLines.has(l)).length / oldLines.length;
+        if (overlap < 0.5) continue;
+        const score = overlap + (title !== null && lines[0] === title ? 1 : 0);
+        if (score > bestScore) {
+            best = newPath;
+            bestScore = score;
+            tie = false;
+        } else if (score === bestScore) tie = true;
+    }
+    if (!best || tie) return;
+    markRenamed(ctx, oldPath, best);
+    await ctx.log(`[Vault Scan] ${oldPath} -> ${best} is taken as a rename (no event for either file, same lines).`, "debug");
+}
+
+function noteLines(content: ArrayBuffer): string[] {
+    return new TextDecoder()
+        .decode(content)
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter((l) => l.length > 0);
+}
+
+function isNote(path: string): boolean {
+    return path.toLowerCase().endsWith(".md");
 }
 
 /**
