@@ -22,6 +22,8 @@ import { RevisionCache } from "../../../src/services/revision-cache";
 import { BackgroundTransferQueue } from "../../../src/sync-manager/background-transfer";
 import type { INotificationService } from "../../../src/services/notification-service";
 import { DeviceSimulator } from "../../helpers/device-simulator";
+import { isManagedSeparately as managedSeparately, PLUGIN_DIR as SYNC_PLUGIN_DIR } from "../../../src/sync-manager/file-utils";
+import { REMOTE_FILES } from "../../../src/sync-manager/remote-layout";
 
 const PLUGIN_DIR = ".obsidian/plugins/obsidian-vault-sync";
 const SYNC_INDEX_PATH = `${PLUGIN_DIR}/sync-index.json`;
@@ -477,10 +479,10 @@ describe("SyncManager - Background Transfer API", () => {
             onTransferFailed: vi.fn(),
         };
 
+        const setSpy = vi.spyOn((sm as any).backgroundTransferQueue, "setCallbacks");
         sm.setTransferCallbacks(callbacks);
 
-        // Should not throw
-        expect(true).toBe(true);
+        expect(setSpy).toHaveBeenCalledWith(callbacks);
     });
 
     it("should load transfer history from disk", async () => {
@@ -570,10 +572,10 @@ describe("SyncManager - History Management", () => {
         );
 
         const revisions = await device.syncManager.listRevisions("notes/test.md");
-        if (revisions.length > 0) {
-            // Should not throw
-            await device.syncManager.setRevisionKeepForever("notes/test.md", revisions[0].id, true);
-        }
+        expect(revisions.length).toBeGreaterThan(0);
+        const spy = vi.spyOn(cloud, "setRevisionKeepForever");
+        await device.syncManager.setRevisionKeepForever("notes/test.md", revisions[0].id, true);
+        expect(spy).toHaveBeenCalledWith(expect.anything(), revisions[0].id, true);
     });
 
     it("should delete revision when supported", async () => {
@@ -599,10 +601,11 @@ describe("SyncManager - History Management", () => {
         );
 
         const revisions = await device.syncManager.listRevisions("notes/test.md");
-        if (revisions.length > 0) {
-            // Should not throw
-            await device.syncManager.restoreRevision("notes/test.md", revisions[0]);
-        }
+        expect(revisions.length).toBeGreaterThan(0);
+        // The note was edited locally since; restoring brings the old text back
+        device.app.vaultAdapter.setFile("notes/test.md", "edited later");
+        await device.syncManager.restoreRevision("notes/test.md", revisions[0]);
+        expect(device.getLocalContent("notes/test.md")).toBe(content);
     });
 });
 
@@ -719,11 +722,11 @@ describe("SyncManager - Sync Operations", () => {
     it("should request background scan", async () => {
         const sm = device.syncManager as any;
 
+        const scan = vi.spyOn(sm, "executeFullScan");
         // E2EE disabled - should proceed
         await sm.requestBackgroundScan(false);
 
-        // Should not throw
-        expect(true).toBe(true);
+        expect(sm.syncState).toBe("IDLE");
     });
 
     it("should skip background scan when E2EE is locked", async () => {
@@ -731,10 +734,15 @@ describe("SyncManager - Sync Operations", () => {
         sm.settings.e2eeEnabled = true;
         // cryptoEngine is null, so locked
 
+        const states: string[] = [];
+        const orig = sm.log.bind(sm);
         await sm.requestBackgroundScan(false);
 
-        // Should return early
-        expect(true).toBe(true);
+        // Returned before the scan began: the state never left IDLE and no progress began
+        expect(sm.syncState).toBe("IDLE");
+        expect(sm.fullScanProgress ?? null).toBeNull();
+        void states;
+        void orig;
     });
 });
 
@@ -868,15 +876,9 @@ describe("SyncManager - Path Filtering Methods", () => {
     it("should check if path is managed separately", () => {
         const sm = device.syncManager as any;
 
-        // Check actual behavior - internal files managed by plugin
-        const result1 = sm.isManagedSeparately(
-            ".obsidian/plugins/obsidian-vault-sync/sync-index.json",
-        );
-        const result2 = sm.isManagedSeparately("notes/test.md");
-
-        // The function should return boolean values
-        expect(typeof result1).toBe("boolean");
-        expect(typeof result2).toBe("boolean");
+        // The shared index is uploaded on its own, never as an ordinary file
+        expect(managedSeparately(SYNC_PLUGIN_DIR + REMOTE_FILES.index)).toBe(true);
+        expect(sm.isManagedSeparately("notes/test.md")).toBe(false);
     });
 });
 
@@ -1209,8 +1211,16 @@ describe("SyncManager - Error Handling and Edge Cases", () => {
         const sm = device.syncManager as any;
         sm.forceCleanupNextSync = true;
 
-        // Just verify it doesn't throw
+        // A file that may no longer be in the cloud (e.g. after the exclusion
+        // rules changed) but is still listed there
+        const up = await cloud.uploadFile("notes/.DS_Store", new ArrayBuffer(1), Date.now());
+        sm.index["notes/.DS_Store"] = { fileId: up.id, mtime: 1, size: 1, hash: up.hash };
+        sm.localIndex["notes/.DS_Store"] = { ...sm.index["notes/.DS_Store"] };
+        device.app.vaultAdapter.setFile("notes/.DS_Store", "x");
         await sm.requestSmartSync("manual-sync", false);
+        // The full cleanup removed it from the cloud and reset its flag
+        expect(await cloud.getFileMetadata("notes/.DS_Store")).toBeNull();
+        expect(sm.forceCleanupNextSync).toBe(false);
     });
 
     it("should handle runParallel with empty task list", async () => {
@@ -1300,11 +1310,11 @@ describe("SyncManager - Error Handling and Edge Cases", () => {
         const sm = device.syncManager as any;
 
         // Test various paths
-        const result1 = sm.shouldNotBeOnRemote(".obsidian/workspace.json");
+        const result1 = sm.shouldNotBeOnRemote("notes/.DS_Store");
         const result2 = sm.shouldNotBeOnRemote("notes/test.md");
 
-        expect(typeof result1).toBe("boolean");
-        expect(typeof result2).toBe("boolean");
+        expect(result1).toBe(true); // OS clutter never goes to the cloud
+        expect(result2).toBe(false);
     });
 
     it("should test clearPendingPushStates", async () => {
@@ -1329,8 +1339,7 @@ describe("SyncManager - Error Handling and Edge Cases", () => {
         // Clear pending push states - this clears lastAction from localIndex entries
         sm.clearPendingPushStates();
 
-        // The function clears pending push states from localIndex
-        // Just verify it runs without error
-        expect(true).toBe(true);
+        // A push this device never saw confirmed is treated as a pull again
+        expect(sm.localIndex["notes/test.md"].lastAction).toBe("pull");
     });
 });

@@ -17,6 +17,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { GoogleAuthService } from "../../../src/cloud-adapters/google-drive/auth-service";
+import { AUTH_PROXY_BASE_URL } from "../../../src/constants";
 
 // Mock window and localStorage
 const localStorageMock: Record<string, string | null> = {};
@@ -121,29 +122,34 @@ describe("GoogleAuthService", () => {
     });
 
     describe("setAuthConfig", () => {
-        it("should accept default method", () => {
-            auth.setAuthConfig("default");
-            // No error thrown
+        // Where sign-in requests go: the built-in proxy, a custom HTTPS proxy, or none
+        const proxyBase = () => (auth as any).getProxyBaseUrl() as string | null;
+
+        it("uses the built-in proxy for the default method", () => {
+            auth.setAuthConfig("default", "https://ignored.example.com");
+            expect(proxyBase()).toBe(AUTH_PROXY_BASE_URL);
         });
 
-        it("should accept custom-proxy with valid HTTPS URL", () => {
-            auth.setAuthConfig("custom-proxy", "https://my-proxy.example.com");
-            // Internally stored; validated via getAuthUrl behavior
+        it("uses a custom HTTPS proxy, without trailing slashes", () => {
+            auth.setAuthConfig("custom-proxy", "https://my-proxy.example.com//");
+            expect(proxyBase()).toBe("https://my-proxy.example.com");
         });
 
-        it("should reject custom-proxy with HTTP URL", () => {
+        it("refuses a custom proxy over plain HTTP (tokens would travel unencrypted)", () => {
             auth.setAuthConfig("custom-proxy", "http://insecure.example.com");
-            // Falls back to empty proxyUrl (non-HTTPS rejected)
+            expect(proxyBase()).toBe("");
         });
 
-        it("should reject custom-proxy with invalid URL", () => {
+        it("refuses a custom proxy address that is not a URL", () => {
             auth.setAuthConfig("custom-proxy", "not-a-url");
-            // Falls back to empty proxyUrl
+            expect(proxyBase()).toBe("");
         });
 
-        it("should handle client-credentials method", () => {
+        it("forgets an earlier proxy when switching to client credentials", () => {
+            auth.setAuthConfig("custom-proxy", "https://my-proxy.example.com");
             auth.setAuthConfig("client-credentials");
-            // No error thrown, proxyUrl cleared
+            expect(proxyBase()).toBeNull();
+            expect((auth as any).proxyUrl).toBe("");
         });
     });
 
