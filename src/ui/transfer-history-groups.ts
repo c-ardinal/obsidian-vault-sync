@@ -31,14 +31,6 @@ export interface HistoryDay {
     batches: HistoryBatch[];
 }
 
-export interface TransferStats {
-    pulls: number;
-    pullBytes: number;
-    pushes: number;
-    pushBytes: number;
-    failed: number;
-}
-
 function localMidnight(ms: number): number {
     const d = new Date(ms);
     d.setHours(0, 0, 0, 0);
@@ -103,29 +95,4 @@ export function groupHistory(
         if (r.status === "completed") batch.bytes += r.size;
     }
     return days;
-}
-
-/** Totals over the last `windowMs` (completed transfers count toward bytes). */
-export function transferStats(
-    records: TransferRecord[],
-    now: number,
-    windowMs = 24 * 60 * 60 * 1000,
-): TransferStats {
-    const stats: TransferStats = { pulls: 0, pullBytes: 0, pushes: 0, pushBytes: 0, failed: 0 };
-    for (const r of records) {
-        if (now - r.completedAt > windowMs) continue;
-        if (r.status === "failed") {
-            stats.failed++;
-            continue;
-        }
-        if (r.status !== "completed") continue;
-        if (r.direction === "pull") {
-            stats.pulls++;
-            stats.pullBytes += r.size;
-        } else {
-            stats.pushes++;
-            stats.pushBytes += r.size;
-        }
-    }
-    return stats;
 }

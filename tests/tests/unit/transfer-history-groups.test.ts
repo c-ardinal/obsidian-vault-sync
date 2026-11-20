@@ -1,11 +1,10 @@
 /**
- * @file Transfer status screen: history grouping (day / batch) and 24h totals.
+ * @file Transfer status screen: history grouping (day / batch).
  */
 import { describe, it, expect } from "vitest";
 import {
     BATCH_GAP_MS,
     groupHistory,
-    transferStats,
 } from "../../../src/ui/transfer-history-groups";
 import type { TransferRecord } from "../../../src/sync-manager/transfer-types";
 
@@ -73,24 +72,5 @@ describe("groupHistory", () => {
 
     it("returns nothing for an empty history", () => {
         expect(groupHistory([], "all", NOW)).toEqual([]);
-    });
-});
-
-describe("transferStats", () => {
-    it("totals the last 24 hours only", () => {
-        const records = [
-            rec(10, { direction: "pull", size: 1000 }),
-            rec(20, { direction: "push", size: 500 }),
-            rec(30, { direction: "push", status: "failed", size: 700 }),
-            rec(40, { direction: "pull", status: "cancelled", size: 700 }),
-            rec(60 * 25, { direction: "pull", size: 9999 }),
-        ];
-        expect(transferStats(records, NOW)).toEqual({
-            pulls: 1,
-            pullBytes: 1000,
-            pushes: 1,
-            pushBytes: 500,
-            failed: 1,
-        });
     });
 });

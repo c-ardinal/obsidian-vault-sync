@@ -304,8 +304,6 @@ export const en: Record<string, string> = {
     transferInline: "Inline",
     transferBackground: "Background",
     transferCancelAll: "Cancel All",
-    transferStatsTitle: "Last 24 hours",
-    transferStatCount: "{0} files",
     transferQueueTitle: "Queue",
     transferMore: "{0} more",
     transferRetrying: "Retry {0}/{1}",

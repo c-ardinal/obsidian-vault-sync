@@ -1072,9 +1072,11 @@
     font-family: var(--font-monospace);
 }
 
-/* === Transfer Status Modal === */
+/* === Transfer Status Modal ===
+ * Plain rows in Obsidian's own style: one-colour icons, separators instead of
+ * cards, colour only for failures. */
 .modal.mod-transfer-status-modal {
-    width: min(760px, 92vw);
+    width: min(720px, 92vw);
     height: min(820px, 86vh);
     max-width: 92vw;
     max-height: 86vh;
@@ -1092,59 +1094,33 @@
 .vault-sync-transfer-container {
     display: flex;
     flex-direction: column;
-    gap: var(--size-4-5);
+    gap: var(--size-4-6);
     overflow-y: auto;
     padding: var(--size-4-4) var(--size-4-5) var(--size-4-6);
 }
 
 .vault-sync-xfer-muted {
     color: var(--text-muted);
-    font-size: var(--font-ui-smaller);
+    font-size: var(--font-ui-small);
     font-variant-numeric: tabular-nums;
 }
 
-/* Summary card */
+/* Summary: two lines of text and, while syncing, a thin bar */
 .vault-sync-xfer-summary {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    padding: 12px 14px;
-    border-radius: var(--radius-m, 8px);
-    background: var(--background-secondary);
+    gap: 4px;
 }
 
 .vault-sync-xfer-summary-head {
     display: flex;
     flex-wrap: wrap;
-    align-items: center;
-    gap: 4px 8px;
-}
-
-.vault-sync-xfer-summary-head .vault-sync-status-ring {
-    width: 14px;
-    height: 14px;
-}
-
-.vault-sync-xfer-summary[data-state="synced"] .vault-sync-status-ring {
-    background: var(--color-green);
-}
-
-.vault-sync-xfer-summary[data-state="error"] .vault-sync-status-ring,
-.vault-sync-xfer-summary[data-state="auth"] .vault-sync-status-ring {
-    background: var(--text-error);
-}
-
-.vault-sync-xfer-summary[data-state="offline"] .vault-sync-status-ring {
-    background: var(--text-warning);
-}
-
-.vault-sync-xfer-summary[data-state="never"] .vault-sync-status-ring {
-    background: var(--text-faint);
+    align-items: baseline;
+    gap: 2px 12px;
 }
 
 .vault-sync-xfer-summary-title {
     font-weight: var(--font-semibold);
-    margin-right: auto;
 }
 
 .vault-sync-xfer-summary[data-state="error"] .vault-sync-xfer-summary-title,
@@ -1152,48 +1128,36 @@
     color: var(--text-error);
 }
 
-.vault-sync-xfer-summary[data-state="offline"] .vault-sync-xfer-summary-title {
-    color: var(--text-warning);
+.vault-sync-xfer-bar {
+    height: 3px;
+    margin-top: 4px;
+    border-radius: 2px;
+    background: var(--background-modifier-border);
+    overflow: hidden;
 }
 
-.vault-sync-xfer-summary[data-state="error"] .vault-sync-status-bar-fill {
-    background: var(--text-error);
+.vault-sync-xfer-bar-fill {
+    height: 100%;
+    width: 0;
+    background: var(--interactive-accent);
 }
 
-.vault-sync-xfer-summary-line {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: space-between;
-    gap: 2px 12px;
+@media (prefers-reduced-motion: no-preference) {
+    .vault-sync-xfer-bar-fill {
+        transition: width 0.4s ease;
+    }
+}
+
+.vault-sync-xfer-error {
+    color: var(--text-error);
     font-size: var(--font-ui-small);
-    font-variant-numeric: tabular-nums;
-}
-
-.vault-sync-xfer-chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-}
-
-.vault-sync-xfer-chip {
-    padding: 2px 8px;
-    border-radius: 99px;
-    background: var(--background-primary);
-    border: 1px solid var(--background-modifier-border);
-    font-size: var(--font-ui-smaller);
-    font-variant-numeric: tabular-nums;
-}
-
-.vault-sync-xfer-chip.mod-warn {
-    color: var(--text-warning);
-    border-color: rgba(var(--color-orange-rgb), 0.4);
+    overflow-wrap: anywhere;
 }
 
 /* Sections */
 .vault-sync-xfer-section {
     display: flex;
     flex-direction: column;
-    gap: 8px;
 }
 
 .vault-sync-xfer-section-head {
@@ -1201,85 +1165,19 @@
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    min-height: 28px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--background-modifier-border);
 }
 
 .vault-sync-xfer-section-title {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: var(--font-ui-small);
     font-weight: var(--font-semibold);
-    color: var(--text-muted);
-}
-
-.vault-sync-xfer-count {
-    min-width: 20px;
-    padding: 0 6px;
-    border-radius: 99px;
-    background: var(--interactive-accent);
-    color: var(--text-on-accent);
-    font-size: var(--font-ui-smaller);
-    text-align: center;
-}
-
-.vault-sync-xfer-small-btn {
-    font-size: var(--font-ui-smaller);
-    padding: 2px 10px;
-    height: auto;
 }
 
 .vault-sync-xfer-empty,
 .vault-sync-xfer-more {
-    padding: 10px 12px;
+    padding: 10px 0;
     color: var(--text-muted);
     font-size: var(--font-ui-small);
-    border: 1px dashed var(--background-modifier-border);
-    border-radius: var(--radius-s, 6px);
-    text-align: center;
-}
-
-.vault-sync-xfer-more {
-    border: none;
-    padding: 4px;
-}
-
-/* Last 24 hours tiles */
-.vault-sync-xfer-stats {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-
-.vault-sync-xfer-tiles {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
-}
-
-.vault-sync-xfer-tile {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-    padding: 8px 12px;
-    border-radius: var(--radius-s, 6px);
-    border: 1px solid var(--background-modifier-border);
-}
-
-.vault-sync-xfer-tile-num {
-    font-size: var(--font-ui-medium);
-    font-weight: var(--font-semibold);
-    font-variant-numeric: tabular-nums;
-}
-
-.vault-sync-xfer-tile.mod-failed {
-    border-color: rgba(var(--color-red-rgb), 0.4);
-    background: rgba(var(--color-red-rgb), 0.06);
-}
-
-.vault-sync-xfer-tile.mod-failed .vault-sync-xfer-tile-num {
-    color: var(--text-error);
 }
 
 /* Rows (queue and history) */
@@ -1293,42 +1191,17 @@
     grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: center;
     gap: 10px;
-    padding: 6px 8px;
-    border-radius: var(--radius-s, 6px);
-}
-
-.vault-sync-xfer-row + .vault-sync-xfer-row {
-    border-top: 1px solid var(--background-modifier-border);
-    border-radius: 0;
-}
-
-.mod-queue .vault-sync-xfer-row.is-active {
-    background: var(--background-secondary);
-    border-radius: var(--radius-s, 6px);
+    padding: 6px 0;
 }
 
 .vault-sync-xfer-icon {
     display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
+    color: var(--text-faint);
 }
 
 .vault-sync-xfer-icon svg {
     width: 14px;
     height: 14px;
-}
-
-.mod-pull > .vault-sync-xfer-icon {
-    color: var(--color-green);
-    background: rgba(var(--color-green-rgb), 0.12);
-}
-
-.mod-push > .vault-sync-xfer-icon {
-    color: var(--color-blue);
-    background: rgba(var(--color-blue-rgb), 0.12);
 }
 
 .vault-sync-xfer-file {
@@ -1356,24 +1229,20 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    direction: rtl; /* keep the end of a long folder path visible */
-    text-align: left;
     color: var(--text-faint);
     font-size: var(--font-ui-smaller);
 }
 
-.vault-sync-xfer-error {
+.vault-sync-xfer-file .vault-sync-xfer-error {
     margin-top: 2px;
-    color: var(--text-error);
     font-size: var(--font-ui-smaller);
-    overflow-wrap: anywhere;
 }
 
 .vault-sync-xfer-meta {
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    gap: 8px;
+    gap: 12px;
     color: var(--text-muted);
     font-size: var(--font-ui-smaller);
     font-variant-numeric: tabular-nums;
@@ -1384,138 +1253,52 @@
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    color: var(--text-accent);
 }
 
-.is-waiting .vault-sync-xfer-state {
-    color: var(--text-muted);
-}
-
-.vault-sync-xfer-state.mod-warn {
-    color: var(--text-warning);
+.vault-sync-xfer-state.mod-warn,
+.vault-sync-xfer-result.is-failed {
+    color: var(--text-error);
 }
 
 .vault-sync-xfer-state .vault-sync-spinner {
-    width: 12px;
-    height: 12px;
+    width: 10px;
+    height: 10px;
     border-width: 2px;
 }
 
-.vault-sync-xfer-tag {
-    padding: 0 6px;
-    border-radius: 4px;
-    background: var(--background-modifier-hover);
-}
-
-.vault-sync-xfer-badge {
-    padding: 0 6px;
-    border-radius: 4px;
-    font-weight: var(--font-semibold);
-}
-
-.vault-sync-xfer-badge.is-failed {
-    color: var(--text-error);
-    background: rgba(var(--color-red-rgb), 0.12);
-}
-
-.vault-sync-xfer-badge.is-cancelled {
-    background: var(--background-modifier-hover);
-}
-
 .vault-sync-xfer-row.is-cancelled .vault-sync-xfer-file {
-    opacity: 0.6;
-}
-
-.vault-sync-xfer-row.is-failed {
-    background: rgba(var(--color-red-rgb), 0.05);
-}
-
-/* History filter */
-.vault-sync-xfer-filters {
-    display: flex;
-    gap: 6px;
-    overflow-x: auto;
-    scrollbar-width: none;
-}
-
-.vault-sync-xfer-filter {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    flex: 0 0 auto;
-    height: auto;
-    padding: 3px 12px;
-    border-radius: 99px;
-    font-size: var(--font-ui-small);
-    background: transparent;
-    border: 1px solid var(--background-modifier-border);
-    box-shadow: none;
     color: var(--text-muted);
 }
 
-.vault-sync-xfer-filters .vault-sync-xfer-filter.is-active,
-.is-mobile .vault-sync-xfer-filters .vault-sync-xfer-filter.is-active {
-    background: var(--interactive-accent);
-    border-color: var(--interactive-accent);
-    color: var(--text-on-accent);
-}
-
-.vault-sync-xfer-filter-count {
-    font-variant-numeric: tabular-nums;
-    opacity: 0.8;
-}
-
-.vault-sync-xfer-filter.mod-failed:not(.is-active) .vault-sync-xfer-filter-count {
-    color: var(--text-error);
-    opacity: 1;
-}
-
-/* History days and batches */
-.vault-sync-xfer-day {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-}
-
+/* History: days and batches */
 .vault-sync-xfer-day-label {
-    position: sticky;
-    top: calc(-1 * var(--size-4-4));
-    z-index: 1;
-    padding: 6px 0 4px;
-    background: var(--background-primary);
+    padding: 12px 0 2px;
+    color: var(--text-muted);
     font-size: var(--font-ui-small);
     font-weight: var(--font-semibold);
 }
 
 .vault-sync-xfer-batch {
-    border: 1px solid var(--background-modifier-border);
-    border-radius: var(--radius-m, 8px);
+    border-bottom: 1px solid var(--background-modifier-border);
 }
 
-.vault-sync-xfer-batch.has-failed {
-    border-color: rgba(var(--color-red-rgb), 0.35);
-}
-
-.vault-sync-xfer-batch-head {
+.modal.mod-transfer-status-modal .vault-sync-xfer-batch-head {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
     width: 100%;
     height: auto;
-    padding: 8px 10px;
-    background: transparent;
+    padding: 8px 0;
+    background: none;
     border: none;
     box-shadow: none;
-    border-radius: var(--radius-m, 8px);
+    border-radius: 0;
     font-size: var(--font-ui-small);
+    font-weight: normal;
     font-variant-numeric: tabular-nums;
     color: var(--text-normal);
     text-align: left;
     cursor: pointer;
-}
-
-.vault-sync-xfer-batch-head:hover {
-    background: var(--background-modifier-hover);
 }
 
 .vault-sync-xfer-chevron {
@@ -1533,27 +1316,13 @@
     transform: rotate(90deg);
 }
 
-.vault-sync-xfer-batch-time {
-    font-weight: var(--font-semibold);
-}
-
 .vault-sync-xfer-batch-counts {
-    display: flex;
-    gap: 10px;
     margin-right: auto;
-}
-
-.vault-sync-xfer-batch-counts .mod-pull {
-    color: var(--color-green);
-}
-
-.vault-sync-xfer-batch-counts .mod-push {
-    color: var(--color-blue);
+    color: var(--text-muted);
 }
 
 .vault-sync-xfer-batch-counts .mod-failed {
     color: var(--text-error);
-    font-weight: var(--font-semibold);
 }
 
 .vault-sync-xfer-batch-head .vault-sync-xfer-size {
@@ -1562,7 +1331,7 @@
 }
 
 .vault-sync-xfer-batch > .vault-sync-xfer-list {
-    padding: 0 6px 6px;
+    padding: 0 0 6px 22px;
 }
 
 /* Phone / tablet: full screen below the system status bar */
@@ -1581,13 +1350,9 @@
     padding: var(--size-4-3) var(--size-4-3) calc(var(--size-4-4) + var(--safe-area-inset-bottom));
 }
 
-.is-mobile .vault-sync-xfer-day-label {
-    top: calc(-1 * var(--size-4-3));
-}
-
 .is-phone .vault-sync-xfer-row {
     gap: 8px;
-    padding: 8px 4px;
+    padding: 8px 0;
 }
 
 /* Phone: the folder goes under the file name, the time is dropped */
@@ -1597,23 +1362,14 @@
     gap: 0;
 }
 
-.is-phone .vault-sync-xfer-history-time,
 .is-phone .mod-history .vault-sync-xfer-time {
     display: none;
-}
-
-.is-phone .vault-sync-xfer-tile {
-    padding: 8px;
 }
 
 .is-phone .vault-sync-xfer-meta {
     flex-direction: column;
     align-items: flex-end;
     gap: 2px;
-}
-
-.is-phone .vault-sync-xfer-tag {
-    display: none;
 }
 
 /* Add-on install dialog */

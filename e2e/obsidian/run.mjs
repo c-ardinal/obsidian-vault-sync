@@ -644,7 +644,6 @@ async function checkTransfers(page, lang, tag) {
         const m = document.querySelector(".mod-transfer-status-modal");
         return {
             summary: !!m.querySelector(".vault-sync-xfer-summary"),
-            tiles: m.querySelectorAll(".vault-sync-xfer-tile").length,
             queue: m.querySelectorAll(".mod-queue .vault-sync-xfer-row").length,
             batches: m.querySelectorAll(".vault-sync-xfer-batch").length,
             open: m.querySelectorAll(".vault-sync-xfer-batch.is-open").length,
@@ -652,12 +651,12 @@ async function checkTransfers(page, lang, tag) {
     });
     check(
         lang,
-        `${tag}: transfer screen shows summary, 24h totals, queue and batched history`,
-        info.summary && info.tiles === 3 && info.queue >= 3 && info.batches >= 3 && info.open >= 1,
+        `${tag}: transfer screen shows summary, queue and batched history`,
+        info.summary && info.queue >= 3 && info.batches >= 3 && info.open >= 1,
         JSON.stringify(info),
     );
     // Failed filter: only failed rows.
-    await page.locator(".vault-sync-xfer-filter").nth(3).click();
+    await page.selectOption("select.vault-sync-xfer-filter", "failed");
     await sleep(300);
     const failedOnly = await page.evaluate(() => {
         const rows = [...document.querySelectorAll(".mod-history .vault-sync-xfer-row")];
@@ -665,7 +664,7 @@ async function checkTransfers(page, lang, tag) {
     });
     check(lang, `${tag}: transfer history "failed" filter`, failedOnly);
     await shot(page, lang, `${tag}-scr-transfers-failed`);
-    await page.locator(".vault-sync-xfer-filter").nth(0).click();
+    await page.selectOption("select.vault-sync-xfer-filter", "all");
     await sleep(300);
     // Open a closed batch, then show the history part.
     await page

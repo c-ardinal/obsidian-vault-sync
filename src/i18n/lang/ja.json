@@ -192,8 +192,6 @@
     "transferInline": "インライン",
     "transferBackground": "バックグラウンド",
     "transferCancelAll": "全件キャンセル",
-    "transferStatsTitle": "直近 24 時間",
-    "transferStatCount": "{0} 件",
     "transferQueueTitle": "転送キュー",
     "transferMore": "他 {0} 件",
     "transferRetrying": "再試行 {0}/{1}",
