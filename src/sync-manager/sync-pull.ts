@@ -23,6 +23,7 @@ import {
     releaseOrphanedOwnLocks,
     findForeignLock,
     renameLocal,
+    alignFolderSpelling,
     hasDeleteIntent,
 } from "./state";
 import { pullFileSafely } from "./merge";
@@ -160,6 +161,7 @@ async function detectPullChanges(
                                 "info",
                             );
                             await renameLocal(ctx, oldPath, newPath);
+                            await followFolderSpelling(ctx, oldPath, newPath);
 
                             if (ctx.index[oldPath]) {
                                 ctx.index[newPath] = { ...ctx.index[oldPath] };
@@ -1372,6 +1374,7 @@ async function processChangePage(
                                 );
 
                                 await renameLocal(ctx, oldPath, newPath);
+                                await followFolderSpelling(ctx, oldPath, newPath);
                                 ctx.logger.markActionTaken();
 
                                 if (ctx.index[oldPath]) {
@@ -1734,4 +1737,11 @@ async function markIfEditedSinceSync(ctx: SyncContext, path: string): Promise<vo
     } catch {
         // unreadable now: the next scan decides
     }
+}
+
+/** Folder spelling follows a remote rename that changed only the folder's letter case */
+async function followFolderSpelling(ctx: SyncContext, oldPath: string, newPath: string): Promise<void> {
+    const from = dirname(oldPath);
+    const to = dirname(newPath);
+    if (from !== to && pathKey(from) === pathKey(to)) await alignFolderSpelling(ctx, newPath);
 }

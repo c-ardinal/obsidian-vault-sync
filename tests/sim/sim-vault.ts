@@ -83,12 +83,17 @@ export class PersonalityVaultAdapter extends MockVaultAdapter {
      * that folder: the disk reports "projects/a.md".
      */
     private storedName(path: string): string {
-        const p = this.personality === "macos" ? path.normalize("NFD") : path;
+        const p = this.osName(path);
         if (this.personality === "linux") return p;
         const slash = p.lastIndexOf("/");
         if (slash < 0) return p;
         const parent = this.dirs.get(this.fold(p.slice(0, slash)));
         return parent ? parent + p.slice(slash) : p;
+    }
+
+    /** Unicode form the OS reports, without resolving the parent folder's spelling */
+    private osName(path: string): string {
+        return this.personality === "macos" ? path.normalize("NFD") : path;
     }
 
     override async exists(path: string): Promise<boolean> {
@@ -131,17 +136,17 @@ export class PersonalityVaultAdapter extends MockVaultAdapter {
                 if (e.path.startsWith(fromPrefix) || this.fold(e.path).startsWith(fk + "/")) {
                     const np = to + "/" + e.path.slice(fromPrefix.length);
                     this.entries.delete(k);
-                    this.entries.set(this.fold(np), { ...e, path: this.storedName(np) });
+                    this.entries.set(this.fold(np), { ...e, path: this.osName(np) });
                 }
             }
             for (const [k, p] of [...this.dirs]) {
                 if (k === fk || k.startsWith(fk + "/")) {
                     this.dirs.delete(k);
                     const np = to + p.slice(this.dirs.get(fk)?.length ?? from.length);
-                    this.dirs.set(this.fold(np), this.storedName(np));
+                    this.dirs.set(this.fold(np), this.osName(np));
                 }
             }
-            this.dirs.set(this.fold(to), this.storedName(to));
+            this.dirs.set(this.fold(to), this.osName(to));
             return;
         }
         const e = this.entries.get(fk);

@@ -1062,8 +1062,27 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                                 ancestorHash:
                                                     previousAncestorHash || mergedUploaded.hash,
                                             };
-                                            ctx.index[file.path] = mergedEntry;
-                                            ctx.localIndex[file.path] = { ...mergedEntry };
+                                            // Renamed by the user while the merged version uploaded?
+                                            // The entry moved with the file: update it there, or the
+                                            // moved note keeps the old base and the next push sees
+                                            // our own upload as another device's edit.
+                                            const movedTo = ctx.index[file.path]
+                                                ? undefined
+                                                : Object.keys(ctx.index).find(
+                                                      (p) =>
+                                                          ctx.index[p].pendingMove?.oldPath === file.path &&
+                                                          ctx.index[p].fileId === mergedUploaded.id,
+                                                  );
+                                            if (movedTo) {
+                                                ctx.index[movedTo] = { ...ctx.index[movedTo], ...mergedEntry };
+                                                ctx.localIndex[movedTo] = {
+                                                    ...(ctx.localIndex[movedTo] ?? ctx.index[movedTo]),
+                                                    ...mergedEntry,
+                                                };
+                                            } else {
+                                                ctx.index[file.path] = mergedEntry;
+                                                ctx.localIndex[file.path] = { ...mergedEntry };
+                                            }
                                             // Typed into the note while the merged version uploaded?
                                             // (Vault events are suppressed meanwhile.) Keep it dirty
                                             // so that edit is pushed next, instead of dropping it.

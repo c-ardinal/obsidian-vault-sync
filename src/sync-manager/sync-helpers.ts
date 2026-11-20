@@ -172,8 +172,35 @@ export async function checkIndexOverwrite(ctx: SyncContext, uploaded: { id: stri
         if (before === undefined || before === mergedFrom) return;
         markIndexUploadOwed(ctx);
         await ctx.log("[Index] Another device uploaded the index at the same time. Uploading ours again next sync.", "info");
+        // Ours replaced theirs: files only their index listed (a file it pushed that we
+        // never saw as a change) would vanish from the shared index and never reach this
+        // device. Pull them, which also puts them back into our next index upload.
+        if (ours > 0 && ctx.adapter.getRevisionContent) {
+            const bytes = await ctx.adapter.getRevisionContent(ctx.pluginDataPath, revisions[ours - 1].id, uploaded.id);
+            await owePullsFromIndex(ctx, (await parseRemoteIndexBytes(ctx, bytes)).index);
+        }
     } catch {
         // History unavailable: nothing to check against
+    }
+}
+
+/**
+ * Files another device's index lists that this device has never pulled (not in our
+ * index by path or by id, still in the cloud): owed as pulls to the next sync.
+ */
+async function owePullsFromIndex(ctx: SyncContext, remote: LocalFileIndex): Promise<void> {
+    const ourIds = new Set(Object.values(ctx.index).map((e) => e.fileId).filter(Boolean));
+    const pending = pendingPullsOf(ctx);
+    for (const [path, entry] of Object.entries(remote)) {
+        if (path === ctx.pluginDataPath || !entry.fileId || ctx.index[path] || ourIds.has(entry.fileId)) continue;
+        if (pending.has(entry.fileId) || ctx.dirtyPaths.has(path)) continue;
+        if (matchesDeviceScope(deviceScopePatterns(ctx.settings), path)) continue;
+        if (!(await ctx.adapter.fileExistsById(entry.fileId).catch(() => false))) continue;
+        pending.set(entry.fileId, {
+            file: { id: entry.fileId, path, hash: entry.hash, size: entry.size ?? 0, mtime: entry.mtime },
+            attempts: 0,
+        });
+        await ctx.log(`[Index] ${path} is listed by another device but was never pulled here. Pulling it next sync.`, "info");
     }
 }
 

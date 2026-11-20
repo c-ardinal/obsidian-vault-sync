@@ -22,6 +22,7 @@ import {
     moveAttemptedUploads,
 } from "./sync-helpers";
 import { CtxState } from "./context-state";
+import { pathKey } from "./path-collision";
 import type { FileUtilsCtx } from "./file-utils";
 import type { PlainHashCtx } from "./plain-hash-migration";
 import type { SyncHelpersCtx } from "./sync-helpers";
@@ -938,6 +939,53 @@ export async function renameLocal(ctx: StateCtx, from: string, to: string): Prom
     }
 }
 
+/**
+ * After a remote rename that changed only letter case (or Unicode form), make the
+ * folders above `path` use the new spelling too. On a case-insensitive disk a file
+ * renamed into "notes/" stays inside the existing "Notes" folder, so the folder
+ * itself has to be renamed, or this device keeps the old folder name.
+ */
+export async function alignFolderSpelling(ctx: StateCtx, path: string): Promise<void> {
+    if (!ctx.caseInsensitiveFs) return;
+    const segs = path.split("/").slice(0, -1);
+    let parent = "";
+    for (const seg of segs) {
+        let listing: { folders: string[] };
+        try {
+            listing = await ctx.vault.list(parent || "/");
+        } catch {
+            return;
+        }
+        const actual = listing.folders.map((f) => f.split("/").pop()!).find((f) => pathKey(f) === pathKey(seg));
+        if (actual === undefined) return;
+        if (actual !== seg) {
+            const from = parent ? `${parent}/${actual}` : actual;
+            const to = parent ? `${parent}/${seg}` : seg;
+            // Obsidian may also report a rename for each file inside the folder
+            const own = ownRenames.get(ctx) ?? new Map<string, number>();
+            ownRenames.set(ctx, own);
+            const childPairs = ctx.vault
+                .getFiles()
+                .filter((f) => f.path.startsWith(from + "/"))
+                .map((f) => `${f.path}\u0000${to}${f.path.slice(from.length)}`);
+            for (const k of childPairs) own.set(k, (own.get(k) ?? 0) + 1);
+            try {
+                await renameLocal(ctx, from, to);
+                await ctx.log(`[Smart Pull] Folder renamed to follow the cloud: ${from} -> ${to}`, "info");
+            } catch (e) {
+                for (const k of childPairs) {
+                    const n = own.get(k) ?? 0;
+                    if (n > 1) own.set(k, n - 1);
+                    else own.delete(k);
+                }
+                await ctx.log(`[Smart Pull] Could not rename folder ${from} -> ${to}: ${String(e)}`, "warn");
+                return;
+            }
+        }
+        parent = parent ? `${parent}/${seg}` : seg;
+    }
+}
+
 function takeOwnRename(ctx: StateCtx, from: string, to: string): boolean {
     const m = ownRenames.get(ctx);
     const key = `${from}\u0000${to}`;
@@ -1053,6 +1101,10 @@ export function markFolderRenamed(
     oldFolderPath: string,
     newFolderPath: string,
 ): void {
+    if (takeOwnRename(ctx, oldFolderPath, newFolderPath)) {
+        void ctx.log(`[Dirty] Ignored our own folder rename: ${oldFolderPath} -> ${newFolderPath}`, "debug");
+        return;
+    }
     const oldPrefix = oldFolderPath + "/";
     const newPrefix = newFolderPath + "/";
 

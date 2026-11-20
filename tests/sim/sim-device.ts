@@ -390,6 +390,21 @@ export class SimDevice {
         return true;
     }
 
+    /** Rename a folder (like dragging it in the file explorer) */
+    async userRenameFolder(oldPath: string, newPath: string): Promise<boolean> {
+        if (await this.isFile(oldPath)) return false;
+        if (!(await this.vaultAdapter.exists(oldPath))) return false;
+        const sameName = (p: string) => p.normalize("NFC").toLowerCase();
+        const caseOnly = this.fs !== "linux" && sameName(oldPath) === sameName(newPath) && oldPath !== newPath;
+        if (!caseOnly && (await this.vaultAdapter.exists(newPath))) return false;
+        await this.ops.rename(oldPath, newPath);
+        return true;
+    }
+
+    private async isFile(path: string): Promise<boolean> {
+        return this.vaultAdapter.hasFile(path);
+    }
+
     read(path: string): string | null {
         return this.vaultAdapter.getContent(path);
     }

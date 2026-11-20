@@ -203,6 +203,29 @@ describe("names that differ between operating systems", () => {
         expect(Object.keys(win.userFiles())).toEqual(["notes/Todo.md"]);
     });
 
+    it("follows a letter-case-only folder rename made on Windows", async () => {
+        const { make, sync, cloudFiles } = await setup();
+        const win = await make("A", "windows");
+        const linux = await make("B", "linux");
+        const mac = await make("C", "macos");
+        await win.userCreate("Notes/a.md", "a");
+        await win.userCreate("Notes/sub/b.md", "b");
+        await sync(win);
+        await sync(linux);
+        await sync(mac);
+        expect(await win.userRenameFolder("Notes", "notes")).toBe(true);
+        await sync(win);
+        await sync(linux);
+        await sync(mac);
+        await sync(win);
+
+        const expected = ["notes/a.md", "notes/sub/b.md"];
+        expect(Object.keys(await cloudFiles()).sort(), "cloud").toEqual(expected);
+        expect(Object.keys(linux.userFiles()).sort(), "Linux").toEqual(expected);
+        expect(Object.keys(mac.userFiles()).sort(), "macOS").toEqual(expected);
+        expect(Object.keys(win.userFiles()).sort(), "Windows").toEqual(expected);
+    });
+
     it("syncs a note made on macOS (NFD name) once, under one name, to Linux and Windows", async () => {
         const { make, sync, cloudFiles } = await setup();
         const mac = await make("A", "macos");
