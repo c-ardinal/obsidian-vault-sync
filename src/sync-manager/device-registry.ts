@@ -3,6 +3,7 @@ import type { IVaultOperations } from "../types/vault-operations";
 import type { LogLevel } from "./logger";
 import { REMOTE_DEVICE_DIR } from "./remote-layout";
 import { removeRemote, type RemoteDeletionService } from "./remote-deletion";
+import { CtxState } from "./context-state";
 
 /**
  * Which devices sync this vault, and what each of them changed.
@@ -73,7 +74,7 @@ interface DeviceState {
     name: string | null;
 }
 
-const states = new WeakMap<object, DeviceState>();
+const states = new CtxState<DeviceState>("deviceRecord", "This device's record and its changes not written yet");
 
 function stateOf(ctx: object): DeviceState {
     let s = states.get(ctx);

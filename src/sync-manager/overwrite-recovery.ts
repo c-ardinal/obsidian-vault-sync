@@ -4,6 +4,7 @@ import { hashContent } from "./file-utils";
 import { getRevisionContent, listRevisions, supportsHistory } from "./history";
 import { perform3WayMerge } from "./merge";
 import { acquireMergeLock, releaseMergeLock, saveLocalIndex } from "./state";
+import { CtxState } from "./context-state";
 
 /** Files we can merge line by line; anything else keeps the newest version. */
 export function isMergeableText(path: string): boolean {
@@ -22,7 +23,7 @@ interface PendingRepair {
 /** Give up on a repair nobody could do for this long; the version stays in history. */
 const REPAIR_TIMEOUT_MS = 10 * 60 * 1000;
 
-const pendingRepairs = new WeakMap<object, Map<string, PendingRepair>>();
+const pendingRepairs = new CtxState<Map<string, PendingRepair>>("overwriteRepairs", "Overwritten versions waiting to be restored");
 
 function pendingFor(ctx: SyncContext): Map<string, PendingRepair> {
     let map = pendingRepairs.get(ctx);
@@ -82,7 +83,7 @@ interface PendingCheck {
     since: number;
 }
 
-const pendingChecks = new WeakMap<object, Map<string, PendingCheck>>();
+const pendingChecks = new CtxState<Map<string, PendingCheck>>("overwriteChecks", "Uploads whose overwrite check could not run yet");
 
 /**
  * Looks for a version our upload replaced. Returns the repair (also queued) or null.

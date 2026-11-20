@@ -4,6 +4,7 @@ import { ensureLocalFolder, isManagedSeparately, shouldIgnore } from "./file-uti
 import { downloadRemoteIndex } from "./sync-helpers";
 import { isFreshStart, markDeleted, renameLocal, saveIndex } from "./state";
 import type { LocalFileIndex } from "./types";
+import { CtxFlag } from "./context-state";
 
 /**
  * The first sync of a device whose vault already has notes, into a cloud vault
@@ -46,7 +47,7 @@ export interface FirstSyncGuard {
 /** Folder (in the vault, never synced) that "start from the cloud" moves local notes to */
 export const FIRST_SYNC_ORPHANS_DIR = "_VaultSync_Orphans";
 
-const deferred = new WeakSet<object>();
+const deferred = new CtxFlag("firstSyncDeferred", "The user chose to start the first sync later");
 
 /** True while the user chose "later": automatic syncs wait for a manual one */
 export function isFirstSyncDeferred(ctx: object): boolean {

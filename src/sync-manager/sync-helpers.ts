@@ -5,6 +5,7 @@ import { noteIndexFormat } from "./state";
 import type { LocalFileIndex } from "./types";
 import { tryDecompress, hashContent } from "./file-utils";
 import { storesTransformedContent } from "./content-identity";
+import { CtxState } from "./context-state";
 
 export async function computeLocalHash(
     ctx: SyncContext,
@@ -83,7 +84,7 @@ export function markPendingTransfer(
  * merge below is skipped, and the next upload used to drop these entries again:
  * devices doing their first sync from the shared index then never got the file.
  */
-const carriedRemoteEntries = new WeakMap<object, LocalFileIndex>();
+const carriedRemoteEntries = new CtxState<LocalFileIndex>("carriedRemoteEntries", "Remote index entries kept for files this device has not pulled yet");
 
 export async function buildRemoteIndexPayload(ctx: SyncContext): Promise<ArrayBuffer> {
     const merged: LocalFileIndex = { ...ctx.index };
@@ -215,7 +216,7 @@ export async function buildRemoteIndexPayload(ctx: SyncContext): Promise<ArrayBu
  * edit: adopting it avoids overwriting a new local note with it, or a false
  * 3-way conflict between our own older and newer edits.
  */
-const attemptedUploads = new WeakMap<object, Map<string, string[]>>();
+const attemptedUploads = new CtxState<Map<string, string[]>>("attemptedUploads", "Uploads whose outcome is unknown: hashes per path");
 /** Unknown-outcome versions remembered per path (newest last) */
 const MAX_ATTEMPTS_PER_PATH = 3;
 
@@ -299,7 +300,7 @@ export interface PendingPull {
     background?: boolean;
 }
 
-const pendingPulls = new WeakMap<object, Map<string, PendingPull>>();
+const pendingPulls = new CtxState<Map<string, PendingPull>>("pendingPulls", "Pulls owed to a later sync, by file id");
 
 export function pendingPullsOf(ctx: SyncContext): Map<string, PendingPull> {
     let m = pendingPulls.get(ctx);

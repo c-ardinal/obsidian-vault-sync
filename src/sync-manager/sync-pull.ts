@@ -37,6 +37,7 @@ import {
     markPendingTransfer,
     pendingPullsOf,
 } from "./sync-helpers";
+import { CtxFlag } from "./context-state";
 
 
 /** Check for active merge locks from other devices */
@@ -1048,7 +1049,7 @@ export async function pullViaChangesAPI(
  * the remote index even if it did not change: no change for those files may ever come,
  * and our own index upload marks the remote index as seen.
  */
-const reconcilePending = new WeakSet<object>();
+const reconcilePending = new CtxFlag("reconcilePending", "The next sync must reconcile against the remote index");
 
 /**
  * Pull files listed in the remote index that this device has no record of

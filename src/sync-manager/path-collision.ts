@@ -1,5 +1,6 @@
 import type { SyncContext } from "./context";
 import { basename, dirname } from "../utils/path";
+import { CtxState } from "./context-state";
 
 /**
  * Paths that differ only in letter case or Unicode normalization (NFC "é" vs
@@ -54,7 +55,7 @@ export function claimPullPath(ctx: SyncContext, path: string, fileId: string): (
     };
 }
 
-const pulls = new WeakMap<SyncContext, Map<string, { path: string; fileId: string }>>();
+const pulls = new CtxState<Map<string, { path: string; fileId: string }>>("pullsInFlight", "Pulls running now, by folded path");
 function inFlight(ctx: SyncContext): Map<string, { path: string; fileId: string }> {
     let m = pulls.get(ctx);
     if (!m) pulls.set(ctx, (m = new Map<string, { path: string; fileId: string }>()));
@@ -85,7 +86,7 @@ export async function freeCollisionPath(ctx: SyncContext, path: string): Promise
     return `${dir ? dir + "/" : ""}${stem} (${Date.now()})${ext}`;
 }
 
-const reserved = new WeakMap<SyncContext, Set<string>>();
+const reserved = new CtxState<Set<string>>("reservedPaths", "Paths reserved for files being renamed apart");
 function reservedKeys(ctx: SyncContext): Set<string> {
     let r = reserved.get(ctx);
     if (!r) reserved.set(ctx, (r = new Set()));

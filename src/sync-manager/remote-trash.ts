@@ -6,6 +6,7 @@ import type {
 } from "./remote-deletion";
 import { immediateRemoteDeletion } from "./remote-deletion";
 import { cloudErrorKind } from "../cloud-adapters/cloud-error";
+import { CtxState } from "./context-state";
 
 /**
  * A plugin-managed trash on the cloud.
@@ -203,7 +204,7 @@ export async function purgeTrash(adapter: CloudAdapter, retentionDays: number, n
 }
 
 const PURGE_INTERVAL_MS = 24 * 60 * 60 * 1000;
-const lastPurge = new WeakMap<object, number>();
+const lastPurge = new CtxState<number>("trashLastPurge", "Time the cloud trash was last purged");
 
 /**
  * Purge the trash at most once a day per running plugin (the first sync after

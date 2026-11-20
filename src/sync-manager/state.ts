@@ -19,6 +19,7 @@ import {
     restorePendingPulls,
     peekAttemptedUpload,
 } from "./sync-helpers";
+import { CtxState } from "./context-state";
 
 function generateDeviceId(): string {
     const randomArray = new Uint8Array(4);
@@ -76,7 +77,7 @@ interface CycleState {
     locksAwaitingPush: Set<string>;
 }
 
-const cycleStates = new WeakMap<object, CycleState>();
+const cycleStates = new CtxState<CycleState>("syncCycle", "Caches and held merge locks of the running sync cycle");
 
 function cycleState(ctx: SyncContext): CycleState {
     let s = cycleStates.get(ctx);
@@ -612,7 +613,7 @@ interface JournalState {
     seq: number;
     journalDirty: boolean;
 }
-const journals = new WeakMap<object, JournalState>();
+const journals = new CtxState<JournalState>("indexJournal", "Index entries written since the last full save");
 
 function journalOf(ctx: SyncContext): JournalState {
     let j = journals.get(ctx);
@@ -750,10 +751,10 @@ export function markDirty(ctx: SyncContext, path: string): void {
  * on its way: deleting it from the cloud then made other devices resurrect it under
  * the old name next to the renamed copy. Such a path waits one sync for its event.
  */
-const deleteIntents = new WeakMap<object, Set<string>>();
-const missingOnce = new WeakMap<object, Set<string>>();
+const deleteIntents = new CtxState<Set<string>>("deleteIntents", "Paths the user deleted, waiting to be removed from the cloud");
+const missingOnce = new CtxState<Set<string>>("missingOnce", "Paths found missing once, waiting one sync for a late rename event");
 
-function setOf(map: WeakMap<object, Set<string>>, ctx: SyncContext): Set<string> {
+function setOf(map: CtxState<Set<string>>, ctx: SyncContext): Set<string> {
     let s = map.get(ctx);
     if (!s) map.set(ctx, (s = new Set()));
     return s;
@@ -807,7 +808,7 @@ export function markFolderDeleted(ctx: SyncContext, folderPath: string): void {
  * another file may already be indexed under the old name, and treating the event as
  * a user rename moved THAT file in the cloud too. Such events are ignored.
  */
-const ownRenames = new WeakMap<object, Map<string, number>>();
+const ownRenames = new CtxState<Map<string, number>>("ownRenames", "Renames the sync made itself, so their vault events are ignored");
 
 export async function renameLocal(ctx: SyncContext, from: string, to: string): Promise<void> {
     let m = ownRenames.get(ctx);
@@ -837,7 +838,7 @@ function takeOwnRename(ctx: SyncContext, from: string, to: string): boolean {
  * path whose response was lost may still have reached the cloud; when it shows up
  * there, it is moved to the current name instead of being pulled back as a copy.
  */
-const unsyncedRenames = new WeakMap<object, Map<string, string>>();
+const unsyncedRenames = new CtxState<Map<string, string>>("unsyncedRenames", "Renames of files not synced yet: old path to current path");
 
 function noteUnsyncedRename(ctx: SyncContext, from: string, to: string): void {
     let m = unsyncedRenames.get(ctx);

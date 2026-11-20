@@ -2,6 +2,7 @@ import { contentFingerprint } from "./content-fingerprint";
 import type { SyncContext } from "./context";
 import { legacyHashContent, runParallel } from "./file-utils";
 import { storesTransformedContent } from "./content-identity";
+import { CtxState } from "./context-state";
 
 /**
  * Plaintext hashes (index `plainHash`) of files that are not valid UTF-8 used to be
@@ -12,7 +13,7 @@ import { storesTransformedContent } from "./content-identity";
  */
 export const PLAIN_HASH_VERSION = 2;
 
-const versions = new WeakMap<object, number>();
+const versions = new CtxState<number>("plainHashVersion", "Hash version of the plainHash values in the index");
 
 export function restorePlainHashVersion(ctx: SyncContext, saved: unknown, freshIndex: boolean): void {
     // A local index without the field was written by an older version.
