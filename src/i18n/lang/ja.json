@@ -208,6 +208,8 @@
     "passwordStrengthStrong": "強固",
     "labelInstallAddon": "アドオンを導入する",
     "settingNavBack": "設定一覧",
+    "settingSearchPlaceholder": "設定の検索",
+    "settingSearchNone": "該当する設定はありません。",
     "settingNavBackAria": "設定一覧へ移動",
     "settingCategoryAccountDesc": "認証方式の選択、ログイン・ログアウト",
     "settingCategoryAccountSignedIn": "ログイン済み",

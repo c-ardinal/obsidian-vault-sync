@@ -324,6 +324,31 @@ async function checkHierarchy(main, lang, { mobile = false } = {}) {
         leaked.join(", "),
     );
 
+    // Search on the top page: matching settings with their controls, page list hidden
+    const searchInput = ".vault-sync-settings-search input";
+    await page.fill(searchInput, lang === "ja" ? "削除" : "trash");
+    await sleep(300);
+    const hits = (await page.$$(".vault-sync-settings-search-results .setting-item")).length;
+    const navHidden = await page.$eval(".vault-sync-settings-nav", (el) => el.offsetParent === null);
+    check(lang, `${tag}: settings search shows matches`, hits > 0 && navHidden, `${hits} hits, nav hidden=${navHidden}`);
+    check(lang, `${tag}: settings search results name no add-on internals`, !BANNED_UI_WORDS.test(await settingsText(page)));
+    await shotSettings(page, lang, `${tag}-search`, target);
+    await page.fill(searchInput, "zzqx-no-such-setting");
+    await sleep(300);
+    check(
+        lang,
+        `${tag}: settings search says when nothing matches`,
+        (await page.$$(".vault-sync-settings-search-none")).length === 1,
+    );
+    await page.fill(searchInput, "");
+    await sleep(300);
+    check(
+        lang,
+        `${tag}: clearing the search shows the category list again`,
+        (await navNames(page)).join("|") === names.join("|") &&
+            (await page.$$(".vault-sync-settings-search-results .setting-item")).length === 0,
+    );
+
     if (!mobile) {
         // Keyboard: Enter on a focused row opens the page.
         await page.focus(".vault-sync-settings-nav-item");

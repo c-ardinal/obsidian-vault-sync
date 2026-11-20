@@ -1520,15 +1520,15 @@
 }
 
 /* Settings: hierarchical navigation */
-.vault-sync-settings-nav-item {
+.vault-sync-settings-nav-row {
     cursor: pointer;
     align-items: center;
     gap: 12px;
     border-radius: var(--radius-s);
 }
 
-.vault-sync-settings-nav-item:hover,
-.vault-sync-settings-nav-item:focus-visible {
+.vault-sync-settings-nav-row:hover,
+.vault-sync-settings-nav-row:focus-visible {
     background-color: var(--background-modifier-hover);
 }
 
@@ -2183,4 +2183,25 @@
     width: 100%;
     font-family: var(--font-monospace);
     font-size: var(--font-ui-smaller);
+}
+
+/* Settings search (top page) */
+.vault-sync-settings-search {
+    margin-bottom: var(--size-4-3);
+}
+
+.vault-sync-settings-search .search-input-container {
+    width: 100%;
+}
+
+.vault-sync-settings-search-group a.vault-sync-subheader-text {
+    text-decoration: none;
+}
+
+.vault-sync-settings-search-group a.vault-sync-subheader-text:hover {
+    color: var(--text-accent);
+}
+
+.vault-sync-settings-search-none {
+    color: var(--text-muted);
 }
