@@ -26,7 +26,10 @@ import { hashContent } from "./file-utils";
  * cloud's hash type itself, so the rule has one owner.
  */
 
-type Ctx = Pick<SyncFlags, "e2eeEnabled"> & { adapter?: Pick<CloudAdapter, "capabilities"> | null };
+type Ctx = Pick<SyncFlags, "e2eeEnabled"> & {
+    /** Required so a narrowed context cannot drop it and silently count as an MD5 cloud */
+    adapter: Pick<CloudAdapter, "capabilities"> | null | undefined;
+};
 
 /**
  * True when the cloud's hash cannot identify vault content: the cloud holds a

@@ -5,6 +5,24 @@ import { downloadRemoteIndex } from "./sync-helpers";
 import { isFreshStart, markDeleted, renameLocal, saveIndex } from "./state";
 import type { LocalFileIndex } from "./types";
 import { CtxFlag } from "./context-state";
+import type { FileUtilsCtx } from "./file-utils";
+import type { StateCtx } from "./state";
+import type { SyncHelpersCtx } from "./sync-helpers";
+
+/** What this module reads from the sync context */
+export type FirstSyncCtx = Pick<
+    SyncContext,
+    | "adapter"
+    | "dirtyPaths"
+    | "e2eeEnabled"
+    | "firstSyncGuard"
+    | "index"
+    | "localIndex"
+    | "log"
+    | "pluginDataPath"
+    | "pluginDir"
+    | "vault"
+> & FileUtilsCtx & StateCtx & SyncHelpersCtx;
 
 /**
  * The first sync of a device whose vault already has notes, into a cloud vault
@@ -55,12 +73,12 @@ export function isFirstSyncDeferred(ctx: object): boolean {
 }
 
 /** The vault's config folder, the parent of the plugins folder */
-function configDirOf(ctx: SyncContext): string {
+function configDirOf(ctx: FirstSyncCtx): string {
     const i = ctx.pluginDir.lastIndexOf("/plugins/");
     return i > 0 ? ctx.pluginDir.slice(0, i) : ctx.pluginDir;
 }
 
-function isUserNote(ctx: SyncContext, path: string): boolean {
+function isUserNote(ctx: FirstSyncCtx, path: string): boolean {
     return (
         path !== ctx.pluginDataPath &&
         !path.startsWith(configDirOf(ctx) + "/") &&
@@ -71,7 +89,7 @@ function isUserNote(ctx: SyncContext, path: string): boolean {
 
 /** Compare this device's notes with the cloud's (null when there is nothing to ask) */
 export async function summarizeFirstSync(
-    ctx: SyncContext,
+    ctx: FirstSyncCtx,
 ): Promise<{ summary: FirstSyncSummary; remoteIndex: LocalFileIndex } | null> {
     const meta = await ctx.adapter.getFileMetadata(ctx.pluginDataPath);
     if (!meta?.id) return null;
@@ -106,7 +124,7 @@ export async function summarizeFirstSync(
  * Runs before the first pull. Returns false when this sync must stop (the
  * user chose "later" or closed the screen).
  */
-export async function prepareFirstSync(ctx: SyncContext): Promise<boolean> {
+export async function prepareFirstSync(ctx: FirstSyncCtx): Promise<boolean> {
     if (!ctx.firstSyncGuard || !isFreshStart(ctx)) {
         deferred.delete(ctx);
         return true;

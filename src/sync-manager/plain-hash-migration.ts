@@ -4,6 +4,18 @@ import { legacyHashContent, runParallel } from "./file-utils";
 import { storesTransformedContent } from "./content-identity";
 import { CtxState } from "./context-state";
 
+/** What this module reads from the sync context */
+export type PlainHashCtx = Pick<
+    SyncContext,
+    | "adapter"
+    | "e2eeEnabled"
+    | "index"
+    | "localIndex"
+    | "log"
+    | "settings"
+    | "vault"
+>;
+
 /**
  * Plaintext hashes (index `plainHash`) of files that are not valid UTF-8 used to be
  * taken of the lossily decoded text, so two versions differing only in invalid bytes
@@ -15,12 +27,12 @@ export const PLAIN_HASH_VERSION = 2;
 
 const versions = new CtxState<number>("plainHashVersion", "Hash version of the plainHash values in the index");
 
-export function restorePlainHashVersion(ctx: SyncContext, saved: unknown, freshIndex: boolean): void {
+export function restorePlainHashVersion(ctx: PlainHashCtx, saved: unknown, freshIndex: boolean): void {
     // A local index without the field was written by an older version.
     versions.set(ctx, freshIndex ? PLAIN_HASH_VERSION : typeof saved === "number" ? saved : 1);
 }
 
-export function plainHashVersion(ctx: SyncContext): number {
+export function plainHashVersion(ctx: PlainHashCtx): number {
     return versions.get(ctx) ?? PLAIN_HASH_VERSION;
 }
 
@@ -37,7 +49,7 @@ export function plainHashVersion(ctx: SyncContext): number {
  * devices not yet updated, keep the old hash; comparisons against index hashes
  * accept it (plainHashMatches), and the next upload of such a file replaces it.
  */
-export async function migratePlainHashes(ctx: SyncContext): Promise<number> {
+export async function migratePlainHashes(ctx: PlainHashCtx): Promise<number> {
     if (!storesTransformedContent(ctx) || plainHashVersion(ctx) >= PLAIN_HASH_VERSION) return -1;
     const paths = Object.keys(ctx.localIndex).filter((p) => !!ctx.localIndex[p]?.plainHash);
     let converted = 0;

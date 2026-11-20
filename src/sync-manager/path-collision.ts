@@ -2,6 +2,15 @@ import type { SyncContext } from "./context";
 import { basename, dirname } from "../utils/path";
 import { CtxState } from "./context-state";
 
+/** What this module reads from the sync context */
+export type PathCollisionCtx = Pick<
+    SyncContext,
+    | "dirtyPaths"
+    | "index"
+    | "localIndex"
+    | "vault"
+>;
+
 /**
  * Paths that differ only in letter case or Unicode normalization (NFC "é" vs
  * NFD "e" + accent) are different files in the cloud, but the SAME file on
@@ -21,7 +30,7 @@ export function pathKey(path: string): string {
  * Folder-only differences count too: "Projects/a.md" vs "projects/a.md".
  */
 export function findPathCollision(
-    ctx: SyncContext,
+    ctx: PathCollisionCtx,
     path: string,
     fileId?: string,
 ): string | null {
@@ -43,7 +52,7 @@ export function findPathCollision(
  * so a parallel pull of a colliding name sees it. Returns null when another file
  * already holds the name (the caller must rename instead).
  */
-export function claimPullPath(ctx: SyncContext, path: string, fileId: string): (() => void) | null {
+export function claimPullPath(ctx: PathCollisionCtx, path: string, fileId: string): (() => void) | null {
     const key = pathKey(path);
     const m = inFlight(ctx);
     const cur = m.get(key);
@@ -56,14 +65,14 @@ export function claimPullPath(ctx: SyncContext, path: string, fileId: string): (
 }
 
 const pulls = new CtxState<Map<string, { path: string; fileId: string }>>("pullsInFlight", "Pulls running now, by folded path");
-function inFlight(ctx: SyncContext): Map<string, { path: string; fileId: string }> {
+function inFlight(ctx: PathCollisionCtx): Map<string, { path: string; fileId: string }> {
     let m = pulls.get(ctx);
     if (!m) pulls.set(ctx, (m = new Map<string, { path: string; fileId: string }>()));
     return m;
 }
 
 /** First "name (n).ext" next to `path` whose key is free in the index and locally. */
-export async function freeCollisionPath(ctx: SyncContext, path: string): Promise<string> {
+export async function freeCollisionPath(ctx: PathCollisionCtx, path: string): Promise<string> {
     const dir = dirname(path);
     const name = basename(path);
     const dot = name.lastIndexOf(".");
@@ -87,14 +96,14 @@ export async function freeCollisionPath(ctx: SyncContext, path: string): Promise
 }
 
 const reserved = new CtxState<Set<string>>("reservedPaths", "Paths reserved for files being renamed apart");
-function reservedKeys(ctx: SyncContext): Set<string> {
+function reservedKeys(ctx: PathCollisionCtx): Set<string> {
     let r = reserved.get(ctx);
     if (!r) reserved.set(ctx, (r = new Set()));
     return r;
 }
 
 /** Move a file's index / local-index entries and dirty mark to its new path. */
-export function moveIndexEntry(ctx: SyncContext, from: string, to: string): void {
+export function moveIndexEntry(ctx: PathCollisionCtx, from: string, to: string): void {
     if (ctx.index[from]) {
         ctx.index[to] = { ...ctx.index[from] };
         delete ctx.index[from];

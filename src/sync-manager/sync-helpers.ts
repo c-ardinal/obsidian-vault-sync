@@ -7,8 +7,22 @@ import { tryDecompress, hashContent } from "./file-utils";
 import { storesTransformedContent } from "./content-identity";
 import { CtxState } from "./context-state";
 
+
+/** What this module reads from the sync context */
+export type SyncHelpersCtx = Pick<
+    SyncContext,
+    | "adapter"
+    | "e2eeEnabled"
+    | "index"
+    | "localIndex"
+    | "log"
+    | "pluginDataPath"
+    | "settings"
+    | "startPageToken"
+>;
+
 export async function computeLocalHash(
-    ctx: SyncContext,
+    ctx: SyncHelpersCtx,
     content: ArrayBuffer,
     indexEntry: { hash?: string; plainHash?: string },
     /** contentFingerprint(content) if the caller already computed it */
@@ -21,13 +35,13 @@ export async function computeLocalHash(
     return { localHash, compareHash };
 }
 
-export async function downloadRemoteIndex(ctx: SyncContext, fileId: string): Promise<LocalFileIndex> {
+export async function downloadRemoteIndex(ctx: SyncHelpersCtx, fileId: string): Promise<LocalFileIndex> {
     return (await downloadRemoteIndexData(ctx, fileId)).index;
 }
 
 /** The remote index plus the Changes API token its writer had when uploading it. */
 export async function downloadRemoteIndexData(
-    ctx: SyncContext,
+    ctx: SyncHelpersCtx,
     fileId: string,
 ): Promise<{ index: LocalFileIndex; startPageToken: string | null }> {
     const content = await ctx.adapter.downloadFile(fileId);
@@ -37,7 +51,7 @@ export async function downloadRemoteIndexData(
     return { index: parsed.index, startPageToken: parsed.startPageToken };
 }
 
-export function getThresholdBytes(ctx: SyncContext): number {
+export function getThresholdBytes(ctx: SyncHelpersCtx): number {
     return (ctx.settings.largeFileThresholdMB ?? 0) * 1024 * 1024;
 }
 
@@ -46,7 +60,7 @@ export function generateTransferId(direction: "push" | "pull"): string {
 }
 
 export function markPendingTransfer(
-    ctx: SyncContext,
+    ctx: SyncHelpersCtx,
     path: string,
     direction: "push" | "pull",
     snapshotHash: string,
@@ -86,7 +100,7 @@ export function markPendingTransfer(
  */
 const carriedRemoteEntries = new CtxState<LocalFileIndex>("carriedRemoteEntries", "Remote index entries kept for files this device has not pulled yet");
 
-export async function buildRemoteIndexPayload(ctx: SyncContext): Promise<ArrayBuffer> {
+export async function buildRemoteIndexPayload(ctx: SyncHelpersCtx): Promise<ArrayBuffer> {
     const merged: LocalFileIndex = { ...ctx.index };
     try {
         const meta = await ctx.adapter.getFileMetadata(ctx.pluginDataPath);
@@ -220,7 +234,7 @@ const attemptedUploads = new CtxState<Map<string, string[]>>("attemptedUploads",
 /** Unknown-outcome versions remembered per path (newest last) */
 const MAX_ATTEMPTS_PER_PATH = 3;
 
-export function recordAttemptedUpload(ctx: SyncContext, path: string, hash: string): void {
+export function recordAttemptedUpload(ctx: SyncHelpersCtx, path: string, hash: string): void {
     let m = attemptedUploads.get(ctx);
     if (!m) attemptedUploads.set(ctx, (m = new Map<string, string[]>()));
     const h = hash.toLowerCase();
@@ -230,31 +244,31 @@ export function recordAttemptedUpload(ctx: SyncContext, path: string, hash: stri
 }
 
 /** Returns true (and forgets the record) if `hash` is what we tried to upload to `path`. */
-export function takeAttemptedUpload(ctx: SyncContext, path: string, hash: string | undefined): boolean {
+export function takeAttemptedUpload(ctx: SyncHelpersCtx, path: string, hash: string | undefined): boolean {
     if (!isAttemptedUpload(ctx, path, hash)) return false;
     attemptedUploads.get(ctx)!.delete(path);
     return true;
 }
 
 /** Whether `hash` is one of our uploads to `path` with an unknown outcome */
-export function isAttemptedUpload(ctx: SyncContext, path: string, hash: string | undefined): boolean {
+export function isAttemptedUpload(ctx: SyncHelpersCtx, path: string, hash: string | undefined): boolean {
     const list = attemptedUploads.get(ctx)?.get(path);
     return !!list && !!hash && list.includes(hash.toLowerCase());
 }
 
 /** The hash we last tried to upload to `path` with an unknown outcome, if any. */
-export function peekAttemptedUpload(ctx: SyncContext, path: string): string | undefined {
+export function peekAttemptedUpload(ctx: SyncHelpersCtx, path: string): string | undefined {
     const list = attemptedUploads.get(ctx)?.get(path);
     return list?.[list.length - 1];
 }
 
 /** Forget the unknown-outcome upload of `path` (a later upload succeeded). */
-export function forgetAttemptedUpload(ctx: SyncContext, path: string): void {
+export function forgetAttemptedUpload(ctx: SyncHelpersCtx, path: string): void {
     attemptedUploads.get(ctx)?.delete(path);
 }
 
 /** Forget only the given version (an upload of it was never sent). */
-export function forgetAttemptedVersion(ctx: SyncContext, path: string, hash: string | undefined): void {
+export function forgetAttemptedVersion(ctx: SyncHelpersCtx, path: string, hash: string | undefined): void {
     const m = attemptedUploads.get(ctx);
     const list = m?.get(path);
     if (!list || !hash) return;
@@ -264,7 +278,7 @@ export function forgetAttemptedVersion(ctx: SyncContext, path: string, hash: str
 }
 
 /** The unknown-outcome uploads, for persisting with the local index */
-export function attemptedUploadsSnapshot(ctx: SyncContext): Record<string, string[]> | undefined {
+export function attemptedUploadsSnapshot(ctx: SyncHelpersCtx): Record<string, string[]> | undefined {
     const m = attemptedUploads.get(ctx);
     return m && m.size > 0 ? Object.fromEntries(m) : undefined;
 }
@@ -274,7 +288,7 @@ export function attemptedUploadsSnapshot(ctx: SyncContext): Record<string, strin
  * know whether its last uploads arrived; without the record, its own new note came
  * back as "another device's version" and the local copy became a conflict file.
  */
-export function restoreAttemptedUploads(ctx: SyncContext, data: unknown): void {
+export function restoreAttemptedUploads(ctx: SyncHelpersCtx, data: unknown): void {
     if (!data || typeof data !== "object") return;
     let m = attemptedUploads.get(ctx);
     if (!m) attemptedUploads.set(ctx, (m = new Map<string, string[]>()));
@@ -302,24 +316,24 @@ export interface PendingPull {
 
 const pendingPulls = new CtxState<Map<string, PendingPull>>("pendingPulls", "Pulls owed to a later sync, by file id");
 
-export function pendingPullsOf(ctx: SyncContext): Map<string, PendingPull> {
+export function pendingPullsOf(ctx: SyncHelpersCtx): Map<string, PendingPull> {
     let m = pendingPulls.get(ctx);
     if (!m) pendingPulls.set(ctx, (m = new Map<string, PendingPull>()));
     return m;
 }
 
 /** The background queue finished (or dropped) the pull of this file */
-export function settlePendingPull(ctx: SyncContext, fileId: string | undefined): void {
+export function settlePendingPull(ctx: SyncHelpersCtx, fileId: string | undefined): void {
     if (fileId) pendingPulls.get(ctx)?.delete(fileId);
 }
 
 /** The background queue gave up: let the Changes API retry pull it inline */
-export function releasePendingPull(ctx: SyncContext, fileId: string | undefined): void {
+export function releasePendingPull(ctx: SyncHelpersCtx, fileId: string | undefined): void {
     const p = fileId ? pendingPulls.get(ctx)?.get(fileId) : undefined;
     if (p) p.background = false;
 }
 
-export function pendingPullsSnapshot(ctx: SyncContext): Record<string, PendingPull> | undefined {
+export function pendingPullsSnapshot(ctx: SyncHelpersCtx): Record<string, PendingPull> | undefined {
     const m = pendingPulls.get(ctx);
     if (!m || m.size === 0) return undefined;
     const out: Record<string, PendingPull> = {};
@@ -330,7 +344,7 @@ export function pendingPullsSnapshot(ctx: SyncContext): Record<string, PendingPu
     return out;
 }
 
-export function restorePendingPulls(ctx: SyncContext, data: unknown): void {
+export function restorePendingPulls(ctx: SyncHelpersCtx, data: unknown): void {
     if (!data || typeof data !== "object") return;
     const m = pendingPullsOf(ctx);
     for (const [id, p] of Object.entries(data as Record<string, PendingPull>)) {

@@ -3,7 +3,18 @@ import { TFile } from "obsidian";
 import { capabilitiesOf, type FileRevision } from "../types/adapter";
 import type { SyncContext } from "./context";
 
-export function supportsHistory(ctx: SyncContext): boolean {
+/** What this module reads from the sync context */
+export type HistoryCtx = Pick<
+    SyncContext,
+    | "adapter"
+    | "log"
+    | "notify"
+    | "revisionCache"
+    | "t"
+    | "vault"
+>;
+
+export function supportsHistory(ctx: HistoryCtx): boolean {
     return capabilitiesOf(ctx.adapter).revisions;
 }
 
@@ -37,7 +48,7 @@ async function wrapHistoryCall<T>(fn: () => Promise<T>): Promise<T> {
     }
 }
 
-export async function listRevisions(ctx: SyncContext, path: string, fileId?: string): Promise<FileRevision[]> {
+export async function listRevisions(ctx: HistoryCtx, path: string, fileId?: string): Promise<FileRevision[]> {
     if (!supportsHistory(ctx) || !ctx.adapter.listRevisions) {
         throw new Error(
             ctx.t("historyNotSupported") || "Cloud adapter does not support history.",
@@ -47,7 +58,7 @@ export async function listRevisions(ctx: SyncContext, path: string, fileId?: str
 }
 
 export async function getRevisionContent(
-    ctx: SyncContext,
+    ctx: HistoryCtx,
     path: string,
     revisionId: string,
     fileId?: string,
@@ -71,7 +82,7 @@ export async function getRevisionContent(
 }
 
 export async function setRevisionKeepForever(
-    ctx: SyncContext,
+    ctx: HistoryCtx,
     path: string,
     revisionId: string,
     keepForever: boolean,
@@ -85,7 +96,7 @@ export async function setRevisionKeepForever(
     await ctx.log(`[History] Set keepForever=${keepForever} for ${path} (rev: ${revisionId})`, "info");
 }
 
-export async function deleteRevision(ctx: SyncContext, path: string, revisionId: string): Promise<void> {
+export async function deleteRevision(ctx: HistoryCtx, path: string, revisionId: string): Promise<void> {
     if (!supportsHistory(ctx) || !ctx.adapter.deleteRevision) {
         throw new Error(
             ctx.t("historyNotSupported") || "Cloud adapter does not support history.",
@@ -96,7 +107,7 @@ export async function deleteRevision(ctx: SyncContext, path: string, revisionId:
 }
 
 export async function restoreRevision(
-    ctx: SyncContext,
+    ctx: HistoryCtx,
     path: string,
     revision: FileRevision,
 ): Promise<void> {

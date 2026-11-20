@@ -10,7 +10,7 @@ describe("content identity", () => {
     const entry = { hash: "cloud-hash", plainHash: "plain-hash" };
 
     it("compares by the cloud hash when the cloud stores the bytes as they are", async () => {
-        const ctx = { e2eeEnabled: false };
+        const ctx = { e2eeEnabled: false, adapter: undefined };
         expect(storesTransformedContent(ctx)).toBe(false);
         expect(entryIdentityHash(ctx, entry)).toBe("cloud-hash");
         const content = bytes("a\r\nb");
@@ -18,7 +18,7 @@ describe("content identity", () => {
     });
 
     it("compares by plainHash when an add-on transforms the stored bytes", async () => {
-        const ctx = { e2eeEnabled: true };
+        const ctx = { e2eeEnabled: true, adapter: undefined };
         expect(storesTransformedContent(ctx)).toBe(true);
         expect(entryIdentityHash(ctx, entry)).toBe("plain-hash");
         expect(entryIdentityHash(ctx, { hash: "only-cloud" })).toBeUndefined();

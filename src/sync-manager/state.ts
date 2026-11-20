@@ -20,6 +20,35 @@ import {
     peekAttemptedUpload,
 } from "./sync-helpers";
 import { CtxState } from "./context-state";
+import type { FileUtilsCtx } from "./file-utils";
+import type { PlainHashCtx } from "./plain-hash-migration";
+import type { SyncHelpersCtx } from "./sync-helpers";
+
+/** What this module reads from the sync context */
+export type StateCtx = Pick<
+    SyncContext,
+    | "adapter"
+    | "communicationPath"
+    | "deletedFolders"
+    | "deviceId"
+    | "dirtyPaths"
+    | "e2eeEnabled"
+    | "index"
+    | "indexLoadFailed"
+    | "localIndex"
+    | "localIndexPath"
+    | "log"
+    | "logFolder"
+    | "pendingFolderMoves"
+    | "pluginDataPath"
+    | "pluginDir"
+    | "revisionCache"
+    | "startPageToken"
+    | "syncState"
+    | "syncingPaths"
+    | "unicodeInsensitiveFs"
+    | "vault"
+> & FileUtilsCtx & PlainHashCtx & SyncHelpersCtx;
 
 function generateDeviceId(): string {
     const randomArray = new Uint8Array(4);
@@ -79,7 +108,7 @@ interface CycleState {
 
 const cycleStates = new CtxState<CycleState>("syncCycle", "Caches and held merge locks of the running sync cycle");
 
-function cycleState(ctx: SyncContext): CycleState {
+function cycleState(ctx: StateCtx): CycleState {
     let s = cycleStates.get(ctx);
     if (!s) {
         s = {
@@ -99,7 +128,7 @@ function cycleState(ctx: SyncContext): CycleState {
 }
 
 /** Start of a sync cycle: enable caching, defer local-index writes. */
-export function beginSyncCycle(ctx: SyncContext): void {
+export function beginSyncCycle(ctx: StateCtx): void {
     const s = cycleState(ctx);
     s.active = true;
     s.comm = null;
@@ -107,7 +136,7 @@ export function beginSyncCycle(ctx: SyncContext): void {
 }
 
 /** End of a sync cycle: drop caches and flush deferred local-index writes. */
-export async function endSyncCycle(ctx: SyncContext): Promise<void> {
+export async function endSyncCycle(ctx: StateCtx): Promise<void> {
     const s = cycleState(ctx);
     // A merged result that could not be pushed this cycle: stop blocking other devices.
     for (const path of [...s.locksAwaitingPush]) {
@@ -143,7 +172,7 @@ function dropExpiredLocks(data: CommunicationData): CommunicationData {
  * always read fresh data.
  */
 export async function loadCommunication(
-    ctx: SyncContext,
+    ctx: StateCtx,
     opts: { fresh?: boolean } = {},
 ): Promise<CommunicationData> {
     const s = cycleState(ctx);
@@ -174,7 +203,7 @@ export async function loadCommunication(
     }
 }
 
-export async function saveCommunication(ctx: SyncContext, data: CommunicationData): Promise<void> {
+export async function saveCommunication(ctx: StateCtx, data: CommunicationData): Promise<void> {
     try {
         data.lastUpdated = Date.now();
         const content = new TextEncoder().encode(JSON.stringify(data, null, 2));
@@ -200,7 +229,7 @@ export async function saveCommunication(ctx: SyncContext, data: CommunicationDat
  * concurrent lock writes.
  */
 function enqueueLockOp(
-    ctx: SyncContext,
+    ctx: StateCtx,
     kind: LockOp["kind"],
     path: string,
     logPrefix?: string,
@@ -212,7 +241,7 @@ function enqueueLockOp(
     });
 }
 
-async function flushLockOps(ctx: SyncContext): Promise<void> {
+async function flushLockOps(ctx: StateCtx): Promise<void> {
     const s = cycleState(ctx);
     const ops = s.pendingLockOps.splice(0);
     if (ops.length === 0) return;
@@ -298,7 +327,7 @@ async function flushLockOps(ctx: SyncContext): Promise<void> {
 }
 
 export async function acquireMergeLock(
-    ctx: SyncContext,
+    ctx: StateCtx,
     path: string,
 ): Promise<{ acquired: boolean; holder?: string; expiresIn?: number }> {
     for (let attempt = 0; attempt < LOCK_MAX_ATTEMPTS; attempt++) {
@@ -325,7 +354,7 @@ export async function acquireMergeLock(
 }
 
 export async function releaseMergeLock(
-    ctx: SyncContext,
+    ctx: StateCtx,
     path: string,
     logPrefix?: string,
 ): Promise<void> {
@@ -345,11 +374,11 @@ export async function releaseMergeLock(
  * devices push in the gap, and the merged upload then overwrote their edit.
  */
 /** True while this device holds the merge lock for `path` in the current cycle. */
-export function holdsMergeLock(ctx: SyncContext, path: string): boolean {
+export function holdsMergeLock(ctx: StateCtx, path: string): boolean {
     return cycleState(ctx).heldLocks.has(path);
 }
 
-export function holdMergeLockUntilPush(ctx: SyncContext, path: string): boolean {
+export function holdMergeLockUntilPush(ctx: StateCtx, path: string): boolean {
     const s = cycleState(ctx);
     // Only inside a sync cycle: its push (or endSyncCycle) is guaranteed to release it
     if (!s.active || !s.heldLocks.has(path)) return false;
@@ -358,7 +387,7 @@ export function holdMergeLockUntilPush(ctx: SyncContext, path: string): boolean 
 }
 
 /** Release a lock kept by holdMergeLockUntilPush once the push of `path` finished (or failed). */
-export async function releaseLockAfterPush(ctx: SyncContext, path: string): Promise<void> {
+export async function releaseLockAfterPush(ctx: StateCtx, path: string): Promise<void> {
     const s = cycleState(ctx);
     if (!s.locksAwaitingPush.has(path)) return;
     await releaseMergeLock(ctx, path, "Smart Push");
@@ -371,7 +400,7 @@ export async function releaseLockAfterPush(ctx: SyncContext, path: string): Prom
  * TTL. A lock in our name that we do not hold is always such a ghost (or left
  * over from a crash): release it.
  */
-export async function releaseOrphanedOwnLocks(ctx: SyncContext, comm: CommunicationData): Promise<void> {
+export async function releaseOrphanedOwnLocks(ctx: StateCtx, comm: CommunicationData): Promise<void> {
     const s = cycleState(ctx);
     const now = Date.now();
     for (const [path, lock] of Object.entries(comm.mergeLocks)) {
@@ -382,7 +411,7 @@ export async function releaseOrphanedOwnLocks(ctx: SyncContext, comm: Communicat
     }
 }
 
-function fileIdOf(ctx: SyncContext, path: string): string | undefined {
+function fileIdOf(ctx: StateCtx, path: string): string | undefined {
     return ctx.index[path]?.fileId || ctx.localIndex[path]?.fileId || undefined;
 }
 
@@ -391,7 +420,7 @@ function fileIdOf(ctx: SyncContext, path: string): string | undefined {
  * other device knows the file under a different path (pending rename).
  */
 export function findForeignLock(
-    ctx: SyncContext,
+    ctx: StateCtx,
     comm: Pick<CommunicationData, "mergeLocks">,
     path: string,
     fileId: string | undefined = fileIdOf(ctx, path),
@@ -409,7 +438,7 @@ export function findForeignLock(
 }
 
 export async function checkMergeLock(
-    ctx: SyncContext,
+    ctx: StateCtx,
     path: string,
 ): Promise<{ locked: boolean; holder?: string; expiresIn?: number }> {
     const comm = await loadCommunication(ctx);
@@ -429,7 +458,7 @@ export async function checkMergeLock(
 // === Index Management ===
 
 /** Log what parseIndex() had to adapt (a foreign cursor, a document from a newer build) */
-export async function noteIndexFormat(ctx: SyncContext, parsed: ParsedIndex, which: "local" | "remote"): Promise<void> {
+export async function noteIndexFormat(ctx: Pick<SyncContext, "log">, parsed: ParsedIndex, which: "local" | "remote"): Promise<void> {
     if (parsed.cursorDropped) {
         await ctx.log(
             `[Index] The ${which} index cursor belongs to another cloud provider; ignoring it (full comparison instead).`,
@@ -445,7 +474,7 @@ export async function noteIndexFormat(ctx: SyncContext, parsed: ParsedIndex, whi
 }
 
 export async function loadIndex(
-    ctx: SyncContext,
+    ctx: StateCtx,
     tryDecompress: (data: ArrayBuffer) => Promise<ArrayBuffer>,
 ): Promise<void> {
     try {
@@ -495,7 +524,7 @@ export async function loadIndex(
     }
 }
 
-export async function loadLocalIndex(ctx: SyncContext): Promise<void> {
+export async function loadLocalIndex(ctx: StateCtx): Promise<void> {
     try {
         if (await ctx.vault.exists(ctx.localIndexPath)) {
             const data = await ctx.vault.read(ctx.localIndexPath);
@@ -576,7 +605,7 @@ export async function loadLocalIndex(ctx: SyncContext): Promise<void> {
     }
 }
 
-export async function saveIndex(ctx: SyncContext): Promise<void> {
+export async function saveIndex(ctx: StateCtx): Promise<void> {
     const data = serializeIndex(ctx.index, ctx.startPageToken, providerNameOf(ctx.adapter));
 
     // Ensure parent directory exists (may not on fresh install)
@@ -615,22 +644,22 @@ interface JournalState {
 }
 const journals = new CtxState<JournalState>("indexJournal", "Index entries written since the last full save");
 
-function journalOf(ctx: SyncContext): JournalState {
+function journalOf(ctx: StateCtx): JournalState {
     let j = journals.get(ctx);
     if (!j) journals.set(ctx, (j = { written: new Map(), seq: 0, journalDirty: false }));
     return j;
 }
 
-export function localIndexJournalPath(ctx: SyncContext): string {
+export function localIndexJournalPath(ctx: StateCtx): string {
     return ctx.localIndexPath.replace(/\.json$/, "") + "-journal.json";
 }
 
-function rememberWritten(ctx: SyncContext): void {
+function rememberWritten(ctx: StateCtx): void {
     const j = journalOf(ctx);
     j.written = new Map(Object.entries(ctx.localIndex));
 }
 
-async function writeJournal(ctx: SyncContext): Promise<void> {
+async function writeJournal(ctx: StateCtx): Promise<void> {
     const j = journalOf(ctx);
     const changed: Record<string, unknown> = {};
     let n = 0;
@@ -655,7 +684,7 @@ async function writeJournal(ctx: SyncContext): Promise<void> {
     }
 }
 
-async function applyJournal(ctx: SyncContext, seq: number): Promise<void> {
+async function applyJournal(ctx: StateCtx, seq: number): Promise<void> {
     const path = localIndexJournalPath(ctx);
     try {
         if (!(await ctx.vault.exists(path))) return;
@@ -674,7 +703,7 @@ async function applyJournal(ctx: SyncContext, seq: number): Promise<void> {
     }
 }
 
-export async function saveLocalIndex(ctx: SyncContext, immediate = false): Promise<void> {
+export async function saveLocalIndex(ctx: StateCtx, immediate = false): Promise<void> {
     const s = cycleState(ctx);
     if (s.deferDepth > 0 && !immediate) {
         s.localIndexDirty = true;
@@ -703,7 +732,7 @@ export async function saveLocalIndex(ctx: SyncContext, immediate = false): Promi
     }
 }
 
-export async function resetIndex(ctx: SyncContext): Promise<void> {
+export async function resetIndex(ctx: StateCtx): Promise<void> {
     ctx.index = {};
     ctx.localIndex = {};
     restorePlainHashVersion(ctx, undefined, true);
@@ -712,7 +741,7 @@ export async function resetIndex(ctx: SyncContext): Promise<void> {
     await saveIndex(ctx);
 }
 
-export function clearPendingPushStates(ctx: SyncContext): void {
+export function clearPendingPushStates(ctx: StateCtx): void {
     for (const path of Object.keys(ctx.localIndex)) {
         const entry = ctx.localIndex[path];
         if (entry.lastAction === "push" || entry.lastAction === "merge") {
@@ -730,7 +759,7 @@ export function clearPendingPushStates(ctx: SyncContext): void {
  * systems: on Linux / Windows the two spellings are two files. Case differences
  * are NOT folded: on Linux "Note.md" and "note.md" are two files.
  */
-export function indexKeyFor(ctx: SyncContext, path: string): string {
+export function indexKeyFor(ctx: StateCtx, path: string): string {
     if (!ctx.unicodeInsensitiveFs || ctx.index[path] || ctx.localIndex[path]) return path;
     const nfc = path.normalize("NFC");
     if (nfc === path && path.normalize("NFD") === path) return path; // plain ASCII etc.
@@ -738,7 +767,7 @@ export function indexKeyFor(ctx: SyncContext, path: string): string {
     return path;
 }
 
-export function markDirty(ctx: SyncContext, path: string): void {
+export function markDirty(ctx: StateCtx, path: string): void {
     path = indexKeyFor(ctx, normalizePath(path));
     if (shouldIgnore(ctx, path)) return;
     if (ctx.syncingPaths.has(path)) return;
@@ -754,19 +783,19 @@ export function markDirty(ctx: SyncContext, path: string): void {
 const deleteIntents = new CtxState<Set<string>>("deleteIntents", "Paths the user deleted, waiting to be removed from the cloud");
 const missingOnce = new CtxState<Set<string>>("missingOnce", "Paths found missing once, waiting one sync for a late rename event");
 
-function setOf(map: CtxState<Set<string>>, ctx: SyncContext): Set<string> {
+function setOf(map: CtxState<Set<string>>, ctx: StateCtx): Set<string> {
     let s = map.get(ctx);
     if (!s) map.set(ctx, (s = new Set()));
     return s;
 }
 
 /** A deletion the sync engine itself established (no vault event will report it). */
-export function noteDeleteIntent(ctx: SyncContext, path: string): void {
+export function noteDeleteIntent(ctx: StateCtx, path: string): void {
     setOf(deleteIntents, ctx).add(path);
 }
 
 /** True when a missing synced file may be deleted remotely now (see deleteIntents). */
-export function confirmMissingForDeletion(ctx: SyncContext, path: string): boolean {
+export function confirmMissingForDeletion(ctx: StateCtx, path: string): boolean {
     if (setOf(deleteIntents, ctx).delete(path)) {
         setOf(missingOnce, ctx).delete(path);
         return true;
@@ -777,7 +806,7 @@ export function confirmMissingForDeletion(ctx: SyncContext, path: string): boole
     return false;
 }
 
-export function markDeleted(ctx: SyncContext, path: string): void {
+export function markDeleted(ctx: StateCtx, path: string): void {
     path = indexKeyFor(ctx, path);
     if (shouldIgnore(ctx, path)) return;
     if (ctx.index[path]) {
@@ -787,7 +816,7 @@ export function markDeleted(ctx: SyncContext, path: string): void {
     }
 }
 
-export function markFolderDeleted(ctx: SyncContext, folderPath: string): void {
+export function markFolderDeleted(ctx: StateCtx, folderPath: string): void {
     if (shouldIgnore(ctx, folderPath)) return;
     ctx.deletedFolders.add(folderPath);
     void ctx.log(`[Dirty] Marked for deletion (folder root): ${folderPath}`, "debug");
@@ -810,7 +839,7 @@ export function markFolderDeleted(ctx: SyncContext, folderPath: string): void {
  */
 const ownRenames = new CtxState<Map<string, number>>("ownRenames", "Renames the sync made itself, so their vault events are ignored");
 
-export async function renameLocal(ctx: SyncContext, from: string, to: string): Promise<void> {
+export async function renameLocal(ctx: StateCtx, from: string, to: string): Promise<void> {
     let m = ownRenames.get(ctx);
     if (!m) ownRenames.set(ctx, (m = new Map<string, number>()));
     const key = `${from}\u0000${to}`;
@@ -823,7 +852,7 @@ export async function renameLocal(ctx: SyncContext, from: string, to: string): P
     }
 }
 
-function takeOwnRename(ctx: SyncContext, from: string, to: string): boolean {
+function takeOwnRename(ctx: StateCtx, from: string, to: string): boolean {
     const m = ownRenames.get(ctx);
     const key = `${from}\u0000${to}`;
     const n = m?.get(key);
@@ -840,7 +869,7 @@ function takeOwnRename(ctx: SyncContext, from: string, to: string): boolean {
  */
 const unsyncedRenames = new CtxState<Map<string, string>>("unsyncedRenames", "Renames of files not synced yet: old path to current path");
 
-function noteUnsyncedRename(ctx: SyncContext, from: string, to: string): void {
+function noteUnsyncedRename(ctx: StateCtx, from: string, to: string): void {
     let m = unsyncedRenames.get(ctx);
     if (!m) unsyncedRenames.set(ctx, (m = new Map<string, string>()));
     for (const [k, v] of m) if (v === from) m.set(k, to);
@@ -848,14 +877,14 @@ function noteUnsyncedRename(ctx: SyncContext, from: string, to: string): void {
 }
 
 /** Where a never-synced file once at `path` lives now, if it was renamed (forgets it). */
-export function takeUnsyncedRename(ctx: SyncContext, path: string): string | undefined {
+export function takeUnsyncedRename(ctx: StateCtx, path: string): string | undefined {
     const m = unsyncedRenames.get(ctx);
     const to = m?.get(path);
     if (to !== undefined) m!.delete(path);
     return to;
 }
 
-export function markRenamed(ctx: SyncContext, oldPath: string, newPath: string): void {
+export function markRenamed(ctx: StateCtx, oldPath: string, newPath: string): void {
     if (takeOwnRename(ctx, oldPath, newPath)) {
         void ctx.log(`[Dirty] Ignored our own rename: ${oldPath} -> ${newPath}`, "debug");
         return;
@@ -923,12 +952,12 @@ export function markRenamed(ctx: SyncContext, oldPath: string, newPath: string):
  * was closed before that, the next start saw the old name as deleted and the new one
  * as a new note, so the note ended up twice in the cloud.
  */
-function persistMove(ctx: SyncContext): void {
+function persistMove(ctx: StateCtx): void {
     void saveIndex(ctx).catch((e) => console.error("Vault-Sync: Failed to save index after a rename", e));
 }
 
 export function markFolderRenamed(
-    ctx: SyncContext,
+    ctx: StateCtx,
     oldFolderPath: string,
     newFolderPath: string,
 ): void {
@@ -981,14 +1010,14 @@ export function markFolderRenamed(
 
 // === State Queries ===
 
-export function getSyncState(ctx: SyncContext) {
+export function getSyncState(ctx: StateCtx) {
     return ctx.syncState;
 }
 
-export function hasDirtyFiles(ctx: SyncContext): boolean {
+export function hasDirtyFiles(ctx: StateCtx): boolean {
     return ctx.dirtyPaths.size > 0;
 }
 
-export function isFreshStart(ctx: SyncContext): boolean {
+export function isFreshStart(ctx: StateCtx): boolean {
     return ctx.indexLoadFailed || Object.keys(ctx.index).length === 0;
 }
