@@ -594,6 +594,31 @@ export class GoogleDriveAdapter implements OAuthCloudAdapter {
         return result;
     }
 
+    async copyFile(fileId: string, newName: string, newParentPath: string): Promise<CloudFile> {
+        const parentId = await this.pathResolver.resolveParentId(
+            (newParentPath ? newParentPath + "/" : "") + "__dummy__",
+            true,
+        );
+        const response = await this.http.fetchWithAuth(
+            `https://www.googleapis.com/drive/v3/files/${fileId}/copy?fields=id,name,mimeType,modifiedTime,size,md5Checksum`,
+            {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name: newName, parents: [parentId] }),
+            },
+        );
+        const data = (await response.json()) as DriveFile;
+        const path = newParentPath ? `${newParentPath}/${newName}` : newName;
+        return {
+            id: data.id,
+            path,
+            mtime: new Date(data.modifiedTime).getTime(),
+            size: parseInt(data.size || "0"),
+            kind: "file",
+            hash: data.md5Checksum,
+        };
+    }
+
     async fileExistsById(fileId: string): Promise<boolean> {
         try {
             const response = await this.http.fetchWithAuth(

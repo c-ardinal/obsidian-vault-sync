@@ -147,6 +147,12 @@ export class EncryptedAdapter implements CloudAdapter {
         return this.baseAdapter.moveFile(fileId, newName, newParentPath);
     }
 
+    /** Stored bytes are copied as they are, so the copy stays readable with the same key */
+    get copyFile(): CloudAdapter["copyFile"] {
+        const base = this.baseAdapter;
+        return base.copyFile ? (id, name, parent) => base.copyFile!(id, name, parent) : undefined;
+    }
+
     async createFolder(path: string): Promise<string> {
         return this.baseAdapter.createFolder(path);
     }

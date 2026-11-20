@@ -165,6 +165,15 @@ export interface CloudAdapter {
      * @returns Updated CloudFile metadata
      */
     moveFile(fileId: string, newName: string, newParentPath: string | null): Promise<CloudFile>;
+    /**
+     * Copy a file on the cloud side (nothing is downloaded) into a folder of this
+     * adapter's tree; missing folders are created. The source may be in another
+     * tree of the same account (e.g. the vault, when this adapter is a clone).
+     * The copy gets a new id and no revision history. Optional.
+     *
+     * @param newParentPath Folder path relative to this adapter's root ("" = root)
+     */
+    copyFile?(fileId: string, newName: string, newParentPath: string): Promise<CloudFile>;
     createFolder(path: string): Promise<string>;
     ensureFoldersExist(
         folderPaths: string[],

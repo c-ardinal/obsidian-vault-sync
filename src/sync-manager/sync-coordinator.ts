@@ -10,6 +10,7 @@ import {
     SCAN_FULL_SCAN_CHUNK_SIZE,
 } from "./constants";
 import { retryOverwriteRepairs } from "./overwrite-recovery";
+import { purgeTrashIfDue } from "./remote-trash";
 import { migratePlainHashes } from "./plain-hash-migration";
 
 
@@ -145,6 +146,7 @@ export async function executeSmartSync(ctx: SyncContext, scanVault: boolean): Pr
             await postPushPull(ctx);
         }
         await retryOverwriteRepairs(ctx);
+        await purgeTrashIfDue(ctx);
 
         if (!pulled && !pushed) {
             await ctx.notify("noticeVaultUpToDate");

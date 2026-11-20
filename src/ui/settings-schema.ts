@@ -6,7 +6,7 @@ import { SETTINGS_LIMITS } from "../constants";
 import { t } from "../i18n";
 import VaultSync from "../main";
 
-export type SettingType = "toggle" | "text" | "number" | "toggle-number" | "dropdown" | "textarea" | "info" | "subheader";
+export type SettingType = "toggle" | "text" | "number" | "toggle-number" | "dropdown" | "textarea" | "info" | "subheader" | "button";
 
 export interface SettingItem {
     key: string; // Changed from keyof VaultSyncSettings to support nested paths
@@ -29,6 +29,9 @@ export interface SettingItem {
     commitOnBlur?: boolean;
     isHidden?: (settings: VaultSyncSettings, plugin: VaultSync) => boolean;
     getDesc?: (settings: VaultSyncSettings, plugin: VaultSync) => string;
+    /** Button only: its text and what it does */
+    buttonText?: string;
+    onClick?: (plugin: VaultSync) => void;
 }
 
 export interface SettingSection {
@@ -164,6 +167,22 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                     desc: t("settingMassDeletePercentDesc"),
                     limits: SETTINGS_LIMITS.massDeleteConfirmPercent,
                     unit: t("unitPercent"),
+                },
+                {
+                    key: "remoteTrashRetentionDays",
+                    type: "toggle-number",
+                    label: t("settingRemoteTrash"),
+                    desc: t("settingRemoteTrashDesc"),
+                    limits: SETTINGS_LIMITS.remoteTrashRetentionDays,
+                    unit: t("unitDays"),
+                },
+                {
+                    key: "_open_remote_trash",
+                    type: "button",
+                    label: t("settingOpenRemoteTrash"),
+                    desc: t("settingOpenRemoteTrashDesc"),
+                    buttonText: t("settingOpenRemoteTrashButton"),
+                    onClick: (p) => p.openRemoteTrash(),
                 },
                 // ── Performance Tuning ──
                 {

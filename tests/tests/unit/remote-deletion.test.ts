@@ -113,6 +113,8 @@ describe("remote removals have one entry point", () => {
     it("only adapters and the deletion service call deleteFile()", () => {
         const allowed = [
             join("src", "sync-manager", "remote-deletion.ts"),
+            // Removes items of the trash only (purge, "delete for good"), never vault files
+            join("src", "sync-manager", "remote-trash.ts"),
             join("src", "cloud-adapters"),
             join("src", "encryption", "encrypted-adapter.ts"),
             join("src", "types", "adapter.ts"),

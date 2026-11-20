@@ -2,6 +2,7 @@ import { Notice, Plugin, TFile, setIcon, Platform } from "obsidian";
 import { createCloudAdapter, DEFAULT_CLOUD_PROVIDER } from "./cloud-adapters";
 import { MassDeleteGuard } from "./sync-manager/mass-change-guard";
 import { MassDeleteModal } from "./ui/mass-delete-modal";
+import { RemoteTrashModal } from "./ui/remote-trash-modal";
 import type { OAuthCloudAdapter } from "./types/oauth-adapter";
 import { SyncManager, type SyncTrigger } from "./sync-manager";
 import type { SecureStorage } from "./services/secure-storage";
@@ -580,6 +581,12 @@ export default class VaultSync extends Plugin {
         });
 
         this.addCommand({
+            id: "show-remote-trash",
+            name: t("labelRemoteTrashCommand"),
+            callback: () => this.openRemoteTrash(),
+        });
+
+        this.addCommand({
             id: "show-sync-status",
             name: t("labelShowSyncStatusCommand"),
             checkCallback: (checking: boolean) => {
@@ -802,6 +809,11 @@ export default class VaultSync extends Plugin {
         await this.settingsMgr.loadSettings();
         this.settings = this.settingsMgr.settings;
         this.secureStorage = this.settingsMgr.secureStorage;
+    }
+
+    /** The list of files kept in the cloud trash, with restore */
+    openRemoteTrash(): void {
+        new RemoteTrashModal(this.app, this.syncManager.adapter, this.settings.remoteTrashRetentionDays).open();
     }
 
     async saveSettings() {
