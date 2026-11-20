@@ -198,12 +198,15 @@ export class BackgroundTransferQueue {
             startedAt: Date.now(),
         };
         this.inlineActive.set(path, item);
+        this.ctx?.progress?.fileStarted(direction, path, size);
         this.callbacks.onQueueChange?.(this.getPendingTransfers());
     }
 
     /** Clear an inline transfer from the active tracking (call after completion or failure) */
     markInlineEnd(path: string): void {
+        const item = this.inlineActive.get(path);
         this.inlineActive.delete(path);
+        if (item) this.ctx?.progress?.fileFinished(item.direction, path);
         this.callbacks.onQueueChange?.(this.getPendingTransfers());
     }
 

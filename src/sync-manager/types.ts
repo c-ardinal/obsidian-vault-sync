@@ -6,6 +6,7 @@ export type SyncManagerSettings = Pick<
     | "largeFileThresholdMB"
     | "bgTransferIntervalSec"
     | "notificationLevel"
+    | "showSyncStatus"
     | "conflictResolutionStrategy"
     | "enableLogging"
     | "isDeveloperMode"

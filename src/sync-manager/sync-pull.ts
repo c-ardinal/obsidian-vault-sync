@@ -681,6 +681,10 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
 
     // === SIZE-BASED ROUTING: Partition pull items into inline and background ===
     const { inlineDownloads, deferredPullCount } = partitionPullsBySize(ctx, toDownload, remoteIndex);
+    ctx.progress?.plan(
+        "pull",
+        inlineDownloads.map((i) => ({ path: i.path, size: remoteIndex[i.path]?.size ?? 0 })),
+    );
 
     const counter: { completed: number; failed?: number } = { completed: 0 };
     const total = inlineDownloads.length + toDeleteLocal.length;
@@ -1453,6 +1457,7 @@ async function processChangePage(
                     "info",
                 );
             } else {
+                ctx.progress?.plan("pull", [{ path: cloudFile.path, size: cloudFile.size }]);
                 tasks.push(async () => {
                     const pullStartTime = Date.now();
                     ctx.backgroundTransferQueue.markInlineStart(cloudFile.path, "pull", cloudFile.size);

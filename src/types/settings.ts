@@ -29,6 +29,9 @@ export interface VaultSyncSettings {
     bgTransferIntervalSec: number;
 
     notificationLevel: "verbose" | "standard" | "error";
+    /** Status bar / mobile progress display of the running sync. Progress notices are
+     *  folded into it unless the notification level is verbose. */
+    showSyncStatus: boolean;
 
     // Conflict Resolution
     conflictResolutionStrategy: "smart-merge" | "force-local" | "force-remote" | "always-fork";

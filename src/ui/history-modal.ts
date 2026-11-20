@@ -1,6 +1,7 @@
 import {
     App,
     Modal,
+    Platform,
     TFile,
     setIcon,
     DropdownComponent,
@@ -58,20 +59,13 @@ export class HistoryModal extends Modal {
         this.syncManager.currentTrigger = "history-modal";
         const { contentEl, modalEl } = this;
         modalEl.addClass("mod-history-modal");
+        // Side-by-side diff does not fit a phone screen.
+        if (Platform.isPhone) this.diffMode = "unified";
 
         contentEl.empty();
 
-        // Header row with title and close button
-        const headerRow = contentEl.createDiv({ cls: "vault-sync-header-row" });
-        headerRow.createEl("h2", {
-            text: `${this.syncManager.t("historyTitle")}: ${this.file.name}`,
-        });
-        const closeBtn = headerRow.createEl("button", {
-            cls: "vault-sync-close-btn",
-            attr: { "aria-label": "Close" },
-        });
-        setIcon(closeBtn, "x");
-        closeBtn.addEventListener("click", () => this.close());
+        // Title goes in Obsidian's own modal header, next to its close button.
+        this.setTitle(`${this.syncManager.t("historyTitle")}: ${this.file.name}`);
 
         const cachedRevisions = HistoryModal.revisionCache.get(this.file.path);
         if (cachedRevisions) {
@@ -113,7 +107,7 @@ export class HistoryModal extends Modal {
             }
         } catch (e) {
             contentEl.empty();
-            contentEl.createEl("h2", { text: this.syncManager.t("historyError") });
+            this.setTitle(this.syncManager.t("historyError"));
             const errDiv = contentEl.createDiv({ cls: "error-text" });
             errDiv.setText(
                 `${this.syncManager.t("historyFailedToLoadHistory")}: ${e instanceof Error ? e.message : String(e)}`,
@@ -161,14 +155,8 @@ export class HistoryModal extends Modal {
             }
         }
 
-        // Header row with title and close button
-        const headerRow = contentEl.createDiv({ cls: "vault-sync-header-row" });
-        headerRow.createEl("h2", {
-            text: `${this.syncManager.t("historyTitle")}: ${this.file.name}`,
-        });
-
-        // Mobile-only: Toggle button for the drawer
-        const toggleHistoryBtn = headerRow.createEl("button", {
+        // Mobile-only: Toggle button for the drawer (floating)
+        const toggleHistoryBtn = contentEl.createEl("button", {
             cls: "vault-sync-history-toggle-btn",
             attr: { "aria-label": "Toggle History" },
         });
@@ -185,13 +173,6 @@ export class HistoryModal extends Modal {
             }
             toggleHistoryBtn.toggleClass("is-active", this.isDrawerOpen);
         });
-
-        const closeBtn = headerRow.createEl("button", {
-            cls: "vault-sync-close-btn",
-            attr: { "aria-label": "Close" },
-        });
-        setIcon(closeBtn, "x");
-        closeBtn.addEventListener("click", () => this.close());
 
         // --- Container Creation (Grid Layout) ---
         const container = contentEl.createDiv({ cls: "vault-sync-history-container" });
@@ -266,6 +247,8 @@ export class HistoryModal extends Modal {
                     // Oldest revision -> compare with empty
                     this.baseRevision = { id: "empty", modifiedTime: 0, size: 0 };
                 }
+                // The drawer covers the diff on a phone: close it to show the result.
+                if (Platform.isPhone) this.isDrawerOpen = false;
                 this.render(); // Re-render to show diff
             });
         }

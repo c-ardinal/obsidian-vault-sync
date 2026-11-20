@@ -1348,5 +1348,19 @@ describe("TriggerManager", () => {
             // Should fall back to "timer-sync" trigger type
             expect(syncManager.requestSmartSync).toHaveBeenCalledWith("timer-sync");
         });
+
+        it("should not reject when the sync fails (fire-and-forget callers)", async () => {
+            const { deps, syncManager } = createMockDeps({
+                triggerConfigStrategy: "unified",
+                unifiedTriggers: DEFAULT_SETTINGS.unifiedTriggers,
+            });
+            syncManager.requestSmartSync.mockRejectedValue(new Error("Not authenticated"));
+
+            const tm = new TriggerManager(deps);
+            tm.setReady(true);
+
+            await expect((tm as any).triggerSmartSync("layout-change")).resolves.toBeUndefined();
+            expect(syncManager.requestSmartSync).toHaveBeenCalledWith("layout-sync");
+        });
     });
 });

@@ -4,6 +4,7 @@ import { SyncManager, type SyncTrigger } from "./sync-manager";
 import type { SecureStorage } from "./services/secure-storage";
 import { HistoryModal } from "./ui/history-modal";
 import { TransferStatusModal } from "./ui/transfer-status-modal";
+import { SyncStatusView } from "./ui/sync-status-view";
 import { DEFAULT_SETTINGS } from "./constants";
 import { DATA_REMOTE_DIR, VaultSyncSettings } from "./types/settings";
 import { t, initI18n, setAddonStrings } from "./i18n";
@@ -50,6 +51,7 @@ export default class VaultSync extends Plugin {
     private syncRibbonIconEl: HTMLElement | null = null;
     private manualSyncInProgress = false;
     private mobileSyncFabEl: HTMLElement | null = null;
+    private syncStatusView: SyncStatusView | null = null;
     private settingTab: VaultSyncSettingTab | null = null;
     private triggerManager!: TriggerManager;
     private settingsMgr!: SettingsManager;
@@ -385,6 +387,16 @@ export default class VaultSync extends Plugin {
             },
         );
 
+        // Created before the onLayoutReady callback below: when the plugin is enabled
+        // after startup, that callback runs at once and reads currentTriggers.
+        this.triggerManager = new TriggerManager({
+            app: this.app,
+            settings: this.settings,
+            syncManager: this.syncManager,
+            registerEvent: (evt) => this.registerEvent(evt),
+            registerInterval: (id) => this.registerInterval(id),
+        });
+
         this.app.workspace.onLayoutReady(() => {
             void (async () => {
                 if (this.currentTriggers.enableStartupSync) {
@@ -501,7 +513,7 @@ export default class VaultSync extends Plugin {
             if (this.syncRibbonIconEl) {
                 await this.performSyncOperation(
                     [{ element: this.syncRibbonIconEl, originalIcon: "sync" }],
-                    () => this.syncManager.requestSmartSync("manual-sync"),
+                    () => this.requestManualSync(),
                 );
             }
         });
@@ -513,12 +525,10 @@ export default class VaultSync extends Plugin {
                 if (this.syncRibbonIconEl) {
                     await this.performSyncOperation(
                         [{ element: this.syncRibbonIconEl, originalIcon: "sync" }],
-                        async () => {
-                            await this.syncManager.requestSmartSync("manual-sync");
-                        },
+                        () => this.requestManualSync(),
                     );
                 } else {
-                    await this.syncManager.requestSmartSync("manual-sync");
+                    await this.requestManualSync();
                 }
             },
         });
@@ -552,9 +562,19 @@ export default class VaultSync extends Plugin {
 
         this.addCommand({
             id: "transfer-status",
-            name: t("labelTransferStatus"),
+            name: t("labelTransferStatusCommand"),
             callback: () => {
                 new TransferStatusModal(this.app, this.syncManager).open();
+            },
+        });
+
+        this.addCommand({
+            id: "show-sync-status",
+            name: t("labelShowSyncStatusCommand"),
+            checkCallback: (checking: boolean) => {
+                if (!this.syncStatusView?.mounted) return false;
+                if (!checking) this.syncStatusView.openDetails();
+                return true;
             },
         });
 
@@ -618,25 +638,13 @@ export default class VaultSync extends Plugin {
             },
         });
 
-        // 3. Mobile Floating Action Button (FAB) -> Fixed Top Center Indicator
-        if (Platform.isMobile) {
-            this.app.workspace.onLayoutReady(() => {
-                this.mobileSyncFabEl = activeDocument.body.createDiv("vault-sync-mobile-fab");
-                setIcon(this.mobileSyncFabEl, "sync");
-                this.mobileSyncFabEl.setAttribute("aria-label", t("labelSyncTooltip"));
-            });
-        }
+        // 3. Sync status display (status bar / mobile pill). On mobile, the older
+        // spinning indicator (FAB) is used only when the status display is off.
+        this.app.workspace.onLayoutReady(() => this.refreshSyncStatusView());
 
         this.settingTab = new VaultSyncSettingTab(this.app, this);
         this.addSettingTab(this.settingTab);
 
-        this.triggerManager = new TriggerManager({
-            app: this.app,
-            settings: this.settings,
-            syncManager: this.syncManager,
-            registerEvent: (evt) => this.registerEvent(evt),
-            registerInterval: (id) => this.registerInterval(id),
-        });
         this.triggerManager.setupAutoSyncInterval();
         this.triggerManager.registerTriggers();
 
@@ -664,12 +672,69 @@ export default class VaultSync extends Plugin {
 
     onunload() {
         this.triggerManager?.destroy();
+        this.syncStatusView?.unmount();
+        this.syncStatusView = null;
         if (this.mobileSyncFabEl) {
             this.mobileSyncFabEl.remove();
         }
+        this.syncManager?.progress.dispose();
         // Clean up background transfer queue (remove event listeners, flush history)
         if (this.syncManager) {
             this.syncManager.destroyTransferQueue();
+        }
+    }
+
+    /** Show or hide the sync status display to match the setting. */
+    refreshSyncStatusView(): void {
+        if (this.settings.showSyncStatus) {
+            this.mobileSyncFabEl?.remove();
+            this.mobileSyncFabEl = null;
+            if (!this.syncStatusView) this.syncStatusView = new SyncStatusView(this);
+            this.syncStatusView.mount();
+        } else {
+            this.syncStatusView?.unmount();
+            this.syncStatusView = null;
+            if (Platform.isMobile && !this.mobileSyncFabEl) {
+                this.mobileSyncFabEl = activeDocument.body.createDiv("vault-sync-mobile-fab");
+                setIcon(this.mobileSyncFabEl, "sync");
+                this.mobileSyncFabEl.setAttribute("aria-label", t("labelSyncTooltip"));
+            }
+        }
+    }
+
+    /** Manual sync started from the status panel (same path as the ribbon). */
+    async runManualSync(): Promise<void> {
+        if (this.syncRibbonIconEl) {
+            await this.performSyncOperation(
+                [{ element: this.syncRibbonIconEl, originalIcon: "sync" }],
+                () => this.requestManualSync(),
+            );
+        } else {
+            await this.requestManualSync();
+        }
+    }
+
+    /** Open this plugin's settings tab. */
+    openSettingsTab(): void {
+        const setting = (
+            this.app as unknown as {
+                setting?: { open(): void; openTabById(id: string): void };
+            }
+        ).setting;
+        if (!setting) return;
+        setting.open();
+        setting.openTabById(this.manifest.id);
+    }
+
+    /**
+     * Manual sync from the ribbon or a command. The sync already logs a failure and
+     * shows a notice, so it must not also surface as an unhandled rejection.
+     */
+    private async requestManualSync(): Promise<void> {
+        try {
+            await this.syncManager.requestSmartSync("manual-sync");
+        } catch {
+            /* reported by the sync */
         }
     }
 

@@ -43,15 +43,8 @@ export class TransferStatusModal extends Modal {
 
         const t = this.syncManager.t;
 
-        // Header
-        const headerRow = contentEl.createDiv({ cls: "vault-sync-header-row" });
-        headerRow.createEl("h2", { text: t("transferTitle") });
-        const closeBtn = headerRow.createEl("button", {
-            cls: "vault-sync-close-btn",
-            attr: { "aria-label": "Close" },
-        });
-        setIcon(closeBtn, "x");
-        closeBtn.addEventListener("click", () => this.close());
+        // Title goes in Obsidian's own modal header, next to its close button.
+        this.setTitle(t("transferTitle"));
 
         const container = contentEl.createDiv({ cls: "vault-sync-transfer-container" });
 

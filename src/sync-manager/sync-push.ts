@@ -251,6 +251,7 @@ async function uploadRemoteIndex(ctx: SyncContext): Promise<void> {
  */
 export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<boolean> {
     if (scanVault) {
+        ctx.progress?.setPhase("scanning");
         await scanVaultChanges(ctx);
     }
 
@@ -682,6 +683,10 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
         return true;
     }
 
+    ctx.progress?.plan(
+        "push",
+        inlineUploadQueue.map((f) => ({ path: f.path, size: f.size })),
+    );
     ctx.startActivity();
 
     try {

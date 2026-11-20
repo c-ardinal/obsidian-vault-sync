@@ -373,3 +373,29 @@ export const TRIGGER_PRIORITY: Record<SyncTrigger, number> = {
     "history-modal": 0,
     "e2ee-modal": 0,
 };
+
+/**
+ * Progress notices. When the sync status display is on, it shows this information,
+ * so these are hidden unless the notification level is "verbose". Errors, conflicts,
+ * deletions and add-on / auth messages are never in this set.
+ */
+export const PROGRESS_NOTICE_KEYS = new Set<string>([
+    "noticeSyncing",
+    "noticeScanningLocalFiles",
+    "noticeInitialSyncConfirmation",
+    "noticeWaitingForRemoteRegistration",
+    "noticePushCompleted",
+    "noticePullCompleted",
+    "noticeVaultUpToDate",
+    "noticeFilePushed",
+    "noticeFilePulled",
+    "noticeFileRenamed",
+    "noticeFileMoved",
+    "noticeSyncConfirmed",
+    "noticeMergingFile",
+    "noticeMergeSuccess",
+    "noticeRemoteMergeSynced",
+]);
+
+/** Notices that report a conflict copy; counted in the status display. */
+export const CONFLICT_NOTICE_KEYS = new Set<string>(["noticeConflictSaved", "noticeConflictRemoteSaved"]);

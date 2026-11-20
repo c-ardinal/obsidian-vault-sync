@@ -1,6 +1,6 @@
 {
     "name": "obsidian-vault-sync",
-    "version": "0.18.0",
+    "version": "0.18.1",
     "description": "Obsidian Cloud Storage Sync Plugin (Google Drive)",
     "type": "module",
     "main": "dist/cardinal-vault-sync/main.js",
@@ -37,6 +37,7 @@
         "@vitest/coverage-v8": "^4.0.18",
         "eslint": "^10.0.0",
         "obsidian": "latest",
+        "playwright-core": "^1.56.1",
         "rollup": "4.57.1",
         "tslib": "^2.8.1",
         "typescript": "5.9.3",

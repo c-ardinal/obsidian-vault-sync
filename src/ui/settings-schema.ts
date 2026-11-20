@@ -134,6 +134,15 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                         error: t("settingNotificationLevelError"),
                     },
                 },
+                {
+                    key: "showSyncStatus",
+                    type: "toggle",
+                    label: t("settingShowSyncStatus"),
+                    desc: t("settingShowSyncStatusDesc"),
+                    onChange: async (_val, p) => {
+                        p.refreshSyncStatusView();
+                    },
+                },
                 // ── Performance Tuning ──
                 {
                     key: "_subheader_performance",
