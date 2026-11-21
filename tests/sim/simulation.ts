@@ -504,6 +504,8 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
     const everIgnored = new Set<string>();
     /** Edits whose expected outcome is "kept somewhere", not "in the cloud file" */
     const looseEdits: { dev: string; fid: string; line: string; value: string }[] = [];
+    /** Binary versions written where the file was left out (fid -> device -> version) */
+    const looseBinary = new Map<string, Map<string, string>>();
     const ignoredOn = (d: SimDevice, path: string) => d.sm.shouldIgnore(path);
     /** Notes a device moved to where it does not sync (gone for the others) -> that device */
     const movedOutOfScope = new Map<string, string>();
@@ -604,7 +606,16 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
                 const path = list[Math.floor(a.pick * list.length)];
                 const fid = binaryMarker(dev.read(path)!)!.fid;
                 applied = await dev.userEdit(path, binaryContent(fid, a.version, cfg.seed));
-                if (applied && cfg.profile === "disjoint") expectedBinary[fid] = String(a.version);
+                if (applied && ignoredOn(dev, path)) {
+                    // Left out here: reaches the cloud only if the file is synced again
+                    // here before this device deletes it
+                    everIgnored.add(fid);
+                    if (!looseBinary.has(fid)) looseBinary.set(fid, new Map());
+                    looseBinary.get(fid)!.set(a.dev, String(a.version));
+                } else if (applied && cfg.profile === "disjoint") {
+                    expectedBinary[fid] = String(a.version);
+                    looseBinary.delete(fid);
+                }
                 log(a.dev, `USER edit-binary ${path} v${a.version}`);
                 break;
             }
@@ -927,7 +938,10 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
                 const content = cloudFiles[paths[0]];
                 if (fid in expectedBinary) {
                     const got = binaryMarker(content)?.version;
-                    if (got !== expectedBinary[fid] && !editsMayBeDropped) {
+                    const loose = [...(looseBinary.get(fid) ?? [])].some(
+                        ([dev, v]) => v === got && !localDeleted.get(dev)!.has(fid),
+                    );
+                    if (got !== expectedBinary[fid] && !editsMayBeDropped && !loose) {
                         const kept = (holdersOf.get(fid) ?? []).some(
                             (c) => binaryMarker(c)?.version === expectedBinary[fid],
                         );

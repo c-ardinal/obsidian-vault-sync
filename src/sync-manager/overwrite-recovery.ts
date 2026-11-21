@@ -1,3 +1,4 @@
+import { basename } from "../utils/path";
 import { contentFingerprint } from "./content-fingerprint";
 import type { SyncContext } from "./context";
 import { hashContent } from "./file-utils";
@@ -310,10 +311,16 @@ async function repairUnderLock(
             );
             if (!result) {
                 pending.delete(path);
+                // Not merged (a real conflict, or the "always keep both" setting): keep the
+                // other version next to ours as a conflict copy, as a pull does. Left only
+                // in the file's history, nobody ever saw that it had been replaced.
+                const copy = conflictCopyPathFor(path);
+                await ctx.vault.writeBinary(copy, new TextEncoder().encode(theirs).buffer);
                 await ctx.log(
-                    `[Overwrite Check] Could not merge ${path} automatically. The other version stays in its history.`,
+                    `[Overwrite Check] Could not merge ${path} automatically. The other version was saved as ${copy}.`,
                     "warn",
                 );
+                await ctx.notify("noticeConflictSaved", basename(copy), { sticky: true, openPath: copy });
                 return false;
             }
             const latest = await ctx.vault.readBinary(path);
@@ -409,4 +416,11 @@ export function restoreOverwriteRepairs(ctx: object, data: unknown): void {
             map.set(path, { fileId: c.fileId, ourHash: c.ourHash, known: c.known.filter(str), since: c.since });
         }
     }
+}
+
+/** Where a conflict copy of `path` goes (same naming as a pull's conflict copies) */
+function conflictCopyPathFor(path: string): string {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    const dot = path.lastIndexOf(".");
+    return dot > path.lastIndexOf("/") ? `${path.slice(0, dot)} (Conflict ${timestamp})${path.slice(dot)}` : `${path} (Conflict ${timestamp})`;
 }

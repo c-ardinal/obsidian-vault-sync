@@ -214,8 +214,9 @@ async function owePullsFromIndex(ctx: SyncContext, remote: LocalFileIndex): Prom
         if (isDeviceExcluded(ctx, path)) {
             // Left out here: never pulled, but the shared index must keep listing
             // it (ours just replaced theirs). Our next upload takes it from here.
-            const last = lastReadRemoteIndex.get(ctx);
-            if (last && !last[path]) last[path] = entry;
+            let relist = relistForOthers.get(ctx);
+            if (!relist) relistForOthers.set(ctx, (relist = {}));
+            relist[path] = entry;
             noteSkippedOutOfScope(ctx, path, entry);
             continue;
         }
@@ -224,6 +225,12 @@ async function owePullsFromIndex(ctx: SyncContext, remote: LocalFileIndex): Prom
         await ctx.log(`[Index] ${path} is listed by another device but was never pulled here. Pulling it next sync.`, "info");
     }
 }
+
+/**
+ * Entries of an index ours replaced, for files this device leaves out (so never
+ * pulls, and its own index never lists): the next upload lists them again.
+ */
+const relistForOthers = new CtxState<LocalFileIndex>("relistForOthers", "Entries of a replaced index for files left out here, listed again by the next upload");
 
 export function oweUnseenPull(ctx: SyncHelpersCtx & { dirtyPaths?: Map<string, number> }, path: string, entry: LocalFileIndex[string]): void {
     if (!entry.fileId || ctx.dirtyPaths?.has(path)) return;
@@ -379,6 +386,13 @@ export async function buildRemoteIndexPayload(ctx: SyncHelpersCtx): Promise<Arra
         if (readingRemote) throw e;
         // Unreadable (damaged) cloud index: ours replaces it
         await ctx.log(`[Index] Could not merge remote index, uploading local index as-is: ${String(e)}`, "warn");
+    }
+    const relist = relistForOthers.get(ctx);
+    relistForOthers.delete(ctx);
+    for (const [p, e] of Object.entries(relist ?? {})) {
+        if (merged[p] || !isDeviceExcluded(ctx, p)) continue;
+        if (Object.values(merged).some((m) => m.fileId === e.fileId)) continue;
+        merged[p] = e;
     }
     // Cloud files we know of but have not pulled yet (deferred to the background queue,
     // or failed). The index carries our Changes token, which is already past them: a

@@ -227,6 +227,18 @@ export function singleFactorCombinations(): Combination[] {
     return out;
 }
 
+/** A combination given by its level ids (factors not named take their first value) */
+export function combinationOf(name: string, levels: Record<string, string>): Combination {
+    const row = FACTORS.map((f) => {
+        const id = levels[f.name];
+        if (id === undefined) return 0;
+        const i = f.levels.findIndex((l) => l.id === id);
+        if (i < 0) throw new Error(`unknown level ${f.name}=${id}`);
+        return i;
+    });
+    return build(row, 0, name);
+}
+
 function build(levels: number[], index: number, name?: string): Combination {
     const draft: Draft = {
         cfg: {

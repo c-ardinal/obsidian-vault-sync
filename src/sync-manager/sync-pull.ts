@@ -56,6 +56,7 @@ async function checkMergeLocks(ctx: SyncContext): Promise<void> {
     let localIndexChanged = false;
     for (const [path, lock] of Object.entries(commData.mergeLocks)) {
         if (lock.holder !== ctx.deviceId && lock.expiresAt > now) {
+            if (isDeviceExcluded(ctx, path)) continue; // not synced here: nothing to wait for
             await ctx.log(
                 `[Smart Pull] Active merge lock detected: ${path} by ${lock.holder} (expires in ${Math.round((lock.expiresAt - now) / 1000)}s)`,
                 "warn",
@@ -592,6 +593,12 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
                         // Renamed (or resolved) locally since the list was made: the entry
                         // moved on. Pulling the old path recreated the note there as a copy.
                         if (!ctx.localIndex[path]?.pendingConflict) continue;
+                        if (isDeviceExcluded(ctx, path)) {
+                            // Left out here since: never pulled here, so nothing to re-check
+                            delete ctx.localIndex[path].pendingConflict;
+                            await saveLocalIndex(ctx);
+                            continue;
+                        }
                         const fileId =
                             ctx.localIndex[path]?.fileId || ctx.index[path]?.fileId || remoteIndex[path]?.fileId;
                         let meta: Awaited<ReturnType<typeof ctx.adapter.getFileMetadata>> = null;
