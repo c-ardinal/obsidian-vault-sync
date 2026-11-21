@@ -292,6 +292,15 @@ async function repairUnderLock(
             await ctx.log(`[Overwrite Check] ${path} changed again meanwhile. Repairing after the next pull.`, "info");
             return false;
         }
+        const strategy = ctx.settings.conflictResolutionStrategy;
+        if (strategy === "force-local" || strategy === "force-remote") {
+            // One version wins by the user's choice, and the latest upload is the one
+            // every device converges on. Repairing swapped versions instead: two devices
+            // repairing at once each took the other's version, and ended up apart.
+            pending.delete(path);
+            await ctx.log(`[Overwrite Check] ${path}: the replaced version stays in its history (conflict setting: ${strategy}).`, "info");
+            return false;
+        }
         const theirs = new TextDecoder().decode(
             await getRevisionContent(ctx, path, repair.overwrittenId, repair.fileId),
         );

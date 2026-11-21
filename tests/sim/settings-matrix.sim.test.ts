@@ -89,6 +89,15 @@ const PINNED: { title: string; seed: number; levels: Record<string, string> }[] 
         },
     },
     {
+        title: "force-remote: two devices repairing the same overwrite at once end up with the same version",
+        seed: 322,
+        levels: {
+            conflict: "force-remote", images: "changed-mid-run", "settings-sync": "per-device", concurrency: "2",
+            "large-files": "background-throttled", encryption: "non-md5-cloud", "keep-revisions": "daily",
+            "sync-frequency": "near-realtime", devices: "mixed-os", "app-restarts": "restarts",
+        },
+    },
+    {
         title: "background pull cancelled by our own earlier write: the newer version still arrives",
         seed: 44,
         levels: {
