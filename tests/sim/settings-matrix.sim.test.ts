@@ -345,6 +345,16 @@ const PINNED: { title: string; seed: number; levels: Record<string, string> }[] 
             "keep-revisions": "off", "sync-frequency": "near-realtime", network: "clean", devices: "linux", "app-restarts": "none",
         },
     },
+    {
+        title: "note moved, its folder left out, then deleted there: the late old-name upload goes",
+        seed: 1345,
+        levels: {
+            conflict: "always-fork", exclusion: "one-device-only", images: "on", "device-list": "changed-mid-run",
+            "settings-sync": "shared", deletes: "deletes+confirm", "large-files": "background-throttled",
+            encryption: "non-md5-cloud", concurrency: "5", "cloud-trash": "30-days", "keep-revisions": "daily",
+            "sync-frequency": "near-realtime", network: "flaky", devices: "linux", "app-restarts": "restarts",
+        },
+    },
 ];
 
 if (!ONLY_COMBO) {

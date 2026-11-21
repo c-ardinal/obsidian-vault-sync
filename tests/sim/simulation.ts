@@ -921,6 +921,13 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
                 if (!keptOutside && (pathsAnywhere.get(fid) ?? []).some((p) => ignoredOn(d, p))) continue;
                 const mover = movedOutOfScope.get(fid);
                 if (mover && mover !== d.name) continue;
+                // Moved by another device to a place it left out only afterwards, before
+                // the move was pushed, and deleted there: taken out of the sync by that
+                // device (its upload of the old name, landing late, is removed as stray)
+                const leftBehind =
+                    (movedTo.get(fid)?.size ?? 0) > 0 &&
+                    [...devices.values()].some((o) => o !== d && localDeleted.get(o.name)!.has(fid));
+                if (leftBehind && everIgnored.has(fid) && !now.has(fid)) continue;
                 if (!now.has(fid))
                     fail("SCOPE_LOSS", `${d.name} lost note ${fid} after a settings change (nobody deleted it)`);
             }
