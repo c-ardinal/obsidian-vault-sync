@@ -1303,6 +1303,19 @@ async function processChangePage(
                 continue;
             }
 
+            // A new file whose name (or its other spelling) a file of this batch is about
+            // to leave here: apply that rename first. Pulled before it, the new file was
+            // written over that note on a case/Unicode-insensitive disk.
+            if (!localIdToPath.has(cloudFile.id) && !deferred.has(change)) {
+                const holder = findPathCollision(ctx, cloudFile.path, cloudFile.id);
+                const holderId = holder ? ctx.index[holder]?.fileId : undefined;
+                if (holderId && movingAway.has(holderId)) {
+                    deferred.add(change);
+                    queue.push(change);
+                    continue;
+                }
+            }
+
             // Remote rename of a file we know under another path
             if (localIdToPath.has(cloudFile.id)) {
                 const prevPathForId = localIdToPath.get(cloudFile.id);
@@ -1332,7 +1345,7 @@ async function processChangePage(
                             `[Changes API] Remote Rename ${oldPath} -> ${newPath} waits: another note here left that name and is not synced yet.`,
                             "info",
                         );
-                        failed.push(cloudFile);
+                        skippedRenamesOf(ctx).set(cloudFile.id, newPath);
                         continue;
                     }
 
@@ -1864,6 +1877,9 @@ async function retrySkippedRenames(ctx: SyncContext): Promise<void> {
             continue;
         }
         if (ctx.dirtyPaths.has(oldPath) || (await ctx.vault.exists(target)) || !(await ctx.vault.exists(oldPath))) continue;
+        // Another note of ours still holds the name until its deletion or rename is pushed
+        const occupant = ctx.index[target];
+        if (occupant?.fileId && occupant.fileId !== id) continue;
         const meta = await ctx.adapter.getFileMetadataById(id, target).catch(() => undefined);
         if (meta === undefined) continue; // unknown now: try again later
         m.delete(id);
@@ -1873,6 +1889,11 @@ async function retrySkippedRenames(ctx: SyncContext): Promise<void> {
             moveIndexEntry(ctx, oldPath, target);
             moveAttemptedUploads(ctx, oldPath, target);
             await ctx.log(`[Changes API] Remote Rename (deferred): ${oldPath} -> ${target}. The name is free now.`, "info");
+            // The note may have been edited along with the rename: pull that version too
+            const known = ctx.localIndex[target]?.hash;
+            if (meta.hash && known?.toLowerCase() !== meta.hash.toLowerCase()) {
+                pendingPullsOf(ctx).set(id, { file: { id: meta.id, path: target, hash: meta.hash, size: meta.size, mtime: meta.mtime }, attempts: 0 });
+            }
         } catch (e) {
             await ctx.log(`[Changes API] Failed to rename ${oldPath} -> ${target}: ${String(e)}`, "warn");
         }

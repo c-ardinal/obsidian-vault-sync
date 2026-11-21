@@ -611,15 +611,27 @@ async function isOurLostUpload(
     fileId: string,
 ): Promise<boolean> {
     if (!storesTransformedContent(ctx)) return takeAttemptedUpload(ctx, item.path, item.hash);
-    const sent = peekAttemptedUpload(ctx, item.path);
-    if (!sent || !item.hash || !supportsHistory(ctx)) return false;
-    const found = await findRevisionByContent(ctx, item.path, fileId, sent).catch((e) => {
+    // Every attempt counts, not only the newest: a lost upload followed by an edit and
+    // a second attempt left the first one unrecognized, and our own version came back
+    // as another device's edit (binary files: a conflict copy).
+    const attempts = attemptedUploadsOf(ctx, item.path);
+    if (attempts.length === 0 || !item.hash || !supportsHistory(ctx)) return false;
+    const remoteHash = item.hash.toLowerCase();
+    let sent: string | undefined;
+    try {
+        const revisions = await listRevisions(ctx, item.path, fileId);
+        const rev = [...revisions].reverse().find((r) => r.hash?.toLowerCase() === remoteHash);
+        if (!rev) return false;
+        const content = await getRevisionContent(ctx, item.path, rev.id, fileId);
+        const got = contentFingerprint(content);
+        sent = attempts.find((a) => a === got);
+    } catch (e) {
         // Unreadable history: retry later. Taking our own lost upload for another
         // device's edit merged from an older base and lost our later lines.
         if (e instanceof TransientHistoryError) throw e;
-        return null;
-    });
-    if (!found || found.hash !== item.hash.toLowerCase()) return false;
+        return false;
+    }
+    if (!sent) return false;
     return takeAttemptedUpload(ctx, item.path, sent);
 }
 
@@ -1453,18 +1465,30 @@ async function pullFileUnchecked(
                                 // Fold only the new typing into the result: merging the newest
                                 // text from the old base again could clash with the remote on a
                                 // line the first merge had already settled (a false conflict).
+                                // Merging from the old base again is the fallback: the typing
+                                // may touch a line next to what the first merge changed.
                                 const typedFrom = new TextDecoder().decode(latestLocal);
                                 latestLocal = reread;
-                                merged = await perform3WayMerge(
-                                    ctx,
-                                    item.path,
-                                    new TextDecoder().decode(reread),
-                                    new TextDecoder().decode(merged),
-                                    baseHashFound,
-                                    fileId,
-                                    knownRevisions,
-                                    typedFrom,
-                                );
+                                merged =
+                                    (await perform3WayMerge(
+                                        ctx,
+                                        item.path,
+                                        new TextDecoder().decode(reread),
+                                        new TextDecoder().decode(merged),
+                                        baseHashFound,
+                                        fileId,
+                                        knownRevisions,
+                                        typedFrom,
+                                    )) ??
+                                    (await perform3WayMerge(
+                                        ctx,
+                                        item.path,
+                                        new TextDecoder().decode(reread),
+                                        remoteContentStr,
+                                        baseHashFound,
+                                        fileId,
+                                        knownRevisions,
+                                    ));
                             }
 
                             if (merged && (vanished || !(await ctx.vault.exists(item.path)))) {

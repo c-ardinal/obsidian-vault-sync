@@ -974,6 +974,30 @@ const FIXED_REGRESSIONS: Case[] = [
         config: { seed: 230234, ...RESTART },
         expect: [],
     },
+    {
+        title: "chaos: a deferred remote rename is applied once the name is free",
+        symptom: "A remote rename that waited for our deleted note to leave the name was dropped, and the note stayed under its old name",
+        config: { seed: 230377, ...CHAOS },
+        expect: [],
+    },
+    {
+        title: "e2ee: an earlier lost upload is recognized after a later attempt",
+        symptom: "Our own lost upload of a binary file came back as another device's edit and became a conflict copy",
+        config: { seed: 250733, ...E2EE },
+        expect: [],
+    },
+    {
+        title: "chaos: an edit reported under the name the sync just moved the note from is pushed",
+        symptom: "The edit went with the note renamed to a free name, but only the old name was marked, and the edit never reached the cloud",
+        config: { seed: 250229, ...CHAOS },
+        expect: [],
+    },
+    {
+        title: "chaos: a note present under another Unicode spelling does not hold new notes back",
+        symptom: "macOS: a synced note seen only in NFD form counted as a missing note, and every new note waited behind it",
+        config: { seed: 250750, ...CHAOS },
+        expect: [],
+    },
 ];
 
 function configOf(c: Case, name: string): SimConfig {

@@ -293,7 +293,15 @@ async function holdUnexplainedNewFiles(
     unreported: Set<string>,
 ): Promise<void> {
     let held = unexplainedNew.get(ctx);
-    const stillMissing = missing.filter((p) => !!ctx.localIndex[p] && !hasDeleteIntent(ctx, p));
+    const stillMissing: string[] = [];
+    for (const p of missing) {
+        if (!ctx.localIndex[p] || hasDeleteIntent(ctx, p)) continue;
+        // Not listed under this spelling but present under another one (macOS/Windows
+        // fold letter case and Unicode form): not a rename whose event is on its way.
+        // Counted as one, every new note waited behind it on each scan.
+        if ((ctx.caseInsensitiveFs || ctx.unicodeInsensitiveFs) && (await ctx.vault.exists(p))) continue;
+        stillMissing.push(p);
+    }
     if (stillMissing.length === 0) {
         held?.clear();
         missingSince.get(ctx)?.clear();

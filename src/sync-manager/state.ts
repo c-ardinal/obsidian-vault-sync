@@ -816,6 +816,14 @@ export function indexKeyFor(ctx: StateCtx, path: string): string {
 export function markDirty(ctx: StateCtx, path: string): void {
     path = indexKeyFor(ctx, normalizePath(path));
     if (shouldIgnore(ctx, path)) return;
+    // An edit reported under a name the sync has just moved the note away from (its
+    // rename event not here yet): the edit went with the note. Checked at the push
+    // (unchanged content is skipped); left unmarked, the moved note kept the edit
+    // here only and never uploaded it.
+    for (const key of ownRenames.get(ctx)?.keys() ?? []) {
+        const [from, to] = key.split("\u0000");
+        if (from === path && to && !shouldIgnore(ctx, to)) ctx.dirtyPaths.set(to, Date.now());
+    }
     if (ctx.syncingPaths.has(path)) {
         // Usually the echo of our own write, but it can be a user edit typed while the
         // engine still held the path (after its write, until the merge lock was
