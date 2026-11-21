@@ -49,6 +49,15 @@ describe("index document", () => {
         expect(parseIndex(newer, "X").fromNewerBuild).toBe(true);
     });
 
+    it("carries deletion marks, and reads documents without them", () => {
+        const deleted = { f9: { hash: "abc", at: 5 } };
+        const parsed = parseIndex(serializeIndex(index, "tok-1", "Google Drive", deleted), "Google Drive");
+        expect(parsed.deleted).toEqual(deleted);
+        expect(parseIndex(serializeIndex(index, "tok-1", "Google Drive"), "Google Drive").deleted).toEqual({});
+        // No marks: the document is the same as before marks existed
+        expect(JSON.parse(serializeIndex(index, "t", "X", {}))).not.toHaveProperty("deleted");
+    });
+
     it("names the provider of a wrapped adapter by its base adapter", () => {
         const base = { name: "Google Drive" };
         expect(providerNameOf({ name: "Google Drive (Encrypted)", getBaseAdapter: () => base as never })).toBe(

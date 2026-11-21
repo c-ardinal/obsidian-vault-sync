@@ -4,7 +4,7 @@ import { recordActivity } from "./device-registry";
 import { contentFingerprint } from "./content-fingerprint";
 import type { SyncContext } from "./context";
 import type { FileRevision } from "../types/adapter";
-import { ensureLocalFolder, hashContent, normalizeLineEndings, plainHashMatches } from "./file-utils";
+import { ensureLocalFolder, hashContent, normalizeLineEndings, plainHashMatches, shouldIgnore } from "./file-utils";
 import {
     checkMergeLock,
     acquireMergeLock,
@@ -777,6 +777,42 @@ async function dropOrphanedOwnUpload(
     }
     if (!sent || !isAttemptedUpload(ctx, item.path, sent)) return false;
     if (await ctx.vault.exists(item.path)) return false;
+    // Renamed while the app was closed (no rename event to tell): the note is here as a
+    // new file with exactly the content sent. Another device may already have pulled
+    // and edited our upload; removing it then left their edit as a second copy of the
+    // note. Move it to the new name instead, as for a rename we saw.
+    const renamedTo = await unsyncedFileWithContent(ctx, item.path, sent);
+    if (renamedTo) {
+        try {
+            await ctx.adapter.moveFile(fileId, basename(renamedTo), dirname(renamedTo) || null);
+        } catch (e) {
+            await ctx.log(`[${logPrefix}] Could not move our lost upload ${item.path} to ${renamedTo}: ${String(e)}`, "warn");
+            throw e;
+        }
+        takeAttemptedUpload(ctx, item.path, sent);
+        const hash = item.hash!.toLowerCase();
+        const plainHash = storesTransformedContent(ctx)
+            ? await hashContent(await ctx.vault.readBinary(renamedTo))
+            : undefined;
+        const entry = {
+            fileId,
+            mtime: item.mtime ?? Date.now(),
+            size: item.size ?? 0,
+            hash,
+            ...(plainHash ? { plainHash } : {}),
+            lastAction: "push" as const,
+            ancestorHash: hash,
+        };
+        ctx.index[renamedTo] = { ...entry };
+        ctx.localIndex[renamedTo] = { ...entry };
+        ctx.dirtyPaths.delete(renamedTo);
+        await saveLocalIndex(ctx);
+        await ctx.log(
+            `[${logPrefix}] ${item.path} is our own upload (response lost) of the note now at ${renamedTo}. Moved it there.`,
+            "info",
+        );
+        return true;
+    }
     try {
         await removeRemote(ctx, { id: fileId, path: item.path, kind: "file" }, "superseded-upload");
     } catch (e) {
@@ -790,6 +826,31 @@ async function dropOrphanedOwnUpload(
         "info",
     );
     return true;
+}
+
+/** Candidates read at most, so a large vault never stalls a pull on this */
+const RENAME_SEARCH_MAX_FILES = 200;
+
+/**
+ * A local file not synced yet, of the same type as `path`, whose bytes are exactly
+ * `fingerprint`: the note uploaded under `path` and renamed since. Only a single
+ * match counts (two copies of the same content cannot be told apart).
+ */
+async function unsyncedFileWithContent(ctx: SyncContext, path: string, fingerprint: string): Promise<string | null> {
+    const ext = path.includes(".") ? path.slice(path.lastIndexOf(".")) : "";
+    const candidates = ctx.vault
+        .getFiles()
+        .map((f) => f.path)
+        .filter((p) => p !== path && !ctx.index[p] && !ctx.localIndex[p] && p.endsWith(ext) && !shouldIgnore(ctx, p))
+        .slice(0, RENAME_SEARCH_MAX_FILES);
+    let found: string | null = null;
+    for (const p of candidates) {
+        const content = await ctx.vault.readBinary(p).catch(() => null);
+        if (!content || contentFingerprint(content) !== fingerprint.toLowerCase()) continue;
+        if (found) return null;
+        found = p;
+    }
+    return found;
 }
 
 const vanishedLocally = new CtxState<Map<string, number>>(

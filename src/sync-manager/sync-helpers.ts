@@ -1,6 +1,6 @@
 import { contentFingerprint } from "./content-fingerprint";
 import type { SyncContext } from "./context";
-import { parseIndex, providerNameOf, serializeIndex } from "./remote-layout";
+import { parseIndex, providerNameOf, serializeIndex, type DeletionMark, type DeletionMarks } from "./remote-layout";
 import { noteIndexFormat } from "./state";
 import type { LocalFileIndex } from "./types";
 import { tryDecompress, hashContent, isDeviceExcluded } from "./file-utils";
@@ -69,7 +69,53 @@ async function parseRemoteIndexBytes(
     const decompressed = await tryDecompress(content);
     const parsed = parseIndex(new TextDecoder().decode(decompressed), providerNameOf(ctx.adapter));
     await noteIndexFormat(ctx, parsed, "remote");
+    learnDeletionMarks(ctx, parsed.deleted);
     return { index: parsed.index, startPageToken: parsed.startPageToken };
+}
+
+/**
+ * Deletion marks: which cloud version a device checked right before deleting a
+ * file. The cloud cannot delete "only if unchanged", so another device's upload
+ * can land between that check and the delete. The uploading device compares the
+ * mark with its own upload: a different version means the deletion never saw its
+ * edit, and the edit is uploaded again instead of being deleted with the file.
+ */
+const knownDeletionMarks = new CtxState<DeletionMarks>("knownDeletionMarks", "Deletion marks read from the shared index or written by us");
+/** Marks are kept this long, and at most this many */
+const DELETION_MARK_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const DELETION_MARK_MAX = 1000;
+
+function learnDeletionMarks(ctx: object, marks: DeletionMarks): void {
+    const known = knownDeletionMarks.get(ctx) ?? {};
+    for (const [id, m] of Object.entries(marks)) {
+        if (!m || typeof m.at !== "number") continue;
+        if (!known[id] || known[id].at < m.at) known[id] = m;
+    }
+    knownDeletionMarks.set(ctx, known);
+}
+
+/** Record that we deleted cloud file `fileId` after seeing version `hash` there. */
+export function noteDeletionMark(ctx: object, fileId: string, hash: string | undefined): void {
+    const mark: DeletionMark = { at: Date.now() };
+    if (hash) mark.hash = hash.toLowerCase();
+    learnDeletionMarks(ctx, { [fileId]: mark });
+}
+
+/** The mark another device (or we) left when deleting `fileId`, if known. */
+export function deletionMarkOf(ctx: object, fileId: string): DeletionMark | undefined {
+    return knownDeletionMarks.get(ctx)?.[fileId];
+}
+
+/** Marks for the next index upload: every known one, recent first, pruned. */
+function deletionMarksForUpload(ctx: object): DeletionMarks {
+    const now = Date.now();
+    const entries = Object.entries(knownDeletionMarks.get(ctx) ?? {})
+        .filter(([, m]) => now - m.at < DELETION_MARK_TTL_MS)
+        .sort((a, b) => b[1].at - a[1].at)
+        .slice(0, DELETION_MARK_MAX);
+    const kept = Object.fromEntries(entries);
+    knownDeletionMarks.set(ctx, kept);
+    return kept;
 }
 
 export function getThresholdBytes(ctx: SyncHelpersCtx): number {
@@ -275,6 +321,13 @@ export async function buildRemoteIndexPayload(ctx: SyncHelpersCtx): Promise<Arra
         indexMergedFrom.set(ctx, meta?.hash?.toLowerCase() ?? "");
         const lastSeen = ctx.index[ctx.pluginDataPath]?.hash?.toLowerCase() || "";
         if (meta?.id && meta.hash && meta.hash.toLowerCase() === lastSeen) {
+            if (!knownDeletionMarks.has(ctx)) {
+                // Not read since the app started: read it once, or our upload would drop
+                // the deletion marks other devices left in it.
+                readingRemote = true;
+                await parseRemoteIndexBytes(ctx, await ctx.adapter.downloadFile(meta.id));
+                readingRemote = false;
+            }
             const carried = carriedRemoteEntries.get(ctx) ?? {};
             // Files left out here: the shared index has not changed since we last read
             // (or wrote) it, so its entries are current. No lookups needed.
@@ -432,8 +485,14 @@ export async function buildRemoteIndexPayload(ctx: SyncHelpersCtx): Promise<Arra
         const { forcePush: _owed, ...rest } = own;
         merged[ctx.pluginDataPath] = rest;
     }
+    for (const [p, e] of Object.entries(merged)) {
+        if (e.remoteDeletionSeenAt === undefined) continue;
+        // Local bookkeeping (a deletion we are checking), not for other devices
+        const { remoteDeletionSeenAt: _seen, ...rest } = e;
+        merged[p] = rest;
+    }
     lastReadRemoteIndex.set(ctx, merged);
-    const data = serializeIndex(merged, ctx.startPageToken, providerNameOf(ctx.adapter));
+    const data = serializeIndex(merged, ctx.startPageToken, providerNameOf(ctx.adapter), deletionMarksForUpload(ctx));
     return new TextEncoder().encode(data).buffer;
 }
 

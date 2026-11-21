@@ -56,6 +56,9 @@ export interface LocalFileIndex {
         pendingMove?: {
             oldPath: string;
         };
+        /** Set when another device deleted this file in the cloud and the deletion
+         *  mark that tells whether it saw our upload has not arrived yet (Unix ms) */
+        remoteDeletionSeenAt?: number;
         /** If set, a background transfer is in progress for this file */
         pendingTransfer?: {
             direction: "push" | "pull";

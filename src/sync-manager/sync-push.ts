@@ -46,6 +46,7 @@ import {
     pendingPullsOf,
     takePriorRunAttempts,
     PRIOR_RUN_LANDING_MS,
+    noteDeletionMark,
 } from "./sync-helpers";
 import { storesTransformedContent } from "./content-identity";
 
@@ -137,6 +138,10 @@ async function executeFolderDeletions(
                         { id: meta.id, path: folderPath, kind: "folder" },
                         "user-folder",
                     );
+                    // The files inside went with it, each as last seen here
+                    for (const [p, e] of Object.entries(ctx.index)) {
+                        if (p.startsWith(folderPath + "/") && e.fileId) noteDeletionMark(ctx, e.fileId, e.hash);
+                    }
                     recordActivity(ctx, "delete", folderPath);
                     ctx.logger.markActionTaken();
                     folderDeletedCount++;
@@ -1565,6 +1570,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                 { id: entry.fileId, path, kind: "file" },
                                 "user-file",
                             );
+                            noteDeletionMark(ctx, entry.fileId, remote.hash ?? entry.hash);
                             recordActivity(ctx, "delete", path);
                         }
                         delete ctx.index[path];

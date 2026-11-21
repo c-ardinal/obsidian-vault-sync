@@ -170,53 +170,52 @@ const PINNED: { title: string; seed: number; levels: Record<string, string> }[] 
             "large-files": "background", encryption: "non-md5-cloud", "cloud-trash": "remove-at-once",
         },
     },
-];
-
-/**
- * Still reproducing, kept here so a fix shows up (the test then fails: move
- * the case to PINNED).
- */
-const KNOWN: { title: string; seed: number; levels: Record<string, string>; expect: string }[] = [
     {
-        // A moves a note out of its sync scope (= deleted in the cloud) while B uploads
-        // an edit of it. A checks the cloud version right before deleting, but B's
-        // upload lands between that check and the delete (no conditional delete in the
-        // cloud APIs). With the cloud trash on (default 30 days) the edit stays there.
-        title: "a delete racing another device's upload within the network latency removes that edit",
+        // A deletes a note (here: moves it out of its sync scope) while B uploads an
+        // edit of it. A checks the cloud version right before deleting, but B's upload
+        // lands in between (no conditional delete in the cloud APIs). A now leaves the
+        // version it checked as a deletion mark in the shared index; B sees that the
+        // mark is not its upload and uploads its edit again.
+        title: "a delete racing another device's upload within the network latency keeps that edit",
         seed: 175,
         levels: {
             conflict: "always-fork", exclusion: "same-on-all", images: "off-on-one-device", "settings-sync": "per-device",
             deletes: "deletes", "large-files": "background-throttled", encryption: "e2ee", concurrency: "5",
             "cloud-trash": "remove-at-once", "sync-frequency": "near-realtime", devices: "mixed-os",
         },
-        expect: "LOST_UPDATE",
     },
     {
         // An upload whose response was lost created the note under a name the user
-        // had just renamed away from; the uploading device removes that stray file, but
-        // another device had pulled and edited it meanwhile. Edit beats deletion: two
-        // files with the same note, nothing lost.
-        title: "a stray upload edited elsewhere before its removal stays as a second file",
+        // renamed it away from while the app was closed (no rename event). Another
+        // device pulled and edited it meanwhile. The stray file is now moved to the
+        // new name (found by its content) instead of being removed.
+        title: "a lost upload of a note renamed while the app was closed is moved, not removed",
         seed: 438,
         levels: {
             conflict: "force-remote", images: "changed-mid-run", "settings-sync": "per-device", concurrency: "2",
             "large-files": "background-throttled", encryption: "non-md5-cloud", "keep-revisions": "daily",
             "sync-frequency": "near-realtime", devices: "mixed-os", "app-restarts": "restarts",
         },
-        expect: "DUPLICATE",
     },
     {
-        // One device set to "keep local" uploads its older content over a newer edit
-        // (as chosen). That content equals what the other device had before its edit,
-        // so the other device takes the change for a late echo of the old version and
-        // keeps its edit locally: the two differ until either edits the note again.
-        title: "force-local reverting a note to its previous content is taken for a stale echo elsewhere",
+        // One device set to "keep local" uploads its older content over a newer edit.
+        // The device that made the edit took that change for a late echo of the old
+        // version; it now asks the cloud which version is current.
+        title: "force-local reverting a note to its previous content reaches the device that edited it",
         seed: 594,
         levels: {
             conflict: "mixed", images: "off-on-one-device", "settings-sync": "per-device", deletes: "deletes",
             "cloud-trash": "remove-at-once", "keep-revisions": "daily", network: "flaky",
         },
-        expect: "DIVERGED",
+    },
+    {
+        title: "conflict setting changed to force-local mid-run: its revert is not taken for an echo",
+        seed: 721,
+        levels: {
+            conflict: "changed-mid-run", exclusion: "one-device-only", images: "changed-mid-run", "settings-sync": "shared",
+            "large-files": "background", encryption: "non-md5-cloud", concurrency: "1", "cloud-trash": "30-days",
+            "keep-revisions": "daily", "sync-frequency": "near-realtime",
+        },
     },
 ];
 
@@ -226,18 +225,6 @@ if (!ONLY_COMBO) {
             const combo = combinationOf("pinned", levels);
             const result = await runSimulation({ ...combo.scenario, seed });
             if (!result.ok) expect.fail(`${title}\n${formatFailure(result)}`);
-        });
-    });
-}
-
-if (!ONLY_COMBO) {
-    describe("settings combinations: known residual failures", () => {
-        it.each(KNOWN)("$title", async ({ seed, levels, expect: kind }) => {
-            const result = await runSimulation({ ...combinationOf("known", levels).scenario, seed });
-            expect(
-                result.failures.map((f) => f.kind),
-                "No longer reproduces: if fixed, move this case to PINNED",
-            ).toContain(kind);
         });
     });
 }
