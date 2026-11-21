@@ -130,6 +130,20 @@ export const SCENARIOS: Scenario[] = [
         offlineRate: 0.03,
     },
     {
+        // E2EE and the background transfer queue together: large files are encrypted
+        // in the queue, so their cloud hash never equals the plaintext hash.
+        ...DEFAULT_CONFIG,
+        name: "e2ee-large-files",
+        profile: "disjoint",
+        devices: 3,
+        actions: 45,
+        e2ee: true,
+        binaryRate: 0.3,
+        settings: { largeFileThresholdMB: 0.0001 },
+        network: { minLatencyMs: 20, maxLatencyMs: 1500, failureRate: 0.04, lostResponseRate: 0.3 },
+        offlineRate: 0.03,
+    },
+    {
         // The app is killed at random moments (mid-sync, mid-background-transfer,
         // before dirty edits were pushed) and started again with only what it
         // persisted. The startup sync (with vault scan) must recover everything.

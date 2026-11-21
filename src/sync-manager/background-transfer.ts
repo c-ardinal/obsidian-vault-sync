@@ -371,6 +371,11 @@ export class BackgroundTransferQueue {
                 "warn",
             );
             await this.settleOrphanedUpload(ctx, item.path);
+            // Nothing is in transfer for this name any more (an entry kept for it, e.g.
+            // a file renamed to where this device does not sync, must not wait for it)
+            if (ctx.localIndex[item.path]?.pendingTransfer?.direction === "push") {
+                delete ctx.localIndex[item.path].pendingTransfer;
+            }
             this.completeItem(item, "cancelled");
             return;
         }
@@ -415,6 +420,15 @@ export class BackgroundTransferQueue {
                 delete ctx.localIndex[item.path].pendingTransfer;
             }
             this.completeItem(item, "cancelled");
+            // Still owed: the sync cycle pulls it inline (merging the edit made here).
+            // Dropped, the push found nothing to upload when the "edit" was only our own
+            // earlier write, and this device kept the older version for good.
+            if (item.fileId) {
+                pendingPullsOf(ctx).set(item.fileId, {
+                    file: { id: item.fileId, path: item.path, hash: item.remoteHash, size: item.size },
+                    attempts: 0,
+                });
+            }
             return;
         }
 
@@ -562,6 +576,15 @@ export class BackgroundTransferQueue {
                 delete ctx.localIndex[item.path].pendingTransfer;
             }
             this.completeItem(item, "cancelled");
+            // Still owed: the sync cycle pulls it inline (merging the edit made here).
+            // Dropped, the push found nothing to upload when the "edit" was only our own
+            // earlier write, and this device kept the older version for good.
+            if (item.fileId) {
+                pendingPullsOf(ctx).set(item.fileId, {
+                    file: { id: item.fileId, path: item.path, hash: item.remoteHash, size: item.size },
+                    attempts: 0,
+                });
+            }
             return;
         }
 
@@ -650,8 +673,9 @@ export class BackgroundTransferQueue {
     // === Helpers ===
 
     private completeItem(item: TransferItem, status: "completed" | "cancelled"): void {
-        // A cancelled pull is handled by the sync cycle (local edit) or by its own
-        // change (renamed / removed on the cloud): nothing is owed any more.
+        // A cancelled pull is handled by its own change (renamed / removed on the
+        // cloud): nothing is owed any more. One cancelled for a local edit is owed
+        // again by executePull itself.
         if (item.direction === "pull" && this.ctx) settlePendingPull(this.ctx, item.fileId);
         item.status = status;
         item.completedAt = Date.now();

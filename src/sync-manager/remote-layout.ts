@@ -36,7 +36,30 @@ export interface IndexDocument {
     provider?: string;
     index?: LocalFileIndex;
     startPageToken?: string | null;
+    /**
+     * Recent deletions: cloud file id -> the version the deleting device checked
+     * right before removing it. Optional (older builds neither write nor read it).
+     */
+    deleted?: DeletionMarks;
+    /**
+     * Recent merges: cloud version hash -> the versions it was merged from besides the
+     * one it was built on. Kept apart from the entries, which a device that has not
+     * pulled the newest version yet still writes with its own older entry.
+     */
+    merges?: MergeOrigins;
 }
+
+export type MergeOrigins = Record<string, string[]>;
+
+/** The cloud version a device saw right before it deleted a file */
+export interface DeletionMark {
+    /** Cloud hash of that version (lower case); absent when the cloud gave none */
+    hash?: string;
+    /** Unix time (ms) of the deletion */
+    at: number;
+}
+
+export type DeletionMarks = Record<string, DeletionMark>;
 
 export interface ParsedIndex {
     index: LocalFileIndex;
@@ -47,6 +70,8 @@ export interface ParsedIndex {
     fromNewerBuild: boolean;
     /** The cursor was dropped because the document names another provider */
     cursorDropped: boolean;
+    deleted: DeletionMarks;
+    merges: MergeOrigins;
 }
 
 /** The provider name the cursor is recorded under (the base adapter of a wrapper) */
@@ -60,6 +85,8 @@ export function serializeIndex(
     index: LocalFileIndex,
     startPageToken: string | null,
     provider: string,
+    deleted?: DeletionMarks,
+    merges?: MergeOrigins,
 ): string {
     const doc: IndexDocument = {
         formatVersion: INDEX_FORMAT_VERSION,
@@ -67,6 +94,8 @@ export function serializeIndex(
         index,
         startPageToken,
     };
+    if (deleted && Object.keys(deleted).length > 0) doc.deleted = deleted;
+    if (merges && Object.keys(merges).length > 0) doc.merges = merges;
     return JSON.stringify(doc);
 }
 
@@ -83,5 +112,7 @@ export function parseIndex(text: string, provider: string): ParsedIndex {
         formatVersion,
         fromNewerBuild: formatVersion > INDEX_FORMAT_VERSION,
         cursorDropped: foreign && !!token,
+        deleted: doc.deleted && typeof doc.deleted === "object" ? doc.deleted : {},
+        merges: doc.merges && typeof doc.merges === "object" ? doc.merges : {},
     };
 }

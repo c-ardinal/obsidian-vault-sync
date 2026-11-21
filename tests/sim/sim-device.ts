@@ -178,6 +178,15 @@ export class SimDevice {
     readonly syncErrors: string[] = [];
     syncsStarted = 0;
     syncsFinished = 0;
+    /**
+     * This device's settings. Kept across restarts (the plugin reloads them from
+     * its settings file), changed in place by the settings-change actions.
+     */
+    readonly settings: SyncManagerSettings;
+    /** Called after every boot (first start and restarts), e.g. to install a plan guard */
+    onBoot?: (device: SimDevice) => void;
+    /** Called after each sync of the current app instance that finished without error */
+    afterSync?: (device: SimDevice) => Promise<void>;
     private inflight = new Set<Promise<void>>();
     private pendingEvents = 0;
 
@@ -195,6 +204,11 @@ export class SimDevice {
                   : new PersonalityVaultAdapter(this.fs, now);
         (this.app as any)._adapter = this.vaultAdapter;
         (this.app.vault as any).adapter = this.vaultAdapter;
+        this.settings = {
+            ...SIM_SETTINGS,
+            ...(opts.settings ?? {}),
+            ...(opts.cryptoEngine ? { e2eeEnabled: true } : {}),
+        };
 
         this.boot();
     }
@@ -232,11 +246,7 @@ export class SimDevice {
         this.ops = rawOps;
 
         const notifier: INotificationService = { show: () => {} };
-        const settings = {
-            ...SIM_SETTINGS,
-            ...(opts.settings ?? {}),
-            ...(opts.cryptoEngine ? { e2eeEnabled: true } : {}),
-        };
+        const settings = this.settings;
         const fencedOps = fence(rawOps);
         this.sm = new SyncManager(
             fencedOps,
@@ -261,6 +271,7 @@ export class SimDevice {
         this.ctx.log = async (msg: string, level = "info") => {
             if (alive()) opts.log(this.name, `${level.toUpperCase()} ${msg}`);
         };
+        this.onBoot?.(this);
     }
 
     /**
@@ -427,6 +438,9 @@ export class SimDevice {
         const gen = this.generation;
         const p = this.sm
             .requestSmartSync(trigger, scanVault)
+            .then(async () => {
+                if (gen === this.generation && this.afterSync) await this.afterSync(this);
+            })
             .catch((e) => {
                 if (gen !== this.generation) return; // the app was killed meanwhile
                 const msg = e instanceof Error ? e.message : String(e);

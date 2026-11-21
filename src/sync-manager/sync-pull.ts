@@ -25,8 +25,9 @@ import {
     renameLocal,
     alignFolderSpelling,
     hasDeleteIntent,
+    markDeleted,
 } from "./state";
-import { pullFileSafely, takePullLockSkip } from "./merge";
+import { noteKeptCopy, pullFileSafely, takePullLockSkip } from "./merge";
 import { TransferPriority } from "./transfer-types";
 import { formatSize } from "../utils/format";
 import { basename, dirname } from "../utils/path";
@@ -39,11 +40,15 @@ import {
     getThresholdBytes,
     generateTransferId,
     markPendingTransfer,
+    oweUnseenPull,
+    relistForOthersAdd,
     pendingPullsOf,
     moveAttemptedUploads,
     peekAttemptedUpload,
+    deletionMarkOf,
 } from "./sync-helpers";
 import { CtxFlag, CtxState } from "./context-state";
+import { noteSkippedOutOfScope, takeScopeChange, takeScopeUnsettled, takeSkippedOutOfScope } from "./sync-scope";
 
 
 /** Check for active merge locks from other devices */
@@ -54,6 +59,7 @@ async function checkMergeLocks(ctx: SyncContext): Promise<void> {
     let localIndexChanged = false;
     for (const [path, lock] of Object.entries(commData.mergeLocks)) {
         if (lock.holder !== ctx.deviceId && lock.expiresAt > now) {
+            if (isDeviceExcluded(ctx, path)) continue; // not synced here: nothing to wait for
             await ctx.log(
                 `[Smart Pull] Active merge lock detected: ${path} by ${lock.holder} (expires in ${Math.round((lock.expiresAt - now) / 1000)}s)`,
                 "warn",
@@ -140,7 +146,10 @@ async function detectPullChanges(
             continue;
         }
         // Left out on this device: never downloaded here
-        if (isDeviceExcluded(ctx, path)) continue;
+        if (isDeviceExcluded(ctx, path)) {
+            noteSkippedOutOfScope(ctx, path, remoteEntry);
+            continue;
+        }
 
         const localBaseEntry = ctx.localIndex[path];
 
@@ -401,6 +410,7 @@ async function applyRemoteDeletion(ctx: SyncContext, path: string, decision: Pla
         const content = await ctx.vault.readBinary(path);
         const { localHash, compareHash } = await computeLocalHash(ctx, content, base);
         if (!compareHash || localHash !== compareHash.toLowerCase()) {
+            noteKeptCopy(ctx, path, base.fileId, base.hash);
             delete ctx.index[path];
             delete ctx.localIndex[path];
             ctx.recentlyDeletedFromRemote.delete(path);
@@ -417,6 +427,159 @@ async function applyRemoteDeletion(ctx: SyncContext, path: string, decision: Pla
     }
     delete ctx.index[path];
     delete ctx.localIndex[path];
+    return true;
+}
+
+/**
+ * How long a deletion of our own upload waits for the deleting device's mark when
+ * the shared index does not change meanwhile (a build without marks, or a device
+ * that was closed before uploading its index).
+ */
+const DELETION_MARK_WAIT_MS = 10 * 60 * 1000;
+/** fileId -> hash of the shared index when we started waiting for its deletion mark */
+const deletionWaitIndex = new CtxState<Map<string, string>>(
+    "deletionWaitIndex",
+    "Deletions of our uploads waiting for the deleter's mark: index hash at the start",
+);
+
+/**
+ * Another device deleted a cloud file whose current version is our upload. It
+ * checked the version right before deleting, but the cloud has no "delete only if
+ * unchanged": our upload may have landed between that check and the delete, and
+ * then deleting the local copy too lost the edit everywhere. The deleting device
+ * leaves the version it checked as a mark in the shared index:
+ * - the version our upload replaced: it never saw our edit, keep ours and upload it
+ *   as a new file (an edit wins over a deletion, as everywhere else);
+ * - any other version (ours, or a later one built on it): delete here as well;
+ * - no mark yet: its index upload may still be on its way, wait for it.
+ */
+async function weighRemoteDeletion(
+    ctx: SyncContext,
+    path: string,
+    fileId: string,
+    indexHash?: string,
+): Promise<"delete" | "kept" | "wait"> {
+    const entry = ctx.index[path];
+    if (!entry?.hash || !isOurUploadCurrent(ctx, path)) return "delete";
+    // Kept only when the deleting device checked the very version our upload
+    // replaced. Any other version (ours, or a later edit made on top of ours)
+    // means it saw our edit. A new note of ours replaced nothing.
+    const replaced = [entry.lastAction === "push" ? entry.ancestorHash : undefined, ctx.localIndex[path]?.ownPushBase]
+        .filter((h): h is string => !!h && h.toLowerCase() !== entry.hash!.toLowerCase())
+        .map((h) => h.toLowerCase());
+    if (replaced.length === 0) return "delete";
+    const mark = deletionMarkOf(ctx, fileId);
+    const waits = deletionWaitIndex.get(ctx) ?? new Map<string, string>();
+    if (mark) {
+        waits.delete(fileId);
+        delete entry.remoteDeletionSeenAt;
+        if (!mark.hash || !replaced.includes(mark.hash)) return "delete";
+        delete ctx.index[path];
+        delete ctx.localIndex[path];
+        ctx.dirtyPaths.set(path, Date.now());
+        await ctx.log(
+            `[Smart Pull] ${path} was deleted on another device before our latest upload of it reached there. Keeping our version and uploading it again.`,
+            "warn",
+        );
+        return "kept";
+    }
+    const now = Date.now();
+    if (entry.remoteDeletionSeenAt === undefined) {
+        entry.remoteDeletionSeenAt = now;
+        waits.set(fileId, indexHash ?? (await currentIndexHash(ctx)));
+        deletionWaitIndex.set(ctx, waits);
+        await ctx.log(
+            `[Smart Pull] ${path} was deleted on another device. Checking whether that device saw our latest upload first.`,
+            "info",
+        );
+        return "wait";
+    }
+    const startedWith = waits.get(fileId);
+    if (startedWith === undefined && indexHash !== undefined) {
+        // Restarted since we began waiting: watch the index from here on
+        waits.set(fileId, indexHash);
+        deletionWaitIndex.set(ctx, waits);
+    }
+    const indexMoved = startedWith !== undefined && indexHash !== undefined && indexHash !== startedWith;
+    if (!indexMoved && now - entry.remoteDeletionSeenAt < DELETION_MARK_WAIT_MS) return "wait";
+    // The shared index changed without a mark (or we waited long enough): the
+    // deleting device leaves none. Delete as before.
+    waits.delete(fileId);
+    delete entry.remoteDeletionSeenAt;
+    return "delete";
+}
+
+/** The version we last know of in the cloud is our own upload (confirmed or not). */
+function isOurUploadCurrent(ctx: SyncContext, path: string): boolean {
+    return ctx.index[path]?.lastAction === "push" || !!ctx.localIndex[path]?.ownPushBase;
+}
+
+async function currentIndexHash(ctx: SyncContext): Promise<string> {
+    const meta = await ctx.adapter.getFileMetadata(ctx.pluginDataPath).catch(() => null);
+    return meta ? (meta.hash ?? `${meta.id}:${meta.mtime}`) : "";
+}
+
+/** Deletions of our uploads still waiting for their mark: decide them now if possible. */
+async function settleWaitingDeletions(ctx: SyncContext): Promise<boolean> {
+    const waiting = Object.entries(ctx.index).filter(([, e]) => e.remoteDeletionSeenAt !== undefined);
+    if (waiting.length === 0) return false;
+    let indexHash = "";
+    try {
+        const meta = await ctx.adapter.getFileMetadata(ctx.pluginDataPath);
+        if (meta?.id) {
+            indexHash = meta.hash ?? `${meta.id}:${meta.mtime}`;
+            if (waiting.some(([, e]) => !deletionMarkOf(ctx, e.fileId))) await downloadRemoteIndex(ctx, meta.id);
+        }
+    } catch {
+        return false; // try again next sync
+    }
+    let changed = false;
+    for (const [path, entry] of waiting) {
+        if (ctx.index[path] !== entry) continue;
+        // Back in the cloud (restored from its trash): nothing was deleted
+        if (await ctx.adapter.fileExistsById(entry.fileId).catch(() => false)) {
+            delete entry.remoteDeletionSeenAt;
+            deletionWaitIndex.get(ctx)?.delete(entry.fileId);
+            continue;
+        }
+        const verdict = await weighRemoteDeletion(ctx, path, entry.fileId, indexHash);
+        if (verdict === "wait") continue;
+        changed = true;
+        if (verdict === "kept") continue;
+        try {
+            if (await applyRemoteDeletion(ctx, path, PlanDecision.approveAll())) {
+                ctx.logger.markActionTaken();
+                await ctx.log(`[Smart Pull] Deleted: ${path}`, "info");
+                await ctx.notify("noticeFileTrashed", basename(path));
+            }
+        } catch (e) {
+            await ctx.log(`[Smart Pull] Delete failed: ${path} - ${String(e)}`, "error");
+        }
+    }
+    return changed;
+}
+
+/**
+ * A change listing the version our unconfirmed upload was built on is usually a late
+ * echo of that older version (listed before our upload landed). But another device
+ * may really have uploaded that older content again (a "keep this device's version"
+ * conflict setting reverting our edit): skipping it then left our edit here while
+ * every other device had the older content, until the note was edited again. Ask
+ * the cloud which version is current.
+ */
+async function revertedToAncestor(
+    ctx: SyncContext,
+    entry: LocalFileIndex[string],
+    cloudFile: ChangedFile,
+): Promise<boolean> {
+    if (entry.lastAction !== "push" || !entry.hash || !cloudFile.hash) return false;
+    if (entry.hash.toLowerCase() === cloudFile.hash.toLowerCase()) return false;
+    const current = await ctx.adapter.getFileMetadataById(cloudFile.id, cloudFile.path).catch(() => null);
+    if (!current?.hash || current.hash.toLowerCase() !== cloudFile.hash.toLowerCase()) return false;
+    await ctx.log(
+        `[Changes API] ${cloudFile.path} was set back to its previous version on another device after our upload.`,
+        "info",
+    );
     return true;
 }
 
@@ -587,6 +750,12 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
                         // Renamed (or resolved) locally since the list was made: the entry
                         // moved on. Pulling the old path recreated the note there as a copy.
                         if (!ctx.localIndex[path]?.pendingConflict) continue;
+                        if (isDeviceExcluded(ctx, path)) {
+                            // Left out here since: never pulled here, so nothing to re-check
+                            delete ctx.localIndex[path].pendingConflict;
+                            await saveLocalIndex(ctx);
+                            continue;
+                        }
                         const fileId =
                             ctx.localIndex[path]?.fileId || ctx.index[path]?.fileId || remoteIndex[path]?.fileId;
                         let meta: Awaited<ReturnType<typeof ctx.adapter.getFileMetadata>> = null;
@@ -917,6 +1086,13 @@ export async function pullViaChangesAPI(
         const hasFileChanges = changes.changes.some(
             (c) => !c.removed && c.file?.kind === "file" && c.file.path !== ctx.pluginDataPath,
         );
+        // Deletion marks for removed files whose current version is our upload
+        const removesOurUpload = changes.changes.some(
+            (c) =>
+                c.removed &&
+                Object.entries(ctx.index).some(([p, e]) => e.fileId === c.fileId && isOurUploadCurrent(ctx, p)),
+        );
+        if (removesOurUpload) await loadRemoteIndex();
         if (hasFileChanges) {
             // Load communication data for mergeLock checks (once per call)
             commData ??= await loadCommunication(ctx);
@@ -979,7 +1155,9 @@ export async function pullViaChangesAPI(
     if (remoteIndexChanged || reconcilePending.has(ctx)) {
         reconcilePending.delete(ctx);
         await loadRemoteIndex();
-        const recovered = await pullFilesMissingFromIndex(ctx, remoteIndex, seenFileIds, pending);
+        const recovered =
+            (await pullFilesMissingFromIndex(ctx, remoteIndex, seenFileIds, pending)) +
+            (await refreshReincluded(ctx, seenFileIds));
         if (recovered > 0) {
             totalCompleted += recovered;
             hasTotalChanges = true;
@@ -987,6 +1165,7 @@ export async function pullViaChangesAPI(
     }
 
     await retrySkippedRenames(ctx);
+    if (await settleWaitingDeletions(ctx)) hasTotalChanges = true;
 
     // Retry pulls that failed in earlier syncs and were not superseded by a newer change
     const retries = [...retryCandidates.values()];
@@ -1091,12 +1270,30 @@ const reconcilePending = new CtxFlag("reconcilePending", "The next sync must rec
  * Returns how many were forgotten.
  */
 export async function forgetReincludedFiles(ctx: SyncContext, previousPatterns: string): Promise<number> {
+    return forgetReincluded(ctx, (path) => matchesDeviceScope(previousPatterns, path), "[Device scope]");
+}
+
+/**
+ * Files left out under the previous settings and synced again now (`wasLeftOut`):
+ * those missing here are forgotten (index entries dropped), so the next sync
+ * pulls them as files never seen; those still here sync as usual.
+ */
+async function forgetReincluded(
+    ctx: SyncContext,
+    wasLeftOut: (path: string) => boolean,
+    label: string,
+): Promise<number> {
     const paths = new Set([...Object.keys(ctx.index), ...Object.keys(ctx.localIndex)]);
     let forgotten = 0;
     for (const path of paths) {
         if (path === ctx.pluginDataPath) continue;
-        if (!matchesDeviceScope(previousPatterns, path) || isDeviceExcluded(ctx, path)) continue;
-        if (await ctx.vault.exists(path)) continue;
+        if (!wasLeftOut(path) || isDeviceExcluded(ctx, path)) continue;
+        if (await ctx.vault.exists(path)) {
+            // Kept here while left out: the cloud copy may have changed meanwhile
+            // (those changes were skipped). Compared with the cloud at the next pull.
+            if (ctx.index[path]?.fileId) reincludedOf(ctx).add(path);
+            continue;
+        }
         delete ctx.index[path];
         delete ctx.localIndex[path];
         ctx.dirtyPaths.delete(path);
@@ -1107,10 +1304,83 @@ export async function forgetReincludedFiles(ctx: SyncContext, previousPatterns: 
     reconcilePending.add(ctx);
     if (forgotten > 0) {
         await saveIndex(ctx);
-        await saveLocalIndex(ctx, true);
-        await ctx.log(`[Device scope] ${forgotten} file(s) no longer left out will be downloaded`, "info");
+        await ctx.log(`${label} ${forgotten} file(s) no longer left out will be downloaded`, "info");
     }
+    await saveLocalIndex(ctx, true);
     return forgotten;
+}
+
+/**
+ * The sync settings that decide what this device leaves out changed since the
+ * last sync (here, or on another device: the settings file is synced). Files
+ * synced again are fetched; files now left out simply stay as they are.
+ */
+export async function reconcileScopeChange(ctx: SyncContext): Promise<boolean> {
+    // Changes skipped under settings changed after the last reconcile (and maybe
+    // changed back since): compared with the cloud again when synced now.
+    for (const [path, entry] of takeSkippedOutOfScope(ctx)) {
+        if (path === ctx.pluginDataPath) continue;
+        if (isDeviceExcluded(ctx, path)) {
+            noteSkippedOutOfScope(ctx, path, entry, true); // still left out: kept for later
+            continue;
+        }
+        reconcilePending.add(ctx);
+        if (ctx.index[path]?.fileId) reincludedOf(ctx).add(path);
+        // Not known here: the shared index may not list it either (an index upload
+        // made while it was left out here replaced the one listing it), so the
+        // file is pulled by id.
+        else if (!ctx.localIndex[path]) oweUnseenPull(ctx, path, entry);
+    }
+    const changedMeanwhile = takeScopeUnsettled(ctx);
+    const change = takeScopeChange(ctx, ctx.settings);
+    if (!change) {
+        if (!changedMeanwhile) return false;
+        // Changed during the last sync and back since: files left out meanwhile were
+        // skipped by its scan and push. A vault scan and a comparison with the remote
+        // index find them.
+        await ctx.log("[Sync scope] Exclusion or content settings were changed and changed back", "info");
+        reconcilePending.add(ctx);
+        return true;
+    }
+    const before: Pick<SyncContext, "settings"> = { settings: { ...ctx.settings, ...change.previous } };
+    await ctx.log("[Sync scope] Exclusion or content settings changed since the last sync", "info");
+    // A move not pushed yet whose new name is now left out: the cloud still has the
+    // file under its old name, which this device would never pull again (its id is
+    // known here under the new name). Forget the new name: the copy here stays, the
+    // cloud file comes back under its own name.
+    const movedOut: Array<[string, LocalFileIndex[string]]> = [];
+    for (const path of Object.keys(ctx.index)) {
+        if (path === ctx.pluginDataPath || isDeviceExcluded(before, path) || !isDeviceExcluded(ctx, path)) continue;
+        if (!ctx.index[path]?.pendingMove && !ctx.localIndex[path]?.pendingMove) continue;
+        await ctx.log(`[Sync scope] ${path} was moved but is now left out: its cloud file stays where it is`, "info");
+        // The shared index may not list it yet (it was uploaded just before the move):
+        // list it under its cloud name, or devices syncing from the index never get it
+        const moved = ctx.index[path] ?? ctx.localIndex[path];
+        if (moved?.pendingMove && moved.fileId) {
+            const { pendingMove, forcePush: _f, ...rest } = moved;
+            relistForOthersAdd(ctx, pendingMove.oldPath, { ...rest, lastAction: "push" });
+            // Its old name is synced here: as when moved straight into a folder left out,
+            // the file left the sync. Deleted in the cloud, the copy here stays.
+            if (!isDeviceExcluded(ctx, pendingMove.oldPath)) movedOut.push([pendingMove.oldPath, { ...rest }]);
+        }
+        delete ctx.index[path];
+        delete ctx.localIndex[path];
+        ctx.dirtyPaths.delete(path);
+    }
+    await forgetReincluded(ctx, (path) => isDeviceExcluded(before, path), "[Sync scope]");
+    for (const [path, entry] of movedOut) {
+        if (ctx.index[path] || (await ctx.vault.exists(path))) continue; // the name holds another file now
+        ctx.index[path] = { ...entry };
+        ctx.localIndex[path] = { ...entry };
+        markDeleted(ctx, path);
+    }
+    // The reconciled settings are saved with the local index: save the index changes
+    // made for them too. Closed before that, the app restarted with the new settings
+    // recorded as reconciled but the old entries (a move into a folder now left out
+    // still pending), and the note stayed missing here for good.
+    await saveIndex(ctx);
+    await saveLocalIndex(ctx, true);
+    return true;
 }
 
 /**
@@ -1119,6 +1389,72 @@ export async function forgetReincludedFiles(ctx: SyncContext, previousPatterns: 
  * Existence is re-checked by id first so a stale index entry of a file that
  * was deleted meanwhile is never resurrected.
  */
+const reincluded = new CtxState<Set<string>>(
+    "reincludedFiles",
+    "Files kept here while left out and synced again: compare with the cloud at the next pull",
+);
+function reincludedOf(ctx: SyncContext): Set<string> {
+    let s = reincluded.get(ctx);
+    if (!s) reincluded.set(ctx, (s = new Set<string>()));
+    return s;
+}
+
+/**
+ * Files synced again after being left out here, whose copy stayed on this
+ * device: changes made elsewhere meanwhile were skipped, so the cloud version
+ * is compared now and pulled (merged with any edit made here) when it differs.
+ * A file deleted or moved in the cloud meanwhile is forgotten: the copy here
+ * then counts as a new file and is uploaded, so nothing is lost.
+ */
+async function refreshReincluded(ctx: SyncContext, seenFileIds: Set<string>): Promise<number> {
+    const paths = [...reincludedOf(ctx)];
+    if (paths.length === 0) return 0;
+    let count = 0;
+    const tasks = paths.map((path) => async () => {
+        const entry = ctx.index[path];
+        if (!entry?.fileId) {
+            reincludedOf(ctx).delete(path);
+            return;
+        }
+        // Left out again before this pull (settings changed meanwhile): compared once
+        // it is synced again, so the changes skipped while it was left out still come
+        if (isDeviceExcluded(ctx, path)) return;
+        if (seenFileIds.has(entry.fileId)) {
+            reincludedOf(ctx).delete(path); // this pull already brought its latest change
+            return;
+        }
+        try {
+            // Renamed here and not pushed yet: the cloud still has it under the old name
+            const cloudPath = (entry.pendingMove ?? ctx.localIndex[path]?.pendingMove)?.oldPath ?? path;
+            const meta = await ctx.adapter.getFileMetadataById(entry.fileId, cloudPath);
+            reincludedOf(ctx).delete(path);
+            if (!meta || meta.kind === "folder" || meta.path !== cloudPath) {
+                await ctx.log(`[Sync scope] ${path} was deleted or moved in the cloud while left out here: keeping this copy as a new file`, "info");
+                delete ctx.index[path];
+                delete ctx.localIndex[path];
+                ctx.dirtyPaths.set(path, Date.now());
+                return;
+            }
+            if (meta.hash && entry.hash && meta.hash.toLowerCase() === entry.hash.toLowerCase()) return;
+            await ctx.log(`[Sync scope] ${path} changed in the cloud while left out here: pulling it`, "info");
+            if (
+                await pullFileSafely(
+                    ctx,
+                    { path, fileId: entry.fileId, hash: meta.hash, size: meta.size, mtime: meta.mtime },
+                    "Scope Reconcile",
+                )
+            )
+                count++;
+        } catch (e) {
+            reincludedOf(ctx).add(path);
+            reconcilePending.add(ctx);
+            await ctx.log(`[Sync scope] Could not compare ${path} with the cloud: ${String(e)}`, "warn");
+        }
+    });
+    await runParallel(tasks, ctx.settings.concurrency);
+    return count;
+}
+
 async function pullFilesMissingFromIndex(
     ctx: SyncContext,
     remoteIndex: LocalFileIndex,
@@ -1178,6 +1514,8 @@ async function processChangePage(
     changes: Array<{
         fileId: string;
         removed?: boolean;
+        /** Not deleted: moved to where this device does not sync */
+        movedOut?: boolean;
         file?: ChangedFile & { kind: string };
     }>,
     remoteIndex: LocalFileIndex,
@@ -1229,6 +1567,7 @@ async function processChangePage(
                 continue;
             }
             if (pathToDelete && pathToDelete !== ctx.pluginDataPath) {
+                if (!change.movedOut && (await weighRemoteDeletion(ctx, pathToDelete, change.fileId)) !== "delete") continue;
                 // Track this path to prevent re-upload if local deletion fails
                 ctx.recentlyDeletedFromRemote.add(pathToDelete);
                 localDeletions.push(pathToDelete);
@@ -1258,7 +1597,25 @@ async function processChangePage(
             const cloudFile: ChangedFile = change.file;
             if (cloudFile.path === ctx.pluginDataPath) continue;
             if (isManagedSeparately(cloudFile.path)) continue;
-            if (isDeviceExcluded(ctx, cloudFile.path)) continue;
+            if (isDeviceExcluded(ctx, cloudFile.path)) {
+                noteSkippedOutOfScope(ctx, cloudFile.path, {
+                    fileId: cloudFile.id,
+                    hash: cloudFile.hash,
+                    size: cloudFile.size,
+                    mtime: cloudFile.mtime,
+                } as LocalFileIndex[string]);
+                // Moved elsewhere to where this device does not sync: for this device
+                // the file it synced is gone, as when deleted there.
+                const known = Object.entries(ctx.index).find(([, e]) => e.fileId === cloudFile.id)?.[0];
+                // Our own move of it not pushed yet (renamed here while uploading from
+                // the old place): the cloud name is the old one, not another device's move.
+                const ownMovePending = !!known && ctx.index[known]?.pendingMove?.oldPath === cloudFile.path;
+                if (known && known !== ctx.pluginDataPath && !isDeviceExcluded(ctx, known) && !ownMovePending) {
+                    await ctx.log(`[Smart Pull] ${known} was moved to ${cloudFile.path}, which this device does not sync`, "info");
+                    queue.push({ ...change, removed: true, movedOut: true, file: undefined, fileId: cloudFile.id });
+                }
+                continue;
+            }
 
             // Populate ancestorHash and plainHash from remote index.
             // Only when the index describes THIS version: the index is uploaded after the
@@ -1448,6 +1805,15 @@ async function processChangePage(
                                         ...ctx.localIndex[oldPath],
                                     };
                                     delete ctx.localIndex[oldPath];
+                                    // A background pull queued under the old name for another
+                                    // file (a same-name file that arrived meanwhile) marked this
+                                    // entry: the mark is not for the note renamed away. Kept on
+                                    // it, the note stayed "in transfer" for good.
+                                    const moved = ctx.localIndex[newPath];
+                                    const queuedForOther = (ctx.backgroundTransferQueue.getPendingTransfers?.() ?? []).some(
+                                        (t) => t.direction === "pull" && t.path === oldPath && !!t.fileId && t.fileId !== cloudFile.id,
+                                    );
+                                    if (moved.pendingTransfer?.direction === "pull" && queuedForOther) delete moved.pendingTransfer;
                                 }
 
                                 if (ctx.dirtyPaths.has(oldPath)) {
@@ -1621,7 +1987,11 @@ async function processChangePage(
             }
 
             // Guard: If remote hash matches our ancestorHash, it's likely a stale echo
-            if (localEntry?.ancestorHash && cloudFile.hash === localEntry.ancestorHash) {
+            if (
+                localEntry?.ancestorHash &&
+                cloudFile.hash === localEntry.ancestorHash &&
+                !(await revertedToAncestor(ctx, localEntry, cloudFile))
+            ) {
                 await ctx.log(
                     `[Changes API] Stale echo detected for ${cloudFile.path} (matches ancestorHash), skipping.`,
                     "debug",
