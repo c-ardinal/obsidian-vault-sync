@@ -385,6 +385,16 @@ const PINNED: { title: string; seed: number; levels: Record<string, string> }[] 
             network: "clean", devices: "linux", "app-restarts": "none",
         },
     },
+    {
+        title: "image moved into a folder left out later on its device: it leaves the sync",
+        seed: 1651,
+        levels: {
+            conflict: "smart-merge", exclusion: "changed-mid-run", images: "changed-mid-run", "device-list": "changed-mid-run",
+            "settings-sync": "shared", deletes: "deletes+confirm", "large-files": "background-throttled", encryption: "off",
+            concurrency: "5", "cloud-trash": "remove-at-once", "keep-revisions": "off", "sync-frequency": "normal",
+            network: "clean", devices: "mixed-os", "app-restarts": "restarts",
+        },
+    },
 ];
 
 if (!ONLY_COMBO) {

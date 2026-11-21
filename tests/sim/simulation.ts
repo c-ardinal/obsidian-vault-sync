@@ -935,7 +935,7 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
                     (o) =>
                         o !== d &&
                         Object.entries(o.userFiles()).some(
-                            ([p, c]) => fidsOf(c).includes(fid) && ignoredOn(o, p) && !!movedTo.get(fid)?.has(p),
+                            ([p, c]) => (fidsOf(c).includes(fid) || binaryMarker(c)?.fid === fid) && ignoredOn(o, p) && !!movedTo.get(fid)?.has(p),
                         ),
                 );
                 if (takenOutByMover && !now.has(fid)) continue;
