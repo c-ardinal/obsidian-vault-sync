@@ -928,6 +928,17 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
                     (movedTo.get(fid)?.size ?? 0) > 0 &&
                     [...devices.values()].some((o) => o !== d && localDeleted.get(o.name)!.has(fid));
                 if (leftBehind && everIgnored.has(fid) && !now.has(fid)) continue;
+                // Moved by another device to a place it left out afterwards, before the
+                // move was pushed: taken out of the sync there (as a move straight into
+                // a folder left out), its copy kept under the new name on that device
+                const takenOutByMover = [...devices.values()].some(
+                    (o) =>
+                        o !== d &&
+                        Object.entries(o.userFiles()).some(
+                            ([p, c]) => fidsOf(c).includes(fid) && ignoredOn(o, p) && !!movedTo.get(fid)?.has(p),
+                        ),
+                );
+                if (takenOutByMover && !now.has(fid)) continue;
                 if (!now.has(fid))
                     fail("SCOPE_LOSS", `${d.name} lost note ${fid} after a settings change (nobody deleted it)`);
             }

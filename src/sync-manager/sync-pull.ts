@@ -1607,7 +1607,10 @@ async function processChangePage(
                 // Moved elsewhere to where this device does not sync: for this device
                 // the file it synced is gone, as when deleted there.
                 const known = Object.entries(ctx.index).find(([, e]) => e.fileId === cloudFile.id)?.[0];
-                if (known && known !== ctx.pluginDataPath && !isDeviceExcluded(ctx, known)) {
+                // Our own move of it not pushed yet (renamed here while uploading from
+                // the old place): the cloud name is the old one, not another device's move.
+                const ownMovePending = !!known && ctx.index[known]?.pendingMove?.oldPath === cloudFile.path;
+                if (known && known !== ctx.pluginDataPath && !isDeviceExcluded(ctx, known) && !ownMovePending) {
                     await ctx.log(`[Smart Pull] ${known} was moved to ${cloudFile.path}, which this device does not sync`, "info");
                     queue.push({ ...change, removed: true, movedOut: true, file: undefined, fileId: cloudFile.id });
                 }

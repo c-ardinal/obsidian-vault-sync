@@ -365,6 +365,26 @@ const PINNED: { title: string; seed: number; levels: Record<string, string> }[] 
             network: "clean", devices: "mixed-os", "app-restarts": "none",
         },
     },
+    {
+        title: "pending own move back from a folder left out is not taken as a move out of the sync",
+        seed: 1531,
+        levels: {
+            conflict: "changed-mid-run", exclusion: "changed-mid-run", images: "off-on-one-device", "device-list": "one-device",
+            "settings-sync": "per-device", deletes: "deletes", "large-files": "inline", encryption: "off", concurrency: "5",
+            "cloud-trash": "30-days", "keep-revisions": "off", "sync-frequency": "near-realtime", network: "flaky",
+            devices: "mixed-os", "app-restarts": "none",
+        },
+    },
+    {
+        title: "move into a folder left out later on that PC only: the note leaves the sync",
+        seed: 1525,
+        levels: {
+            conflict: "smart-merge", exclusion: "none", images: "off-on-one-device", "device-list": "changed-mid-run",
+            "settings-sync": "per-device", deletes: "none", "large-files": "background", encryption: "non-md5-cloud",
+            concurrency: "2", "cloud-trash": "remove-at-once", "keep-revisions": "off", "sync-frequency": "normal",
+            network: "clean", devices: "linux", "app-restarts": "none",
+        },
+    },
 ];
 
 if (!ONLY_COMBO) {
