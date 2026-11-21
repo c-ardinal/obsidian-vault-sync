@@ -470,6 +470,7 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
         settings[key] = value;
         if (key === "conflictResolutionStrategy") strategiesUsed.add(String(value));
         markIgnored(d);
+        for (const [f, paths] of movedTo) if ([...paths].some((p) => ignoredOn(d, p))) movedPastSomeScope.add(f);
         log(d.name, `${local ? "USER" : "SETTINGS-SYNC"} setting ${String(key)}: ${JSON.stringify(before)} -> ${JSON.stringify(value)}`);
         if (key === "desktopExclusionPatterns") {
             // Both the settings tab and the settings reload apply the device list at once
@@ -506,9 +507,23 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
     const looseEdits: { dev: string; fid: string; line: string; value: string }[] = [];
     /** Binary versions written where the file was left out (fid -> device -> version) */
     const looseBinary = new Map<string, Map<string, string>>();
+    /** Device that wrote expectedBinary; a later version it wrote while left out supersedes it there */
+    const expectedBinaryBy: Record<string, string> = {};
+    const binarySupersededOutside = new Set<string>();
+    /** Device that made the expected edit of each line (fid -> line -> device) */
+    const expectedBy: Record<string, Record<string, string>> = {};
+    /** The edit was made on a device that later deleted its copy while left out there:
+     *  if it had not been uploaded yet, it is gone with that copy, as the user chose */
+    const goneWithLocalCopy = (fid: string, by: string | undefined) =>
+        !!by && everIgnored.has(fid) && localDeleted.get(by)!.has(fid);
     const ignoredOn = (d: SimDevice, path: string) => d.sm.shouldIgnore(path);
     /** Notes a device moved to where it does not sync (gone for the others) -> that device */
     const movedOutOfScope = new Map<string, string>();
+    /** Notes moved (at some point) to where some device does not sync: that device may
+     *  have kept its edited copy (edit beats deletion), a second file by design */
+    const movedPastSomeScope = new Set<string>();
+    /** Paths each note was moved to (fid -> paths), for movedPastSomeScope on later scope changes */
+    const movedTo = new Map<string, Set<string>>();
     const fidsIn = (c: string) => {
         const b = binaryMarker(c);
         return [...fidsOf(c), ...(b ? [b.fid] : [])];
@@ -586,6 +601,7 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
                     looseEdits.push({ dev: a.dev, fid, line: a.line, value: a.value });
                 } else if (applied && cfg.profile === "disjoint") {
                     (expected[fid] ??= {})[a.line] = a.value;
+                    (expectedBy[fid] ??= {})[a.line] = a.dev;
                     for (let i = looseEdits.length - 1; i >= 0; i--)
                         if (looseEdits[i].fid === fid && looseEdits[i].line === a.line) looseEdits.splice(i, 1);
                 }
@@ -612,8 +628,13 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
                     everIgnored.add(fid);
                     if (!looseBinary.has(fid)) looseBinary.set(fid, new Map());
                     looseBinary.get(fid)!.set(a.dev, String(a.version));
+                    // Its earlier version (maybe never uploaded before the file was left
+                    // out here) now exists nowhere: replaced on the only device that had it
+                    if (expectedBinaryBy[fid] === a.dev) binarySupersededOutside.add(fid);
                 } else if (applied && cfg.profile === "disjoint") {
                     expectedBinary[fid] = String(a.version);
+                    expectedBinaryBy[fid] = a.dev;
+                    binarySupersededOutside.delete(fid);
                     looseBinary.delete(fid);
                 }
                 log(a.dev, `USER edit-binary ${path} v${a.version}`);
@@ -666,6 +687,9 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
                 if (applied && (movedOut || ignoredOn(dev, from))) ids.forEach((f) => everIgnored.add(f));
                 // Moved out of what this device syncs: deleted for the other devices
                 if (applied && movedOut) ids.forEach((f) => movedOutOfScope.set(f, a.dev));
+                if (applied && [...devices.values()].some((d) => ignoredOn(d, a.to)))
+                    ids.forEach((f) => movedPastSomeScope.add(f));
+                if (applied) ids.forEach((f) => (movedTo.get(f) ?? movedTo.set(f, new Set()).get(f)!).add(a.to));
                 log(a.dev, `USER rename ${from} -> ${a.to}${applied ? "" : " [skipped]"}`);
                 break;
             }
@@ -932,7 +956,7 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
                 // Same when a note was moved to where another device does not sync while
                 // that device had edits: edit beats deletion there, so it comes back.
                 const outOfSomeScope = paths.some((p) => [...devices.values()].some((d) => ignoredOn(d, p)));
-                if (paths.length > 1 && !everIgnored.has(fid) && !outOfSomeScope)
+                if (paths.length > 1 && !everIgnored.has(fid) && !outOfSomeScope && !movedPastSomeScope.has(fid))
                     fail("DUPLICATE", `note ${fid} exists as ${paths.join(", ")}`);
                 if (paths.length !== 1) continue;
                 const content = cloudFiles[paths[0]];
@@ -941,7 +965,13 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
                     const loose = [...(looseBinary.get(fid) ?? [])].some(
                         ([dev, v]) => v === got && !localDeleted.get(dev)!.has(fid),
                     );
-                    if (got !== expectedBinary[fid] && !editsMayBeDropped && !loose) {
+                    if (
+                        got !== expectedBinary[fid] &&
+                        !editsMayBeDropped &&
+                        !loose &&
+                        !binarySupersededOutside.has(fid) &&
+                        !goneWithLocalCopy(fid, expectedBinaryBy[fid])
+                    ) {
                         const kept = (holdersOf.get(fid) ?? []).some(
                             (c) => binaryMarker(c)?.version === expectedBinary[fid],
                         );
@@ -953,6 +983,7 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
                 if (!editsMayBeDropped) {
                     const strict = !forks && !everIgnored.has(fid);
                     for (const [label, value] of Object.entries(expected[fid] ?? {})) {
+                        if (goneWithLocalCopy(fid, expectedBy[fid]?.[label])) continue;
                         const inMain = new RegExp(`^${label}: ${value}$`, "m").test(content);
                         if (strict ? !inMain : !inMain && !keptSomewhere(fid, label, value))
                             fail("LOST_UPDATE", `${paths[0]}: edit "${label}: ${value}" missing`);

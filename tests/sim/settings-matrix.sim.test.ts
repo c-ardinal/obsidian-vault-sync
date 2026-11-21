@@ -71,6 +71,24 @@ const PINNED: { title: string; seed: number; levels: Record<string, string> }[] 
         },
     },
     {
+        title: "a note created from the same template is not taken as a deleted note's lost rename",
+        seed: 160,
+        levels: {
+            conflict: "force-remote", exclusion: "same-on-all", "device-list": "changed-mid-run", deletes: "deletes",
+            encryption: "e2ee", concurrency: "1", "cloud-trash": "remove-at-once", network: "flaky",
+            devices: "mixed-os", "app-restarts": "restarts",
+        },
+    },
+    {
+        title: "a move not uploaded yet whose new folder is then left out: the cloud file stays listed",
+        seed: 295,
+        levels: {
+            conflict: "changed-mid-run", "device-list": "changed-mid-run", "settings-sync": "per-device",
+            deletes: "deletes+confirm", "large-files": "background-throttled", encryption: "e2ee", concurrency: "5",
+            "cloud-trash": "remove-at-once", "sync-frequency": "near-realtime", network: "flaky",
+        },
+    },
+    {
         title: "background pull cancelled by our own earlier write: the newer version still arrives",
         seed: 44,
         levels: {
@@ -97,12 +115,45 @@ const PINNED: { title: string; seed: number; levels: Record<string, string> }[] 
     },
 ];
 
+/**
+ * Still reproducing, kept here so a fix shows up (the test then fails: move
+ * the case to PINNED).
+ */
+const KNOWN: { title: string; seed: number; levels: Record<string, string>; expect: string }[] = [
+    {
+        // A moves a note out of its sync scope (= deleted in the cloud) while B uploads
+        // an edit of it. A checks the cloud version right before deleting, but B's
+        // upload lands between that check and the delete (no conditional delete in the
+        // cloud APIs). With the cloud trash on (default 30 days) the edit stays there.
+        title: "a delete racing another device's upload within the network latency removes that edit",
+        seed: 175,
+        levels: {
+            conflict: "always-fork", exclusion: "same-on-all", images: "off-on-one-device", "settings-sync": "per-device",
+            deletes: "deletes", "large-files": "background-throttled", encryption: "e2ee", concurrency: "5",
+            "cloud-trash": "remove-at-once", "sync-frequency": "near-realtime", devices: "mixed-os",
+        },
+        expect: "LOST_UPDATE",
+    },
+];
+
 if (!ONLY_COMBO) {
     describe("settings combinations: fixed failures", () => {
         it.each(PINNED)("$title", async ({ title, seed, levels }) => {
             const combo = combinationOf("pinned", levels);
             const result = await runSimulation({ ...combo.scenario, seed });
             if (!result.ok) expect.fail(`${title}\n${formatFailure(result)}`);
+        });
+    });
+}
+
+if (!ONLY_COMBO) {
+    describe("settings combinations: known residual failures", () => {
+        it.each(KNOWN)("$title", async ({ seed, levels, expect: kind }) => {
+            const result = await runSimulation({ ...combinationOf("known", levels).scenario, seed });
+            expect(
+                result.failures.map((f) => f.kind),
+                "No longer reproduces: if fixed, move this case to PINNED",
+            ).toContain(kind);
         });
     });
 }

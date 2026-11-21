@@ -40,6 +40,7 @@ import {
     generateTransferId,
     markPendingTransfer,
     oweUnseenPull,
+    relistForOthersAdd,
     pendingPullsOf,
     moveAttemptedUploads,
     peekAttemptedUpload,
@@ -1183,6 +1184,13 @@ export async function reconcileScopeChange(ctx: SyncContext): Promise<boolean> {
         if (path === ctx.pluginDataPath || isDeviceExcluded(before, path) || !isDeviceExcluded(ctx, path)) continue;
         if (!ctx.index[path]?.pendingMove && !ctx.localIndex[path]?.pendingMove) continue;
         await ctx.log(`[Sync scope] ${path} was moved but is now left out: its cloud file stays where it is`, "info");
+        // The shared index may not list it yet (it was uploaded just before the move):
+        // list it under its cloud name, or devices syncing from the index never get it
+        const moved = ctx.index[path] ?? ctx.localIndex[path];
+        if (moved?.pendingMove && moved.fileId) {
+            const { pendingMove, forcePush: _f, ...rest } = moved;
+            relistForOthersAdd(ctx, pendingMove.oldPath, { ...rest, lastAction: "push" });
+        }
         delete ctx.index[path];
         delete ctx.localIndex[path];
         ctx.dirtyPaths.delete(path);

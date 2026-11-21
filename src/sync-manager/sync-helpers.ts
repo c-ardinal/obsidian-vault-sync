@@ -232,6 +232,13 @@ async function owePullsFromIndex(ctx: SyncContext, remote: LocalFileIndex): Prom
  */
 const relistForOthers = new CtxState<LocalFileIndex>("relistForOthers", "Entries of a replaced index for files left out here, listed again by the next upload");
 
+/** A cloud file left out here that the shared index may not list: the next upload lists it */
+export function relistForOthersAdd(ctx: object, path: string, entry: LocalFileIndex[string]): void {
+    let relist = relistForOthers.get(ctx);
+    if (!relist) relistForOthers.set(ctx, (relist = {}));
+    relist[path] = entry;
+}
+
 export function oweUnseenPull(ctx: SyncHelpersCtx & { dirtyPaths?: Map<string, number> }, path: string, entry: LocalFileIndex[string]): void {
     if (!entry.fileId || ctx.dirtyPaths?.has(path)) return;
     if (ctx.settings && isDeviceExcluded({ settings: ctx.settings }, path)) return; // left out here
