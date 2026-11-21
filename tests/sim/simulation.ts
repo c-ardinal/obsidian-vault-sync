@@ -901,6 +901,12 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
         const keptSomewhere = (fid: string, label: string, value: string) =>
             (holdersOf.get(fid) ?? []).some((c) => new RegExp(`^${label}: ${value}$`, "m").test(c));
 
+        const pathsAnywhere = new Map<string, string[]>(byFid);
+        for (const dev of devices.values()) {
+            for (const [p, c] of Object.entries(dev.userFiles())) {
+                for (const fid of fidsOf(c)) pathsAnywhere.set(fid, [...(pathsAnywhere.get(fid) ?? []), p]);
+            }
+        }
         // A device that held a note when its settings changed still holds it at the
         // end (anywhere, in any name), unless a user deleted it. Catches settings
         // that make one device remove another device's files, and exclusions that
@@ -909,8 +915,10 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
             const now = fidsHeld(d);
             for (const [fid, keptOutside] of heldAtChange.get(d.name)!) {
                 if (deletedFids.has(fid) || localDeleted.get(d.name)!.has(fid)) continue;
-                // A synced note another device moved to where this device does not sync
-                if (!keptOutside && (byFid.get(fid) ?? []).some((p) => ignoredOn(d, p))) continue;
+                // A synced note moved to where this device does not sync (still in the
+                // cloud there, or only on the device that moved it: a move not pushed
+                // before that device left the new place out takes the note out of the sync)
+                if (!keptOutside && (pathsAnywhere.get(fid) ?? []).some((p) => ignoredOn(d, p))) continue;
                 const mover = movedOutOfScope.get(fid);
                 if (mover && mover !== d.name) continue;
                 if (!now.has(fid))

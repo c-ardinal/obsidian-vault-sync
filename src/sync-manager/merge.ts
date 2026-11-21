@@ -641,6 +641,18 @@ async function isOurLostUpload(
 }
 
 /** Positions (last occurrence) of two versions in the file's history, or null if unknown. */
+/** `hash` appears in the file's history after `base` (unknown order: true). */
+async function uploadedAfter(
+    ctx: SyncContext,
+    path: string,
+    fileId: string | undefined,
+    hash: string,
+    base: string,
+): Promise<boolean> {
+    const order = await revisionOrder(ctx, path, fileId, hash, base);
+    return !order || order.ours > order.declared;
+}
+
 async function revisionOrder(
     ctx: SyncContext,
     path: string,
@@ -1434,6 +1446,11 @@ async function pullFileUnchecked(
                             attempted !== item.hash.toLowerCase() &&
                             baseHash?.toLowerCase() !== attempted &&
                             (await revisionOrder(ctx, item.path, fileId, attempted, item.hash)) !== null &&
+                            // Only a lost upload made after the version our content is based
+                            // on: an older one (a stale record) was superseded by that version,
+                            // and taking it as the base made lines we pulled since look like
+                            // our own edits that the remote dropped.
+                            (!baseHash || (await uploadedAfter(ctx, item.path, fileId, attempted, baseHash))) &&
                             (await builtOnLaterVersion(ctx, item.path, fileId, attempted, item.hash))
                         ) {
                             // An upload of ours whose response was lost is in the history before

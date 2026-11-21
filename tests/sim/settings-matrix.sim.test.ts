@@ -300,6 +300,23 @@ const PINNED: { title: string; seed: number; levels: Record<string, string> }[] 
             network: "flaky", devices: "mixed-os", "app-restarts": "restarts",
         },
     },
+    {
+        title: "a stale record of a lost upload is not taken as the merge base",
+        seed: 1125,
+        levels: {
+            conflict: "smart-merge", images: "off-on-one-device", "device-list": "changed-mid-run", "settings-sync": "per-device",
+            "large-files": "background", encryption: "non-md5-cloud", concurrency: "2", "cloud-trash": "remove-at-once",
+        },
+    },
+    {
+        title: "a move not pushed before its new folder was left out takes the note out of the sync",
+        seed: 1146,
+        levels: {
+            conflict: "smart-merge", exclusion: "changed-mid-run", images: "changed-mid-run", "device-list": "changed-mid-run",
+            "settings-sync": "shared", deletes: "deletes+confirm", "large-files": "background-throttled", concurrency: "5",
+            "cloud-trash": "remove-at-once", devices: "mixed-os", "app-restarts": "restarts",
+        },
+    },
 ];
 
 if (!ONLY_COMBO) {
