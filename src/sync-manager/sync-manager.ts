@@ -108,6 +108,7 @@ import {
 } from "./sync-orchestration";
 import { syncErrorNotice } from "./sync-coordinator";
 import { forgetReincludedFiles as _forgetReincludedFiles } from "./sync-pull";
+import { noteFullCleanupRequest } from "./sync-push";
 import { BackgroundTransferQueue } from "./background-transfer";
 import type { TransferItem, TransferRecord, TransferCallbacks } from "./transfer-types";
 export type { SyncManagerSettings, LocalFileIndex, SyncState, FullScanProgress, CommunicationData };
@@ -312,6 +313,7 @@ export class SyncManager {
      */
     public triggerFullCleanup() {
         this.forceCleanupNextSync = true;
+        noteFullCleanupRequest(this);
     }
 
     public setActivityCallbacks(onStart: () => void, onEnd: () => void) {
@@ -699,6 +701,8 @@ export class SyncManager {
      * Files no longer left out come back with the next sync.
      */
     async applyDeviceScopeChange(previous: string): Promise<number> {
+        // Files created or edited here while left out raised no upload: a scan finds them
+        this.triggerFullCleanup();
         return _forgetReincludedFiles(this as unknown as SyncContext, previous);
     }
 

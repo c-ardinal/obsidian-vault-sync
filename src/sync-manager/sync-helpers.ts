@@ -7,6 +7,7 @@ import { tryDecompress, hashContent, isDeviceExcluded } from "./file-utils";
 import { storesTransformedContent } from "./content-identity";
 import { CtxFlag, CtxState } from "./context-state";
 import { capabilitiesOf } from "../types/adapter";
+import { noteSkippedOutOfScope } from "./sync-scope";
 
 
 /** What this module reads from the sync context */
@@ -210,14 +211,21 @@ async function owePullsFromIndex(ctx: SyncContext, remote: LocalFileIndex): Prom
     for (const [path, entry] of Object.entries(remote)) {
         if (path === ctx.pluginDataPath || !entry.fileId || ctx.index[path] || ourIds.has(entry.fileId)) continue;
         if (pending.has(entry.fileId) || ctx.dirtyPaths.has(path)) continue;
-        if (isDeviceExcluded(ctx, path)) continue;
+        if (isDeviceExcluded(ctx, path)) {
+            // Left out here: never pulled, but the shared index must keep listing
+            // it (ours just replaced theirs). Our next upload takes it from here.
+            const last = lastReadRemoteIndex.get(ctx);
+            if (last && !last[path]) last[path] = entry;
+            noteSkippedOutOfScope(ctx, path, entry);
+            continue;
+        }
         if (!(await ctx.adapter.fileExistsById(entry.fileId).catch(() => false))) continue;
         oweUnseenPull(ctx, path, entry);
         await ctx.log(`[Index] ${path} is listed by another device but was never pulled here. Pulling it next sync.`, "info");
     }
 }
 
-function oweUnseenPull(ctx: SyncHelpersCtx & { dirtyPaths?: Map<string, number> }, path: string, entry: LocalFileIndex[string]): void {
+export function oweUnseenPull(ctx: SyncHelpersCtx & { dirtyPaths?: Map<string, number> }, path: string, entry: LocalFileIndex[string]): void {
     if (!entry.fileId || ctx.dirtyPaths?.has(path)) return;
     if (ctx.settings && isDeviceExcluded({ settings: ctx.settings }, path)) return; // left out here
     const pending = pendingPullsOf(ctx);
@@ -229,6 +237,15 @@ function oweUnseenPull(ctx: SyncHelpersCtx & { dirtyPaths?: Map<string, number> 
 }
 
 const carriedRemoteEntries = new CtxState<LocalFileIndex>("carriedRemoteEntries", "Remote index entries kept for files this device has not pulled yet");
+
+/**
+ * Our own upload (made before this device started leaving the file out): the
+ * shared index may not list it yet, and dropping it here hid the file from
+ * every device that skipped its change while leaving it out.
+ */
+function ownUpload(entry: LocalFileIndex[string] | undefined): boolean {
+    return !!entry && (entry.lastAction === "push" || entry.lastAction === "merge");
+}
 
 export async function buildRemoteIndexPayload(ctx: SyncHelpersCtx): Promise<ArrayBuffer> {
     const merged: LocalFileIndex = { ...ctx.index };
@@ -249,7 +266,7 @@ export async function buildRemoteIndexPayload(ctx: SyncHelpersCtx): Promise<Arra
             const last = lastReadRemoteIndex.get(ctx);
             if (last) {
                 for (const p of Object.keys(merged)) {
-                    if (p !== ctx.pluginDataPath && isDeviceExcluded(ctx, p) && !last[p]) delete merged[p];
+                    if (p !== ctx.pluginDataPath && isDeviceExcluded(ctx, p) && !last[p] && !ownUpload(merged[p])) delete merged[p];
                 }
                 for (const [p, e] of Object.entries(last)) {
                     if (p !== ctx.pluginDataPath && isDeviceExcluded(ctx, p)) merged[p] = e;
@@ -341,7 +358,7 @@ export async function buildRemoteIndexPayload(ctx: SyncHelpersCtx): Promise<Arra
             // entries win (our copy is stale: an edit, rename or delete made elsewhere
             // would be undone in the shared index).
             for (const p of Object.keys(merged)) {
-                if (p !== ctx.pluginDataPath && isDeviceExcluded(ctx, p) && !remote[p]) delete merged[p];
+                if (p !== ctx.pluginDataPath && isDeviceExcluded(ctx, p) && !remote[p] && !ownUpload(merged[p])) delete merged[p];
             }
             for (const [p, e] of Object.entries(remote)) {
                 if (p !== ctx.pluginDataPath && isDeviceExcluded(ctx, p)) merged[p] = e;

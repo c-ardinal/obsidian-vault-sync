@@ -39,12 +39,13 @@ import {
     getThresholdBytes,
     generateTransferId,
     markPendingTransfer,
+    oweUnseenPull,
     pendingPullsOf,
     moveAttemptedUploads,
     peekAttemptedUpload,
 } from "./sync-helpers";
 import { CtxFlag, CtxState } from "./context-state";
-import { takeScopeChange } from "./sync-scope";
+import { noteSkippedOutOfScope, takeScopeChange, takeScopeUnsettled, takeSkippedOutOfScope } from "./sync-scope";
 
 
 /** Check for active merge locks from other devices */
@@ -141,7 +142,10 @@ async function detectPullChanges(
             continue;
         }
         // Left out on this device: never downloaded here
-        if (isDeviceExcluded(ctx, path)) continue;
+        if (isDeviceExcluded(ctx, path)) {
+            noteSkippedOutOfScope(ctx, path, remoteEntry);
+            continue;
+        }
 
         const localBaseEntry = ctx.localIndex[path];
 
@@ -1140,8 +1144,28 @@ async function forgetReincluded(
  * synced again are fetched; files now left out simply stay as they are.
  */
 export async function reconcileScopeChange(ctx: SyncContext): Promise<boolean> {
+    // Changes skipped under settings changed after the last reconcile (and maybe
+    // changed back since): compared with the cloud again when synced now.
+    for (const [path, entry] of takeSkippedOutOfScope(ctx)) {
+        if (path === ctx.pluginDataPath || isDeviceExcluded(ctx, path)) continue;
+        reconcilePending.add(ctx);
+        if (ctx.index[path]?.fileId) reincludedOf(ctx).add(path);
+        // Not known here: the shared index may not list it either (an index upload
+        // made while it was left out here replaced the one listing it), so the
+        // file is pulled by id.
+        else if (!ctx.localIndex[path]) oweUnseenPull(ctx, path, entry);
+    }
+    const changedMeanwhile = takeScopeUnsettled(ctx);
     const change = takeScopeChange(ctx, ctx.settings);
-    if (!change) return false;
+    if (!change) {
+        if (!changedMeanwhile) return false;
+        // Changed during the last sync and back since: files left out meanwhile were
+        // skipped by its scan and push. A vault scan and a comparison with the remote
+        // index find them.
+        await ctx.log("[Sync scope] Exclusion or content settings were changed and changed back", "info");
+        reconcilePending.add(ctx);
+        return true;
+    }
     const before: Pick<SyncContext, "settings"> = { settings: { ...ctx.settings, ...change.previous } };
     await ctx.log("[Sync scope] Exclusion or content settings changed since the last sync", "info");
     // A move not pushed yet whose new name is now left out: the cloud still has the
@@ -1367,6 +1391,12 @@ async function processChangePage(
             if (cloudFile.path === ctx.pluginDataPath) continue;
             if (isManagedSeparately(cloudFile.path)) continue;
             if (isDeviceExcluded(ctx, cloudFile.path)) {
+                noteSkippedOutOfScope(ctx, cloudFile.path, {
+                    fileId: cloudFile.id,
+                    hash: cloudFile.hash,
+                    size: cloudFile.size,
+                    mtime: cloudFile.mtime,
+                } as LocalFileIndex[string]);
                 // Moved elsewhere to where this device does not sync: for this device
                 // the file it synced is gone, as when deleted there.
                 const known = Object.entries(ctx.index).find(([, e]) => e.fileId === cloudFile.id)?.[0];

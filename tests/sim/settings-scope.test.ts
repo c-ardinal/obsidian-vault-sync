@@ -210,4 +210,45 @@ describe("files left out by one device's sync settings", () => {
         // Used to: the edit's event was ignored and nothing found it until a restart
         expect(b.read("img/p.png")).toBe("PNG2");
     });
+    it("on the PC-only list and off again before a sync: a note created in between is uploaded", async () => {
+        const { make, sync } = setup();
+        const a = await make("A");
+        await a.userCreate("notes/a.md", "a");
+        await sync(a);
+        const b = await make("B");
+        await sync(b);
+        b.settings.desktopExclusionPatterns = "notes/sub/**";
+        await drive(b.sm.applyDeviceScopeChange(""), 600_000);
+        await b.userCreate("notes/sub/new.md", "new");
+        await advance(50); // its event arrives while the folder is left out
+        b.settings.desktopExclusionPatterns = "";
+        await drive(b.sm.applyDeviceScopeChange("notes/sub/**"), 600_000);
+        await sync(b);
+        await sync(a);
+        // Used to: no event, no scan, the note stayed on B only
+        expect(a.read("notes/sub/new.md")).toBe("new");
+    });
+
+    it("left out during a sync and back before the next: a change skipped meanwhile is pulled", async () => {
+        const { make, sync, set } = setup();
+        const a = await make("A");
+        await a.userCreate("notes/a.md", "a");
+        await sync(a);
+        const b = await make("B");
+        await sync(b);
+        await a.userCreate("assets/x.png", "PNG");
+        await sync(a);
+        // The setting changes while B's sync runs (after it read its settings)
+        const pull = b.sm.smartPull.bind(b.sm);
+        vi.spyOn(b.sm, "smartPull").mockImplementationOnce(async () => {
+            set(b, { exclusionPatterns: "assets/**" });
+            return pull();
+        });
+        await sync(b);
+        expect(b.read("assets/x.png")).toBeNull();
+        set(b, { exclusionPatterns: "" });
+        await sync(b);
+        // Used to: the next sync saw no change of settings, the skipped file never came
+        expect(b.read("assets/x.png")).toBe("PNG");
+    });
 });

@@ -1,3 +1,4 @@
+import { CtxState } from "./context-state";
 import { removeRemote } from "./remote-deletion";
 import { noteUploadedForRetention } from "./revision-retention";
 import { recordActivity } from "./device-registry";
@@ -420,7 +421,19 @@ async function settleOrphanedUploads(ctx: SyncContext): Promise<void> {
  * O(1) when no dirty files, O(dirty count + .obsidian scan) otherwise
  * If scanVault is true, performs O(N) full vault scan before pushing
  */
+/**
+ * Counts full-cleanup requests (triggerFullCleanup). A request made while a push
+ * runs (a setting changed mid-sync) came after that push's scan: the push must
+ * leave the flag set, or the scan it asked for never happened.
+ */
+const cleanupRequests = new CtxState<number>("fullCleanupRequests", "Full-cleanup requests so far (a push resets the flag only for those it saw)");
+
+export function noteFullCleanupRequest(ctx: object): void {
+    cleanupRequests.set(ctx, (cleanupRequests.get(ctx) ?? 0) + 1);
+}
+
 export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<boolean> {
+    const cleanupSeen = cleanupRequests.get(ctx) ?? 0;
     if (scanVault) {
         ctx.progress?.setPhase("scanning");
         await scanVaultChanges(ctx);
@@ -1570,7 +1583,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
 
         await runParallel(tasks, ctx.settings.concurrency);
 
-        if (ctx.forceCleanupNextSync) {
+        if (ctx.forceCleanupNextSync && (cleanupRequests.get(ctx) ?? 0) === cleanupSeen) {
             ctx.forceCleanupNextSync = false;
             await ctx.log("[Smart Push] Full cleanup scan completed and flag reset.", "debug");
         }
