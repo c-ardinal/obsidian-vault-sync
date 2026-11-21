@@ -63,7 +63,7 @@ const KNOWN_INCLUDES_MAX = 300;
 function noteIncludes(ctx: SyncHelpersCtx, hash: string, from: string[]): void {
     if (!hash || from.length === 0) return;
     let m = knownIncludes.get(ctx);
-    if (!m) knownIncludes.set(ctx, (m = new Map()));
+    if (!m) knownIncludes.set(ctx, (m = new Map<string, string[]>()));
     const key = hash.toLowerCase();
     const all = [...new Set([...(m.get(key) ?? []), ...from.map((h) => String(h).toLowerCase())])].slice(0, 8);
     m.delete(key);

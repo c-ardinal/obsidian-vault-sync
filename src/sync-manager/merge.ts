@@ -886,7 +886,7 @@ const keptCopies = new CtxState<Map<string, { fileId: string; hash: string }>>(
 export function noteKeptCopy(ctx: SyncContext, path: string, fileId: string, hash: string | undefined): void {
     if (!fileId || !hash) return;
     let m = keptCopies.get(ctx);
-    if (!m) keptCopies.set(ctx, (m = new Map()));
+    if (!m) keptCopies.set(ctx, (m = new Map<string, { fileId: string; hash: string }>()));
     m.set(path, { fileId, hash: hash.toLowerCase() });
 }
 
@@ -962,7 +962,7 @@ const lateDuplicates = new CtxState<Map<string, { ourId: string; hashes: string[
 
 export function watchLateDuplicate(ctx: SyncContext, path: string, ourId: string, hashes: string[], forMs: number): void {
     let m = lateDuplicates.get(ctx);
-    if (!m) lateDuplicates.set(ctx, (m = new Map()));
+    if (!m) lateDuplicates.set(ctx, (m = new Map<string, { ourId: string; hashes: string[]; until: number }>()));
     m.set(path, { ourId, hashes: hashes.map((h) => h.toLowerCase()), until: Date.now() + forMs });
 }
 
