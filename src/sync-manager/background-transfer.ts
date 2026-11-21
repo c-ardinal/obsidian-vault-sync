@@ -371,6 +371,11 @@ export class BackgroundTransferQueue {
                 "warn",
             );
             await this.settleOrphanedUpload(ctx, item.path);
+            // Nothing is in transfer for this name any more (an entry kept for it, e.g.
+            // a file renamed to where this device does not sync, must not wait for it)
+            if (ctx.localIndex[item.path]?.pendingTransfer?.direction === "push") {
+                delete ctx.localIndex[item.path].pendingTransfer;
+            }
             this.completeItem(item, "cancelled");
             return;
         }

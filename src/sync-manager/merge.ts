@@ -318,6 +318,10 @@ async function pullFileSafelyClaimed(
                 return false;
             }
             moveIndexEntry(ctx, clash, alt);
+            // A background pull of the incoming file marked the entry under that name:
+            // the mark belongs to the incoming file, not to the note moved away. Kept on
+            // the moved note, it stayed "in transfer" for good.
+            if (ctx.localIndex[alt]?.pendingTransfer?.direction === "pull") delete ctx.localIndex[alt].pendingTransfer;
             await ctx.log(
                 `[${logPrefix}] ${clash} has the same name as ${item.path} on Windows/macOS. Renamed it to ${alt}.`,
                 "warn",

@@ -269,6 +269,28 @@ const PINNED: { title: string; seed: number; levels: Record<string, string> }[] 
             "sync-frequency": "near-realtime", network: "flaky", devices: "linux", "app-restarts": "none",
         },
     },
+    {
+        title: "a note renamed away for a same-name pull does not keep that pull's transfer mark",
+        seed: 901,
+        levels: {
+            conflict: "always-fork", exclusion: "same-on-all", images: "off-on-one-device",
+            "device-list": "none", "settings-sync": "per-device", deletes: "deletes",
+            "large-files": "background-throttled", encryption: "e2ee", concurrency: "5",
+            "cloud-trash": "remove-at-once", "keep-revisions": "off", "sync-frequency": "near-realtime",
+            network: "clean", devices: "mixed-os", "app-restarts": "none",
+        },
+    },
+    {
+        title: "an image renamed out of scope during its background upload is not left in transfer",
+        seed: 968,
+        levels: {
+            conflict: "always-fork", exclusion: "one-device-only", images: "changed-mid-run",
+            "device-list": "changed-mid-run", "settings-sync": "shared", deletes: "deletes",
+            "large-files": "background-throttled", encryption: "non-md5-cloud", concurrency: "1",
+            "cloud-trash": "remove-at-once", "keep-revisions": "off", "sync-frequency": "near-realtime",
+            network: "clean", devices: "linux", "app-restarts": "none",
+        },
+    },
 ];
 
 if (!ONLY_COMBO) {
