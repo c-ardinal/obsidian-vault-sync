@@ -217,7 +217,7 @@
     "settingLargeFileThresholdDesc": "この値を超過するファイルは同期サイクル外でバックグラウンド転送されます。\n0に設定すると無効（全ファイルがインライン同期）。",
     "settingBgTransferInterval": "バックグラウンド転送の間隔",
     "settingBgTransferIntervalDesc": "バックグラウンド転送間の待機時間。\n0に設定するとスロットリングなし（最速）。",
-    "passwordTooShort": "パスワードは8文字以上にしてください。",
+    "passwordTooShort": "パスワードは12文字以上にしてください。",
     "passwordNeedsVariety": "大文字・小文字・数字・記号を併用してください。",
     "passwordHasRepeats": "同一文字の反復（例：aaaa）は回避してください。",
     "passwordHasSequences": "連続文字（例：1234、abcd）は回避してください。",

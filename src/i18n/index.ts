@@ -493,7 +493,7 @@ export const en: Record<string, string> = {
         "Delay between consecutive background transfers.\nSet to 0 for no throttling (fastest).",
 
     // Password Strength
-    passwordTooShort: "Password must be at least 8 characters.",
+    passwordTooShort: "Password must be at least 12 characters.",
     passwordNeedsVariety: "Use a mix of uppercase, lowercase, numbers, and symbols.",
     passwordHasRepeats: "Avoid repeated characters (e.g. aaaa).",
     passwordHasSequences: "Avoid sequential characters (e.g. 1234, abcd).",
