@@ -291,6 +291,15 @@ const PINNED: { title: string; seed: number; levels: Record<string, string> }[] 
             network: "clean", devices: "linux", "app-restarts": "none",
         },
     },
+    {
+        title: "an index uploaded right after an app restart keeps the files left out here",
+        seed: 1070,
+        levels: {
+            conflict: "force-remote", exclusion: "same-on-all", "device-list": "changed-mid-run", "settings-sync": "shared",
+            deletes: "deletes", "large-files": "inline", encryption: "e2ee", concurrency: "1", "cloud-trash": "remove-at-once",
+            network: "flaky", devices: "mixed-os", "app-restarts": "restarts",
+        },
+    },
 ];
 
 if (!ONLY_COMBO) {

@@ -321,12 +321,14 @@ export async function buildRemoteIndexPayload(ctx: SyncHelpersCtx): Promise<Arra
         indexMergedFrom.set(ctx, meta?.hash?.toLowerCase() ?? "");
         const lastSeen = ctx.index[ctx.pluginDataPath]?.hash?.toLowerCase() || "";
         if (meta?.id && meta.hash && meta.hash.toLowerCase() === lastSeen) {
-            if (!knownDeletionMarks.has(ctx)) {
+            if (!knownDeletionMarks.has(ctx) || !lastReadRemoteIndex.has(ctx)) {
                 // Not read since the app started: read it once, or our upload would drop
-                // the deletion marks other devices left in it.
+                // the deletion marks other devices left in it, and the entries of files
+                // this device leaves out (never in our own index).
                 readingRemote = true;
-                await parseRemoteIndexBytes(ctx, await ctx.adapter.downloadFile(meta.id));
+                const read = await parseRemoteIndexBytes(ctx, await ctx.adapter.downloadFile(meta.id));
                 readingRemote = false;
+                if (!lastReadRemoteIndex.has(ctx)) lastReadRemoteIndex.set(ctx, read.index);
             }
             const carried = carriedRemoteEntries.get(ctx) ?? {};
             // Files left out here: the shared index has not changed since we last read
