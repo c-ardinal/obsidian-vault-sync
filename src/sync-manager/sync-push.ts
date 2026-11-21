@@ -21,6 +21,7 @@ import {
 import { loadCommunication, saveIndex, saveLocalIndex, releaseLockAfterPush, findForeignLock, renameLocal, confirmMissingForDeletion, clearDeleteIntent, hasDeleteIntent, noteDeleteIntent, takeUnsyncedRename, peekUnsyncedRename, takeReplacedNote } from "./state";
 import { pullFileSafely } from "./merge";
 import { isMergeableText, recoverOverwrittenVersion, watchLateLanding } from "./overwrite-recovery";
+import { watchLateDuplicate } from "./merge";
 import { findPathCollision, freeCollisionPath, moveIndexEntry, pathKey } from "./path-collision";
 import { TransferPriority } from "./transfer-types";
 import { formatSize } from "../utils/format";
@@ -1380,6 +1381,10 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
 
                     const plainHash = await hashContent(file.content);
 
+                    // The version our merge was made from (the index upload adds those the
+                    // merged remote version carried)
+                    const mergedFrom = ctx.localIndex[file.path]?.mergedFrom;
+                    const includes = mergedFrom ? [mergedFrom] : [];
                     const entry = {
                         fileId: uploaded.id,
                         mtime: file.mtime,
@@ -1388,6 +1393,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                         plainHash: plainHash,
                         lastAction: "push" as const,
                         ancestorHash: previousAncestorHash || uploaded.hash,
+                        ...(includes.length > 0 ? { includes } : {}),
                     };
                     if (await reconcileVanishedAfterUpload(ctx, file.path, file.content, entry)) {
                         // Handled as a rename/delete that happened while uploading. Saved
@@ -1427,6 +1433,10 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                 previousAncestorHash,
                                 previousHash,
                             ]);
+                        }
+                        if (!targetFileId && priorRun.length > 0) {
+                            // The previous run's create may still land as a second file
+                            watchLateDuplicate(ctx, file.path, uploaded.id, priorRun, PRIOR_RUN_LANDING_MS);
                         }
                         if (uploaded.hash && priorRun.length > 0) {
                             watchLateLanding(

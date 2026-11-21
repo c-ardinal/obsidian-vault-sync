@@ -276,6 +276,8 @@ async function pullFileSafelyClaimed(
     const fileId = item.fileId || item.id;
     if (!fileId && !isRemoteDeleted) return false;
 
+    if (fileId && !isRemoteDeleted && (await dropLateDuplicate(ctx, item, fileId, logPrefix))) return true;
+
     // Made on macOS/Linux/iOS under a name this system refuses: writing it fails on
     // every sync. Leave it in the cloud (never delete it from here) and tell the user
     // once, so they know why the note is missing on this device.
@@ -945,6 +947,66 @@ async function mergeKeptCopy(
         if (e instanceof TransientHistoryError) throw e;
         return false;
     }
+}
+
+/**
+ * A new note uploaded again after an app restart, while the killed run's upload of
+ * it was still on its way: that one may land a moment later as a second cloud file
+ * with the same content (another device may even have renamed it to "name (2)").
+ * path -> our file and the contents the previous run sent.
+ */
+const lateDuplicates = new CtxState<Map<string, { ourId: string; hashes: string[]; until: number }>>(
+    "lateDuplicates",
+    "New notes whose create of the previous app run may still land as a second file",
+);
+
+export function watchLateDuplicate(ctx: SyncContext, path: string, ourId: string, hashes: string[], forMs: number): void {
+    let m = lateDuplicates.get(ctx);
+    if (!m) lateDuplicates.set(ctx, (m = new Map()));
+    m.set(path, { ourId, hashes: hashes.map((h) => h.toLowerCase()), until: Date.now() + forMs });
+}
+
+/** "dir/name (2).md" -> "dir/name.md" (a name another device gave a same-name file) */
+function withoutCollisionSuffix(path: string): string {
+    return path.replace(/ \(\d+\)(\.[^./]*)?$/, "$1");
+}
+
+async function dropLateDuplicate(
+    ctx: SyncContext,
+    item: Parameters<typeof pullFileSafely>[1],
+    fileId: string,
+    logPrefix: string,
+): Promise<boolean> {
+    const m = lateDuplicates.get(ctx);
+    if (!m || m.size === 0) return false;
+    const watchedAs = [item.path, withoutCollisionSuffix(item.path)].find((p) => m.has(p));
+    if (!watchedAs) return false;
+    const w = m.get(watchedAs)!;
+    if (Date.now() > w.until) {
+        m.delete(watchedAs);
+        return false;
+    }
+    if (fileId === w.ourId || ctx.index[watchedAs]?.fileId !== w.ourId) return false;
+    if (Object.values(ctx.index).some((e) => e.fileId === fileId)) return false;
+    let sent = item.hash?.toLowerCase();
+    if (storesTransformedContent(ctx)) {
+        const content = await ctx.adapter.downloadFile(fileId).catch(() => null);
+        if (!content) return false;
+        sent = contentFingerprint(content);
+    }
+    if (!sent || !w.hashes.includes(sent)) return false;
+    try {
+        await removeRemote(ctx, { id: fileId, path: item.path, kind: "file" }, "superseded-upload");
+    } catch (e) {
+        await ctx.log(`[${logPrefix}] Could not remove the late copy ${item.path}: ${String(e)}`, "warn");
+        return false;
+    }
+    m.delete(watchedAs);
+    await ctx.log(
+        `[${logPrefix}] ${item.path} is a late copy of our upload of ${watchedAs} from before the app restarted. Removed it from the cloud.`,
+        "info",
+    );
+    return true;
 }
 
 const vanishedLocally = new CtxState<Map<string, number>>(
@@ -1730,6 +1792,7 @@ async function pullFileUnchecked(
                                             hash: mergedHash,
                                             lastAction: "merge" as const,
                                             ancestorHash: remoteGotHash,
+                                            ...(localBase?.hash ? { mergedFrom: localBase.hash.toLowerCase() } : {}),
                                         };
                                         const entryCloud = {
                                             fileId: fileId || "",
@@ -1780,6 +1843,7 @@ async function pullFileUnchecked(
                                             hash: mergedHash,
                                             lastAction: "merge" as const,
                                             ancestorHash: item.hash?.toLowerCase() || "",
+                                            ...(localBase?.hash ? { mergedFrom: localBase.hash.toLowerCase() } : {}),
                                         };
                                         ctx.dirtyPaths.set(item.path, Date.now());
                                         await saveLocalIndex(ctx);

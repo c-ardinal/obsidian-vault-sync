@@ -56,6 +56,11 @@ export interface LocalFileIndex {
         pendingMove?: {
             oldPath: string;
         };
+        /** Local only: a merge result not pushed yet, made from our version with this hash */
+        mergedFrom?: string;
+        /** Versions (cloud hashes) this version was merged from besides the one it was
+         *  built on: an upload that replaced one of them is repaired by this merge already */
+        includes?: string[];
         /** Set when another device deleted this file in the cloud and the deletion
          *  mark that tells whether it saw our upload has not arrived yet (Unix ms) */
         remoteDeletionSeenAt?: number;

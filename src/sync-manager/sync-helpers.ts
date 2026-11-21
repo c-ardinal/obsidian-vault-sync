@@ -1,6 +1,6 @@
 import { contentFingerprint } from "./content-fingerprint";
 import type { SyncContext } from "./context";
-import { parseIndex, providerNameOf, serializeIndex, type DeletionMark, type DeletionMarks } from "./remote-layout";
+import { parseIndex, providerNameOf, serializeIndex, type DeletionMark, type DeletionMarks, type MergeOrigins } from "./remote-layout";
 import { noteIndexFormat } from "./state";
 import type { LocalFileIndex } from "./types";
 import { tryDecompress, hashContent, isDeviceExcluded } from "./file-utils";
@@ -52,6 +52,43 @@ export async function downloadRemoteIndexData(
 }
 
 /**
+ * Cloud version -> the versions it was merged from (its "includes" in the shared
+ * index), as read here. An index upload of another device may already have
+ * replaced that entry when our merge on top of it is uploaded.
+ */
+const knownIncludes = new CtxState<Map<string, string[]>>("knownIncludes", "Versions each cloud version was merged from, as read");
+/** At most this many are kept (the newest), here and in the shared index */
+const KNOWN_INCLUDES_MAX = 300;
+
+function noteIncludes(ctx: SyncHelpersCtx, hash: string, from: string[]): void {
+    if (!hash || from.length === 0) return;
+    let m = knownIncludes.get(ctx);
+    if (!m) knownIncludes.set(ctx, (m = new Map()));
+    const key = hash.toLowerCase();
+    const all = [...new Set([...(m.get(key) ?? []), ...from.map((h) => String(h).toLowerCase())])].slice(0, 8);
+    m.delete(key);
+    m.set(key, all);
+    while (m.size > KNOWN_INCLUDES_MAX) m.delete(m.keys().next().value as string);
+}
+
+function learnIncludes(ctx: SyncHelpersCtx, index: LocalFileIndex, merges: MergeOrigins): void {
+    for (const [h, from] of Object.entries(merges)) if (Array.isArray(from)) noteIncludes(ctx, h, from);
+    for (const e of Object.values(index)) if (e.hash && e.includes?.length) noteIncludes(ctx, e.hash, e.includes);
+}
+
+function mergeOriginsForUpload(ctx: SyncHelpersCtx, index: LocalFileIndex): MergeOrigins {
+    learnIncludes(ctx, index, {});
+    const out: MergeOrigins = {};
+    for (const [h, from] of knownIncludes.get(ctx) ?? []) out[h] = from;
+    return out;
+}
+
+/** The versions the cloud version with this hash was merged from, as far as known here */
+export function includesOf(ctx: SyncHelpersCtx, hash: string | undefined): string[] {
+    return (hash && knownIncludes.get(ctx)?.get(hash.toLowerCase())) || [];
+}
+
+/**
  * The shared index as this device last read or wrote it. Files this device
  * leaves out are never in its own index: their entries are taken from here
  * when the shared index has not changed since, or an upload dropped them
@@ -70,6 +107,7 @@ async function parseRemoteIndexBytes(
     const parsed = parseIndex(new TextDecoder().decode(decompressed), providerNameOf(ctx.adapter));
     await noteIndexFormat(ctx, parsed, "remote");
     learnDeletionMarks(ctx, parsed.deleted);
+    learnIncludes(ctx, parsed.index, parsed.merges);
     return { index: parsed.index, startPageToken: parsed.startPageToken };
 }
 
@@ -491,6 +529,15 @@ export async function buildRemoteIndexPayload(ctx: SyncHelpersCtx): Promise<Arra
         const { forcePush: _owed, ...rest } = own;
         merged[ctx.pluginDataPath] = rest;
     }
+    // A merge of ours carries the versions the remote version it merged carried
+    // (another device's merge of a version our upload had replaced, see
+    // overwrite-recovery): kept transitively, a few at most.
+    for (const [p, e] of Object.entries(merged)) {
+        if (!e.includes || !e.ancestorHash) continue;
+        const inherited = includesOf(ctx, e.ancestorHash);
+        if (inherited.length === 0) continue;
+        merged[p] = { ...e, includes: [...new Set([...e.includes, ...inherited])].slice(0, 8) };
+    }
     for (const [p, e] of Object.entries(merged)) {
         if (e.remoteDeletionSeenAt === undefined) continue;
         // Local bookkeeping (a deletion we are checking), not for other devices
@@ -498,7 +545,7 @@ export async function buildRemoteIndexPayload(ctx: SyncHelpersCtx): Promise<Arra
         merged[p] = rest;
     }
     lastReadRemoteIndex.set(ctx, merged);
-    const data = serializeIndex(merged, ctx.startPageToken, providerNameOf(ctx.adapter), deletionMarksForUpload(ctx));
+    const data = serializeIndex(merged, ctx.startPageToken, providerNameOf(ctx.adapter), deletionMarksForUpload(ctx), mergeOriginsForUpload(ctx, merged));
     return new TextEncoder().encode(data).buffer;
 }
 

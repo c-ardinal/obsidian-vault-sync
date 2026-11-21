@@ -317,6 +317,34 @@ const PINNED: { title: string; seed: number; levels: Record<string, string> }[] 
             "cloud-trash": "remove-at-once", devices: "mixed-os", "app-restarts": "restarts",
         },
     },
+    {
+        title: "late landing of a killed run's new-note upload is not kept as a second note",
+        seed: 1211,
+        levels: {
+            conflict: "always-fork", exclusion: "none", images: "off-on-one-device", "device-list": "one-device",
+            "settings-sync": "shared", deletes: "none", "large-files": "inline", encryption: "e2ee", concurrency: "2",
+            "cloud-trash": "30-days", "keep-revisions": "off", "sync-frequency": "normal", network: "flaky", devices: "mixed-os",
+            "app-restarts": "restarts",
+        },
+    },
+    {
+        title: "a replaced version merged back by its device is not saved again as a conflict copy",
+        seed: 336,
+        levels: {
+            conflict: "smart-merge", exclusion: "none", images: "on", "device-list": "none", "settings-sync": "shared",
+            deletes: "none", "large-files": "inline", encryption: "off", concurrency: "1", "cloud-trash": "30-days",
+            "keep-revisions": "off", "sync-frequency": "normal", network: "flaky", devices: "linux", "app-restarts": "none",
+        },
+    },
+    {
+        title: "a replaced version merged back is known after a stale index upload of a third device",
+        seed: 334,
+        levels: {
+            conflict: "smart-merge", exclusion: "none", images: "on", "device-list": "none", "settings-sync": "shared",
+            deletes: "none", "large-files": "inline", encryption: "off", concurrency: "1", "cloud-trash": "30-days",
+            "keep-revisions": "off", "sync-frequency": "near-realtime", network: "clean", devices: "linux", "app-restarts": "none",
+        },
+    },
 ];
 
 if (!ONLY_COMBO) {

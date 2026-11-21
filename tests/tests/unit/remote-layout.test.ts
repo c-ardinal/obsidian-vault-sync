@@ -58,6 +58,14 @@ describe("index document", () => {
         expect(JSON.parse(serializeIndex(index, "t", "X", {}))).not.toHaveProperty("deleted");
     });
 
+    it("carries merge origins, and reads documents without them", () => {
+        const merges = { aaa: ["bbb", "ccc"] };
+        const parsed = parseIndex(serializeIndex(index, "tok-1", "Google Drive", {}, merges), "Google Drive");
+        expect(parsed.merges).toEqual(merges);
+        expect(parseIndex(serializeIndex(index, "tok-1", "Google Drive"), "Google Drive").merges).toEqual({});
+        expect(JSON.parse(serializeIndex(index, "t", "X", {}, {}))).not.toHaveProperty("merges");
+    });
+
     it("names the provider of a wrapped adapter by its base adapter", () => {
         const base = { name: "Google Drive" };
         expect(providerNameOf({ name: "Google Drive (Encrypted)", getBaseAdapter: () => base as never })).toBe(
