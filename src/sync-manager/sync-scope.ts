@@ -56,9 +56,9 @@ export function noteSkippedOutOfScope(
 ): void {
     const scope = applied.get(ctx);
     if (!scope || !entry?.fileId) return;
-    if (isDeviceExcluded({ settings: { ...ctx.settings, ...scope } as SyncContext["settings"] }, path)) return;
+    if (isDeviceExcluded({ settings: { ...ctx.settings, ...scope } }, path)) return;
     let m = skipped.get(ctx);
-    if (!m) skipped.set(ctx, (m = new Map()));
+    if (!m) skipped.set(ctx, (m = new Map<string, LocalFileIndex[string]>()));
     m.set(path, entry);
 }
 
