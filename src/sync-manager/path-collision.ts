@@ -1,6 +1,7 @@
 import type { SyncContext } from "./context";
 import { basename, dirname } from "../utils/path";
 import { CtxState } from "./context-state";
+import { moveAttemptedUploads, type SyncHelpersCtx } from "./sync-helpers";
 
 /** What this module reads from the sync context */
 export type PathCollisionCtx = Pick<
@@ -64,6 +65,12 @@ export function claimPullPath(ctx: PathCollisionCtx, path: string, fileId: strin
     };
 }
 
+/** Whether a pull of another file (not `fileId`) is writing exactly `path` right now. */
+export function isPathClaimedByOther(ctx: PathCollisionCtx, path: string, fileId: string): boolean {
+    const cur = inFlight(ctx).get(pathKey(path));
+    return !!cur && cur.fileId !== fileId && cur.path === path;
+}
+
 const pulls = new CtxState<Map<string, { path: string; fileId: string }>>("pullsInFlight", "Pulls running now, by folded path");
 function inFlight(ctx: PathCollisionCtx): Map<string, { path: string; fileId: string }> {
     let m = pulls.get(ctx);
@@ -80,8 +87,10 @@ export async function freeCollisionPath(ctx: PathCollisionCtx, path: string): Pr
     const ext = dot > 0 ? name.slice(dot) : "";
     const used = new Set([
         ...Object.keys(ctx.index).map(pathKey),
+        ...Object.keys(ctx.localIndex).map(pathKey),
         ...[...ctx.dirtyPaths.keys()].map(pathKey),
         ...reservedKeys(ctx),
+        ...(incoming.get(ctx) ?? []),
         ...inFlight(ctx).keys(),
     ]);
     for (let n = 2; n < 1000; n++) {
@@ -116,4 +125,39 @@ export function moveIndexEntry(ctx: PathCollisionCtx, from: string, to: string):
         ctx.dirtyPaths.delete(from);
         ctx.dirtyPaths.set(to, Date.now());
     }
+    // Unconfirmed uploads go with the file: found under the old name only, our own
+    // lost upload looked like another device's edit (a needless conflict copy)
+    moveAttemptedUploads(ctx as unknown as SyncHelpersCtx, from, to);
+}
+
+/**
+ * Why Windows (and Android shared storage) cannot store this path, or null. macOS,
+ * Linux and iOS accept these names, so such a note can reach the cloud from there.
+ */
+export function windowsNameProblem(path: string): string | null {
+    for (const seg of path.split("/")) {
+        if (/[<>:"|?*\\\u0000-\u001f]/.test(seg)) return "character";
+        if (/[. ]$/.test(seg)) return "trailing dot or space";
+        const base = seg.split(".")[0].trimEnd().toUpperCase();
+        if (/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/.test(base)) return "reserved name";
+    }
+    return null;
+}
+
+const incoming = new CtxState<Set<string>>("incomingPaths", "Cloud paths of the pull batch running now (folded)");
+
+/**
+ * Names the current pull batch is about to download. Pulls run in parallel, so a
+ * clashing file renamed apart could otherwise be given the name ("x (2).md") of
+ * another file in the same batch that was not pulled yet. Returns a release.
+ */
+export function announceIncoming(ctx: PathCollisionCtx, paths: string[]): () => void {
+    const keys = paths.map(pathKey);
+    let set = incoming.get(ctx);
+    if (!set) incoming.set(ctx, (set = new Set<string>()));
+    const added = keys.filter((k) => !set!.has(k));
+    for (const k of added) set.add(k);
+    return () => {
+        for (const k of added) set!.delete(k);
+    };
 }

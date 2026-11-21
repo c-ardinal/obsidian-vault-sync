@@ -1,3 +1,4 @@
+import { overwriteRepairsSnapshot, restoreOverwriteRepairs } from "./overwrite-recovery";
 import { plainHashVersion, restorePlainHashVersion } from "./plain-hash-migration";
 import { contentFingerprint } from "./content-fingerprint";
 import { parseIndex, providerNameOf, serializeIndex, type ParsedIndex } from "./remote-layout";
@@ -18,8 +19,10 @@ import {
     pendingPullsSnapshot,
     restorePendingPulls,
     peekAttemptedUpload,
+    moveAttemptedUploads,
 } from "./sync-helpers";
 import { CtxState } from "./context-state";
+import { pathKey } from "./path-collision";
 import type { FileUtilsCtx } from "./file-utils";
 import type { PlainHashCtx } from "./plain-hash-migration";
 import type { SyncHelpersCtx } from "./sync-helpers";
@@ -47,6 +50,7 @@ export type StateCtx = Pick<
     | "syncState"
     | "syncingPaths"
     | "unicodeInsensitiveFs"
+    | "caseInsensitiveFs"
     | "vault"
 > & FileUtilsCtx & PlainHashCtx & SyncHelpersCtx;
 
@@ -496,6 +500,7 @@ export async function loadIndex(
 
         await ctx.revisionCache.init();
         await loadLocalIndex(ctx);
+        adoptLocalOnlyEntries(ctx);
     } catch (e) {
         const rawPath = ctx.pluginDataPath.replace(".json", "_raw.json");
         try {
@@ -524,6 +529,24 @@ export async function loadIndex(
     }
 }
 
+/**
+ * The local index is saved after every pull (with a journal), the sync index only at
+ * the end of a sync. When the app was killed in between, a pulled file was in the local
+ * index only: the next pull did not recognise a rename of it by another device (that
+ * goes by the sync index), and the file stayed here under its old name next to the
+ * renamed copy. Such entries describe a synced file: take them into the sync index.
+ */
+function adoptLocalOnlyEntries(ctx: StateCtx): void {
+    const knownIds = new Set(Object.values(ctx.index).map((e) => e.fileId).filter(Boolean));
+    for (const [path, entry] of Object.entries(ctx.localIndex)) {
+        if (path === ctx.pluginDataPath || ctx.index[path] || !entry.fileId || knownIds.has(entry.fileId)) continue;
+        // Our own upload is journaled the same way (push), so it is a synced file too
+        if ((entry.lastAction !== "pull" && entry.lastAction !== "push") || !entry.hash) continue;
+        ctx.index[path] = { ...entry };
+        knownIds.add(entry.fileId);
+    }
+}
+
 export async function loadLocalIndex(ctx: StateCtx): Promise<void> {
     try {
         if (await ctx.vault.exists(ctx.localIndexPath)) {
@@ -533,16 +556,24 @@ export async function loadLocalIndex(ctx: StateCtx): Promise<void> {
                 deviceId?: string;
                 attemptedUploads?: unknown;
                 pendingPulls?: unknown;
+                overwriteRepairs?: unknown;
+                unsyncedRenames?: unknown;
                 journalSeq?: unknown;
                 plainHashVersion?: unknown;
             };
             ctx.localIndex = parsed.index || {};
             ctx.deviceId = parsed.deviceId || "";
             journalOf(ctx).seq = typeof parsed.journalSeq === "number" ? parsed.journalSeq : 0;
-            await applyJournal(ctx, journalOf(ctx).seq);
+            // The saved file holds the entries without the journal: only they count as
+            // written. Marked after the replay, the replayed entries left the next journal
+            // while the saved file still lacked them, and a second app kill lost them (a
+            // synced note then had no base and every edit became a conflict copy).
             rememberWritten(ctx);
+            await applyJournal(ctx, journalOf(ctx).seq);
             restoreAttemptedUploads(ctx, parsed.attemptedUploads);
             restorePendingPulls(ctx, parsed.pendingPulls);
+            restoreOverwriteRepairs(ctx, parsed.overwriteRepairs);
+            restoreUnsyncedRenames(ctx, parsed.unsyncedRenames);
             restorePlainHashVersion(ctx, parsed.plainHashVersion, false);
             // The background queue does not survive a restart. Its owed pulls are in
             // pendingPulls (retried by the next sync) and unpushed files are found by
@@ -722,6 +753,8 @@ export async function saveLocalIndex(ctx: StateCtx, immediate = false): Promise<
             deviceId: ctx.deviceId,
             attemptedUploads: attemptedUploadsSnapshot(ctx),
             pendingPulls: pendingPullsSnapshot(ctx),
+            overwriteRepairs: overwriteRepairsSnapshot(ctx),
+            unsyncedRenames: unsyncedRenamesSnapshot(ctx),
             journalSeq: j.seq,
             plainHashVersion: plainHashVersion(ctx),
         });
@@ -754,24 +787,105 @@ export function clearPendingPushStates(ctx: StateCtx): void {
 
 /**
  * macOS can report a name in decomposed Unicode (NFD: "e" + accent) while the index
- * holds it composed (NFC: "é"), or the other way round. Both are the same file
- * there, so map an event path onto the index key it refers to. Only on such file
- * systems: on Linux / Windows the two spellings are two files. Case differences
- * are NOT folded: on Linux "Note.md" and "note.md" are two files.
+ * holds it composed (NFC: "é"), or the other way round. On Windows, macOS and
+ * Android a file pulled as "Projects/a.md" lands in an existing "projects" folder and
+ * is reported as "projects/a.md" from then on. Both spellings are the same file
+ * there, so map an event path onto the index key it refers to (a delete reported
+ * under the other spelling was ignored, and the note stayed in the cloud). Only on
+ * such file systems: on Linux "Note.md" and "note.md" are two files.
  */
 export function indexKeyFor(ctx: StateCtx, path: string): string {
-    if (!ctx.unicodeInsensitiveFs || ctx.index[path] || ctx.localIndex[path]) return path;
-    const nfc = path.normalize("NFC");
-    if (nfc === path && path.normalize("NFD") === path) return path; // plain ASCII etc.
-    for (const k of Object.keys(ctx.index)) if (k.normalize("NFC") === nfc) return k;
+    const nfdAware = !!ctx.unicodeInsensitiveFs;
+    const caseAware = !!ctx.caseInsensitiveFs;
+    if ((!nfdAware && !caseAware) || ctx.index[path] || ctx.localIndex[path]) return path;
+    const fold = (p: string) => {
+        const q = nfdAware ? p.normalize("NFC") : p;
+        return caseAware ? q.toLowerCase() : q;
+    };
+    const key = fold(path);
+    if (key === path && (!nfdAware || path.normalize("NFD") === path) && !caseAware) return path;
+    for (const k of Object.keys(ctx.index)) {
+        if (fold(k) !== key) continue;
+        // Deleted here and not yet removed from the cloud: a note created now under
+        // another spelling is a new note, not that one coming back.
+        if (!deleteIntents.get(ctx)?.has(k)) return k;
+    }
     return path;
 }
 
 export function markDirty(ctx: StateCtx, path: string): void {
     path = indexKeyFor(ctx, normalizePath(path));
     if (shouldIgnore(ctx, path)) return;
-    if (ctx.syncingPaths.has(path)) return;
+    // An edit reported under a name the sync has just moved the note away from (its
+    // rename event not here yet): the edit went with the note. Checked at the push
+    // (unchanged content is skipped); left unmarked, the moved note kept the edit
+    // here only and never uploaded it.
+    for (const key of ownRenames.get(ctx)?.keys() ?? []) {
+        const [from, to] = key.split("\u0000");
+        if (from === path && to && !shouldIgnore(ctx, to)) ctx.dirtyPaths.set(to, Date.now());
+    }
+    if (ctx.syncingPaths.has(path)) {
+        // Usually the echo of our own write, but it can be a user edit typed while the
+        // engine still held the path (after its write, until the merge lock was
+        // released). Dropping it lost that edit: the file was never pushed and the
+        // device stayed different from the cloud. Checked against the index before
+        // the next push (recheckEventsDuringSync).
+        setOf(eventsDuringSync, ctx).add(path);
+        return;
+    }
+    deleteIntents.get(ctx)?.delete(path); // there again: no longer deleted
+    // On a case-insensitive disk a note deleted here and created again under another
+    // letter case takes the same place: it cannot sit next to the old name on any such
+    // device. Uploading it as a new note while the old one was not yet removed from
+    // the cloud wrote the new content into the old cloud file under the OLD name.
+    // Treat it as a rename of the deleted note, so the cloud gets the new spelling.
+    const replaced = deletedUnderOtherSpelling(ctx, path);
+    if (replaced) {
+        deleteIntents.get(ctx)?.delete(replaced);
+        markRenamed(ctx, replaced, path);
+        let m = replacedNotes.get(ctx);
+        if (!m) replacedNotes.set(ctx, (m = new Map()));
+        m.set(path, replaced);
+        return;
+    }
     ctx.dirtyPaths.set(path, Date.now());
+}
+
+/**
+ * New notes taken as a rename of a note deleted under another letter case (see
+ * markDirty): new path -> deleted path. Only a rename in name: when another device
+ * edited the deleted note meanwhile, its edit wins over our delete as usual and the
+ * new note gets a name of its own (merging two different notes mangled both).
+ */
+const replacedNotes = new CtxState<Map<string, string>>("replacedNotes", "New notes taken as a rename of a note deleted under another letter case");
+
+/** The deleted note this new note took the place of, if it is still pending as a rename. */
+export function takeReplacedNote(ctx: StateCtx, path: string, oldPath: string): boolean {
+    const m = replacedNotes.get(ctx);
+    if (m?.get(path) !== oldPath) return false;
+    m.delete(path);
+    return true;
+}
+
+function deletedUnderOtherSpelling(ctx: StateCtx, path: string): string | undefined {
+    if (!ctx.caseInsensitiveFs || ctx.index[path]) return undefined;
+    const intents = deleteIntents.get(ctx);
+    if (!intents || intents.size === 0) return undefined;
+    const fold = (p: string) => (ctx.unicodeInsensitiveFs ? p.normalize("NFC") : p).toLowerCase();
+    const key = fold(path);
+    return [...intents].find((k) => k !== path && fold(k) === key && !!ctx.index[k]);
+}
+
+/** Vault edits reported while the engine held the path (see markDirty) */
+const eventsDuringSync = new CtxState<Set<string>>("eventsDuringSync", "Vault edits reported while the engine was writing the path; checked before the next push");
+
+/** Takes the paths whose edits arrived while the engine held them (and no longer does). */
+export function takeEventsDuringSync(ctx: StateCtx): string[] {
+    const set = eventsDuringSync.get(ctx);
+    if (!set || set.size === 0) return [];
+    const ready = [...set].filter((p) => !ctx.syncingPaths.has(p));
+    for (const p of ready) set.delete(p);
+    return ready;
 }
 
 /**
@@ -781,7 +895,13 @@ export function markDirty(ctx: StateCtx, path: string): void {
  * the old name next to the renamed copy. Such a path waits one sync for its event.
  */
 const deleteIntents = new CtxState<Set<string>>("deleteIntents", "Paths the user deleted, waiting to be removed from the cloud");
-const missingOnce = new CtxState<Set<string>>("missingOnce", "Paths found missing once, waiting one sync for a late rename event");
+const missingOnce = new CtxState<Map<string, number>>("missingOnce", "Paths found missing, waiting for a late rename event (first seen at)");
+/**
+ * How long a missing file waits for its rename event. Counted in time as well as in
+ * syncs: a sync that starts right after the previous one ran before the event of a
+ * rename made a moment earlier, and the file was deleted from the cloud.
+ */
+export const MISSING_EVENT_GRACE_MS = 3000;
 
 function setOf(map: CtxState<Set<string>>, ctx: StateCtx): Set<string> {
     let s = map.get(ctx);
@@ -794,15 +914,33 @@ export function noteDeleteIntent(ctx: StateCtx, path: string): void {
     setOf(deleteIntents, ctx).add(path);
 }
 
+/** The deletion reached the cloud: nothing left to do for this path. */
+export function clearDeleteIntent(ctx: StateCtx, path: string): void {
+    deleteIntents.get(ctx)?.delete(path);
+}
+
+/** The vault reported this path as deleted (the event has arrived). */
+export function hasDeleteIntent(ctx: StateCtx, path: string): boolean {
+    return !!deleteIntents.get(ctx)?.has(path);
+}
+
 /** True when a missing synced file may be deleted remotely now (see deleteIntents). */
 export function confirmMissingForDeletion(ctx: StateCtx, path: string): boolean {
-    if (setOf(deleteIntents, ctx).delete(path)) {
-        setOf(missingOnce, ctx).delete(path);
+    // Kept until the path is written again (markDirty): consuming it here lost it
+    // when the sync then failed before the delete, and the retry waited for a
+    // rename event that never comes while pulls of the path were held back.
+    if (setOf(deleteIntents, ctx).has(path)) {
+        missingOnce.get(ctx)?.delete(path);
         return true;
     }
-    const seen = setOf(missingOnce, ctx);
-    if (seen.delete(path)) return true;
-    seen.add(path);
+    let seen = missingOnce.get(ctx);
+    if (!seen) missingOnce.set(ctx, (seen = new Map<string, number>()));
+    const since = seen.get(path);
+    if (since !== undefined && Date.now() - since >= MISSING_EVENT_GRACE_MS) {
+        seen.delete(path);
+        return true;
+    }
+    if (since === undefined) seen.set(path, Date.now());
     return false;
 }
 
@@ -856,6 +994,53 @@ export async function renameLocal(ctx: StateCtx, from: string, to: string): Prom
     }
 }
 
+/**
+ * After a remote rename that changed only letter case (or Unicode form), make the
+ * folders above `path` use the new spelling too. On a case-insensitive disk a file
+ * renamed into "notes/" stays inside the existing "Notes" folder, so the folder
+ * itself has to be renamed, or this device keeps the old folder name.
+ */
+export async function alignFolderSpelling(ctx: StateCtx, path: string): Promise<void> {
+    if (!ctx.caseInsensitiveFs) return;
+    const segs = path.split("/").slice(0, -1);
+    let parent = "";
+    for (const seg of segs) {
+        let listing: { folders: string[] };
+        try {
+            listing = await ctx.vault.list(parent || "/");
+        } catch {
+            return;
+        }
+        const actual = listing.folders.map((f) => f.split("/").pop()!).find((f) => pathKey(f) === pathKey(seg));
+        if (actual === undefined) return;
+        if (actual !== seg) {
+            const from = parent ? `${parent}/${actual}` : actual;
+            const to = parent ? `${parent}/${seg}` : seg;
+            // Obsidian may also report a rename for each file inside the folder
+            const own = ownRenames.get(ctx) ?? new Map<string, number>();
+            ownRenames.set(ctx, own);
+            const childPairs = ctx.vault
+                .getFiles()
+                .filter((f) => f.path.startsWith(from + "/"))
+                .map((f) => `${f.path}\u0000${to}${f.path.slice(from.length)}`);
+            for (const k of childPairs) own.set(k, (own.get(k) ?? 0) + 1);
+            try {
+                await renameLocal(ctx, from, to);
+                await ctx.log(`[Smart Pull] Folder renamed to follow the cloud: ${from} -> ${to}`, "info");
+            } catch (e) {
+                for (const k of childPairs) {
+                    const n = own.get(k) ?? 0;
+                    if (n > 1) own.set(k, n - 1);
+                    else own.delete(k);
+                }
+                await ctx.log(`[Smart Pull] Could not rename folder ${from} -> ${to}: ${String(e)}`, "warn");
+                return;
+            }
+        }
+        parent = parent ? `${parent}/${seg}` : seg;
+    }
+}
+
 function takeOwnRename(ctx: StateCtx, from: string, to: string): boolean {
     const m = ownRenames.get(ctx);
     const key = `${from}\u0000${to}`;
@@ -876,8 +1061,41 @@ const unsyncedRenames = new CtxState<Map<string, string>>("unsyncedRenames", "Re
 function noteUnsyncedRename(ctx: StateCtx, from: string, to: string): void {
     let m = unsyncedRenames.get(ctx);
     if (!m) unsyncedRenames.set(ctx, (m = new Map<string, string>()));
-    for (const [k, v] of m) if (v === from) m.set(k, to);
+    let ownsUpload = !!peekAttemptedUpload(ctx, from);
+    for (const [k, v] of m) {
+        if (v !== from) continue;
+        m.set(k, to);
+        if (peekAttemptedUpload(ctx, k)) ownsUpload = true;
+    }
     m.set(from, to);
+    // An upload of the old name may be in flight: killed before the next save, the
+    // restarted app took that upload for a deleted note and removed it from the cloud
+    // (a second copy once another device had edited it). Save the rename at once.
+    if (ownsUpload) void saveLocalIndex(ctx, true);
+}
+
+/** Renames of never-synced files, for persisting with the local index */
+function unsyncedRenamesSnapshot(ctx: StateCtx): Record<string, string> | undefined {
+    const m = unsyncedRenames.get(ctx);
+    return m && m.size > 0 ? Object.fromEntries(m) : undefined;
+}
+
+function restoreUnsyncedRenames(ctx: StateCtx, data: unknown): void {
+    if (!data || typeof data !== "object") return;
+    let m = unsyncedRenames.get(ctx);
+    if (!m) unsyncedRenames.set(ctx, (m = new Map<string, string>()));
+    for (const [from, to] of Object.entries(data as Record<string, unknown>)) {
+        // Only a rename whose upload is still unsettled matters after a restart
+        // (its record may follow the note to the new name, after a failed move)
+        if (typeof to === "string" && !m.has(from) && (peekAttemptedUpload(ctx, from) || peekAttemptedUpload(ctx, to))) {
+            m.set(from, to);
+        }
+    }
+}
+
+/** Where a never-synced file once at `path` lives now, if it was renamed (keeps it). */
+export function peekUnsyncedRename(ctx: StateCtx, path: string): string | undefined {
+    return unsyncedRenames.get(ctx)?.get(path);
 }
 
 /** Where a never-synced file once at `path` lives now, if it was renamed (forgets it). */
@@ -903,7 +1121,13 @@ export function markRenamed(ctx: StateCtx, oldPath: string, newPath: string): vo
     // 未同期ファイルのリネーム/移動（oldPath がインデックスになく dirtyPaths にある）
     // After a restart the dirty set is empty, but a saved upload record still says the
     // file was never confirmed: its lost upload may be in the cloud under the old name.
-    if (!ctx.index[oldPath] && (ctx.dirtyPaths.has(oldPath) || peekAttemptedUpload(ctx, oldPath))) {
+    // A never-synced file renamed again (after a restart nothing else marks it): follow
+    // the recorded chain, or the first name's upload was taken for a deleted note.
+    const renamedAgain = [...(unsyncedRenames.get(ctx)?.values() ?? [])].includes(oldPath);
+    if (
+        !ctx.index[oldPath] &&
+        (ctx.dirtyPaths.has(oldPath) || peekAttemptedUpload(ctx, oldPath) || renamedAgain)
+    ) {
         noteUnsyncedRename(ctx, oldPath, newPath);
         ctx.dirtyPaths.delete(oldPath);
         ctx.dirtyPaths.set(newPath, Date.now());
@@ -942,6 +1166,7 @@ export function markRenamed(ctx: StateCtx, oldPath: string, newPath: string): vo
         };
         delete ctx.localIndex[oldPath];
     }
+    moveAttemptedUploads(ctx, oldPath, newPath);
 
     ctx.dirtyPaths.set(newPath, Date.now());
     void ctx.log(
@@ -965,6 +1190,10 @@ export function markFolderRenamed(
     oldFolderPath: string,
     newFolderPath: string,
 ): void {
+    if (takeOwnRename(ctx, oldFolderPath, newFolderPath)) {
+        void ctx.log(`[Dirty] Ignored our own folder rename: ${oldFolderPath} -> ${newFolderPath}`, "debug");
+        return;
+    }
     const oldPrefix = oldFolderPath + "/";
     const newPrefix = newFolderPath + "/";
 
@@ -999,6 +1228,7 @@ export function markFolderRenamed(
                 };
                 delete ctx.localIndex[oldPath];
             }
+            moveAttemptedUploads(ctx, oldPath, newPath);
 
             // dirtyPaths を更新
             ctx.dirtyPaths.delete(oldPath);

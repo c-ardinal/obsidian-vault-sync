@@ -83,7 +83,7 @@ export const DEFAULT_CONFIG: Omit<SimConfig, "name" | "seed"> = {
     maxEventDelayMs: 300,
     maxClockSkewMs: 0,
     idleCallBudget: 12,
-    maxQuiesceRounds: 5,
+    maxQuiesceRounds: 8,
 };
 
 // ───────────────────────── Plan ─────────────────────────
@@ -561,6 +561,14 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
                     if (mutated.length > 0 || JSON.stringify(d.userFiles()) !== filesBefore) {
                         changed = true;
                     }
+                    // Uploading the shared index owed from before the heal is catching up,
+                    // not an idle sync: measure the idle cost in the next round.
+                    if (calls.some((c) => c.outcome === "ok" && c.method === "uploadFile" && c.arg.endsWith("/sync-index.json"))) {
+                        changed = true;
+                    }
+                    // Still holding work back (a missing file waits a few seconds for a
+                    // late rename event): not quiet yet.
+                    if ((d.describe() as { dirtyPaths: string[] }).dirtyPaths.length > 0) changed = true;
                 }
                 if (failures.length) break;
                 if (!changed) {
@@ -615,13 +623,28 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
             // are not a divergence. FALSE_CONFLICT / DATA_LOSS still look at them.
             // macOS hands names back decomposed (NFD): "café" in the cloud is the same
             // file as "cafe\u0301" on disk, so compare names in NFC there.
-            const nfc = d.fs === "macos" ? (p: string) => p.normalize("NFC") : (p: string) => p;
+            // On a case-insensitive disk, "projects/" and "Projects/" are one folder:
+            // when the cloud holds both spellings (made on Linux), the device files
+            // them all under the one it has. Folder spelling is not a divergence
+            // there; file names still must match exactly.
+            const foldDirs = d.fs === "windows" || d.fs === "macos";
+            const nfc = (p: string) => {
+                const q = d.fs === "macos" ? p.normalize("NFC") : p;
+                if (!foldDirs) return q;
+                const slash = q.lastIndexOf("/");
+                return slash < 0 ? q : q.slice(0, slash).toLowerCase() + q.slice(slash);
+            };
             const local = Object.fromEntries(
                 Object.entries(d.userFiles())
                     .filter(([p]) => !CONFLICT_RE.test(p))
                     .map(([p, c]) => [nfc(p), c]),
             );
-            const cloudView = Object.fromEntries(Object.entries(cloudFiles).map(([p, c]) => [nfc(p), c]));
+            const cloudView: Record<string, string> = {};
+            for (const [p, c] of Object.entries(cloudFiles)) {
+                const k = nfc(p);
+                if (k in cloudView) fail("DIVERGED", `${d.name} cannot hold both cloud files ${p} and ${k}`);
+                cloudView[k] = c;
+            }
             const diff = diffMaps(cloudView, local);
             if (diff.length) fail("DIVERGED", `${d.name} differs from cloud: ${diff.slice(0, 5).join("; ")}`);
         }
@@ -721,7 +744,9 @@ function diffMaps(a: Record<string, string>, b: Record<string, string>): string[
     for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) {
         if (!(k in a)) out.push(`extra local ${k}`);
         else if (!(k in b)) out.push(`missing local ${k}`);
-        else if (a[k] !== b[k]) out.push(`content of ${k}`);
+        // Line endings / BOM only: the engine treats these as the same text (a Windows
+        // device keeps its CRLF copy when another device's merge wrote LF)
+        else if (a[k] !== b[k] && sameText(a[k], b[k]) === false) out.push(`content of ${k}`);
     }
     return out;
 }
@@ -821,4 +846,9 @@ export async function minimizePlan(cfg: SimConfig, plan: Action[], kind: string,
         if (!removed) chunk = Math.floor(chunk / 2);
     }
     return current;
+}
+
+function sameText(x: string, y: string): boolean {
+    const norm = (t: string) => t.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
+    return norm(x) === norm(y);
 }

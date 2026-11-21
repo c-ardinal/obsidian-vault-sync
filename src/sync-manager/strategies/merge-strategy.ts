@@ -1,3 +1,4 @@
+import type { FileRevision } from "../../types/adapter";
 import type { SyncContext } from "../context";
 
 /**
@@ -11,6 +12,10 @@ export interface MergeParams {
     baseHash: string;
     /** Cloud file id, so the base revision is found even after a remote rename */
     fileId?: string;
+    /** History already listed for this file during this pull (saves a cloud call when it has the base) */
+    knownRevisions?: FileRevision[];
+    /** Base text given directly (no history lookup): used to fold in typing done during a merge */
+    baseContent?: string;
 }
 
 /**

@@ -8,6 +8,9 @@ on:
         paths:
             - "src/**"
             - "styles.css"
+            # The release build (CSS minifier, bundling) is what the check runs
+            - "rollup.config.js"
+            - "minify-css.mjs"
             - "e2e/obsidian/**"
             - ".github/workflows/e2e-obsidian.yml"
             - "package-lock.json"

@@ -5,7 +5,8 @@ import { noteIndexFormat } from "./state";
 import type { LocalFileIndex } from "./types";
 import { tryDecompress, hashContent, matchesDeviceScope, deviceScopePatterns } from "./file-utils";
 import { storesTransformedContent } from "./content-identity";
-import { CtxState } from "./context-state";
+import { CtxFlag, CtxState } from "./context-state";
+import { capabilitiesOf } from "../types/adapter";
 
 
 /** What this module reads from the sync context */
@@ -44,7 +45,13 @@ export async function downloadRemoteIndexData(
     ctx: SyncHelpersCtx,
     fileId: string,
 ): Promise<{ index: LocalFileIndex; startPageToken: string | null }> {
-    const content = await ctx.adapter.downloadFile(fileId);
+    return parseRemoteIndexBytes(ctx, await ctx.adapter.downloadFile(fileId));
+}
+
+async function parseRemoteIndexBytes(
+    ctx: SyncHelpersCtx,
+    content: ArrayBuffer,
+): Promise<{ index: LocalFileIndex; startPageToken: string | null }> {
     const decompressed = await tryDecompress(content);
     const parsed = parseIndex(new TextDecoder().decode(decompressed), providerNameOf(ctx.adapter));
     await noteIndexFormat(ctx, parsed, "remote");
@@ -98,12 +105,129 @@ export function markPendingTransfer(
  * merge below is skipped, and the next upload used to drop these entries again:
  * devices doing their first sync from the shared index then never got the file.
  */
+const resolveInline = new CtxState<Set<string>>("resolveInline", "Large files the background queue handed back because the cloud copy changed");
+
+/**
+ * The background queue found the cloud copy of a large file changed and handed the
+ * file back to the sync cycle. The push must then upload it inline (with its
+ * conflict handling) instead of deferring it to the queue again: deferring sent it
+ * straight back, forever, and the edit never reached the cloud.
+ */
+export function handBackToSyncCycle(ctx: object, path: string): void {
+    let set = resolveInline.get(ctx);
+    if (!set) resolveInline.set(ctx, (set = new Set()));
+    set.add(path);
+}
+
+/** True (once) when the push must not defer this path to the background queue. */
+export function takeHandBack(ctx: object, path: string): boolean {
+    return resolveInline.get(ctx)?.delete(path) ?? false;
+}
+
+const indexUploadOwed = new CtxFlag("indexUploadOwed", "The shared index upload failed; the next push uploads it even with nothing else to do");
+
+/**
+ * The shared index could not be uploaded (files were pushed, but the index that
+ * lists them was not). Without a retry, a later sync with nothing to push never
+ * uploaded it, and devices doing their first sync from the cloud's index never
+ * received those files. Kept in memory and, when the entry exists, in the saved
+ * index (forcePush on the index's own entry), so a restart keeps the debt.
+ */
+export function markIndexUploadOwed(ctx: Pick<SyncContext, "index" | "pluginDataPath">): void {
+    indexUploadOwed.add(ctx);
+    const own = ctx.index[ctx.pluginDataPath];
+    if (own) own.forcePush = true;
+    // Never uploaded yet (no entry): record the debt anyway, or a restart forgot it and
+    // the files just pushed stayed out of the shared index
+    else ctx.index[ctx.pluginDataPath] = { fileId: "", mtime: 0, size: 0, hash: "", forcePush: true } as SyncContext["index"][string];
+}
+
+export function owesIndexUpload(ctx: Pick<SyncContext, "index" | "pluginDataPath">): boolean {
+    return indexUploadOwed.has(ctx) || !!ctx.index[ctx.pluginDataPath]?.forcePush;
+}
+
+export function clearIndexUploadOwed(ctx: Pick<SyncContext, "index" | "pluginDataPath">): void {
+    indexUploadOwed.delete(ctx);
+}
+
+const indexMergedFrom = new CtxState<string>("indexMergedFrom", "Hash of the cloud index our next index upload is merged with");
+
+/**
+ * The cloud cannot replace a file only if it is unchanged, so another device can
+ * upload its index between our read (to merge) and our upload. Ours then replaced
+ * theirs and the files they had just pushed were missing from the shared index:
+ * a device doing its first sync from it never received them. When the revision
+ * before ours is not the one we merged with, upload again on the next sync (by
+ * then the pull has brought their changes into our index).
+ */
+export async function checkIndexOverwrite(ctx: SyncContext, uploaded: { id: string; hash?: string }): Promise<void> {
+    const mergedFrom = indexMergedFrom.get(ctx);
+    indexMergedFrom.delete(ctx);
+    if (mergedFrom === undefined || !uploaded.hash || !capabilitiesOf(ctx.adapter).revisions) return;
+    if (!ctx.adapter.listRevisions) return;
+    try {
+        const revisions = [...(await ctx.adapter.listRevisions(ctx.pluginDataPath, uploaded.id))].sort(
+            (a, b) => a.modifiedTime - b.modifiedTime,
+        );
+        const ours = revisions.map((r) => r.hash?.toLowerCase()).lastIndexOf(uploaded.hash.toLowerCase());
+        if (ours < 0) return;
+        const before = ours > 0 ? revisions[ours - 1].hash?.toLowerCase() : "";
+        if (before === undefined || before === mergedFrom) return;
+        markIndexUploadOwed(ctx);
+        await ctx.log("[Index] Another device uploaded the index at the same time. Uploading ours again next sync.", "info");
+        // Ours replaced theirs: files only their index listed (a file it pushed that we
+        // never saw as a change) would vanish from the shared index and never reach this
+        // device. Pull them, which also puts them back into our next index upload.
+        if (ours > 0 && ctx.adapter.getRevisionContent) {
+            const bytes = await ctx.adapter.getRevisionContent(ctx.pluginDataPath, revisions[ours - 1].id, uploaded.id);
+            await owePullsFromIndex(ctx, (await parseRemoteIndexBytes(ctx, bytes)).index);
+        }
+    } catch {
+        // History unavailable: nothing to check against
+    }
+}
+
+/**
+ * Files another device's index lists that this device has never pulled (not in our
+ * index by path or by id, still in the cloud): owed as pulls to the next sync.
+ */
+async function owePullsFromIndex(ctx: SyncContext, remote: LocalFileIndex): Promise<void> {
+    const ourIds = new Set(Object.values(ctx.index).map((e) => e.fileId).filter(Boolean));
+    const pending = pendingPullsOf(ctx);
+    for (const [path, entry] of Object.entries(remote)) {
+        if (path === ctx.pluginDataPath || !entry.fileId || ctx.index[path] || ourIds.has(entry.fileId)) continue;
+        if (pending.has(entry.fileId) || ctx.dirtyPaths.has(path)) continue;
+        if (matchesDeviceScope(deviceScopePatterns(ctx.settings), path)) continue;
+        if (!(await ctx.adapter.fileExistsById(entry.fileId).catch(() => false))) continue;
+        oweUnseenPull(ctx, path, entry);
+        await ctx.log(`[Index] ${path} is listed by another device but was never pulled here. Pulling it next sync.`, "info");
+    }
+}
+
+function oweUnseenPull(ctx: SyncHelpersCtx & { dirtyPaths?: Map<string, number> }, path: string, entry: LocalFileIndex[string]): void {
+    if (!entry.fileId || ctx.dirtyPaths?.has(path)) return;
+    if (ctx.settings && matchesDeviceScope(deviceScopePatterns(ctx.settings), path)) return; // left out here
+    const pending = pendingPullsOf(ctx);
+    if (pending.has(entry.fileId)) return;
+    pending.set(entry.fileId, {
+        file: { id: entry.fileId, path, hash: entry.hash, size: entry.size ?? 0, mtime: entry.mtime },
+        attempts: 0,
+    });
+}
+
 const carriedRemoteEntries = new CtxState<LocalFileIndex>("carriedRemoteEntries", "Remote index entries kept for files this device has not pulled yet");
 
 export async function buildRemoteIndexPayload(ctx: SyncHelpersCtx): Promise<ArrayBuffer> {
     const merged: LocalFileIndex = { ...ctx.index };
+    // The cloud's index could not be read (network): give up instead of uploading
+    // ours as-is. Ours may lack entries another device wrote (a file it pushed but we
+    // have not pulled yet); replacing the shared index with it hid that file from
+    // every device doing its first sync later. The caller retries on the next sync.
+    let readingRemote = true;
     try {
         const meta = await ctx.adapter.getFileMetadata(ctx.pluginDataPath);
+        readingRemote = false;
+        indexMergedFrom.set(ctx, meta?.hash?.toLowerCase() ?? "");
         const lastSeen = ctx.index[ctx.pluginDataPath]?.hash?.toLowerCase() || "";
         if (meta?.id && meta.hash && meta.hash.toLowerCase() === lastSeen) {
             const carried = carriedRemoteEntries.get(ctx) ?? {};
@@ -128,13 +252,17 @@ export async function buildRemoteIndexPayload(ctx: SyncHelpersCtx): Promise<Arra
                         : await ctx.adapter.fileExistsById(entry.fileId).catch(() => true);
                     if (!exists) {
                         delete carried[path];
+                        pendingPulls.get(ctx)?.delete(entry.fileId); // nothing left to pull
                         continue;
                     }
                 }
                 merged[path] = entry;
             }
         } else if (meta?.id && meta.hash) {
-            const remote = await downloadRemoteIndex(ctx, meta.id);
+            readingRemote = true;
+            const bytes = await ctx.adapter.downloadFile(meta.id);
+            readingRemote = false;
+            const remote = (await parseRemoteIndexBytes(ctx, bytes)).index;
             const ourPathById = new Map<string, string>();
             for (const [p, e] of Object.entries(ctx.index)) if (e.fileId) ourPathById.set(e.fileId, p);
             const changedByUs = (e: LocalFileIndex[string] | undefined) =>
@@ -165,6 +293,10 @@ export async function buildRemoteIndexPayload(ctx: SyncHelpersCtx): Promise<Arra
                     ) {
                         continue; // deleted (on a lookup error keep the entry: dropping
                         // it would hide the file from devices doing their first sync)
+                    } else if (entry.fileId) {
+                        // Another device's file that never reached us (our Changes token
+                        // may start after its upload): pull it, or it stays missing here.
+                        oweUnseenPull(ctx, path, entry);
                     }
                     merged[path] = entry;
                     kept++;
@@ -202,6 +334,8 @@ export async function buildRemoteIndexPayload(ctx: SyncHelpersCtx): Promise<Arra
             }
         }
     } catch (e) {
+        if (readingRemote) throw e;
+        // Unreadable (damaged) cloud index: ours replaces it
         await ctx.log(`[Index] Could not merge remote index, uploading local index as-is: ${String(e)}`, "warn");
     }
     // Cloud files we know of but have not pulled yet (deferred to the background queue,
@@ -227,6 +361,12 @@ export async function buildRemoteIndexPayload(ctx: SyncHelpersCtx): Promise<Arra
         delete merged[p];
         const { pendingMove, forcePush: _f, ...rest } = e;
         if (!merged[pendingMove.oldPath]) merged[pendingMove.oldPath] = rest;
+    }
+    const own = merged[ctx.pluginDataPath];
+    if (own?.forcePush) {
+        // Our "index upload owed" mark is local bookkeeping, not for other devices
+        const { forcePush: _owed, ...rest } = own;
+        merged[ctx.pluginDataPath] = rest;
     }
     const data = serializeIndex(merged, ctx.startPageToken, providerNameOf(ctx.adapter));
     return new TextEncoder().encode(data).buffer;
@@ -271,9 +411,27 @@ export function peekAttemptedUpload(ctx: SyncHelpersCtx, path: string): string |
     return list?.[list.length - 1];
 }
 
+/** Every version we tried to upload to `path` with an unknown outcome, newest first. */
+export function attemptedUploadsOf(ctx: SyncHelpersCtx, path: string): string[] {
+    return [...(attemptedUploads.get(ctx)?.get(path) ?? [])].reverse();
+}
+
 /** Forget the unknown-outcome upload of `path` (a later upload succeeded). */
 export function forgetAttemptedUpload(ctx: SyncHelpersCtx, path: string): void {
     attemptedUploads.get(ctx)?.delete(path);
+}
+
+/**
+ * The file was renamed here: its unknown-outcome uploads went to the same cloud file,
+ * now known by the new name. Without them a merge after the rename took the version
+ * before that upload as the base, and the uploaded lines looked like a remote change.
+ */
+export function moveAttemptedUploads(ctx: SyncHelpersCtx, from: string, to: string): void {
+    const m = attemptedUploads.get(ctx);
+    const list = m?.get(from);
+    if (!list) return;
+    m!.delete(from);
+    m!.set(to, list);
 }
 
 /** Forget only the given version (an upload of it was never sent). */
@@ -306,7 +464,29 @@ export function restoreAttemptedUploads(ctx: SyncHelpersCtx, data: unknown): voi
             (h): h is string => typeof h === "string",
         );
         if (list.length && !m.has(path)) m.set(path, list.map((h) => h.toLowerCase()));
+        if (list.length) priorRunAttempts.set(ctx, { ...(priorRunAttempts.get(ctx) ?? {}), [path]: list.map((h) => h.toLowerCase()) });
     }
+    priorRunSince.set(ctx, Date.now());
+}
+
+/**
+ * Uploads the previous app run started and never confirmed. The killed app's request
+ * may still be processed by the server a moment after the restart, and then replace
+ * a version another device uploaded meanwhile (see watchLateLanding).
+ */
+const priorRunAttempts = new CtxState<Record<string, string[]>>("priorRunAttempts", "Unconfirmed uploads of the previous app run");
+const priorRunSince = new CtxState<number>("priorRunSince", "When the previous run's unconfirmed uploads were restored");
+/** How long after a restart an upload of the previous run may still land. */
+export const PRIOR_RUN_LANDING_MS = 2 * 60 * 1000;
+
+/** The previous run's unconfirmed uploads of `path`, while they may still land. */
+export function takePriorRunAttempts(ctx: SyncHelpersCtx, path: string): string[] {
+    const all = priorRunAttempts.get(ctx);
+    const list = all?.[path];
+    if (!list) return [];
+    delete all[path];
+    if (Date.now() - (priorRunSince.get(ctx) ?? 0) > PRIOR_RUN_LANDING_MS) return [];
+    return list;
 }
 
 /**

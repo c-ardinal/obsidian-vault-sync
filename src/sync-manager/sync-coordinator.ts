@@ -10,6 +10,7 @@ import {
     SCAN_FULL_SCAN_CHUNK_SIZE,
 } from "./constants";
 import { retryOverwriteRepairs } from "./overwrite-recovery";
+import { holdsNewFiles } from "./sync-scan";
 import { purgeTrashIfDue } from "./remote-trash";
 import { prepareFirstSync } from "./first-sync";
 import { keepRevisionsIfDue } from "./revision-retention";
@@ -150,6 +151,9 @@ export async function executeSmartSync(ctx: SyncContext, scanVault: boolean): Pr
         if (scanRequested) {
             await ctx.notify("noticeScanningLocalFiles");
         }
+        // New files a scan held back (a rename event might still explain them) are
+        // only looked at again by a scan: without one they were never uploaded.
+        if (holdsNewFiles(ctx)) scanVault = true;
         const pushed = await ctx.smartPush(scanVault);
         if (scanVault) scanDone.add(ctx);
 

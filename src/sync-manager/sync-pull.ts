@@ -23,12 +23,14 @@ import {
     releaseOrphanedOwnLocks,
     findForeignLock,
     renameLocal,
+    alignFolderSpelling,
+    hasDeleteIntent,
 } from "./state";
-import { pullFileSafely } from "./merge";
+import { pullFileSafely, takePullLockSkip } from "./merge";
 import { TransferPriority } from "./transfer-types";
 import { formatSize } from "../utils/format";
 import { basename, dirname } from "../utils/path";
-import { findPathCollision, freeCollisionPath, moveIndexEntry, pathKey } from "./path-collision";
+import { announceIncoming, findPathCollision, freeCollisionPath, moveIndexEntry, pathKey } from "./path-collision";
 import { INTEGRITY_MIN_INDEX_SIZE_BYTES, INTEGRITY_MIN_LOCAL_FILE_COUNT } from "./constants";
 import {
     computeLocalHash,
@@ -38,8 +40,10 @@ import {
     generateTransferId,
     markPendingTransfer,
     pendingPullsOf,
+    moveAttemptedUploads,
+    peekAttemptedUpload,
 } from "./sync-helpers";
-import { CtxFlag } from "./context-state";
+import { CtxFlag, CtxState } from "./context-state";
 
 
 /** Check for active merge locks from other devices */
@@ -122,6 +126,8 @@ async function detectPullChanges(
         if (entry.fileId) localIdToPath.set(entry.fileId, p);
     }
 
+    remoteIndex = await resolveDuplicateIds(ctx, remoteIndex);
+
     for (const [path, remoteEntry] of Object.entries(remoteIndex)) {
         if (path === ctx.pluginDataPath) continue;
         if (isManagedSeparately(path)) continue;
@@ -158,6 +164,8 @@ async function detectPullChanges(
                                 "info",
                             );
                             await renameLocal(ctx, oldPath, newPath);
+                            await followFolderSpelling(ctx, oldPath, newPath);
+                            moveAttemptedUploads(ctx, oldPath, newPath);
 
                             if (ctx.index[oldPath]) {
                                 ctx.index[newPath] = { ...ctx.index[oldPath] };
@@ -167,6 +175,10 @@ async function detectPullChanges(
                                 ctx.localIndex[newPath] = { ...ctx.localIndex[oldPath] };
                                 delete ctx.localIndex[oldPath];
                             }
+
+                            await markIfEditedSinceSync(ctx, newPath);
+                            await saveLocalIndex(ctx);
+                            await saveIndex(ctx);
 
                             // Update ID map so subsequent iterations see the correct path
                             localIdToPath.set(remoteEntry.fileId, newPath);
@@ -734,9 +746,11 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
 
     if (tasks.length > 0) {
         ctx.startActivity();
+        const release = announceIncoming(ctx, inlineDownloads.map((d) => d.path));
         try {
             await runParallel(tasks, ctx.settings.concurrency);
         } finally {
+            release();
             // Keep spinning until executeSmartSync finishes
         }
     }
@@ -930,7 +944,15 @@ export async function pullViaChangesAPI(
 
         if (tasks.length > 0) {
             ctx.startActivity();
-            await runParallel(tasks, ctx.settings.concurrency);
+            const release = announceIncoming(
+                ctx,
+                changes.changes.flatMap((c) => (c.file?.path && !c.removed ? [c.file.path] : [])),
+            );
+            try {
+                await runParallel(tasks, ctx.settings.concurrency);
+            } finally {
+                release();
+            }
             totalCompleted += pageCompleted.count;
         }
 
@@ -963,6 +985,8 @@ export async function pullViaChangesAPI(
             hasTotalChanges = true;
         }
     }
+
+    await retrySkippedRenames(ctx);
 
     // Retry pulls that failed in earlier syncs and were not superseded by a newer change
     const retries = [...retryCandidates.values()];
@@ -1016,8 +1040,13 @@ export async function pullViaChangesAPI(
                 ok = false;
             }
             if (pending.get(r.file.id) !== r) return; // superseded meanwhile
+            // Another device is merging it: waiting is not a failed attempt (giving up
+            // left the device without the note once the merge was done)
+            const waitedForLock = !ok && takePullLockSkip(ctx, r.file.path);
             if (ok) {
                 pending.delete(r.file.id);
+            } else if (waitedForLock) {
+                pending.set(r.file.id, { file: r.file, attempts: r.attempts });
             } else if (r.attempts + 1 < CHANGES_MAX_PULL_RETRIES) {
                 pending.set(r.file.id, { file: r.file, attempts: r.attempts + 1 });
             } else {
@@ -1205,6 +1234,13 @@ async function processChangePage(
                 localDeletions.push(pathToDelete);
                 tasks.push(async () => {
                     try {
+                        // Another file of this page took the name meanwhile (the deleted
+                        // one had already left it here): that file is not what was deleted.
+                        const holder = ctx.index[pathToDelete]?.fileId;
+                        if (holder && holder !== change.fileId) {
+                            await ctx.log(`[Smart Pull] ${pathToDelete} now holds another file. Not deleting it.`, "debug");
+                            return;
+                        }
                         if (!(await applyRemoteDeletion(ctx, pathToDelete, decision))) return;
                         ctx.logger.markActionTaken();
                         completed.count++;
@@ -1267,6 +1303,19 @@ async function processChangePage(
                 continue;
             }
 
+            // A new file whose name (or its other spelling) a file of this batch is about
+            // to leave here: apply that rename first. Pulled before it, the new file was
+            // written over that note on a case/Unicode-insensitive disk.
+            if (!localIdToPath.has(cloudFile.id) && !deferred.has(change)) {
+                const holder = findPathCollision(ctx, cloudFile.path, cloudFile.id);
+                const holderId = holder ? ctx.index[holder]?.fileId : undefined;
+                if (holderId && movingAway.has(holderId)) {
+                    deferred.add(change);
+                    queue.push(change);
+                    continue;
+                }
+            }
+
             // Remote rename of a file we know under another path
             if (localIdToPath.has(cloudFile.id)) {
                 const prevPathForId = localIdToPath.get(cloudFile.id);
@@ -1282,6 +1331,24 @@ async function processChangePage(
                         continue;
                     }
 
+                    // Another note of ours was listed under the new name and is gone here,
+                    // its deletion (or rename) not yet reported or pushed. Taking the name
+                    // now let that late delete event land on this renamed note and delete
+                    // it everywhere. Follow the rename once that note has left the name.
+                    const occupant = ctx.index[newPath];
+                    if (
+                        occupant?.fileId &&
+                        occupant.fileId !== cloudFile.id &&
+                        !(await ctx.vault.exists(newPath))
+                    ) {
+                        await ctx.log(
+                            `[Changes API] Remote Rename ${oldPath} -> ${newPath} waits: another note here left that name and is not synced yet.`,
+                            "info",
+                        );
+                        skippedRenamesOf(ctx).set(cloudFile.id, newPath);
+                        continue;
+                    }
+
                     // Guard: if the user moved this file locally too (pendingMove), skip the
                     // remote rename — our own move is pushed next. A merely DIRTY file (content
                     // edits, or the echo event of our own pull write) must still follow the
@@ -1289,7 +1356,14 @@ async function processChangePage(
                     // leaving the old path behind forever and losing edits made under it. The
                     // dirty flag moves with the file, and the content is reconciled below.
                     const localIndexEntry = ctx.index[oldPath];
-                    if (localIndexEntry?.pendingMove && !(await ctx.vault.exists(oldPath))) {
+                    if (
+                        localIndexEntry?.pendingMove &&
+                        // Only a deletion the vault reported: a file merely missing may have
+                        // been renamed again a moment ago (its event not here yet), and the
+                        // cloud name may be just our own move not pushed yet.
+                        hasDeleteIntent(ctx, oldPath) &&
+                        !(await ctx.vault.exists(oldPath))
+                    ) {
                         // We renamed it and then deleted it, while another device renamed it
                         // (and maybe edited it). Skipping kept a stale entry that a different
                         // note later took over under this name, and the file never arrived
@@ -1336,7 +1410,20 @@ async function processChangePage(
                         continue;
                     }
 
-                    const targetExists = await ctx.vault.exists(newPath);
+                    // A rename that only changes letter case / Unicode form: on Windows and
+                    // macOS the "target" exists because it is this very file. Skipping
+                    // it kept the old spelling here for good while the cloud had the new one.
+                    // A name that differs only in letter case or Unicode form is the same
+                    // file on a case/normalization-insensitive disk, but a separate file
+                    // on Linux: there both exact names are listed (or only the new one,
+                    // when the old name is gone).
+                    const listed = (p: string) => ctx.vault.getFiles().some((f) => f.path === p);
+                    const sameFileOnDisk =
+                        oldPath !== newPath &&
+                        pathKey(oldPath) === pathKey(newPath) &&
+                        (await ctx.vault.exists(oldPath)) &&
+                        !(listed(oldPath) && listed(newPath));
+                    const targetExists = !sameFileOnDisk && (await ctx.vault.exists(newPath));
 
                     if (!targetExists) {
                         try {
@@ -1348,6 +1435,8 @@ async function processChangePage(
                                 );
 
                                 await renameLocal(ctx, oldPath, newPath);
+                                await followFolderSpelling(ctx, oldPath, newPath);
+                                moveAttemptedUploads(ctx, oldPath, newPath);
                                 ctx.logger.markActionTaken();
 
                                 if (ctx.index[oldPath]) {
@@ -1364,7 +1453,14 @@ async function processChangePage(
                                 if (ctx.dirtyPaths.has(oldPath)) {
                                     ctx.dirtyPaths.delete(oldPath);
                                     ctx.dirtyPaths.set(newPath, Date.now());
+                                } else {
+                                    await markIfEditedSinceSync(ctx, newPath);
                                 }
+                                // Journal it now: killed before the next save, the restarted
+                                // app still listed the old name, found the note gone and the
+                                // renamed file unknown, and kept it as an extra copy.
+                                await saveLocalIndex(ctx);
+                                await saveIndex(ctx);
 
                                 localIdToPath.set(cloudFile.id, newPath);
 
@@ -1389,7 +1485,8 @@ async function processChangePage(
                     } else if (
                         !ctx.index[newPath] &&
                         !ctx.localIndex[newPath] &&
-                        !(await ctx.vault.exists(oldPath))
+                        !(await ctx.vault.exists(oldPath)) &&
+                        (await holdsSyncedContent(ctx, newPath, oldPath))
                     ) {
                         // The rename is already done here, only its index update was lost
                         // (the app was killed after renaming, before the index was saved,
@@ -1426,18 +1523,102 @@ async function processChangePage(
                         } catch (e) {
                             await ctx.log(`[Changes API] Failed to rename ${oldPath} -> ${alt}: ${String(e)}`, "warn");
                         }
+                    } else if (
+                        !ctx.index[newPath] &&
+                        !ctx.localIndex[newPath] &&
+                        (await ctx.vault.exists(oldPath))
+                    ) {
+                        // The new name is a separate note made here and never synced (on
+                        // Linux, also a new spelling of the same name). Skipping the rename
+                        // left the old name behind for good, and this note's push waited on
+                        // that cloud file forever. Move the local note to a free name and
+                        // follow the rename.
+                        const alt = await freeCollisionPath(ctx, newPath);
+                        try {
+                            await renameLocal(ctx, newPath, alt);
+                            ctx.dirtyPaths.delete(newPath);
+                            ctx.dirtyPaths.set(alt, Date.now());
+                            await renameLocal(ctx, oldPath, newPath);
+                            ctx.logger.markActionTaken();
+                            moveIndexEntry(ctx, oldPath, newPath);
+                            if (ctx.dirtyPaths.has(oldPath)) {
+                                ctx.dirtyPaths.delete(oldPath);
+                                ctx.dirtyPaths.set(newPath, Date.now());
+                            } else {
+                                await markIfEditedSinceSync(ctx, newPath);
+                            }
+                            localIdToPath.set(cloudFile.id, newPath);
+                            await ctx.log(
+                                `[Changes API] Remote Rename: ${newPath} was a separate local note. Moved it to ${alt} and renamed ${oldPath}.`,
+                                "warn",
+                            );
+                        } catch (e) {
+                            await ctx.log(`[Changes API] Failed to rename ${oldPath} -> ${newPath}: ${String(e)}`, "warn");
+                        }
                     } else {
                         await ctx.log(
                             `[Changes API] Remote Rename: Target ${newPath} exists. Skipping rename to avoid overwrite.`,
                             "warn",
                         );
+                        // The note in the way may leave that name later (its own rename can
+                        // come in a later change): follow this rename then, or this device
+                        // keeps the old name for good.
+                        skippedRenamesOf(ctx).set(cloudFile.id, newPath);
                     }
                 }
             }
 
             // Skip if local index hash matches (already synced by this client).
             // Read after the rename above so a renamed entry is found under its new path.
+            const heldByMove = ctx.index[cloudFile.path];
+            if (
+                heldByMove?.pendingMove &&
+                heldByMove.fileId &&
+                heldByMove.fileId !== cloudFile.id &&
+                (await ctx.vault.exists(cloudFile.path))
+            ) {
+                // We moved another note to this name here (not pushed yet) while a
+                // different note took the name in the cloud. Treating that note as an
+                // edit of ours turned ours into a conflict copy and lost its move.
+                // Give our note a free name; the push then moves it there.
+                const alt = await freeCollisionPath(ctx, cloudFile.path);
+                try {
+                    await renameLocal(ctx, cloudFile.path, alt);
+                    moveIndexEntry(ctx, cloudFile.path, alt);
+                    ctx.dirtyPaths.set(alt, ctx.dirtyPaths.get(alt) ?? Date.now());
+                    localIdToPath.set(heldByMove.fileId, alt);
+                    await ctx.log(
+                        `[Changes API] ${cloudFile.path} is now another note in the cloud. Moved the note renamed here to ${alt}.`,
+                        "warn",
+                    );
+                } catch (e) {
+                    await ctx.log(`[Changes API] Could not move ${cloudFile.path} to ${alt}: ${String(e)}`, "warn");
+                }
+            }
             const localEntry = ctx.index[cloudFile.path];
+
+            // Our entry for this name belongs to another cloud file (that one was moved
+            // away and a new file with the same content took the name). Without taking
+            // over the new file's id, the entry was later dropped as a stale copy of the
+            // moved file and the note at this name was deleted here.
+            if (
+                localEntry?.fileId &&
+                localEntry.fileId !== cloudFile.id &&
+                cloudFile.hash &&
+                [localEntry.ancestorHash, localEntry.hash].some(
+                    (h) => !!h && h.toLowerCase() === cloudFile.hash!.toLowerCase(),
+                )
+            ) {
+                const previousId = localEntry.fileId;
+                localEntry.fileId = cloudFile.id;
+                if (ctx.localIndex[cloudFile.path]) ctx.localIndex[cloudFile.path].fileId = cloudFile.id;
+                if (localIdToPath.get(previousId) === cloudFile.path) localIdToPath.delete(previousId);
+                localIdToPath.set(cloudFile.id, cloudFile.path);
+                await ctx.log(
+                    `[Changes API] ${cloudFile.path} is now a different cloud file with the same content. Index updated.`,
+                    "debug",
+                );
+            }
 
             // Guard: If remote hash matches our ancestorHash, it's likely a stale echo
             if (localEntry?.ancestorHash && cloudFile.hash === localEntry.ancestorHash) {
@@ -1502,12 +1683,14 @@ async function processChangePage(
                 );
                 await ctx.notify("noticeWaitOtherDeviceMerge", basename(cloudFile.path));
                 // Mark as pending conflict so next sync shows "merge result applied"
-                if (ctx.localIndex[cloudFile.path]) {
-                    ctx.localIndex[cloudFile.path].pendingConflict = true;
+                const known = ctx.localIndex[cloudFile.path];
+                if (known && (!known.fileId || known.fileId === cloudFile.id)) {
+                    known.pendingConflict = true;
                     await saveLocalIndex(ctx);
                 } else {
-                    // A file we don't have yet: no pendingConflict re-check covers it and
-                    // the change is consumed. Retry it on the next syncs instead.
+                    // A file we don't have yet (or a new cloud file under a name whose
+                    // old file is being deleted: that entry, and its re-check, goes with
+                    // the deletion): the change is consumed. Retry it on the next syncs.
                     failed.push(cloudFile);
                 }
                 continue; // Skip this file, wait for merge to complete
@@ -1516,9 +1699,14 @@ async function processChangePage(
             const changesThreshold = getThresholdBytes(ctx);
             const hasLocalConflict = ctx.dirtyPaths.has(cloudFile.path);
 
+            // Possibly our own upload whose response was lost (a new file renamed or
+            // deleted here since): decided inline, where it is recognised and not pulled
+            // back as a second copy.
+            const maybeOurLostUpload = !ctx.index[cloudFile.path] && !!peekAttemptedUpload(ctx, cloudFile.path);
             if (
                 changesThreshold > 0 &&
                 !hasLocalConflict &&
+                !maybeOurLostUpload &&
                 cloudFile.size > changesThreshold
             ) {
                 ctx.backgroundTransferQueue.enqueue({
@@ -1581,3 +1769,133 @@ async function processChangePage(
     return { tasks, completed, confirmedCount, failed };
 }
 
+/**
+ * The file at `path` is the synced file known as `knownAs`: it has exactly that name, or
+ * the content we last synced. On Windows/macOS a different, new note with the same name in other
+ * letter case ("Todo.md" for "todo.md") also "exists": taking it for the renamed file
+ * uploaded that note over the renamed one.
+ */
+async function holdsSyncedContent(ctx: SyncContext, path: string, knownAs: string): Promise<boolean> {
+    const entry = ctx.localIndex[knownAs] ?? ctx.index[knownAs];
+    if (!entry) return false;
+    try {
+        if (!(await ctx.vault.exists(path))) return false;
+        // Under exactly this name (not just the same name in other letter case): ours,
+        // possibly edited since the rename.
+        if (ctx.vault.getFiles().some((f) => f.path === path)) return true;
+        const content = await ctx.vault.readBinary(path);
+        const { localHash, compareHash } = await computeLocalHash(ctx, content, entry);
+        return !!compareHash && localHash === compareHash.toLowerCase();
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * After following another device's rename: an edit the user saved just before (its
+ * vault event not delivered yet, or reported for the old name) is in the renamed
+ * file but marked nowhere. Unmarked, it was never pushed and the device kept a
+ * version the cloud never got. Compare with what the index says we synced.
+ */
+async function markIfEditedSinceSync(ctx: SyncContext, path: string): Promise<void> {
+    const entry = ctx.localIndex[path];
+    if (!entry || ctx.dirtyPaths.has(path)) return;
+    try {
+        const content = await ctx.vault.readBinary(path);
+        const { localHash, compareHash } = await computeLocalHash(ctx, content, entry);
+        if (compareHash && localHash !== compareHash.toLowerCase()) {
+            ctx.dirtyPaths.set(path, Date.now());
+            await ctx.log(`[Smart Pull] ${path} was edited here before the rename arrived; it will be pushed.`, "info");
+        }
+    } catch {
+        // unreadable now: the next scan decides
+    }
+}
+
+/** Folder spelling follows a remote rename that changed only the folder's letter case */
+async function followFolderSpelling(ctx: SyncContext, oldPath: string, newPath: string): Promise<void> {
+    const from = dirname(oldPath);
+    const to = dirname(newPath);
+    if (from !== to && pathKey(from) === pathKey(to)) await alignFolderSpelling(ctx, newPath);
+}
+
+/**
+ * One cloud file listed under two names: the index was written by a device that had
+ * not seen a rename yet. Pulling both put the file at both names, then dropped one
+ * as a stale copy, and a different note that now holds the old name was never
+ * pulled. Ask the cloud where the file really is; at the other name, list whatever
+ * file the cloud has there instead (or nothing).
+ */
+async function resolveDuplicateIds(ctx: SyncContext, remoteIndex: LocalFileIndex): Promise<LocalFileIndex> {
+    const byId = new Map<string, string[]>();
+    for (const [p, e] of Object.entries(remoteIndex)) {
+        if (!e.fileId || p === ctx.pluginDataPath) continue;
+        byId.set(e.fileId, [...(byId.get(e.fileId) ?? []), p]);
+    }
+    const dupes = [...byId].filter(([, paths]) => paths.length > 1);
+    if (dupes.length === 0) return remoteIndex;
+    const out: LocalFileIndex = { ...remoteIndex };
+    for (const [id, paths] of dupes) {
+        let actual: string | undefined;
+        try {
+            actual = (await ctx.adapter.getFileMetadataById(id, paths[0]))?.path;
+        } catch {
+            continue; // unknown: leave the entries as they are
+        }
+        for (const p of paths) {
+            if (p === actual) continue;
+            delete out[p];
+            const there = await ctx.adapter.getFileMetadata(p).catch(() => null);
+            if (there?.id && there.id !== id && !byId.has(there.id)) {
+                out[p] = { fileId: there.id, mtime: there.mtime ?? 0, size: there.size ?? 0, hash: there.hash } as LocalFileIndex[string];
+            }
+            await ctx.log(`[Smart Pull] The remote index lists ${id} under ${p} too, but it is at ${actual ?? "(gone)"}. Using the cloud's file at ${p}.`, "info");
+        }
+    }
+    return out;
+}
+
+const skippedRenames = new CtxState<Map<string, string>>(
+    "skippedRemoteRenames",
+    "Remote renames not followed because the new name was taken here: file id to new path",
+);
+
+function skippedRenamesOf(ctx: SyncContext): Map<string, string> {
+    let m = skippedRenames.get(ctx);
+    if (!m) skippedRenames.set(ctx, (m = new Map<string, string>()));
+    return m;
+}
+
+/** Follow remote renames skipped earlier once their new name is free here */
+async function retrySkippedRenames(ctx: SyncContext): Promise<void> {
+    const m = skippedRenames.get(ctx);
+    if (!m || m.size === 0) return;
+    for (const [id, target] of [...m]) {
+        const oldPath = Object.entries(ctx.index).find(([, e]) => e.fileId === id)?.[0];
+        if (!oldPath || oldPath === target || ctx.index[oldPath].pendingMove) {
+            m.delete(id);
+            continue;
+        }
+        if (ctx.dirtyPaths.has(oldPath) || (await ctx.vault.exists(target)) || !(await ctx.vault.exists(oldPath))) continue;
+        // Another note of ours still holds the name until its deletion or rename is pushed
+        const occupant = ctx.index[target];
+        if (occupant?.fileId && occupant.fileId !== id) continue;
+        const meta = await ctx.adapter.getFileMetadataById(id, target).catch(() => undefined);
+        if (meta === undefined) continue; // unknown now: try again later
+        m.delete(id);
+        if (!meta || meta.path !== target) continue; // moved on since: that is a change of its own
+        try {
+            await renameLocal(ctx, oldPath, target);
+            moveIndexEntry(ctx, oldPath, target);
+            moveAttemptedUploads(ctx, oldPath, target);
+            await ctx.log(`[Changes API] Remote Rename (deferred): ${oldPath} -> ${target}. The name is free now.`, "info");
+            // The note may have been edited along with the rename: pull that version too
+            const known = ctx.localIndex[target]?.hash;
+            if (meta.hash && known?.toLowerCase() !== meta.hash.toLowerCase()) {
+                pendingPullsOf(ctx).set(id, { file: { id: meta.id, path: target, hash: meta.hash, size: meta.size, mtime: meta.mtime }, attempts: 0 });
+            }
+        } catch (e) {
+            await ctx.log(`[Changes API] Failed to rename ${oldPath} -> ${target}: ${String(e)}`, "warn");
+        }
+    }
+}

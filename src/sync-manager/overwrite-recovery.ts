@@ -5,6 +5,7 @@ import { getRevisionContent, listRevisions, supportsHistory } from "./history";
 import { perform3WayMerge } from "./merge";
 import { acquireMergeLock, releaseMergeLock, saveLocalIndex } from "./state";
 import { CtxState } from "./context-state";
+import { forgetAttemptedUpload, recordAttemptedUpload } from "./sync-helpers";
 
 /** Files we can merge line by line; anything else keeps the newest version. */
 export function isMergeableText(path: string): boolean {
@@ -75,6 +76,52 @@ export async function recoverOverwrittenVersion(
     return repairUnderLock(ctx, path, repair, check.ourHash);
 }
 
+/**
+ * The overwrite check for an upload of ours we only learned about later (its response
+ * was lost, and the pull found it in the cloud). The upload may have replaced another
+ * device's version just like a confirmed one. Only queues the repair: our copy may
+ * have changed since, and the repair runs once it has been pushed (see
+ * retryOverwriteRepairs).
+ */
+export async function checkLateUploadForOverwrite(
+    ctx: SyncContext,
+    path: string,
+    fileId: string,
+    ourHash: string,
+    knownHashes: (string | undefined)[],
+): Promise<void> {
+    if (!supportsHistory(ctx) || !isMergeableText(path)) return;
+    const known = knownHashes.filter((h): h is string => !!h).map((h) => h.toLowerCase());
+    if (known.length === 0) return;
+    await detectOverwrite(ctx, path, { fileId, ourHash: ourHash.toLowerCase(), known, since: Date.now() });
+}
+
+/**
+ * Uploads of the previous app run (killed before it learned their outcome) that may
+ * still land after we uploaded the note again: such a late upload replaced the
+ * version another device uploaded meanwhile, and nobody noticed. Checked after each
+ * sync for a while, like our own upload.
+ */
+const lateLandings = new CtxState<Map<string, { fileId: string; hashes: string[]; known: string[]; until: number }>>(
+    "lateLandings",
+    "Uploads of the previous app run that may still land",
+);
+
+export function watchLateLanding(
+    ctx: SyncContext,
+    path: string,
+    fileId: string,
+    hashes: string[],
+    knownHashes: (string | undefined)[],
+    forMs: number,
+): void {
+    if (!supportsHistory(ctx) || !isMergeableText(path) || hashes.length === 0) return;
+    let m = lateLandings.get(ctx);
+    if (!m) lateLandings.set(ctx, (m = new Map()));
+    const known = [...hashes, ...knownHashes].filter((h): h is string => !!h).map((h) => h.toLowerCase());
+    m.set(path, { fileId, hashes: hashes.map((h) => h.toLowerCase()), known, until: Date.now() + forMs });
+}
+
 /** An overwrite check that could not read the history yet (network error). */
 interface PendingCheck {
     fileId: string;
@@ -90,13 +137,29 @@ const pendingChecks = new CtxState<Map<string, PendingCheck>>("overwriteChecks",
  * When the history cannot be read, the check itself is queued and retried later:
  * skipping it lost the overwritten edit for good.
  */
+/**
+ * Waiting checks are keyed by path; a later upload of the same note gets its own
+ * entry ("path\0hash") so the earlier check is not replaced. Replacing it dropped the
+ * check of the upload that overwrote another device's edit, and that edit was lost.
+ */
+function forgetCheck(ctx: SyncContext, path: string, check: PendingCheck): void {
+    const map = pendingChecks.get(ctx);
+    if (!map) return;
+    for (const [key, c] of [...map]) {
+        if (key.split("\0")[0] === path && c.ourHash === check.ourHash) map.delete(key);
+    }
+}
+
 async function detectOverwrite(ctx: SyncContext, path: string, check: PendingCheck): Promise<PendingRepair | null> {
+    // An earlier upload of this note still waits for its check: run it first.
+    const earlier = pendingChecks.get(ctx)?.get(path);
+    if (earlier && earlier.ourHash !== check.ourHash) await detectOverwrite(ctx, path, earlier);
     const known = new Set(check.known);
     const ours = check.ourHash;
     let repair: PendingRepair;
     try {
         const revisions = await listRevisions(ctx, path, check.fileId);
-        pendingChecks.get(ctx)?.delete(path);
+        forgetCheck(ctx, path, check);
         let idx = -1;
         revisions.forEach((r, i) => {
             if (r.hash?.toLowerCase() === ours) idx = i;
@@ -120,7 +183,9 @@ async function detectOverwrite(ctx: SyncContext, path: string, check: PendingChe
     } catch (e) {
         let checks = pendingChecks.get(ctx);
         if (!checks) pendingChecks.set(ctx, (checks = new Map<string, PendingCheck>()));
-        checks.set(path, check);
+        const cur = checks.get(path);
+        checks.set(!cur || cur.ourHash === check.ourHash ? path : `${path}\0${check.ourHash}`, check);
+        await saveLocalIndex(ctx, true);
         await ctx.log(`[Overwrite Check] Could not read the history of ${path}: ${String(e)}. Checking again later.`, "debug");
         return null;
     }
@@ -130,6 +195,7 @@ async function detectOverwrite(ctx: SyncContext, path: string, check: PendingChe
         "warn",
     );
     pendingFor(ctx).set(path, repair);
+    await saveLocalIndex(ctx, true);
     return repair;
 }
 
@@ -138,17 +204,43 @@ async function detectOverwrite(ctx: SyncContext, path: string, check: PendingChe
  * the note has had a chance to catch up with the newest version in the cloud.
  */
 export async function retryOverwriteRepairs(ctx: SyncContext): Promise<void> {
-    const checks = pendingChecks.get(ctx);
-    for (const [path, check] of [...(checks ?? [])]) {
-        if (Date.now() - check.since > REPAIR_TIMEOUT_MS) {
-            checks!.delete(path);
+    const watches = lateLandings.get(ctx);
+    for (const [path, w] of [...(watches ?? [])]) {
+        if (Date.now() > w.until) {
+            watches!.delete(path);
             continue;
         }
-        await detectOverwrite(ctx, path, check);
+        for (const ourHash of w.hashes) {
+            if (await detectOverwrite(ctx, path, { fileId: w.fileId, ourHash, known: w.known, since: Date.now() })) {
+                watches!.delete(path);
+                break;
+            }
+        }
+    }
+    const checks = pendingChecks.get(ctx);
+    for (const [key, check] of [...(checks ?? [])]) {
+        if (!checks!.has(key)) continue; // run already as an earlier check
+        if (Date.now() - check.since > REPAIR_TIMEOUT_MS) {
+            checks!.delete(key);
+            continue;
+        }
+        await detectOverwrite(ctx, key.split("\0")[0], check);
     }
     const pending = pendingRepairs.get(ctx);
     if (!pending || pending.size === 0) return;
-    for (const [path, repair] of [...pending]) {
+    for (const [listedPath, repair] of [...pending]) {
+        let path = listedPath;
+        if (ctx.localIndex[path]?.fileId !== repair.fileId) {
+            // Renamed (here or on another device) since: the repair goes with the note.
+            // Dropping it lost the overwritten edit when the note was renamed meanwhile.
+            const moved = Object.keys(ctx.localIndex).find((p) => ctx.localIndex[p].fileId === repair.fileId);
+            if (moved && !pending.has(moved)) {
+                pending.delete(path);
+                pending.set(moved, repair);
+                await saveLocalIndex(ctx, true);
+                path = moved;
+            }
+        }
         if (Date.now() - repair.since > REPAIR_TIMEOUT_MS) {
             pending.delete(path);
             await ctx.log(
@@ -183,7 +275,14 @@ async function repairUnderLock(
         return false;
     }
     try {
-        const head = await ctx.adapter.getFileMetadataById(repair.fileId, path).catch(() => null);
+        let head: Awaited<ReturnType<typeof ctx.adapter.getFileMetadataById>>;
+        try {
+            head = await ctx.adapter.getFileMetadataById(repair.fileId, path);
+        } catch (e) {
+            // Network: keep the repair (dropping it lost the overwritten edit for good)
+            await ctx.log(`[Overwrite Check] Could not read ${path} from the cloud: ${String(e)}. Repairing later.`, "debug");
+            return false;
+        }
         if (!head) {
             pending.delete(path);
             return false;
@@ -233,7 +332,15 @@ async function repairUnderLock(
         }
         await ctx.vault.writeBinary(path, merged);
         const stat = await ctx.vault.stat(path);
+        // Recorded like any push: if the response is lost, the next pull recognises the
+        // repaired version as ours instead of merging it with itself as another
+        // device's edit. The note is dirty until the upload is confirmed, so a failed
+        // upload is pushed again by the next sync (the merged lines are in the note).
+        recordAttemptedUpload(ctx, path, contentFingerprint(merged));
+        ctx.dirtyPaths.set(path, Date.now());
+        await saveLocalIndex(ctx, true);
         const uploaded = await ctx.adapter.uploadFile(path, merged, stat?.mtime ?? Date.now(), repair.fileId);
+        forgetAttemptedUpload(ctx, path);
         const entry = {
             fileId: uploaded.id,
             mtime: stat?.mtime ?? Date.now(),
@@ -241,12 +348,19 @@ async function repairUnderLock(
             hash: uploaded.hash,
             plainHash: await hashContent(merged),
             lastAction: "push" as const,
-            // Built on the overwritten version: that device sees its version included.
-            ancestorHash: repair.overwrittenHash,
+            // Built on the version the cloud held (which every other device merges from).
+            // The device whose version was overwritten finds its own upload earlier in
+            // the history and merges from that (see the base selection in merge.ts).
+            // Naming the overwritten version here made third devices merge from that
+            // older version, and lines changed since looked like conflicting edits.
+            ancestorHash: head.hash.toLowerCase(),
         };
         ctx.index[path] = { ...entry };
         ctx.localIndex[path] = { ...entry };
-        ctx.dirtyPaths.delete(path);
+        // Typed into during the upload: that edit is still to be pushed. Clearing the
+        // mark here dropped it, and the note stayed different from the cloud for good.
+        const now = await ctx.vault.readBinary(path).catch(() => null);
+        if (now && contentFingerprint(now) === contentFingerprint(merged)) ctx.dirtyPaths.delete(path);
         await saveLocalIndex(ctx);
         await ctx.log(`[Overwrite Check] Merged the overwritten edits back into ${path} and uploaded it.`, "info");
         return true;
@@ -255,5 +369,44 @@ async function repairUnderLock(
         return false;
     } finally {
         await releaseMergeLock(ctx, path, "Overwrite Check");
+    }
+}
+
+/**
+ * Owed repairs and checks are saved with the local index. Kept only in memory,
+ * they were dropped when the app was closed before the repair ran: the overwritten
+ * device then took the newer version as built on its own, and its edit was gone
+ * from the note (left only in the file's history).
+ */
+export function overwriteRepairsSnapshot(
+    ctx: object,
+): { repairs: Record<string, PendingRepair>; checks: Record<string, PendingCheck> } | undefined {
+    const repairs = pendingRepairs.get(ctx);
+    const checks = pendingChecks.get(ctx);
+    if (!repairs?.size && !checks?.size) return undefined;
+    return { repairs: Object.fromEntries(repairs ?? []), checks: Object.fromEntries(checks ?? []) };
+}
+
+export function restoreOverwriteRepairs(ctx: object, data: unknown): void {
+    if (!data || typeof data !== "object") return;
+    const { repairs, checks } = data as { repairs?: unknown; checks?: unknown };
+    const str = (v: unknown): v is string => typeof v === "string" && v.length > 0;
+    if (repairs && typeof repairs === "object") {
+        let map = pendingRepairs.get(ctx);
+        if (!map) pendingRepairs.set(ctx, (map = new Map<string, PendingRepair>()));
+        for (const [path, r] of Object.entries(repairs as Record<string, Partial<PendingRepair>>)) {
+            if (!r || !str(r.fileId) || !str(r.overwrittenId) || !str(r.overwrittenHash) || !str(r.baseHash)) continue;
+            if (typeof r.since !== "number" || map.has(path)) continue;
+            map.set(path, r as PendingRepair);
+        }
+    }
+    if (checks && typeof checks === "object") {
+        let map = pendingChecks.get(ctx);
+        if (!map) pendingChecks.set(ctx, (map = new Map<string, PendingCheck>()));
+        for (const [path, c] of Object.entries(checks as Record<string, Partial<PendingCheck>>)) {
+            if (!c || !str(c.fileId) || !str(c.ourHash) || !Array.isArray(c.known)) continue;
+            if (typeof c.since !== "number" || map.has(path)) continue;
+            map.set(path, { fileId: c.fileId, ourHash: c.ourHash, known: c.known.filter(str), since: c.since });
+        }
     }
 }

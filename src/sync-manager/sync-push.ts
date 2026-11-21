@@ -16,24 +16,34 @@ import {
     isDeviceExcluded,
     hashContent,
 } from "./file-utils";
-import { loadCommunication, saveIndex, saveLocalIndex, releaseLockAfterPush, findForeignLock, renameLocal, confirmMissingForDeletion, noteDeleteIntent, takeUnsyncedRename } from "./state";
+import { loadCommunication, saveIndex, saveLocalIndex, releaseLockAfterPush, findForeignLock, renameLocal, confirmMissingForDeletion, clearDeleteIntent, hasDeleteIntent, noteDeleteIntent, takeUnsyncedRename, peekUnsyncedRename, takeReplacedNote } from "./state";
 import { pullFileSafely } from "./merge";
-import { isMergeableText, recoverOverwrittenVersion } from "./overwrite-recovery";
+import { isMergeableText, recoverOverwrittenVersion, watchLateLanding } from "./overwrite-recovery";
 import { findPathCollision, freeCollisionPath, moveIndexEntry, pathKey } from "./path-collision";
 import { TransferPriority } from "./transfer-types";
 import { formatSize } from "../utils/format";
 import { basename, dirname } from "../utils/path";
-import { scanObsidianChanges, scanVaultChanges } from "./sync-scan";
+import { recheckEventsDuringSync, scanObsidianChanges, scanVaultChanges } from "./sync-scan";
 import {
     computeLocalHash,
     getThresholdBytes,
     generateTransferId,
     markPendingTransfer,
     buildRemoteIndexPayload,
+    checkIndexOverwrite,
+    clearIndexUploadOwed,
+    markIndexUploadOwed,
+    owesIndexUpload,
+    takeHandBack,
     recordAttemptedUpload,
     forgetAttemptedUpload,
     isAttemptedUpload,
+    moveAttemptedUploads,
     forgetAttemptedVersion,
+    attemptedUploadsSnapshot,
+    pendingPullsOf,
+    takePriorRunAttempts,
+    PRIOR_RUN_LANDING_MS,
 } from "./sync-helpers";
 import { storesTransformedContent } from "./content-identity";
 
@@ -136,17 +146,35 @@ async function executeFolderDeletions(
                     `[Smart Push] Folder not found on remote (already deleted?): ${folderPath}`,
                     "warn",
                 );
+                // Its files may still be in the cloud (found by id, not by folder path):
+                // forgetting them here left them there for good while this device no
+                // longer had them. Leave them to be deleted one by one (as for a folder
+                // whose removal failed); the folder is settled once none is left.
+                const children = Object.keys(ctx.index).filter(
+                    (p) => p.startsWith(folderPath + "/") && ctx.index[p].fileId,
+                );
+                let stillInCloud = false;
+                for (const p of children) {
+                    if (await ctx.adapter.getFileMetadataById(ctx.index[p].fileId)) {
+                        stillInCloud = true;
+                        break;
+                    }
+                }
+                if (stillInCloud) continue;
             }
 
             const prefix = folderPath + "/";
+            // The folder may have been made again since (a note moved into a new folder
+            // of that name): what is in it now is not part of the deletion. Clearing it
+            // too left a new note there unsynced for good.
             for (const dirtyPath of Array.from(ctx.dirtyPaths.keys())) {
-                if (dirtyPath.startsWith(prefix)) {
+                if (dirtyPath.startsWith(prefix) && !(await ctx.vault.exists(dirtyPath))) {
                     ctx.dirtyPaths.delete(dirtyPath);
                 }
             }
             const allPaths = Object.keys(ctx.index);
             for (const path of allPaths) {
-                if (path.startsWith(prefix)) {
+                if (path.startsWith(prefix) && !(await ctx.vault.exists(path))) {
                     delete ctx.index[path];
                     delete ctx.localIndex[path];
                 }
@@ -174,7 +202,13 @@ export async function reconcileVanishedAfterUpload(
     content: ArrayBuffer,
     entry: LocalFileIndex[string],
 ): Promise<boolean> {
-    if (await ctx.vault.exists(path)) return false;
+    if (await ctx.vault.exists(path)) {
+        // On Windows/macOS a letter-case-only rename ("Todo.md" -> "todo.md") leaves the
+        // old spelling "existing": without this the upload stayed under the old name
+        // while the note was renamed here.
+        const to = peekUnsyncedRename(ctx, path);
+        if (!(ctx.caseInsensitiveFs && to && to !== path && pathKey(to) === pathKey(path))) return false;
+    }
     // An already-synced file renamed during the upload: the rename handler moved its
     // index entry (same fileId) to the new path, with a pendingMove from `path`. Record
     // that the remote now holds what we uploaded; registering `path` for deletion here
@@ -193,7 +227,25 @@ export async function reconcileVanishedAfterUpload(
             };
         }
         ctx.dirtyPaths.delete(path);
+        // The rename moved our upload record with the entry: the upload is settled now,
+        // and a stale record later made this version look like an unconfirmed upload
+        // (a wrong merge base, so a false conflict)
+        forgetAttemptedVersion(ctx, p, contentFingerprint(content));
         await ctx.log(`[Smart Push] ${path} was renamed to ${p} during upload.`, "info");
+        return true;
+    }
+    // Renamed again (or deleted) before that event arrived: the recorded name is gone
+    // too. Deleting the upload now and creating the note anew under its final name made
+    // two copies once another device edited the upload meanwhile. Keep it as our
+    // attempted upload: the next push (or a pull of it) moves it to the final name.
+    const pendingTo = peekUnsyncedRename(ctx, path);
+    if (pendingTo && !ctx.index[pendingTo] && !(await ctx.vault.exists(pendingTo))) {
+        recordAttemptedUpload(ctx, path, contentFingerprint(content));
+        ctx.dirtyPaths.delete(path);
+        await ctx.log(
+            `[Smart Push] ${path} was renamed again during upload. Settling the upload next sync.`,
+            "info",
+        );
         return true;
     }
     // Renamed (and maybe edited since): the rename handler recorded where it went.
@@ -204,6 +256,7 @@ export async function reconcileVanishedAfterUpload(
         ctx.localIndex[renamedTo] = { ...moved };
         ctx.dirtyPaths.delete(path);
         ctx.dirtyPaths.set(renamedTo, Date.now());
+        forgetAttemptedVersion(ctx, renamedTo, contentFingerprint(content));
         await ctx.log(
             `[Smart Push] ${path} was renamed to ${renamedTo} during upload. Will move the remote file.`,
             "info",
@@ -225,6 +278,7 @@ export async function reconcileVanishedAfterUpload(
         ctx.index[candidate] = moved;
         ctx.localIndex[candidate] = { ...moved };
         ctx.dirtyPaths.delete(path);
+        forgetAttemptedVersion(ctx, candidate, uploadedHash);
         await ctx.log(
             `[Smart Push] ${path} was renamed to ${candidate} during upload. Will move the remote file.`,
             "info",
@@ -235,7 +289,10 @@ export async function reconcileVanishedAfterUpload(
     ctx.index[path] = entry;
     ctx.localIndex[path] = { ...entry };
     ctx.dirtyPaths.set(path, Date.now());
-    noteDeleteIntent(ctx, path);
+    // Not marked as a deletion: the vault event of a rename made during the upload may
+    // still be on its way. Deleting at once (before the event) and creating the note
+    // anew under its new name left two copies once another device had edited it. The
+    // usual wait for a late rename event applies; a delete event marks it right away.
     await ctx.log(`[Smart Push] ${path} disappeared during upload. Will remove it remotely.`, "info");
     return true;
 }
@@ -270,13 +327,92 @@ async function uploadRemoteIndex(ctx: SyncContext): Promise<void> {
             await ctx.log(`[Smart Push] Failed to upload raw index: ${String(rawErr)}`, "debug");
         }
 
+        clearIndexUploadOwed(ctx);
+        await checkIndexOverwrite(ctx, uploadedIndex);
         await saveIndex(ctx);
         await ctx.log(`[Smart Push] Index uploaded. Hash: ${uploadedIndex.hash}`, "info");
     } catch (e) {
-        await ctx.log(`[Smart Push] Failed to upload index: ${String(e)}`, "error");
+        markIndexUploadOwed(ctx);
+        await saveIndex(ctx).catch(() => {});
+        await ctx.log(`[Smart Push] Failed to upload index (retried next sync): ${String(e)}`, "error");
     }
 }
 
+/** Nothing to push, but an earlier index upload failed: upload it now. */
+async function settleOwedIndexUpload(ctx: SyncContext): Promise<void> {
+    if (!owesIndexUpload(ctx)) return;
+    await ctx.log("[Smart Push] Uploading the index left over from an earlier failed upload.", "info");
+    await uploadRemoteIndex(ctx);
+}
+
+
+/**
+ * An upload of a NEW note whose response was lost, and the note was renamed or deleted
+ * here before the upload was confirmed. The cloud copy under the old name is in no
+ * index, and the Changes feed may already be past it (the app was restarted, or the
+ * feed was read before the upload landed): no device ever pulled or removed it, and it
+ * stayed in the cloud as a stray copy. Move it to the note's new name, or remove it.
+ */
+async function settleOrphanedUploads(ctx: SyncContext): Promise<void> {
+    const attempts = attemptedUploadsSnapshot(ctx);
+    if (!attempts) return;
+    const queued = new Set((ctx.backgroundTransferQueue.getPendingTransfers?.() ?? []).map((t) => t.path));
+    for (const path of Object.keys(attempts)) {
+        if (ctx.index[path] || ctx.localIndex[path] || queued.has(path)) continue;
+        if (await ctx.vault.exists(path)) continue;
+        try {
+            const meta = await ctx.adapter.getFileMetadata(path);
+            if (!meta?.id || meta.kind === "folder") {
+                if (!meta) forgetAttemptedUpload(ctx, path); // never reached the cloud
+                continue;
+            }
+            // A synced file renamed here (pending move): the attempt was an edit of it,
+            // not an orphan. Removing it deleted the note in the cloud for every device.
+            const owner = Object.entries(ctx.index).find(([, e]) => e.fileId === meta.id)?.[0];
+            if (owner) {
+                moveAttemptedUploads(ctx, path, owner);
+                continue;
+            }
+            let sent = meta.hash;
+            let plainHash: string | undefined;
+            if (storesTransformedContent(ctx)) {
+                const content = await ctx.adapter.downloadFile(meta.id);
+                sent = contentFingerprint(content); // recorded as the exact bytes sent
+                plainHash = await hashContent(content);
+            }
+            if (!sent || !isAttemptedUpload(ctx, path, sent)) continue;
+            const now = takeUnsyncedRename(ctx, path);
+            if (now && !ctx.index[now] && (await ctx.vault.exists(now))) {
+                await ctx.adapter.moveFile(meta.id, basename(now), dirname(now) || null);
+                const hash = (meta.hash ?? "").toLowerCase();
+                const entry = {
+                    fileId: meta.id,
+                    mtime: meta.mtime ?? Date.now(),
+                    size: meta.size,
+                    hash,
+                    ...(plainHash ? { plainHash } : {}),
+                    lastAction: "push" as const,
+                    ancestorHash: hash,
+                };
+                ctx.index[now] = { ...entry };
+                ctx.localIndex[now] = { ...entry };
+                ctx.dirtyPaths.set(now, ctx.dirtyPaths.get(now) ?? Date.now());
+                // Persist both indexes now: killed before the next save, the note
+                // looked unsynced after the restart and its next rename left the moved
+                // cloud file behind as a duplicate.
+                await saveIndex(ctx);
+                await ctx.log(`[Smart Push] Moved our earlier upload of ${path} to ${now}.`, "info");
+            } else {
+                await removeRemote(ctx, { id: meta.id, path, kind: "file" }, "superseded-upload");
+                await ctx.log(`[Smart Push] Removed our earlier upload of ${path} (no longer here under that name).`, "info");
+            }
+            forgetAttemptedUpload(ctx, path);
+            await saveLocalIndex(ctx, true);
+        } catch (e) {
+            await ctx.log(`[Smart Push] Could not settle earlier upload of ${path}: ${String(e)}`, "warn");
+        }
+    }
+}
 
 /**
  * Smart Push - upload only dirty files
@@ -288,6 +424,9 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
         ctx.progress?.setPhase("scanning");
         await scanVaultChanges(ctx);
     }
+
+    await recheckEventsDuringSync(ctx);
+    await settleOrphanedUploads(ctx);
 
     // Scan .obsidian files for changes (vault events don't fire for these)
     await scanObsidianChanges(ctx);
@@ -315,6 +454,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
 
     if (ctx.dirtyPaths.size === 0 && plannedFolders.length === 0) {
         await ctx.log("[Smart Push] No dirty files to push. Skipping.", "debug");
+        await settleOwedIndexUpload(ctx);
         return false;
     }
 
@@ -380,7 +520,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                 }
                 if (clash) {
                     const newPath = await freeCollisionPath(ctx, path);
-                    await ctx.vault.rename(path, newPath);
+                    await renameLocal(ctx, path, newPath);
                     ctx.dirtyPaths.delete(path);
                     ctx.dirtyPaths.set(newPath, Date.now());
                     await ctx.log(
@@ -399,7 +539,14 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                 return;
             }
 
-            const exists = await ctx.vault.exists(path);
+            // Deleted here, and on Windows/macOS another synced note now sits under the
+            // same name in another spelling: the file "found" is that note. Uploading it
+            // to this note's cloud file wrote the other note's text into it.
+            const shadowed =
+                !!ctx.caseInsensitiveFs &&
+                hasDeleteIntent(ctx, path) &&
+                !!findPathCollision(ctx, path, ctx.index[path]?.fileId);
+            const exists = !shadowed && (await ctx.vault.exists(path));
             if (exists) {
                 const stat = await ctx.vault.stat(path);
                 if (stat) {
@@ -473,6 +620,43 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                     const indexEntry = ctx.index[path];
                     if (indexEntry?.pendingMove && indexEntry.fileId) {
                         const moveInfo = indexEntry.pendingMove;
+                        if (takeReplacedNote(ctx, path, moveInfo.oldPath)) {
+                            const old = await ctx.adapter
+                                .getFileMetadataById(indexEntry.fileId, moveInfo.oldPath)
+                                .catch(() => undefined);
+                            const knownHash = indexEntry.hash?.toLowerCase();
+                            const theirHash = old?.hash?.toLowerCase();
+                            if (
+                                old &&
+                                knownHash &&
+                                theirHash &&
+                                theirHash !== knownHash &&
+                                !isAttemptedUpload(ctx, moveInfo.oldPath, theirHash) &&
+                                !isAttemptedUpload(ctx, path, theirHash)
+                            ) {
+                                // The deleted note was edited on another device: their edit
+                                // wins over our delete, and this new note is not that note.
+                                // Give it a name of its own and pull theirs back.
+                                const alt = await freeCollisionPath(ctx, path);
+                                await renameLocal(ctx, path, alt);
+                                ctx.logger.markActionTaken();
+                                delete ctx.index[path];
+                                delete ctx.localIndex[path];
+                                ctx.dirtyPaths.delete(path);
+                                ctx.dirtyPaths.set(alt, Date.now());
+                                moveAttemptedUploads(ctx, path, alt);
+                                pendingPullsOf(ctx).set(old.id, {
+                                    file: { ...old, path: old.path || moveInfo.oldPath },
+                                    attempts: 0,
+                                });
+                                await saveLocalIndex(ctx);
+                                await ctx.log(
+                                    `[Smart Push] ${moveInfo.oldPath} was deleted here but edited on another device, and ${path} is a new note. Kept their version and moved the new note to ${alt}.`,
+                                    "warn",
+                                );
+                                return;
+                            }
+                        }
                         try {
                             const newName = basename(path);
                             const newParentPath = dirname(path);
@@ -505,10 +689,25 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                             // our known base hash so the push/pull sees the remote change and
                             // merges it.
                             const knownHash = ctx.index[path]?.hash;
-                            const remoteChangedMeanwhile =
+                            let adoptedOwnUpload = false;
+                            let remoteChangedMeanwhile =
                                 !!knownHash &&
                                 !!moved.hash &&
-                                knownHash.toLowerCase() !== moved.hash.toLowerCase();
+                                knownHash.toLowerCase() !== moved.hash.toLowerCase() &&
+                                // this device's own record (journaled at once) already has it
+                                ctx.localIndex[path]?.hash?.toLowerCase() !== moved.hash.toLowerCase();
+                            // ...unless it is our own upload whose index save was lost to an
+                            // app kill: our later edits build on it, and merging them from the
+                            // older base turned them into a conflict with our own version.
+                            if (remoteChangedMeanwhile && !storesTransformedContent(ctx)) {
+                                const h = moved.hash!.toLowerCase();
+                                const owner = [path, moveInfo.oldPath].find((p) => isAttemptedUpload(ctx, p, h));
+                                if (owner) {
+                                    forgetAttemptedVersion(ctx, owner, h);
+                                    remoteChangedMeanwhile = false;
+                                    adoptedOwnUpload = true;
+                                }
+                            }
                             if (remoteChangedMeanwhile) {
                                 await ctx.log(
                                     `[Smart Push] ${path} changed on another device before the move. Keeping base hash so the change is merged.`,
@@ -531,6 +730,14 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                 forcePush: false,
                                 pendingMove: undefined,
                             };
+                            // Adopted a newer cloud version as ours (our upload whose response
+                            // was lost): the old ancestor and plaintext hash describe the
+                            // version before it, and merging from there made our own edit
+                            // conflict with the other devices' edits built on it.
+                            if (!remoteChangedMeanwhile && knownHash && moved.hash && adoptedOwnUpload) {
+                                updatedEntry.ancestorHash = moved.hash;
+                                delete (updatedEntry as { plainHash?: string }).plainHash;
+                            }
                             ctx.index[path] = updatedEntry;
                             ctx.localIndex[path] = { ...updatedEntry };
                             recordActivity(ctx, "rename", path, moveInfo.oldPath);
@@ -562,6 +769,24 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                             }
                             // Don't return — fall through to hash check.
                         } catch (e) {
+                            // Still in the cloud (or unknown): the move may even have been
+                            // applied (response lost). Uploading instead updated the file by
+                            // id wherever it was, under a name this device no longer uses,
+                            // and the note ended up under two names. Retry the move.
+                            let remote: CloudFile | null | undefined;
+                            try {
+                                remote = await ctx.adapter.getFileMetadataById(indexEntry.fileId, path);
+                            } catch {
+                                remote = undefined;
+                            }
+                            if (remote !== null) {
+                                ctx.dirtyPaths.set(path, Date.now());
+                                await ctx.log(
+                                    `[Smart Push] Move failed for ${path}: ${String(e)}. Retrying it next sync.`,
+                                    "warn",
+                                );
+                                return;
+                            }
                             await ctx.log(
                                 `[Smart Push] Move API failed for ${path}, falling back to re-upload: ${String(e)}`,
                                 "warn",
@@ -633,6 +858,9 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                             if (ctx.dirtyPaths.get(path) === dirtyAt) {
                                 ctx.dirtyPaths.delete(path);
                             }
+                            // The shared index must list it: a device joining later starts its
+                            // change feed after this file, and only finds it in the index.
+                            markIndexUploadOwed(ctx);
                             await ctx.log(`[Smart Push] Adopted existing remote file: ${path}`, "info");
                             return;
                         }
@@ -733,7 +961,8 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
         for (const file of uploadQueue) {
             const isMetadata = file.path === ctx.pluginDataPath;
             const isMergeResult = ctx.localIndex[file.path]?.lastAction === "merge";
-            if (!isMetadata && !isMergeResult && file.size > thresholdBytes) {
+            const handedBack = takeHandBack(ctx, file.path);
+            if (!isMetadata && !isMergeResult && !handedBack && file.size > thresholdBytes) {
                 const snapshotHash = file.hash;
                 ctx.backgroundTransferQueue.enqueue({
                     id: generateTransferId("push"),
@@ -765,6 +994,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
     const totalOps = inlineUploadQueue.length + deleteQueue.length;
     if (totalOps === 0 && folderDeletedCount === 0 && moveCount === 0 && deferredCount === 0) {
         await ctx.log("[Smart Push] No changes after filtering.", "debug");
+        await settleOwedIndexUpload(ctx);
         return false;
     }
 
@@ -806,7 +1036,11 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
         const toRecord = inlineUploadQueue.filter((f) => f.hash && f.path !== ctx.pluginDataPath);
         if (toRecord.length > 0) {
             for (const f of toRecord) recordAttemptedUpload(ctx, f.path, f.hash);
-            await saveLocalIndex(ctx, true);
+            // The shared index that will list these files is owed from now on: killed
+            // after the uploads but before the index upload, the restarted app had
+            // nothing to push and the other devices never learned of the files.
+            markIndexUploadOwed(ctx);
+            await saveIndex(ctx);
         }
 
         for (const file of inlineUploadQueue) {
@@ -860,6 +1094,28 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                             );
                         } else {
                             remoteMeta = await ctx.adapter.getFileMetadata(file.path);
+                        }
+                        // The cloud file at this name belongs to another note here (our own
+                        // move of it away from this name ran in this push, after the lookup).
+                        // Taken as a remote edit of this new note, the conflict path pulled
+                        // that note in under this name: a third copy once it was renamed.
+                        const ownedElsewhere = (id: string | undefined) =>
+                            !!id &&
+                            Object.entries(ctx.index).some(([p, e]) => p !== file.path && e.fileId === id);
+                        if (!params.fileId && remoteMeta && ownedElsewhere(remoteMeta.id)) {
+                            if (remoteMeta === file.remoteLookup) {
+                                remoteMeta = await ctx.adapter.getFileMetadata(file.path);
+                            }
+                            if (remoteMeta && ownedElsewhere(remoteMeta.id)) {
+                                // Still there: our move has not reached the cloud. Uploading by
+                                // name would overwrite that note; push this one next sync.
+                                ctx.dirtyPaths.set(file.path, Date.now());
+                                await ctx.log(
+                                    `[Smart Push] ${file.path}: the cloud file of that name is another note here, moving away. Pushing it next sync.`,
+                                    "info",
+                                );
+                                return;
+                            }
                         }
 
                         if (remoteMeta) {
@@ -958,12 +1214,19 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                             const mergedFileId =
                                                 ctx.index[file.path]?.fileId || remoteMeta.id;
 
+                                            // A lost response may still have been applied: remember
+                                            // what we sent, so the version is recognised as ours later
+                                            // (and checked for overwriting another device's edit).
+                                            const mergedSent = contentFingerprint(mergedContent);
+                                            recordAttemptedUpload(ctx, file.path, mergedSent);
+                                            await saveLocalIndex(ctx, true); // survives an app kill
                                             const mergedUploaded = await ctx.adapter.uploadFile(
                                                 file.path,
                                                 mergedContent,
                                                 mergedStat?.mtime || Date.now(),
                                                 mergedFileId,
                                             );
+                                            forgetAttemptedVersion(ctx, file.path, mergedSent);
 
                                             const mergedPlainHash = await hashContent(mergedContent);
 
@@ -979,8 +1242,27 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                                 ancestorHash:
                                                     previousAncestorHash || mergedUploaded.hash,
                                             };
-                                            ctx.index[file.path] = mergedEntry;
-                                            ctx.localIndex[file.path] = { ...mergedEntry };
+                                            // Renamed by the user while the merged version uploaded?
+                                            // The entry moved with the file: update it there, or the
+                                            // moved note keeps the old base and the next push sees
+                                            // our own upload as another device's edit.
+                                            const movedTo = ctx.index[file.path]
+                                                ? undefined
+                                                : Object.keys(ctx.index).find(
+                                                      (p) =>
+                                                          ctx.index[p].pendingMove?.oldPath === file.path &&
+                                                          ctx.index[p].fileId === mergedUploaded.id,
+                                                  );
+                                            if (movedTo) {
+                                                ctx.index[movedTo] = { ...ctx.index[movedTo], ...mergedEntry };
+                                                ctx.localIndex[movedTo] = {
+                                                    ...(ctx.localIndex[movedTo] ?? ctx.index[movedTo]),
+                                                    ...mergedEntry,
+                                                };
+                                            } else {
+                                                ctx.index[file.path] = mergedEntry;
+                                                ctx.localIndex[file.path] = { ...mergedEntry };
+                                            }
                                             // Typed into the note while the merged version uploaded?
                                             // (Vault events are suppressed meanwhile.) Keep it dirty
                                             // so that edit is pushed next, instead of dropping it.
@@ -1033,6 +1315,9 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
 
                     const targetFileId = remoteMeta?.id || ctx.index[file.path]?.fileId;
 
+                    // Read before the upload: a rename during it moves the entry away
+                    const previousAncestorHash = ctx.localIndex[file.path]?.ancestorHash;
+                    const previousHash = ctx.localIndex[file.path]?.hash;
                     uploadStarted = true;
                     const uploaded = await ctx.adapter.uploadFile(
                         file.path,
@@ -1047,8 +1332,6 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
 
                     const plainHash = await hashContent(file.content);
 
-                    const previousAncestorHash = ctx.localIndex[file.path]?.ancestorHash;
-                    const previousHash = ctx.localIndex[file.path]?.hash;
                     const entry = {
                         fileId: uploaded.id,
                         mtime: file.mtime,
@@ -1059,10 +1342,31 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                         ancestorHash: previousAncestorHash || uploaded.hash,
                     };
                     if (await reconcileVanishedAfterUpload(ctx, file.path, file.content, entry)) {
-                        // handled as a rename/delete that happened while uploading
+                        // Handled as a rename/delete that happened while uploading. Saved
+                        // now: killed before the next save, the restart took the upload
+                        // for a deleted note and removed it while the note lived on
+                        // under its new name (a second copy once another device edited it).
+                        await saveIndex(ctx);
+                        // Our upload may still have replaced another device's version made
+                        // at the same moment: check it under the note's new name. Skipped,
+                        // that device merged onto our upload and its edit was gone.
+                        const renamedTo = Object.keys(ctx.index).find(
+                            (p) => p !== file.path && ctx.index[p].fileId === uploaded.id,
+                        );
+                        if (renamedTo && targetFileId && uploaded.hash && isMergeableText(renamedTo)) {
+                            await recoverOverwrittenVersion(ctx, renamedTo, uploaded.id, uploaded.hash, [
+                                previousAncestorHash,
+                                previousHash,
+                            ]);
+                        }
                     } else {
                         ctx.index[file.path] = entry;
                         ctx.localIndex[file.path] = { ...entry };
+                        // Journal it now: the attempt record is gone, and killed before the
+                        // index save the restarted app took this upload for another device's
+                        // edit (our later edits then conflicted with our own version).
+                        await saveLocalIndex(ctx);
+                        const priorRun = takePriorRunAttempts(ctx, file.path);
                         forgetAttemptedUpload(ctx, file.path);
                         noteUploadedForRetention(ctx, file.path, uploaded.id);
                         recordActivity(ctx, targetFileId ? "edit" : "create", file.path);
@@ -1075,6 +1379,16 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                 previousAncestorHash,
                                 previousHash,
                             ]);
+                        }
+                        if (uploaded.hash && priorRun.length > 0) {
+                            watchLateLanding(
+                                ctx,
+                                file.path,
+                                uploaded.id,
+                                priorRun,
+                                [uploaded.hash, previousAncestorHash, previousHash],
+                                PRIOR_RUN_LANDING_MS,
+                            );
                         }
                     }
 
@@ -1220,7 +1534,11 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                         }
                         delete ctx.index[path];
                         delete ctx.localIndex[path];
-                        ctx.dirtyPaths.delete(path);
+                        // A new note made under the same name while the delete was on
+                        // its way is marked dirty: keep that mark, or the new note was
+                        // never uploaded (and a pull later wrote over it).
+                        if (!(await ctx.vault.exists(path))) ctx.dirtyPaths.delete(path);
+                        clearDeleteIntent(ctx, path);
 
                         ctx.logger.markActionTaken();
                         completed++;
@@ -1238,6 +1556,10 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                         );
                     }
                 } catch (e) {
+                    // Still the user's deletion: the retry must not wait for a rename
+                    // event again (meanwhile the file counted as vanished, and pulls of
+                    // it were held back).
+                    if (ctx.index[path]) noteDeleteIntent(ctx, path);
                     await ctx.log(`[Smart Push] Delete failed: ${path} - ${String(e)}`, "error");
                 }
             });
@@ -1292,12 +1614,20 @@ async function collapseCollidingNewPaths(ctx: SyncContext): Promise<void> {
             }
             const [a, b] = [await ctx.vault.readBinary(first), await ctx.vault.readBinary(path)];
             if (contentFingerprint(a) === contentFingerprint(b)) {
-                ctx.dirtyPaths.delete(path);
-                await ctx.log(`[Smart Push] ${path} is the same note as ${first}. Syncing it once.`, "debug");
+                // Keep the spelling the disk lists: the other one only reaches the
+                // same file because the disk ignores case / Unicode form.
+                // (The folder part may be spelled differently again: compare the file name.)
+                const onDisk = ctx.vault.getFiles().find((f) => pathKey(f.path) === key)?.path;
+                const listed = (p: string) =>
+                    onDisk !== undefined && (p === onDisk || basename(p) === basename(onDisk));
+                const [keep, drop] = listed(path) && !listed(first) ? [path, first] : [first, path];
+                ctx.dirtyPaths.delete(drop);
+                firstByKey.set(key, keep);
+                await ctx.log(`[Smart Push] ${drop} is the same note as ${keep}. Syncing it once.`, "debug");
                 continue;
             }
             const newPath = await freeCollisionPath(ctx, path);
-            await ctx.vault.rename(path, newPath);
+            await renameLocal(ctx, path, newPath);
             ctx.dirtyPaths.delete(path);
             ctx.dirtyPaths.set(newPath, Date.now());
             await ctx.log(
