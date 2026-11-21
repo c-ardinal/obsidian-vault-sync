@@ -38,6 +38,16 @@ export function takeScopeChange(
     return { previous, current };
 }
 
+/**
+ * Left out under the settings last reconciled with. Settings changed since (on
+ * this device or synced from another) are applied by the next sync: until then,
+ * changes to such a file were skipped here and the file may be missing.
+ */
+export function leftOutUnderAppliedScope(ctx: Pick<SyncContext, "settings">, path: string): boolean {
+    const scope = applied.get(ctx);
+    return !!scope && isDeviceExcluded({ settings: { ...ctx.settings, ...scope } }, path);
+}
+
 const skipped = new CtxState<Map<string, LocalFileIndex[string]>>(
     "skippedOutOfScope",
     "Cloud files skipped as left out under scope settings not reconciled yet",

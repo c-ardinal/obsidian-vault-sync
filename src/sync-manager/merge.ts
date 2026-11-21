@@ -853,6 +853,84 @@ async function unsyncedFileWithContent(ctx: SyncContext, path: string, fingerpri
     return found;
 }
 
+/**
+ * Notes kept here, with their edits, although the cloud file was deleted or moved
+ * to where this device does not sync: path -> the cloud file and the version our
+ * edits were made on. Another device that kept its own edits of the same note
+ * uploads it again under the same name; the two copies then share that version
+ * as their common base and are merged instead of becoming a conflict copy.
+ */
+const keptCopies = new CtxState<Map<string, { fileId: string; hash: string }>>(
+    "keptCopies",
+    "Notes kept after their cloud file was deleted: the version our edits were made on",
+);
+
+export function noteKeptCopy(ctx: SyncContext, path: string, fileId: string, hash: string | undefined): void {
+    if (!fileId || !hash) return;
+    let m = keptCopies.get(ctx);
+    if (!m) keptCopies.set(ctx, (m = new Map()));
+    m.set(path, { fileId, hash: hash.toLowerCase() });
+}
+
+async function mergeKeptCopy(
+    ctx: SyncContext,
+    item: Parameters<typeof pullFileSafely>[1],
+    fileId: string,
+    localContent: ArrayBuffer,
+    logPrefix: string,
+): Promise<boolean> {
+    const kept = keptCopies.get(ctx)?.get(item.path);
+    if (!kept || !supportsHistory(ctx)) return false;
+    keptCopies.get(ctx)!.delete(item.path);
+    try {
+        // The old cloud file: still there when it was moved, or in the cloud trash
+        const revisions = await listRevisions(ctx, item.path, kept.fileId);
+        const base = revisions.find((r) => r.hash?.toLowerCase() === kept.hash);
+        if (!base) return false;
+        const baseBytes = await getRevisionContent(ctx, item.path, base.id, kept.fileId);
+        const remoteBytes = await ctx.adapter.downloadFile(fileId);
+        const decode = (b: ArrayBuffer) => new TextDecoder().decode(b);
+        const merged = await perform3WayMerge(
+            ctx,
+            item.path,
+            decode(localContent),
+            decode(remoteBytes),
+            kept.hash,
+            kept.fileId,
+            revisions,
+            decode(baseBytes),
+        );
+        if (!merged) return false;
+        const latest = await ctx.vault.readBinary(item.path).catch(() => null);
+        if (!latest || contentFingerprint(latest) !== contentFingerprint(localContent)) return false;
+        await ctx.vault.writeBinary(item.path, merged);
+        const remoteHash = item.hash?.toLowerCase() || contentFingerprint(remoteBytes);
+        const stat = await ctx.vault.stat(item.path);
+        const entry = {
+            fileId,
+            mtime: stat?.mtime || Date.now(),
+            size: remoteBytes.byteLength,
+            hash: remoteHash,
+            plainHash: await hashContent(remoteBytes),
+            lastAction: "pull" as const,
+            ancestorHash: remoteHash,
+        };
+        ctx.index[item.path] = entry;
+        ctx.localIndex[item.path] = { ...entry };
+        ctx.dirtyPaths.set(item.path, Date.now());
+        await saveLocalIndex(ctx);
+        await ctx.log(
+            `[${logPrefix}] ${item.path} came back from another device that kept it too. Merged it with the copy kept here.`,
+            "info",
+        );
+        ctx.logger.markActionTaken();
+        return true;
+    } catch (e) {
+        if (e instanceof TransientHistoryError) throw e;
+        return false;
+    }
+}
+
 const vanishedLocally = new CtxState<Map<string, number>>(
     "vanishedLocally",
     "Synced files found missing during a pull, waiting for their rename/delete event (first seen at)",
@@ -1696,6 +1774,10 @@ async function pullFileUnchecked(
                         }
 
                         // Merge failed - fall through to conflict file
+                    }
+
+                    if (isText && !localBase && fileId && !isRemoteDeleted) {
+                        if (await mergeKeptCopy(ctx, item, fileId, localContent, logPrefix)) return true;
                     }
 
                     const conflictPath = await freeConflictCopyPath((p) => ctx.vault.exists(p), item.path);

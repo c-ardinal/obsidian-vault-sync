@@ -620,6 +620,16 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                             }
                         }
 
+                        // Holds files synced from the cloud (e.g. the folder was just created
+                        // here by a pull): it is there already, no request needed
+                        const inCloud = Object.entries(ctx.index).some(
+                            ([p, e]) => p.startsWith(path + "/") && !!e.fileId && !e.pendingMove && e.lastAction === "pull",
+                        );
+                        if (inCloud) {
+                            ctx.dirtyPaths.delete(path);
+                            ctx.pendingFolderMoves.delete(path);
+                            return;
+                        }
                         try {
                             await ctx.adapter.ensureFoldersExist([path]);
                             ctx.logger.markActionTaken();

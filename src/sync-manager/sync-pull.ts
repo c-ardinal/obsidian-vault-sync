@@ -27,7 +27,7 @@ import {
     hasDeleteIntent,
     markDeleted,
 } from "./state";
-import { pullFileSafely, takePullLockSkip } from "./merge";
+import { noteKeptCopy, pullFileSafely, takePullLockSkip } from "./merge";
 import { TransferPriority } from "./transfer-types";
 import { formatSize } from "../utils/format";
 import { basename, dirname } from "../utils/path";
@@ -410,6 +410,7 @@ async function applyRemoteDeletion(ctx: SyncContext, path: string, decision: Pla
         const content = await ctx.vault.readBinary(path);
         const { localHash, compareHash } = await computeLocalHash(ctx, content, base);
         if (!compareHash || localHash !== compareHash.toLowerCase()) {
+            noteKeptCopy(ctx, path, base.fileId, base.hash);
             delete ctx.index[path];
             delete ctx.localIndex[path];
             ctx.recentlyDeletedFromRemote.delete(path);
@@ -1373,6 +1374,12 @@ export async function reconcileScopeChange(ctx: SyncContext): Promise<boolean> {
         ctx.localIndex[path] = { ...entry };
         markDeleted(ctx, path);
     }
+    // The reconciled settings are saved with the local index: save the index changes
+    // made for them too. Closed before that, the app restarted with the new settings
+    // recorded as reconciled but the old entries (a move into a folder now left out
+    // still pending), and the note stayed missing here for good.
+    await saveIndex(ctx);
+    await saveLocalIndex(ctx, true);
     return true;
 }
 

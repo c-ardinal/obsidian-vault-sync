@@ -7,7 +7,7 @@ import { tryDecompress, hashContent, isDeviceExcluded } from "./file-utils";
 import { storesTransformedContent } from "./content-identity";
 import { CtxFlag, CtxState } from "./context-state";
 import { capabilitiesOf } from "../types/adapter";
-import { noteSkippedOutOfScope } from "./sync-scope";
+import { leftOutUnderAppliedScope, noteSkippedOutOfScope } from "./sync-scope";
 
 
 /** What this module reads from the sync context */
@@ -338,6 +338,8 @@ export async function buildRemoteIndexPayload(ctx: SyncHelpersCtx): Promise<Arra
                 }
                 for (const [p, e] of Object.entries(last)) {
                     if (p !== ctx.pluginDataPath && isDeviceExcluded(ctx, p)) merged[p] = e;
+                    // Synced again by settings not applied yet: not pulled here so far
+                    else if (p !== ctx.pluginDataPath && !merged[p] && leftOutUnderAppliedScope(ctx, p)) merged[p] = e;
                 }
             }
             for (const [path, entry] of Object.entries(carried)) {
@@ -430,6 +432,8 @@ export async function buildRemoteIndexPayload(ctx: SyncHelpersCtx): Promise<Arra
             }
             for (const [p, e] of Object.entries(remote)) {
                 if (p !== ctx.pluginDataPath && isDeviceExcluded(ctx, p)) merged[p] = e;
+                // Synced again by settings not applied yet: not pulled here so far
+                else if (p !== ctx.pluginDataPath && !merged[p] && leftOutUnderAppliedScope(ctx, p)) merged[p] = e;
             }
             const carried: LocalFileIndex = {};
             for (const [path, entry] of Object.entries(merged)) {

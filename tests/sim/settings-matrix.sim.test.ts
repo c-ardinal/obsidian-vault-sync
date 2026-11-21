@@ -216,6 +216,58 @@ const PINNED: { title: string; seed: number; levels: Record<string, string> }[] 
             "large-files": "background", encryption: "non-md5-cloud", concurrency: "1", "cloud-trash": "30-days",
             "keep-revisions": "daily", "sync-frequency": "near-realtime",
         },
+    },    {
+        title: "an index uploaded right after settings synced again keeps the files not pulled yet",
+        seed: 866,
+        levels: {
+            conflict: "always-fork", exclusion: "one-device-only", images: "on",
+            "device-list": "changed-mid-run", "settings-sync": "shared", deletes: "deletes+confirm",
+            "large-files": "background-throttled", encryption: "non-md5-cloud", concurrency: "5",
+            "cloud-trash": "30-days", "keep-revisions": "daily", "sync-frequency": "near-realtime",
+            network: "flaky", devices: "linux", "app-restarts": "restarts",
+        },
+    },
+    {
+        title: "a move into a folder left out survives an app restart right after the settings change",
+        seed: 876,
+        levels: {
+            conflict: "smart-merge", exclusion: "changed-mid-run", images: "changed-mid-run",
+            "device-list": "changed-mid-run", "settings-sync": "shared", deletes: "deletes+confirm",
+            "large-files": "background-throttled", encryption: "off", concurrency: "5",
+            "cloud-trash": "remove-at-once", "keep-revisions": "off", "sync-frequency": "normal",
+            network: "clean", devices: "mixed-os", "app-restarts": "restarts",
+        },
+    },
+    {
+        title: "files left out at the first sync and synced again after it are pulled",
+        seed: 881,
+        levels: {
+            conflict: "changed-mid-run", exclusion: "one-device-only", images: "changed-mid-run",
+            "device-list": "none", "settings-sync": "shared", deletes: "none", "large-files": "background",
+            encryption: "non-md5-cloud", concurrency: "1", "cloud-trash": "30-days", "keep-revisions": "daily",
+            "sync-frequency": "near-realtime", network: "clean", devices: "linux", "app-restarts": "none",
+        },
+    },
+    {
+        title: "two devices keeping their edits of a note moved out of their scope merge them",
+        seed: 820,
+        levels: {
+            conflict: "smart-merge", exclusion: "changed-mid-run", images: "changed-mid-run",
+            "device-list": "changed-mid-run", "settings-sync": "shared", deletes: "deletes+confirm",
+            "large-files": "background-throttled", encryption: "off", concurrency: "5",
+            "cloud-trash": "remove-at-once", "keep-revisions": "off", "sync-frequency": "normal",
+            network: "clean", devices: "mixed-os", "app-restarts": "restarts",
+        },
+    },
+    {
+        title: "folders created by a pull are not sent to the cloud again",
+        seed: 856,
+        levels: {
+            conflict: "changed-mid-run", exclusion: "none", images: "on", "device-list": "changed-mid-run",
+            "settings-sync": "per-device", deletes: "deletes+confirm", "large-files": "background-throttled",
+            encryption: "e2ee", concurrency: "5", "cloud-trash": "remove-at-once", "keep-revisions": "off",
+            "sync-frequency": "near-realtime", network: "flaky", devices: "linux", "app-restarts": "none",
+        },
     },
 ];
 
