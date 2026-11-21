@@ -128,6 +128,24 @@ const PINNED: { title: string; seed: number; levels: Record<string, string> }[] 
         },
     },
     {
+        title: "a note renamed here while its comparison was owed is not taken as moved in the cloud",
+        seed: 606,
+        levels: {
+            exclusion: "changed-mid-run", images: "changed-mid-run", "device-list": "changed-mid-run",
+            deletes: "deletes+confirm", "large-files": "background-throttled", concurrency: "5",
+            "cloud-trash": "remove-at-once", devices: "mixed-os", "app-restarts": "restarts",
+        },
+    },
+    {
+        title: "an edit to a note another device moved out of this device's scope is kept as a new note",
+        seed: 693,
+        levels: {
+            conflict: "changed-mid-run", exclusion: "one-device-only", images: "changed-mid-run",
+            "large-files": "background", encryption: "non-md5-cloud", "keep-revisions": "daily",
+            "sync-frequency": "near-realtime",
+        },
+    },
+    {
         title: "background pull cancelled by our own earlier write: the newer version still arrives",
         seed: 44,
         levels: {

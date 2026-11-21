@@ -1190,6 +1190,25 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                         remoteMeta.path &&
                                         remoteMeta.path !== file.path &&
                                         !ctx.index[file.path]?.pendingMove &&
+                                        isDeviceExcluded(ctx, remoteMeta.path)
+                                    ) {
+                                        // Moved elsewhere to where this device does not sync: for
+                                        // this device the note left the sync. Following the rename
+                                        // stranded our edit there (never uploaded). Edit beats
+                                        // deletion: our copy stays and is uploaded as a new note.
+                                        delete ctx.index[file.path];
+                                        delete ctx.localIndex[file.path];
+                                        ctx.dirtyPaths.set(file.path, Date.now());
+                                        await ctx.log(
+                                            `[Smart Push] ${file.path} was moved to ${remoteMeta.path}, which this device does not sync. Keeping our edited copy as a new note.`,
+                                            "info",
+                                        );
+                                        return;
+                                    }
+                                    if (
+                                        remoteMeta.path &&
+                                        remoteMeta.path !== file.path &&
+                                        !ctx.index[file.path]?.pendingMove &&
                                         !ctx.index[remoteMeta.path] &&
                                         !(await ctx.vault.exists(remoteMeta.path))
                                     ) {

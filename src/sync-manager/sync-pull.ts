@@ -25,6 +25,7 @@ import {
     renameLocal,
     alignFolderSpelling,
     hasDeleteIntent,
+    markDeleted,
 } from "./state";
 import { pullFileSafely, takePullLockSkip } from "./merge";
 import { TransferPriority } from "./transfer-types";
@@ -1184,7 +1185,7 @@ export async function reconcileScopeChange(ctx: SyncContext): Promise<boolean> {
     // file under its old name, which this device would never pull again (its id is
     // known here under the new name). Forget the new name: the copy here stays, the
     // cloud file comes back under its own name.
-    const movedBack: Array<[string, LocalFileIndex[string]]> = [];
+    const movedOut: Array<[string, LocalFileIndex[string]]> = [];
     for (const path of Object.keys(ctx.index)) {
         if (path === ctx.pluginDataPath || isDeviceExcluded(before, path) || !isDeviceExcluded(ctx, path)) continue;
         if (!ctx.index[path]?.pendingMove && !ctx.localIndex[path]?.pendingMove) continue;
@@ -1195,15 +1196,21 @@ export async function reconcileScopeChange(ctx: SyncContext): Promise<boolean> {
         if (moved?.pendingMove && moved.fileId) {
             const { pendingMove, forcePush: _f, ...rest } = moved;
             relistForOthersAdd(ctx, pendingMove.oldPath, { ...rest, lastAction: "push" });
-            // Synced here under its old name: pulled back by id (the copy here stays too)
-            if (!isDeviceExcluded(ctx, pendingMove.oldPath)) movedBack.push([pendingMove.oldPath, { ...rest }]);
+            // Its old name is synced here: as when moved straight into a folder left out,
+            // the file left the sync. Deleted in the cloud, the copy here stays.
+            if (!isDeviceExcluded(ctx, pendingMove.oldPath)) movedOut.push([pendingMove.oldPath, { ...rest }]);
         }
         delete ctx.index[path];
         delete ctx.localIndex[path];
         ctx.dirtyPaths.delete(path);
     }
     await forgetReincluded(ctx, (path) => isDeviceExcluded(before, path), "[Sync scope]");
-    for (const [path, entry] of movedBack) oweUnseenPull(ctx, path, entry);
+    for (const [path, entry] of movedOut) {
+        if (ctx.index[path] || (await ctx.vault.exists(path))) continue; // the name holds another file now
+        ctx.index[path] = { ...entry };
+        ctx.localIndex[path] = { ...entry };
+        markDeleted(ctx, path);
+    }
     return true;
 }
 
@@ -1248,9 +1255,11 @@ async function refreshReincluded(ctx: SyncContext, seenFileIds: Set<string>): Pr
             return;
         }
         try {
-            const meta = await ctx.adapter.getFileMetadataById(entry.fileId, path);
+            // Renamed here and not pushed yet: the cloud still has it under the old name
+            const cloudPath = (entry.pendingMove ?? ctx.localIndex[path]?.pendingMove)?.oldPath ?? path;
+            const meta = await ctx.adapter.getFileMetadataById(entry.fileId, cloudPath);
             reincludedOf(ctx).delete(path);
-            if (!meta || meta.kind === "folder" || meta.path !== path) {
+            if (!meta || meta.kind === "folder" || meta.path !== cloudPath) {
                 await ctx.log(`[Sync scope] ${path} was deleted or moved in the cloud while left out here: keeping this copy as a new file`, "info");
                 delete ctx.index[path];
                 delete ctx.localIndex[path];
