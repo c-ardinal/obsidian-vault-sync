@@ -355,6 +355,16 @@ const PINNED: { title: string; seed: number; levels: Record<string, string> }[] 
             "sync-frequency": "near-realtime", network: "flaky", devices: "linux", "app-restarts": "restarts",
         },
     },
+    {
+        title: "renamed away while a same-name pull is queued: the note is not left in transfer",
+        seed: 1423,
+        levels: {
+            conflict: "always-fork", exclusion: "same-on-all", images: "off-on-one-device", "device-list": "none",
+            "settings-sync": "per-device", deletes: "deletes", "large-files": "background-throttled", encryption: "e2ee",
+            concurrency: "5", "cloud-trash": "remove-at-once", "keep-revisions": "off", "sync-frequency": "near-realtime",
+            network: "clean", devices: "mixed-os", "app-restarts": "none",
+        },
+    },
 ];
 
 if (!ONLY_COMBO) {

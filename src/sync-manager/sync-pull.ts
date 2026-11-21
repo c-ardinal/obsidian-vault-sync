@@ -1802,6 +1802,15 @@ async function processChangePage(
                                         ...ctx.localIndex[oldPath],
                                     };
                                     delete ctx.localIndex[oldPath];
+                                    // A background pull queued under the old name for another
+                                    // file (a same-name file that arrived meanwhile) marked this
+                                    // entry: the mark is not for the note renamed away. Kept on
+                                    // it, the note stayed "in transfer" for good.
+                                    const moved = ctx.localIndex[newPath];
+                                    const queuedForOther = (ctx.backgroundTransferQueue.getPendingTransfers?.() ?? []).some(
+                                        (t) => t.direction === "pull" && t.path === oldPath && !!t.fileId && t.fileId !== cloudFile.id,
+                                    );
+                                    if (moved.pendingTransfer?.direction === "pull" && queuedForOther) delete moved.pendingTransfer;
                                 }
 
                                 if (ctx.dirtyPaths.has(oldPath)) {
