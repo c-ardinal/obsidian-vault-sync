@@ -31,6 +31,7 @@ import { SimCloud, MUTATING_METHODS, PERFECT_NETWORK, type NetworkProfile } from
 import { SimDevice, isInternalPath } from "./sim-device";
 import type { FsPersonality } from "./sim-vault";
 import { createSimCryptoEngine } from "./sim-crypto";
+import { MassDeleteGuard } from "../../src/sync-manager/mass-change-guard";
 
 // ───────────────────────── Config ─────────────────────────
 
@@ -71,6 +72,28 @@ export interface SimConfig {
     e2ee?: boolean;
     /** The cloud reports a non-MD5 content hash (OneDrive / Dropbox style) */
     foreignHash?: boolean;
+    /** Per-device setting overrides (device i gets entry i % length), applied over `settings` */
+    deviceSettings?: Partial<SyncManagerSettings>[];
+    /** Disjoint profile: devices also delete notes and whole folders */
+    deletes?: boolean;
+    /** Users change settings during the run */
+    settingChanges?: SettingChangeConfig;
+    /** "Ask before deleting many files" is on; the user sometimes holds the deletions */
+    massDelete?: { files: number; percent: number; declineRate: number };
+}
+
+export interface SettingChangeConfig {
+    /** Probability that an action is a settings change */
+    rate: number;
+    /** Settings that may change and the values they take */
+    options: { key: keyof SyncManagerSettings; values: unknown[] }[];
+    /**
+     * Settings travel to the other devices (synced settings file): a change made
+     * on one device is uploaded with its next sync and applied on each other
+     * device at the end of the first sync that follows. Off = each device keeps
+     * its own settings (settings file not synced).
+     */
+    shared: boolean;
 }
 
 export const DEFAULT_CONFIG: Omit<SimConfig, "name" | "seed"> = {
@@ -97,7 +120,9 @@ export type Action =
     | { t: number; dev: string; kind: "rename"; pick: number; to: string }
     | { t: number; dev: string; kind: "sync"; scan: boolean }
     | { t: number; dev: string; kind: "offline" | "online" }
-    | { t: number; dev: string; kind: "restart" };
+    | { t: number; dev: string; kind: "restart" }
+    | { t: number; dev: string; kind: "setting"; key: keyof SyncManagerSettings; value: unknown }
+    | { t: number; dev: string; kind: "deleteFolder"; folder: string };
 
 const EPOCH = Date.UTC(2026, 0, 1, 0, 0, 0);
 
@@ -138,12 +163,21 @@ export function generatePlan(cfg: SimConfig): Action[] {
             plan.push({ t, dev, kind: "restart" });
             continue;
         }
+        if (cfg.settingChanges && rng.chance(cfg.settingChanges.rate)) {
+            const opt = rng.pick(cfg.settingChanges.options);
+            plan.push({ t, dev, kind: "setting", key: opt.key, value: rng.pick(opt.values) });
+            continue;
+        }
 
-        const kind = rng.weighted<string>(
+        const weights: Record<string, number> =
             cfg.profile === "disjoint"
                 ? { create: 3, edit: 9, rename: 1, sync: 7, editBinary: cfg.binaryRate ? 2 : 0 }
-                : { create: 3, edit: 8, rename: 2, delete: 2, sync: 7, editBinary: cfg.binaryRate ? 2 : 0 },
-        );
+                : { create: 3, edit: 8, rename: 2, delete: 2, sync: 7, editBinary: cfg.binaryRate ? 2 : 0 };
+        if (cfg.deletes && cfg.profile === "disjoint") {
+            weights.delete = 1;
+            weights.deleteFolder = 0.25;
+        }
+        const kind = rng.weighted<string>(weights);
 
         switch (kind) {
             case "create": {
@@ -183,6 +217,9 @@ export function generatePlan(cfg: SimConfig): Action[] {
             }
             case "delete":
                 plan.push({ t, dev, kind: "delete", pick: rng.next() });
+                break;
+            case "deleteFolder":
+                plan.push({ t, dev, kind: "deleteFolder", folder: rng.pick(["notes/sub", "archive", "assets"]) });
                 break;
             case "editBinary":
                 plan.push({ t, dev, kind: "editBinary", pick: rng.next(), version: i });
@@ -350,7 +387,12 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
             maxEventDelayMs: cfg.maxEventDelayMs,
             clockSkewMs: skew,
             fs: cfg.fs?.length ? cfg.fs[devNames.indexOf(name) % cfg.fs.length] : "linux",
-            settings: cfg.settings,
+            settings: {
+                ...(cfg.settings ?? {}),
+                ...(cfg.deviceSettings?.length
+                    ? cfg.deviceSettings[devNames.indexOf(name) % cfg.deviceSettings.length]
+                    : {}),
+            },
             cryptoEngine,
             log,
             cloudView: (d) =>
@@ -364,10 +406,111 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
         devices.set(name, dev);
     }
 
+    // "Ask before deleting many files": the user holds the deletions now and then
+    // while the chaos lasts, and lets them run once things calm down.
+    let chaosPhase = true;
+    if (cfg.massDelete) {
+        const md = cfg.massDelete;
+        const askRng = new Rng(cfg.seed).fork(13);
+        for (const dev of devices.values()) {
+            dev.onBoot = (d) => {
+                d.sm.planGuard = new MassDeleteGuard(
+                    () => ({ massDeleteConfirmFiles: md.files, massDeleteConfirmPercent: md.percent }),
+                    () => d.sm.syncedFileCount(),
+                    async (plan, summary) => {
+                        const ok = !chaosPhase || !askRng.chance(md.declineRate);
+                        log(
+                            d.name,
+                            `USER mass-delete prompt (${plan.step}, ${summary.remoteFilesDeleted + summary.localFilesDeleted} files): ${ok ? "run" : "hold"}`,
+                        );
+                        return ok;
+                    },
+                );
+            };
+            dev.onBoot(dev);
+        }
+    }
+
+    // ── Settings changes and the synced settings file ──
+    type SharedChange = { key: keyof SyncManagerSettings; value: unknown; from: string; published: boolean; seq: number };
+    const sharedChanges: SharedChange[] = [];
+    /** Every conflict strategy any device used at some point */
+    const strategiesUsed = new Set<string>(
+        [...devices.values()].map((d) => (d.settings as SyncManagerSettings).conflictResolutionStrategy),
+    );
+    const appliedSeq = new Map<string, Set<number>>(devNames.map((n) => [n, new Set<number>()]));
+    let changeSeq = 0;
+    /** fids each device held when a settings change took effect on it */
+    /** fid -> "kept outside the scope" (true) or "synced" (false), as last seen at a change */
+    const heldAtChange = new Map<string, Map<string, boolean>>(devNames.map((n) => [n, new Map<string, boolean>()]));
+    const fidsHeld = (d: SimDevice) => {
+        const out = new Set<string>();
+        for (const c of Object.values(d.userFiles())) {
+            fidsOf(c).forEach((f) => out.add(f));
+            const b = binaryMarker(c);
+            if (b) out.add(b.fid);
+        }
+        return out;
+    };
+    const markIgnored = (d: SimDevice) => {
+        for (const [p, c] of Object.entries(d.userFiles())) {
+            if (!ignoredOn(d, p)) continue;
+            fidsOf(c).forEach((f) => everIgnored.add(f));
+            const b = binaryMarker(c);
+            if (b) everIgnored.add(b.fid);
+        }
+    };
+    const applySetting = async (d: SimDevice, key: keyof SyncManagerSettings, value: unknown, local: boolean) => {
+        for (const [p, c] of Object.entries(d.userFiles()))
+            for (const f of fidsIn(c)) heldAtChange.get(d.name)!.set(f, ignoredOn(d, p));
+        markIgnored(d);
+        const settings = d.settings as unknown as Record<string, unknown>;
+        const before = settings[key];
+        if (before === value) return;
+        settings[key] = value;
+        if (key === "conflictResolutionStrategy") strategiesUsed.add(String(value));
+        markIgnored(d);
+        log(d.name, `${local ? "USER" : "SETTINGS-SYNC"} setting ${String(key)}: ${JSON.stringify(before)} -> ${JSON.stringify(value)}`);
+        if (key === "desktopExclusionPatterns") {
+            // Both the settings tab and the settings reload apply the device list at once
+            await d.sm.applyDeviceScopeChange(typeof before === "string" ? before : "");
+        } else if (local) {
+            // The settings tab asks for a full cleanup after scope settings change
+            d.sm.triggerFullCleanup();
+        }
+    };
+    if (cfg.settingChanges?.shared) {
+        for (const dev of devices.values()) {
+            dev.afterSync = async (d) => {
+                // Own changes went up with this sync (the settings file is synced)
+                for (const c of sharedChanges) if (c.from === d.name) c.published = true;
+                // Settings that arrived with this sync are applied at its end
+                for (const c of sharedChanges) {
+                    if (appliedSeq.get(d.name)!.has(c.seq) || c.from === d.name || !c.published) continue;
+                    appliedSeq.get(d.name)!.add(c.seq);
+                    await applySetting(d, c.key, c.value, false);
+                }
+            };
+        }
+    }
+
     // Oracle state
     const expected: Record<string, Record<string, string>> = {}; // fid -> dev -> value
     const expectedBinary: Record<string, string> = {}; // fid -> last version written
     const deletedFids = new Set<string>();
+    /** Deleted on one device only: the file was left out there (not synced) */
+    const localDeleted = new Map<string, Set<string>>(devNames.map((n) => [n, new Set<string>()]));
+    /** Notes that were outside some device's sync scope at some point */
+    const everIgnored = new Set<string>();
+    /** Edits whose expected outcome is "kept somewhere", not "in the cloud file" */
+    const looseEdits: { dev: string; fid: string; line: string; value: string }[] = [];
+    const ignoredOn = (d: SimDevice, path: string) => d.sm.shouldIgnore(path);
+    /** Notes a device moved to where it does not sync (gone for the others) -> that device */
+    const movedOutOfScope = new Map<string, string>();
+    const fidsIn = (c: string) => {
+        const b = binaryMarker(c);
+        return [...fidsOf(c), ...(b ? [b.fid] : [])];
+    };
     const createdFids = new Set<string>();
     const opStats = { applied: 0, skipped: 0 };
 
@@ -400,6 +543,12 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
                 await dev.restart();
                 dev.startSync("startup-sync", true);
                 return;
+            case "setting":
+                await applySetting(dev, a.key, a.value, true);
+                if (cfg.settingChanges?.shared) {
+                    sharedChanges.push({ key: a.key, value: a.value, from: a.dev, published: false, seq: ++changeSeq });
+                }
+                return;
             case "sync":
                 log(a.dev, `SYNC requested${a.scan ? " (scan)" : ""}`);
                 dev.startSync(a.scan ? "startup-sync" : "timer-sync", a.scan);
@@ -414,6 +563,7 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
                 if (applied) {
                     createdFids.add(a.fid);
                     if (a.binary) expectedBinary[a.fid] = "0";
+                    if (ignoredOn(dev, a.path)) everIgnored.add(a.fid);
                 }
                 log(a.dev, `USER create ${a.path} (${a.fid})${applied ? "" : " [skipped]"}`);
                 break;
@@ -427,8 +577,15 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
                 const before = dev.read(path)!;
                 applied = await dev.userEdit(path, setLine(before, a.line, a.value));
                 const fid = fidOf(before)!;
-                if (applied && cfg.profile === "disjoint") {
+                // The latest edit of a line decides what is expected of it
+                if (applied && ignoredOn(dev, path)) {
+                    everIgnored.add(fid);
+                    if (expected[fid]) delete expected[fid][a.line];
+                    looseEdits.push({ dev: a.dev, fid, line: a.line, value: a.value });
+                } else if (applied && cfg.profile === "disjoint") {
                     (expected[fid] ??= {})[a.line] = a.value;
+                    for (let i = looseEdits.length - 1; i >= 0; i--)
+                        if (looseEdits[i].fid === fid && looseEdits[i].line === a.line) looseEdits.splice(i, 1);
                 }
                 log(a.dev, `USER edit ${path} ${a.line}=${a.value}`);
                 break;
@@ -462,9 +619,25 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
                 const content = dev.read(path) ?? "";
                 const bin = binaryMarker(content);
                 const fids = [...fidsOf(content), ...(bin ? [bin.fid] : [])];
+                const localOnly = ignoredOn(dev, path);
                 applied = await dev.userDelete(path);
-                if (applied) fids.forEach((f) => deletedFids.add(f));
-                log(a.dev, `USER delete ${path} (${fids.join(",") || "?"})`);
+                if (applied) fids.forEach((f) => (localOnly ? localDeleted.get(a.dev)!.add(f) : deletedFids.add(f)));
+                log(a.dev, `USER delete ${path} (${fids.join(",") || "?"})${localOnly ? " [left out here]" : ""}`);
+                break;
+            }
+            case "deleteFolder": {
+                const inside = Object.entries(dev.userFiles()).filter(([p]) => p.startsWith(a.folder + "/"));
+                if (!inside.length) {
+                    applied = false;
+                    break;
+                }
+                for (const [p, c] of inside) {
+                    const bin = binaryMarker(c);
+                    const fids = [...fidsOf(c), ...(bin ? [bin.fid] : [])];
+                    fids.forEach((f) => (ignoredOn(dev, p) ? localDeleted.get(a.dev)!.add(f) : deletedFids.add(f)));
+                }
+                await dev.ops.rmdir(a.folder, true);
+                log(a.dev, `USER delete folder ${a.folder} (${inside.length} files)`);
                 break;
             }
             case "rename": {
@@ -476,7 +649,12 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
                     break;
                 }
                 const from = list[Math.floor(a.pick * list.length)];
+                const movedOut = !ignoredOn(dev, from) && ignoredOn(dev, a.to);
+                const ids = fidsIn(dev.read(from) ?? "");
                 applied = await dev.userRename(from, a.to);
+                if (applied && (movedOut || ignoredOn(dev, from))) ids.forEach((f) => everIgnored.add(f));
+                // Moved out of what this device syncs: deleted for the other devices
+                if (applied && movedOut) ids.forEach((f) => movedOutOfScope.set(f, a.dev));
                 log(a.dev, `USER rename ${from} -> ${a.to}${applied ? "" : " [skipped]"}`);
                 break;
             }
@@ -511,6 +689,7 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
 
         // ── Phase 2: heal the network and let in-flight syncs finish ──
         log("SIM", "=== QUIESCE: network healed ===");
+        chaosPhase = false;
         network = PERFECT_NETWORK;
         for (const d of devices.values()) {
             d.online = true;
@@ -541,6 +720,7 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
                 for (const d of devices.values()) {
                     const callsBefore = cloud.calls.length;
                     const filesBefore = JSON.stringify(d.userFiles());
+                    const settingsBefore = JSON.stringify(d.settings);
                     const r = await drive(d.startSync("manual-sync"), 15 * 60_000);
                     if (r !== "ok") {
                         fail("HANG", `${d.name} sync in round ${round} never finished (${r})`);
@@ -561,6 +741,8 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
                     if (mutated.length > 0 || JSON.stringify(d.userFiles()) !== filesBefore) {
                         changed = true;
                     }
+                    // Settings that arrived with this sync are acted on by the next one
+                    if (JSON.stringify(d.settings) !== settingsBefore) changed = true;
                     // Uploading the shared index owed from before the heal is catching up,
                     // not an idle sync: measure the idle cost in the next round.
                     if (calls.some((c) => c.outcome === "ok" && c.method === "uploadFile" && c.arg.endsWith("/sync-index.json"))) {
@@ -615,7 +797,9 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
 
         const cloudFiles = await cloud.snapshot(
             isInternalPath,
-            cryptoEngine ? (b) => cryptoEngine.decryptFromBlob(b) : undefined,
+            cryptoEngine
+                ? (b) => (cryptoEngine.isChunkedFormat(b) ? cryptoEngine.decryptChunked(b) : cryptoEngine.decryptFromBlob(b))
+                : undefined,
         );
         stats.cloudFiles = Object.keys(cloudFiles).length;
         for (const d of devices.values()) {
@@ -634,13 +818,16 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
                 const slash = q.lastIndexOf("/");
                 return slash < 0 ? q : q.slice(0, slash).toLowerCase() + q.slice(slash);
             };
+            // Files outside this device's sync scope (exclusions, content toggles,
+            // device-only lists) are compared by the scope checks below instead.
             const local = Object.fromEntries(
                 Object.entries(d.userFiles())
-                    .filter(([p]) => !CONFLICT_RE.test(p))
+                    .filter(([p]) => !CONFLICT_RE.test(p) && !ignoredOn(d, p))
                     .map(([p, c]) => [nfc(p), c]),
             );
             const cloudView: Record<string, string> = {};
             for (const [p, c] of Object.entries(cloudFiles)) {
+                if (ignoredOn(d, p)) continue;
                 const k = nfc(p);
                 if (k in cloudView) fail("DIVERGED", `${d.name} cannot hold both cloud files ${p} and ${k}`);
                 cloudView[k] = c;
@@ -666,28 +853,112 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
         ].filter((p) => CONFLICT_RE.test(p));
         stats.conflictCopies = conflictCopies.length;
 
+        // Every file (cloud and devices, conflict copies included) per note id
+        const holdersOf = new Map<string, string[]>();
+        const addHolder = (where: string, c: string) => {
+            const ids = [...fidsOf(c)];
+            const bin = binaryMarker(c);
+            if (bin) ids.push(bin.fid);
+            for (const f of ids) holdersOf.set(f, [...(holdersOf.get(f) ?? []), c]);
+        };
+        for (const c of Object.values(cloudFiles)) addHolder("cloud", c);
+        for (const d of devices.values()) for (const c of Object.values(d.userFiles())) addHolder(d.name, c);
+        const keptSomewhere = (fid: string, label: string, value: string) =>
+            (holdersOf.get(fid) ?? []).some((c) => new RegExp(`^${label}: ${value}$`, "m").test(c));
+
+        // A device that held a note when its settings changed still holds it at the
+        // end (anywhere, in any name), unless a user deleted it. Catches settings
+        // that make one device remove another device's files, and exclusions that
+        // drop the local copy they promise to keep.
+        for (const d of devices.values()) {
+            const now = fidsHeld(d);
+            for (const [fid, keptOutside] of heldAtChange.get(d.name)!) {
+                if (deletedFids.has(fid) || localDeleted.get(d.name)!.has(fid)) continue;
+                // A synced note another device moved to where this device does not sync
+                if (!keptOutside && (byFid.get(fid) ?? []).some((p) => ignoredOn(d, p))) continue;
+                const mover = movedOutOfScope.get(fid);
+                if (mover && mover !== d.name) continue;
+                if (!now.has(fid))
+                    fail("SCOPE_LOSS", `${d.name} lost note ${fid} after a settings change (nobody deleted it)`);
+            }
+        }
+
+        const strategies = strategiesUsed;
+        for (const d of devices.values()) strategies.add((d.settings as SyncManagerSettings).conflictResolutionStrategy);
+        // force-local / force-remote drop the other side's edits by design
+        const editsMayBeDropped = strategies.has("force-local") || strategies.has("force-remote");
+        const forks = strategies.has("always-fork");
+        const allDeleted = (fids: string[]) => fids.length > 0 && fids.every((f) => deletedFids.has(f));
+
         if (cfg.profile === "disjoint") {
-            if (conflictCopies.length)
-                fail("FALSE_CONFLICT", `conflict copies for non-overlapping edits: ${conflictCopies.join(", ")}`);
+            // Conflict copies: none for non-overlapping edits. Allowed when the user
+            // asked for forks, for a note deleted on one device while edited on
+            // another, and for a note that was outside some device's scope (its
+            // copy there went its own way).
+            const unexpected = conflictCopies.filter((p) => {
+                if (forks) return false;
+                const c =
+                    cloudFiles[p] ??
+                    [...devices.values()].map((d) => d.read(p)).find((x) => x !== null) ??
+                    "";
+                const ids = fidsIn(c);
+                return !(allDeleted(ids) || ids.some((f) => deletedFids.has(f) || everIgnored.has(f)));
+            });
+            if (unexpected.length)
+                fail("FALSE_CONFLICT", `conflict copies for non-overlapping edits: ${unexpected.join(", ")}`);
             for (const fid of createdFids) {
+                if (deletedFids.has(fid)) continue;
                 const paths = (byFid.get(fid) ?? []).filter((p) => !CONFLICT_RE.test(p));
-                if (paths.length === 0) fail("DATA_LOSS", `note ${fid} vanished (never deleted)`);
-                if (paths.length > 1) fail("DUPLICATE", `note ${fid} exists as ${paths.join(", ")}`);
+                if (paths.length === 0) {
+                    // Outside some device's scope: may legitimately live only there
+                    // (or nowhere, when that device deleted its own copy)
+                    if (everIgnored.has(fid) && holdersOf.has(fid)) continue;
+                    if (everIgnored.has(fid) && [...localDeleted.values()].some((s) => s.has(fid))) continue;
+                    fail("DATA_LOSS", `note ${fid} vanished (never deleted)`);
+                }
+                // A copy kept outside one device's scope and moved back in comes back as a
+                // new file (the cloud copy may have changed meanwhile): two files, by design.
+                // Same when a note was moved to where another device does not sync while
+                // that device had edits: edit beats deletion there, so it comes back.
+                const outOfSomeScope = paths.some((p) => [...devices.values()].some((d) => ignoredOn(d, p)));
+                if (paths.length > 1 && !everIgnored.has(fid) && !outOfSomeScope)
+                    fail("DUPLICATE", `note ${fid} exists as ${paths.join(", ")}`);
                 if (paths.length !== 1) continue;
                 const content = cloudFiles[paths[0]];
                 if (fid in expectedBinary) {
                     const got = binaryMarker(content)?.version;
-                    if (got !== expectedBinary[fid])
-                        fail("LOST_UPDATE", `${paths[0]}: binary is v${got}, expected v${expectedBinary[fid]}`);
+                    if (got !== expectedBinary[fid] && !editsMayBeDropped) {
+                        const kept = (holdersOf.get(fid) ?? []).some(
+                            (c) => binaryMarker(c)?.version === expectedBinary[fid],
+                        );
+                        if (!(kept && (everIgnored.has(fid) || forks)))
+                            fail("LOST_UPDATE", `${paths[0]}: binary is v${got}, expected v${expectedBinary[fid]}`);
+                    }
                     continue;
                 }
-                for (const [label, value] of Object.entries(expected[fid] ?? {})) {
-                    if (!new RegExp(`^${label}: ${value}$`, "m").test(content))
-                        fail("LOST_UPDATE", `${paths[0]}: edit "${label}: ${value}" missing`);
+                if (!editsMayBeDropped) {
+                    const strict = !forks && !everIgnored.has(fid);
+                    for (const [label, value] of Object.entries(expected[fid] ?? {})) {
+                        const inMain = new RegExp(`^${label}: ${value}$`, "m").test(content);
+                        if (strict ? !inMain : !inMain && !keptSomewhere(fid, label, value))
+                            fail("LOST_UPDATE", `${paths[0]}: edit "${label}: ${value}" missing`);
+                    }
                 }
                 for (const label of devNames) {
                     const n = (content.match(new RegExp(`^${label}: `, "gm")) ?? []).length;
                     if (n !== 1) fail("LOST_UPDATE", `${paths[0]}: line "${label}:" appears ${n} times (bad merge)`);
+                }
+            }
+            // Edits made where the note was outside the scope: kept somewhere
+            if (!editsMayBeDropped) {
+                const last = new Map<string, (typeof looseEdits)[number]>();
+                for (const e of looseEdits) last.set(`${e.dev}|${e.fid}|${e.line}`, e);
+                for (const e of last.values()) {
+                    if (deletedFids.has(e.fid) || localDeleted.get(e.dev)!.has(e.fid)) continue;
+                    // A later edit of the same line elsewhere may have replaced it
+                    if (expected[e.fid]?.[e.line] !== undefined && expected[e.fid][e.line] !== e.value) continue;
+                    if (!keptSomewhere(e.fid, e.line, e.value))
+                        fail("LOST_UPDATE", `edit "${e.line}: ${e.value}" of ${e.fid} made on ${e.dev} (outside its scope) is gone`);
                 }
             }
         } else {
@@ -708,6 +979,7 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
                     onlyLocal++;
                     continue;
                 }
+                if (everIgnored.has(fid) && holdersOf.has(fid)) continue;
                 fail("DATA_LOSS", `note ${fid} vanished although nobody deleted it`);
             }
             (stats as any).notesOnlyInLocalConflictCopy = onlyLocal;

@@ -16,6 +16,7 @@ import { prepareFirstSync } from "./first-sync";
 import { keepRevisionsIfDue } from "./revision-retention";
 import { publishDeviceRecordIfDue } from "./device-registry";
 import { migratePlainHashes } from "./plain-hash-migration";
+import { reconcileScopeChange } from "./sync-pull";
 import { CtxFlag } from "./context-state";
 
 
@@ -144,6 +145,12 @@ export async function executeSmartSync(ctx: SyncContext, scanVault: boolean): Pr
             ctx.progress?.finish("ok");
             return;
         }
+
+        // Files kept here while left out sync again: only a vault scan finds them
+        if (await reconcileScopeChange(ctx)) scanVault = true;
+        // A sync setting was changed in the settings tab (maybe back and forth before
+        // this sync): edits made while a file was left out had no effect, find them.
+        if (ctx.forceCleanupNextSync) scanVault = true;
 
         // Call via ctx so vi.spyOn on SyncManager instance methods works in tests
         const pulled = await ctx.smartPull();

@@ -192,8 +192,8 @@ describe("scanObsidianChanges - Edge Cases", () => {
 
         await scanObsidianChanges(ctx);
 
-        // localIndex entry should be cleaned up
-        expect(ctx.localIndex[path]).toBeUndefined();
+        // Left out by this device's settings: neither synced nor deleted from here
+        expect(ctx.localIndex[path]).toBeDefined();
         expect(ctx.dirtyPaths.has(path)).toBe(false);
     });
 
@@ -376,8 +376,10 @@ describe("scanVaultChanges - Edge Cases", () => {
 
         await scanVaultChanges(ctx);
 
-        // Should clean up localIndex
-        expect(ctx.localIndex[path]).toBeUndefined();
+        // Left out by this device's settings: the entry is left alone (other
+        // devices may sync the file; it is never deleted from here)
+        expect(ctx.localIndex[path]).toBeDefined();
+        expect(ctx.dirtyPaths.has(path)).toBe(false);
     });
 
     it("should handle empty vault (no files)", async () => {
@@ -786,7 +788,7 @@ describe("scanObsidianChanges - remote deletion marking (lines 81-82)", () => {
         );
     });
 
-    it("should mark ignored file for remote deletion when index exists (lines 81-82)", async () => {
+    it("never marks a file left out by this device's settings for remote deletion", async () => {
         const path = ".obsidian/workspace.json";
         const content = "workspace data";
         
@@ -811,11 +813,10 @@ describe("scanObsidianChanges - remote deletion marking (lines 81-82)", () => {
 
         await scanObsidianChanges(ctx);
 
-        // Should mark as dirty for remote deletion (ignored)
-        expect(ctx.dirtyPaths.has(path)).toBe(true);
-        // Should log debug message about ignored
-        expect(ctx.log).toHaveBeenCalledWith(
-            expect.stringContaining("[Obsidian Scan] Marked for remote deletion (ignored)"),
+        // Another device may sync workspace.json (syncWorkspace on there): keep it
+        expect(ctx.dirtyPaths.has(path)).toBe(false);
+        expect(ctx.log).not.toHaveBeenCalledWith(
+            expect.stringContaining("Marked for remote deletion (ignored)"),
             "debug",
         );
     });

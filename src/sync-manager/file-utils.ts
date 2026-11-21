@@ -454,12 +454,48 @@ export function deviceScopePatterns(settings: {
 }
 
 /**
- * Left out on this kind of device only (desktop/mobileExclusionPatterns). Such files are not
- * "should not be on remote": the other devices keep syncing them, so no
- * cleanup ever removes them from the cloud.
+ * Left out by this device's own sync settings: the exclusion list, the content
+ * toggles (images and media, dotfiles, .obsidian categories, plugin data, logs).
+ * Settings may differ between devices (settings file not synced, or not arrived
+ * yet), so these files are treated like the device-only lists: never pulled,
+ * pushed or deleted from here. Removing them from the cloud took them from every
+ * device that still syncs them.
  */
-export function isDeviceExcluded(ctx: FileUtilsCtx, path: string): boolean {
-    return matchesDeviceScope(deviceScopePatterns(ctx.settings), path);
+export function isExcludedBySettings(ctx: Pick<FileUtilsCtx, "settings">, path: string): boolean {
+    return shouldNotBeOnRemote(ctx as FileUtilsCtx, path) && !isAlwaysForbiddenOnRemote(path);
+}
+
+/**
+ * Left out on this device: by this kind of device's list (desktop/mobileExclusionPatterns)
+ * or by its sync settings (isExcludedBySettings). Such files are not "should not
+ * be on remote": the other devices may keep syncing them, so no cleanup ever
+ * removes them from the cloud, and a deletion in the cloud never removes the
+ * copy kept here.
+ */
+export function isDeviceExcluded(ctx: Pick<FileUtilsCtx, "settings">, path: string): boolean {
+    return matchesDeviceScope(deviceScopePatterns(ctx.settings), path) || isExcludedBySettings(ctx, path);
+}
+
+/** Settings that decide which files this device leaves out (see isDeviceExcluded) */
+export const SCOPE_SETTING_KEYS = [
+    "exclusionPatterns",
+    "desktopExclusionPatterns",
+    "mobileExclusionPatterns",
+    "syncImagesAndMedia",
+    "syncDotfiles",
+    "syncAppearance",
+    "syncCommunityPlugins",
+    "syncCoreConfig",
+    "syncWorkspace",
+    "syncFlexibleData",
+    "syncDeviceLogs",
+] as const;
+
+/** The scope settings as one comparable value */
+export function scopeSnapshot(settings: Record<string, unknown>): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    for (const k of SCOPE_SETTING_KEYS) out[k] = settings[k];
+    return out;
 }
 
 /** The path matches one of the patterns (one per line, "#" lines are comments) */
@@ -477,8 +513,6 @@ export function matchesDeviceScope(patternText: string | undefined, path: string
  * other devices): only the files this device syncs are deleted, one by one.
  */
 export function holdsDeviceExcluded(ctx: FileUtilsCtx, folderPath: string, indexed: string[]): boolean {
-    const patterns = patternList(deviceScopePatterns(ctx.settings));
-    if (patterns.length === 0) return false;
     if (isDeviceExcluded(ctx, folderPath)) return true;
     const prefix = folderPath + "/";
     // Files left out may be missing from the index (never pulled here): a pattern
@@ -488,7 +522,12 @@ export function holdsDeviceExcluded(ctx: FileUtilsCtx, folderPath: string, index
         const literal = p.split(/[*?[{]/)[0];
         return literal.startsWith(lowerPrefix) || lowerPrefix.startsWith(literal);
     };
-    if (patterns.some(couldMatchBelow)) return true;
+    if (patternList(deviceScopePatterns(ctx.settings)).some(couldMatchBelow)) return true;
+    if (patternList(ctx.settings.exclusionPatterns).some(couldMatchBelow)) return true;
+    // Images and media left out here may sit in any folder
+    if (!ctx.settings.syncImagesAndMedia) return true;
+    // Dotfiles and the config folder have their own toggles
+    if (lowerPrefix.startsWith(".")) return true;
     return indexed.some((p) => p.startsWith(prefix) && isDeviceExcluded(ctx, p));
 }
 

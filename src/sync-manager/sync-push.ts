@@ -10,6 +10,7 @@ import {
     runParallel,
     compress,
     isManagedSeparately,
+    isAlwaysForbiddenOnRemote,
     shouldNotBeOnRemote,
     shouldIgnore,
     holdsDeviceExcluded,
@@ -1432,7 +1433,9 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
 
             for (let i = 1; i < parts.length; i++) {
                 const parentPath = parts.slice(0, i).join("/");
-                if (shouldNotBeOnRemote(ctx, parentPath + "/")) {
+                // Only folders no device may sync: a folder left out by this device's
+                // settings may hold files other devices sync.
+                if (isAlwaysForbiddenOnRemote(parentPath + "/")) {
                     highestIgnoredParent = parentPath;
                     break;
                 }

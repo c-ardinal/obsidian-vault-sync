@@ -65,7 +65,7 @@ function makeCtx(overrides: Record<string, unknown> = {}): SyncContext & { files
     return {
         files,
         vault,
-        settings: { exclusionPatterns: "" } as any,
+        settings: { exclusionPatterns: "", syncImagesAndMedia: true } as any,
         index: {},
         localIndex: {},
         dirtyPaths: new Map(),

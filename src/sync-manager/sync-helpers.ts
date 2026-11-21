@@ -3,7 +3,7 @@ import type { SyncContext } from "./context";
 import { parseIndex, providerNameOf, serializeIndex } from "./remote-layout";
 import { noteIndexFormat } from "./state";
 import type { LocalFileIndex } from "./types";
-import { tryDecompress, hashContent, matchesDeviceScope, deviceScopePatterns } from "./file-utils";
+import { tryDecompress, hashContent, isDeviceExcluded } from "./file-utils";
 import { storesTransformedContent } from "./content-identity";
 import { CtxFlag, CtxState } from "./context-state";
 import { capabilitiesOf } from "../types/adapter";
@@ -45,8 +45,21 @@ export async function downloadRemoteIndexData(
     ctx: SyncHelpersCtx,
     fileId: string,
 ): Promise<{ index: LocalFileIndex; startPageToken: string | null }> {
-    return parseRemoteIndexBytes(ctx, await ctx.adapter.downloadFile(fileId));
+    const data = await parseRemoteIndexBytes(ctx, await ctx.adapter.downloadFile(fileId));
+    lastReadRemoteIndex.set(ctx, data.index);
+    return data;
 }
+
+/**
+ * The shared index as this device last read or wrote it. Files this device
+ * leaves out are never in its own index: their entries are taken from here
+ * when the shared index has not changed since, or an upload dropped them
+ * from the shared index and devices doing their first sync never got them.
+ */
+const lastReadRemoteIndex = new CtxState<LocalFileIndex>(
+    "lastReadRemoteIndex",
+    "The shared index as last read or written (source of the entries of files left out here)",
+);
 
 async function parseRemoteIndexBytes(
     ctx: SyncHelpersCtx,
@@ -197,7 +210,7 @@ async function owePullsFromIndex(ctx: SyncContext, remote: LocalFileIndex): Prom
     for (const [path, entry] of Object.entries(remote)) {
         if (path === ctx.pluginDataPath || !entry.fileId || ctx.index[path] || ourIds.has(entry.fileId)) continue;
         if (pending.has(entry.fileId) || ctx.dirtyPaths.has(path)) continue;
-        if (matchesDeviceScope(deviceScopePatterns(ctx.settings), path)) continue;
+        if (isDeviceExcluded(ctx, path)) continue;
         if (!(await ctx.adapter.fileExistsById(entry.fileId).catch(() => false))) continue;
         oweUnseenPull(ctx, path, entry);
         await ctx.log(`[Index] ${path} is listed by another device but was never pulled here. Pulling it next sync.`, "info");
@@ -206,7 +219,7 @@ async function owePullsFromIndex(ctx: SyncContext, remote: LocalFileIndex): Prom
 
 function oweUnseenPull(ctx: SyncHelpersCtx & { dirtyPaths?: Map<string, number> }, path: string, entry: LocalFileIndex[string]): void {
     if (!entry.fileId || ctx.dirtyPaths?.has(path)) return;
-    if (ctx.settings && matchesDeviceScope(deviceScopePatterns(ctx.settings), path)) return; // left out here
+    if (ctx.settings && isDeviceExcluded({ settings: ctx.settings }, path)) return; // left out here
     const pending = pendingPullsOf(ctx);
     if (pending.has(entry.fileId)) return;
     pending.set(entry.fileId, {
@@ -231,7 +244,19 @@ export async function buildRemoteIndexPayload(ctx: SyncHelpersCtx): Promise<Arra
         const lastSeen = ctx.index[ctx.pluginDataPath]?.hash?.toLowerCase() || "";
         if (meta?.id && meta.hash && meta.hash.toLowerCase() === lastSeen) {
             const carried = carriedRemoteEntries.get(ctx) ?? {};
+            // Files left out here: the shared index has not changed since we last read
+            // (or wrote) it, so its entries are current. No lookups needed.
+            const last = lastReadRemoteIndex.get(ctx);
+            if (last) {
+                for (const p of Object.keys(merged)) {
+                    if (p !== ctx.pluginDataPath && isDeviceExcluded(ctx, p) && !last[p]) delete merged[p];
+                }
+                for (const [p, e] of Object.entries(last)) {
+                    if (p !== ctx.pluginDataPath && isDeviceExcluded(ctx, p)) merged[p] = e;
+                }
+            }
             for (const [path, entry] of Object.entries(carried)) {
+                if (path !== ctx.pluginDataPath && isDeviceExcluded(ctx, path)) continue; // taken above
                 const mine = ctx.index[path];
                 const caughtUp =
                     !!mine &&
@@ -316,10 +341,10 @@ export async function buildRemoteIndexPayload(ctx: SyncHelpersCtx): Promise<Arra
             // entries win (our copy is stale: an edit, rename or delete made elsewhere
             // would be undone in the shared index).
             for (const p of Object.keys(merged)) {
-                if (p !== ctx.pluginDataPath && matchesDeviceScope(deviceScopePatterns(ctx.settings), p) && !remote[p]) delete merged[p];
+                if (p !== ctx.pluginDataPath && isDeviceExcluded(ctx, p) && !remote[p]) delete merged[p];
             }
             for (const [p, e] of Object.entries(remote)) {
-                if (p !== ctx.pluginDataPath && matchesDeviceScope(deviceScopePatterns(ctx.settings), p)) merged[p] = e;
+                if (p !== ctx.pluginDataPath && isDeviceExcluded(ctx, p)) merged[p] = e;
             }
             const carried: LocalFileIndex = {};
             for (const [path, entry] of Object.entries(merged)) {
@@ -368,6 +393,7 @@ export async function buildRemoteIndexPayload(ctx: SyncHelpersCtx): Promise<Arra
         const { forcePush: _owed, ...rest } = own;
         merged[ctx.pluginDataPath] = rest;
     }
+    lastReadRemoteIndex.set(ctx, merged);
     const data = serializeIndex(merged, ctx.startPageToken, providerNameOf(ctx.adapter));
     return new TextEncoder().encode(data).buffer;
 }

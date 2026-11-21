@@ -1,3 +1,4 @@
+import { appliedScopeOf, restoreAppliedScope } from "./sync-scope";
 import { overwriteRepairsSnapshot, restoreOverwriteRepairs } from "./overwrite-recovery";
 import { plainHashVersion, restorePlainHashVersion } from "./plain-hash-migration";
 import { contentFingerprint } from "./content-fingerprint";
@@ -6,7 +7,7 @@ import { toHex } from "../utils/format";
 import { normalizePath, dirname } from "../utils/path";
 import type { SyncContext } from "./context";
 import type { CommunicationData, LocalFileIndex, MergeLockEntry } from "./types";
-import { holdsDeviceExcluded, shouldIgnore } from "./file-utils";
+import { holdsDeviceExcluded, isDeviceExcluded, shouldIgnore } from "./file-utils";
 import {
     LOCK_MAX_ATTEMPTS,
     LOCK_TTL_MS,
@@ -560,6 +561,7 @@ export async function loadLocalIndex(ctx: StateCtx): Promise<void> {
                 unsyncedRenames?: unknown;
                 journalSeq?: unknown;
                 plainHashVersion?: unknown;
+                syncScope?: unknown;
             };
             ctx.localIndex = parsed.index || {};
             ctx.deviceId = parsed.deviceId || "";
@@ -575,6 +577,7 @@ export async function loadLocalIndex(ctx: StateCtx): Promise<void> {
             restoreOverwriteRepairs(ctx, parsed.overwriteRepairs);
             restoreUnsyncedRenames(ctx, parsed.unsyncedRenames);
             restorePlainHashVersion(ctx, parsed.plainHashVersion, false);
+            restoreAppliedScope(ctx, parsed.syncScope);
             // The background queue does not survive a restart. Its owed pulls are in
             // pendingPulls (retried by the next sync) and unpushed files are found by
             // the startup scan, so the markers only kept the device "busy" forever.
@@ -757,6 +760,7 @@ export async function saveLocalIndex(ctx: StateCtx, immediate = false): Promise<
             unsyncedRenames: unsyncedRenamesSnapshot(ctx),
             journalSeq: j.seq,
             plainHashVersion: plainHashVersion(ctx),
+            syncScope: appliedScopeOf(ctx),
         });
         await ctx.vault.write(ctx.localIndexPath, data);
         rememberWritten(ctx);
@@ -1111,7 +1115,22 @@ export function markRenamed(ctx: StateCtx, oldPath: string, newPath: string): vo
         void ctx.log(`[Dirty] Ignored our own rename: ${oldPath} -> ${newPath}`, "debug");
         return;
     }
-    if (shouldIgnore(ctx, newPath)) return;
+    if (shouldIgnore(ctx, newPath)) {
+        // Moved to where this device does not sync (an excluded folder, say): for the
+        // cloud the file is gone, as when deleted. The copy stays here.
+        if (!shouldIgnore(ctx, oldPath)) {
+            void ctx.log(`[Dirty] ${oldPath} moved out of the synced files (${newPath}): deleting it in the cloud`, "debug");
+            markDeleted(ctx, oldPath);
+        }
+        return;
+    }
+    if (isDeviceExcluded(ctx, oldPath)) {
+        // Comes from where this device does not sync: a new file for the cloud. Its old
+        // index entry (if any) describes another device's file, which must not move.
+        ctx.dirtyPaths.set(newPath, Date.now());
+        void ctx.log(`[Dirty] Marked (moved in from outside the synced files): ${newPath}`, "debug");
+        return;
+    }
     oldPath = indexKeyFor(ctx, oldPath);
 
     const oldDir = dirname(oldPath);
@@ -1197,9 +1216,16 @@ export function markFolderRenamed(
     const oldPrefix = oldFolderPath + "/";
     const newPrefix = newFolderPath + "/";
 
-    // Track folder-level move for optimization in smartPush
-    ctx.pendingFolderMoves.set(newFolderPath, oldFolderPath);
-    ctx.dirtyPaths.set(newFolderPath, Date.now()); // Ensure the folder itself is processed
+    // Track folder-level move for optimization in smartPush. Not when this device
+    // leaves out files in either place: moving the cloud folder would move (or drop
+    // from the sync) files this device does not handle. Files then move one by one.
+    const indexed = Object.keys(ctx.index);
+    const wholeFolder =
+        !holdsDeviceExcluded(ctx, oldFolderPath, indexed) && !holdsDeviceExcluded(ctx, newFolderPath, indexed);
+    if (wholeFolder) {
+        ctx.pendingFolderMoves.set(newFolderPath, oldFolderPath);
+        ctx.dirtyPaths.set(newFolderPath, Date.now()); // Ensure the folder itself is processed
+    }
 
     // If the old folder was marked for deletion (via previous event),
     // we remove it since it's now a move.
@@ -1207,10 +1233,17 @@ export function markFolderRenamed(
 
     for (const oldPath of Object.keys(ctx.index)) {
         if (oldPath.startsWith(oldPrefix)) {
-            if (shouldIgnore(ctx, oldPath)) continue;
-
             const newPath = newPrefix + oldPath.slice(oldPrefix.length);
-            if (shouldIgnore(ctx, newPath)) continue;
+            if (shouldIgnore(ctx, oldPath)) {
+                // Comes in from where this device does not sync: a new file
+                if (!shouldIgnore(ctx, newPath)) ctx.dirtyPaths.set(newPath, Date.now());
+                continue;
+            }
+            if (shouldIgnore(ctx, newPath)) {
+                // Moved out of the synced files: gone for the cloud, kept here
+                markDeleted(ctx, oldPath);
+                continue;
+            }
 
             // インデックスを移行（削除+再追加ではなく Move として追跡）
             ctx.index[newPath] = {

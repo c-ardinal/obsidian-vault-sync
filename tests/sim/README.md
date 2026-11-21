@@ -40,7 +40,28 @@
 - `real-fs`: 実ファイルシステム上で実行。CI の OS マトリクスで NTFS / APFS / ext4 の差異を検出
 - `non-md5-hash`: クラウドが MD5 以外のハッシュ値（OneDrive の quickXorHash、Dropbox の content hash 相当）を返す。ローカル内容との比較は plainHash のみで実行。対応前は 10 シード中 6 件で誤競合と編集消失が発生
 - `large-files`: 大容量ファイルの閾値を約 100 バイトに設定し、添付や肥大化したノートをバックグラウンド転送（分割アップロード・遅延ダウンロード）で処理する。通信は不安定
+- `e2ee-large-files`: E2EE と大容量ファイルのバックグラウンド転送（分割暗号化）の併用
 - `restart`: 同期中・バックグラウンド転送中・未送信の編集が存在する状態など、ランダムな時点でアプリを強制終了して再起動する。再起動後は保存済みの状態のみで起動時同期（Vault スキャン付き）を実行し、完全に復旧可能であることを検査。終了済み世代の処理は、以降のファイル操作・クラウド操作で例外となる。以前の未解決ケース（seed 135, 143, 258, 278）は修正済みで、known-bugs.test.ts に回帰テストとして登録
+
+## 設定組み合わせ検証（`settings-matrix.sim.test.ts`）
+
+上記シナリオは設定が固定のため、設定項目の組み合わせに起因する不具合は検出できません。
+`settings-matrix.ts` に利用者向け設定の 15 因子（競合解決方針、除外パターン、画像・メディア同期、PC 限定除外、設定ファイル同期の有無、
+削除と大量削除確認、大容量ファイル転送、E2EE／非 MD5 クラウド、並列数、クラウド側ゴミ箱、版の自動保持、同期頻度、通信品質、OS 混在、アプリ再起動）を定義し、
+全因子の全水準の対（ペア）を最低 1 回網羅する組み合わせ（ペアワイズ、24 通り）を決定的に生成します。
+
+- 端末単位の設定差異（`deviceSettings`）、実行中の設定変更（`setting` 操作）、設定ファイル経由の他端末への伝播（次回同期の終了時に適用）を再現
+- 大量削除確認は実装と同一の `MassDeleteGuard` を使用し、混乱期間中は一定確率で利用者が保留を選択
+- 追加の不変条件 `SCOPE_LOSS`: 設定変更時に端末が保持していたノートが、削除操作なしで最終状態から消失
+- 同期対象外の状態での編集は「クラウド・端末・競合コピーのいずれかに現存」を検査。force-local／force-remote は仕様上の編集破棄のため行単位の検査を省略
+
+```bash
+npm run test:sim -- tests/sim/settings-matrix.sim.test.ts                  # 24 通り × 5 シード
+SIM_SEEDS=100 npm run test:sim -- tests/sim/settings-matrix.sim.test.ts    # シード数を増加
+SIM_MATRIX=single ...      # 基準設定＋1 因子のみ変更（失敗原因の因子特定用、30 通り）
+SIM_COMBO=combo-07 SIM_SEED=12 ...   # 単一ケースの再現
+SIM_MATRIX_LIST=1 ...      # 組み合わせ一覧を表示
+```
 
 ## 使用方法
 
@@ -87,4 +108,4 @@ npm run test:sim -- tests/sim/perf.test.ts && cat test-results/sim/perf.txt
 
 - クラウドは `MockCloudAdapter`（インメモリ）。Changes API は Google Drive と同様に「ファイル単位で最新状態を 1 件のみ返却する」形式です（`changesLatestStateOnly`）。ページングは `changesPageSize` で指定可能で、性能ベンチでは 25 件/ページに設定しています。同名ファイルの重複作成・Changes API の遅延・レート制限は未再現です。
 - 時計誤差はファイル mtime のみ。エンジン内部の `Date.now()`（マージロックの期限など）は全端末で共通です。
-- E2EE と大容量ファイルのバックグラウンド転送は未対象です。
+- E2EE と大容量ファイルのバックグラウンド転送の組合せは `e2ee-large-files` シナリオで検査します（分割暗号化形式 VSC2 も復号して比較）。

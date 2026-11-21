@@ -44,6 +44,7 @@ import {
     peekAttemptedUpload,
 } from "./sync-helpers";
 import { CtxFlag, CtxState } from "./context-state";
+import { takeScopeChange } from "./sync-scope";
 
 
 /** Check for active merge locks from other devices */
@@ -979,7 +980,9 @@ export async function pullViaChangesAPI(
     if (remoteIndexChanged || reconcilePending.has(ctx)) {
         reconcilePending.delete(ctx);
         await loadRemoteIndex();
-        const recovered = await pullFilesMissingFromIndex(ctx, remoteIndex, seenFileIds, pending);
+        const recovered =
+            (await pullFilesMissingFromIndex(ctx, remoteIndex, seenFileIds, pending)) +
+            (await refreshReincluded(ctx, seenFileIds));
         if (recovered > 0) {
             totalCompleted += recovered;
             hasTotalChanges = true;
@@ -1091,12 +1094,30 @@ const reconcilePending = new CtxFlag("reconcilePending", "The next sync must rec
  * Returns how many were forgotten.
  */
 export async function forgetReincludedFiles(ctx: SyncContext, previousPatterns: string): Promise<number> {
+    return forgetReincluded(ctx, (path) => matchesDeviceScope(previousPatterns, path), "[Device scope]");
+}
+
+/**
+ * Files left out under the previous settings and synced again now (`wasLeftOut`):
+ * those missing here are forgotten (index entries dropped), so the next sync
+ * pulls them as files never seen; those still here sync as usual.
+ */
+async function forgetReincluded(
+    ctx: SyncContext,
+    wasLeftOut: (path: string) => boolean,
+    label: string,
+): Promise<number> {
     const paths = new Set([...Object.keys(ctx.index), ...Object.keys(ctx.localIndex)]);
     let forgotten = 0;
     for (const path of paths) {
         if (path === ctx.pluginDataPath) continue;
-        if (!matchesDeviceScope(previousPatterns, path) || isDeviceExcluded(ctx, path)) continue;
-        if (await ctx.vault.exists(path)) continue;
+        if (!wasLeftOut(path) || isDeviceExcluded(ctx, path)) continue;
+        if (await ctx.vault.exists(path)) {
+            // Kept here while left out: the cloud copy may have changed meanwhile
+            // (those changes were skipped). Compared with the cloud at the next pull.
+            if (ctx.index[path]?.fileId) reincludedOf(ctx).add(path);
+            continue;
+        }
         delete ctx.index[path];
         delete ctx.localIndex[path];
         ctx.dirtyPaths.delete(path);
@@ -1107,10 +1128,36 @@ export async function forgetReincludedFiles(ctx: SyncContext, previousPatterns: 
     reconcilePending.add(ctx);
     if (forgotten > 0) {
         await saveIndex(ctx);
-        await saveLocalIndex(ctx, true);
-        await ctx.log(`[Device scope] ${forgotten} file(s) no longer left out will be downloaded`, "info");
+        await ctx.log(`${label} ${forgotten} file(s) no longer left out will be downloaded`, "info");
     }
+    await saveLocalIndex(ctx, true);
     return forgotten;
+}
+
+/**
+ * The sync settings that decide what this device leaves out changed since the
+ * last sync (here, or on another device: the settings file is synced). Files
+ * synced again are fetched; files now left out simply stay as they are.
+ */
+export async function reconcileScopeChange(ctx: SyncContext): Promise<boolean> {
+    const change = takeScopeChange(ctx, ctx.settings);
+    if (!change) return false;
+    const before: Pick<SyncContext, "settings"> = { settings: { ...ctx.settings, ...change.previous } };
+    await ctx.log("[Sync scope] Exclusion or content settings changed since the last sync", "info");
+    // A move not pushed yet whose new name is now left out: the cloud still has the
+    // file under its old name, which this device would never pull again (its id is
+    // known here under the new name). Forget the new name: the copy here stays, the
+    // cloud file comes back under its own name.
+    for (const path of Object.keys(ctx.index)) {
+        if (path === ctx.pluginDataPath || isDeviceExcluded(before, path) || !isDeviceExcluded(ctx, path)) continue;
+        if (!ctx.index[path]?.pendingMove && !ctx.localIndex[path]?.pendingMove) continue;
+        await ctx.log(`[Sync scope] ${path} was moved but is now left out: its cloud file stays where it is`, "info");
+        delete ctx.index[path];
+        delete ctx.localIndex[path];
+        ctx.dirtyPaths.delete(path);
+    }
+    await forgetReincluded(ctx, (path) => isDeviceExcluded(before, path), "[Sync scope]");
+    return true;
 }
 
 /**
@@ -1119,6 +1166,67 @@ export async function forgetReincludedFiles(ctx: SyncContext, previousPatterns: 
  * Existence is re-checked by id first so a stale index entry of a file that
  * was deleted meanwhile is never resurrected.
  */
+const reincluded = new CtxState<Set<string>>(
+    "reincludedFiles",
+    "Files kept here while left out and synced again: compare with the cloud at the next pull",
+);
+function reincludedOf(ctx: SyncContext): Set<string> {
+    let s = reincluded.get(ctx);
+    if (!s) reincluded.set(ctx, (s = new Set<string>()));
+    return s;
+}
+
+/**
+ * Files synced again after being left out here, whose copy stayed on this
+ * device: changes made elsewhere meanwhile were skipped, so the cloud version
+ * is compared now and pulled (merged with any edit made here) when it differs.
+ * A file deleted or moved in the cloud meanwhile is forgotten: the copy here
+ * then counts as a new file and is uploaded, so nothing is lost.
+ */
+async function refreshReincluded(ctx: SyncContext, seenFileIds: Set<string>): Promise<number> {
+    const paths = [...reincludedOf(ctx)];
+    if (paths.length === 0) return 0;
+    let count = 0;
+    const tasks = paths.map((path) => async () => {
+        const entry = ctx.index[path];
+        if (!entry?.fileId || isDeviceExcluded(ctx, path)) {
+            reincludedOf(ctx).delete(path);
+            return;
+        }
+        if (seenFileIds.has(entry.fileId)) {
+            reincludedOf(ctx).delete(path); // this pull already brought its latest change
+            return;
+        }
+        try {
+            const meta = await ctx.adapter.getFileMetadataById(entry.fileId, path);
+            reincludedOf(ctx).delete(path);
+            if (!meta || meta.kind === "folder" || meta.path !== path) {
+                await ctx.log(`[Sync scope] ${path} was deleted or moved in the cloud while left out here: keeping this copy as a new file`, "info");
+                delete ctx.index[path];
+                delete ctx.localIndex[path];
+                ctx.dirtyPaths.set(path, Date.now());
+                return;
+            }
+            if (meta.hash && entry.hash && meta.hash.toLowerCase() === entry.hash.toLowerCase()) return;
+            await ctx.log(`[Sync scope] ${path} changed in the cloud while left out here: pulling it`, "info");
+            if (
+                await pullFileSafely(
+                    ctx,
+                    { path, fileId: entry.fileId, hash: meta.hash, size: meta.size, mtime: meta.mtime },
+                    "Scope Reconcile",
+                )
+            )
+                count++;
+        } catch (e) {
+            reincludedOf(ctx).add(path);
+            reconcilePending.add(ctx);
+            await ctx.log(`[Sync scope] Could not compare ${path} with the cloud: ${String(e)}`, "warn");
+        }
+    });
+    await runParallel(tasks, ctx.settings.concurrency);
+    return count;
+}
+
 async function pullFilesMissingFromIndex(
     ctx: SyncContext,
     remoteIndex: LocalFileIndex,
@@ -1258,7 +1366,16 @@ async function processChangePage(
             const cloudFile: ChangedFile = change.file;
             if (cloudFile.path === ctx.pluginDataPath) continue;
             if (isManagedSeparately(cloudFile.path)) continue;
-            if (isDeviceExcluded(ctx, cloudFile.path)) continue;
+            if (isDeviceExcluded(ctx, cloudFile.path)) {
+                // Moved elsewhere to where this device does not sync: for this device
+                // the file it synced is gone, as when deleted there.
+                const known = Object.entries(ctx.index).find(([, e]) => e.fileId === cloudFile.id)?.[0];
+                if (known && known !== ctx.pluginDataPath && !isDeviceExcluded(ctx, known)) {
+                    await ctx.log(`[Smart Pull] ${known} was moved to ${cloudFile.path}, which this device does not sync`, "info");
+                    queue.push({ ...change, removed: true, file: undefined, fileId: cloudFile.id });
+                }
+                continue;
+            }
 
             // Populate ancestorHash and plainHash from remote index.
             // Only when the index describes THIS version: the index is uploaded after the
