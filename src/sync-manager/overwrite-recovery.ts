@@ -96,6 +96,32 @@ export async function checkLateUploadForOverwrite(
     await detectOverwrite(ctx, path, { fileId, ourHash: ourHash.toLowerCase(), known, since: Date.now() });
 }
 
+/**
+ * Uploads of the previous app run (killed before it learned their outcome) that may
+ * still land after we uploaded the note again: such a late upload replaced the
+ * version another device uploaded meanwhile, and nobody noticed. Checked after each
+ * sync for a while, like our own upload.
+ */
+const lateLandings = new CtxState<Map<string, { fileId: string; hashes: string[]; known: string[]; until: number }>>(
+    "lateLandings",
+    "Uploads of the previous app run that may still land",
+);
+
+export function watchLateLanding(
+    ctx: SyncContext,
+    path: string,
+    fileId: string,
+    hashes: string[],
+    knownHashes: (string | undefined)[],
+    forMs: number,
+): void {
+    if (!supportsHistory(ctx) || !isMergeableText(path) || hashes.length === 0) return;
+    let m = lateLandings.get(ctx);
+    if (!m) lateLandings.set(ctx, (m = new Map()));
+    const known = [...hashes, ...knownHashes].filter((h): h is string => !!h).map((h) => h.toLowerCase());
+    m.set(path, { fileId, hashes: hashes.map((h) => h.toLowerCase()), known, until: Date.now() + forMs });
+}
+
 /** An overwrite check that could not read the history yet (network error). */
 interface PendingCheck {
     fileId: string;
@@ -178,6 +204,19 @@ async function detectOverwrite(ctx: SyncContext, path: string, check: PendingChe
  * the note has had a chance to catch up with the newest version in the cloud.
  */
 export async function retryOverwriteRepairs(ctx: SyncContext): Promise<void> {
+    const watches = lateLandings.get(ctx);
+    for (const [path, w] of [...(watches ?? [])]) {
+        if (Date.now() > w.until) {
+            watches!.delete(path);
+            continue;
+        }
+        for (const ourHash of w.hashes) {
+            if (await detectOverwrite(ctx, path, { fileId: w.fileId, ourHash, known: w.known, since: Date.now() })) {
+                watches!.delete(path);
+                break;
+            }
+        }
+    }
     const checks = pendingChecks.get(ctx);
     for (const [key, check] of [...(checks ?? [])]) {
         if (!checks!.has(key)) continue; // run already as an earlier check

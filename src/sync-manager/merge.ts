@@ -189,6 +189,7 @@ export async function perform3WayMerge(
     baseHash: string,
     fileId?: string,
     knownRevisions?: FileRevision[],
+    baseContent?: string,
 ): Promise<ArrayBuffer | null> {
     try {
         const strategy = getMergeStrategy(ctx.settings.conflictResolutionStrategy);
@@ -200,6 +201,7 @@ export async function perform3WayMerge(
             baseHash,
             fileId,
             knownRevisions,
+            baseContent,
         });
     } catch (e) {
         if (e instanceof TransientHistoryError) throw e;
@@ -1448,15 +1450,20 @@ async function pullFileUnchecked(
                                     `[${logPrefix}] ${item.path} was edited during the merge. Re-merging with the latest local content.`,
                                     "info",
                                 );
+                                // Fold only the new typing into the result: merging the newest
+                                // text from the old base again could clash with the remote on a
+                                // line the first merge had already settled (a false conflict).
+                                const typedFrom = new TextDecoder().decode(latestLocal);
                                 latestLocal = reread;
                                 merged = await perform3WayMerge(
                                     ctx,
                                     item.path,
                                     new TextDecoder().decode(reread),
-                                    remoteContentStr,
+                                    new TextDecoder().decode(merged),
                                     baseHashFound,
                                     fileId,
                                     knownRevisions,
+                                    typedFrom,
                                 );
                             }
 

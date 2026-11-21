@@ -835,9 +835,28 @@ export function markDirty(ctx: StateCtx, path: string): void {
     if (replaced) {
         deleteIntents.get(ctx)?.delete(replaced);
         markRenamed(ctx, replaced, path);
+        let m = replacedNotes.get(ctx);
+        if (!m) replacedNotes.set(ctx, (m = new Map()));
+        m.set(path, replaced);
         return;
     }
     ctx.dirtyPaths.set(path, Date.now());
+}
+
+/**
+ * New notes taken as a rename of a note deleted under another letter case (see
+ * markDirty): new path -> deleted path. Only a rename in name: when another device
+ * edited the deleted note meanwhile, its edit wins over our delete as usual and the
+ * new note gets a name of its own (merging two different notes mangled both).
+ */
+const replacedNotes = new CtxState<Map<string, string>>("replacedNotes", "New notes taken as a rename of a note deleted under another letter case");
+
+/** The deleted note this new note took the place of, if it is still pending as a rename. */
+export function takeReplacedNote(ctx: StateCtx, path: string, oldPath: string): boolean {
+    const m = replacedNotes.get(ctx);
+    if (m?.get(path) !== oldPath) return false;
+    m.delete(path);
+    return true;
 }
 
 function deletedUnderOtherSpelling(ctx: StateCtx, path: string): string | undefined {

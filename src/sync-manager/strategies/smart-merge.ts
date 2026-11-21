@@ -41,6 +41,7 @@ export class SmartMergeStrategy implements IMergeStrategy {
         baseHash,
         fileId,
         knownRevisions,
+        baseContent,
     }: MergeParams): Promise<ArrayBuffer | null> {
         await ctx.log(`[Merge] Attempting 3-way merge for ${path}...`, "info");
         await ctx.log(`[Merge] Looking for base revision with hash: ${baseHash}`, "debug");
@@ -213,6 +214,10 @@ export class SmartMergeStrategy implements IMergeStrategy {
             return null;
         };
 
+        if (baseContent !== undefined) {
+            const direct = await mergeFrom(baseContent);
+            return direct === null ? null : new TextEncoder().encode(direct).buffer;
+        }
         const baseBuffer = await getRevisionContent(ctx, path, baseRev.id, fileId);
         const primaryBase = new TextDecoder().decode(baseBuffer);
         const merged = await mergeFrom(primaryBase);

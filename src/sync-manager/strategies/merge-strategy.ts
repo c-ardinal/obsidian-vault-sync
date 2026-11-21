@@ -14,6 +14,8 @@ export interface MergeParams {
     fileId?: string;
     /** History already listed for this file during this pull (saves a cloud call when it has the base) */
     knownRevisions?: FileRevision[];
+    /** Base text given directly (no history lookup): used to fold in typing done during a merge */
+    baseContent?: string;
 }
 
 /**

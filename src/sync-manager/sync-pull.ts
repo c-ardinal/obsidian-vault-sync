@@ -1318,6 +1318,24 @@ async function processChangePage(
                         continue;
                     }
 
+                    // Another note of ours was listed under the new name and is gone here,
+                    // its deletion (or rename) not yet reported or pushed. Taking the name
+                    // now let that late delete event land on this renamed note and delete
+                    // it everywhere. Follow the rename once that note has left the name.
+                    const occupant = ctx.index[newPath];
+                    if (
+                        occupant?.fileId &&
+                        occupant.fileId !== cloudFile.id &&
+                        !(await ctx.vault.exists(newPath))
+                    ) {
+                        await ctx.log(
+                            `[Changes API] Remote Rename ${oldPath} -> ${newPath} waits: another note here left that name and is not synced yet.`,
+                            "info",
+                        );
+                        failed.push(cloudFile);
+                        continue;
+                    }
+
                     // Guard: if the user moved this file locally too (pendingMove), skip the
                     // remote rename — our own move is pushed next. A merely DIRTY file (content
                     // edits, or the echo event of our own pull write) must still follow the
@@ -1493,15 +1511,15 @@ async function processChangePage(
                             await ctx.log(`[Changes API] Failed to rename ${oldPath} -> ${alt}: ${String(e)}`, "warn");
                         }
                     } else if (
-                        pathKey(oldPath) === pathKey(newPath) &&
                         !ctx.index[newPath] &&
                         !ctx.localIndex[newPath] &&
                         (await ctx.vault.exists(oldPath))
                     ) {
-                        // Linux: the new spelling is a separate note made here and never
-                        // synced. Skipping the rename left the old spelling behind for good
-                        // (the cloud no longer has it). Move the local note to a free name
-                        // and follow the rename.
+                        // The new name is a separate note made here and never synced (on
+                        // Linux, also a new spelling of the same name). Skipping the rename
+                        // left the old name behind for good, and this note's push waited on
+                        // that cloud file forever. Move the local note to a free name and
+                        // follow the rename.
                         const alt = await freeCollisionPath(ctx, newPath);
                         try {
                             await renameLocal(ctx, newPath, alt);

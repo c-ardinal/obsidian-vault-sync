@@ -464,7 +464,29 @@ export function restoreAttemptedUploads(ctx: SyncHelpersCtx, data: unknown): voi
             (h): h is string => typeof h === "string",
         );
         if (list.length && !m.has(path)) m.set(path, list.map((h) => h.toLowerCase()));
+        if (list.length) priorRunAttempts.set(ctx, { ...(priorRunAttempts.get(ctx) ?? {}), [path]: list.map((h) => h.toLowerCase()) });
     }
+    priorRunSince.set(ctx, Date.now());
+}
+
+/**
+ * Uploads the previous app run started and never confirmed. The killed app's request
+ * may still be processed by the server a moment after the restart, and then replace
+ * a version another device uploaded meanwhile (see watchLateLanding).
+ */
+const priorRunAttempts = new CtxState<Record<string, string[]>>("priorRunAttempts", "Unconfirmed uploads of the previous app run");
+const priorRunSince = new CtxState<number>("priorRunSince", "When the previous run's unconfirmed uploads were restored");
+/** How long after a restart an upload of the previous run may still land. */
+export const PRIOR_RUN_LANDING_MS = 2 * 60 * 1000;
+
+/** The previous run's unconfirmed uploads of `path`, while they may still land. */
+export function takePriorRunAttempts(ctx: SyncHelpersCtx, path: string): string[] {
+    const all = priorRunAttempts.get(ctx);
+    const list = all?.[path];
+    if (!list) return [];
+    delete all[path];
+    if (Date.now() - (priorRunSince.get(ctx) ?? 0) > PRIOR_RUN_LANDING_MS) return [];
+    return list;
 }
 
 /**

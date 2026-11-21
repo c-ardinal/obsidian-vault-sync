@@ -944,6 +944,36 @@ const FIXED_REGRESSIONS: Case[] = [
         config: { seed: 200988, ...RESTART },
         expect: [],
     },
+    {
+        title: "e2ee: typing during a merge is re-merged onto the merge result",
+        symptom: "Edits typed while a merge ran were merged from a stale base and became a conflict copy",
+        config: { seed: 220682, ...E2EE },
+        expect: [],
+    },
+    {
+        title: "chaos: a remote rename onto an unsynced local note moves that note aside",
+        symptom: "A new local note blocked a remote rename, and its push waited on that cloud file forever (sync ping-pong)",
+        config: { seed: 230030, ...CHAOS },
+        expect: [],
+    },
+    {
+        title: "chaos: a remote rename waits until our own note has left the name",
+        symptom: "A late delete event of our note landed on the note renamed into its place and deleted it everywhere",
+        config: { seed: 220225, ...CHAOS },
+        expect: [],
+    },
+    {
+        title: "chaos: a note re-created under another letter case is not merged with the deleted one",
+        symptom: "Windows: deleting todo.md and creating Todo.md merged another device's edit of todo.md into the new note, and the new note vanished",
+        config: { seed: 220669, ...CHAOS },
+        expect: [],
+    },
+    {
+        title: "restart: a killed app's upload that lands late is repaired",
+        symptom: "The previous run's upload landed after the restart, replaced another device's merge, and its edit was lost",
+        config: { seed: 230234, ...RESTART },
+        expect: [],
+    },
 ];
 
 function configOf(c: Case, name: string): SimConfig {

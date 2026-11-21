@@ -16,9 +16,9 @@ import {
     isDeviceExcluded,
     hashContent,
 } from "./file-utils";
-import { loadCommunication, saveIndex, saveLocalIndex, releaseLockAfterPush, findForeignLock, renameLocal, confirmMissingForDeletion, clearDeleteIntent, hasDeleteIntent, noteDeleteIntent, takeUnsyncedRename, peekUnsyncedRename } from "./state";
+import { loadCommunication, saveIndex, saveLocalIndex, releaseLockAfterPush, findForeignLock, renameLocal, confirmMissingForDeletion, clearDeleteIntent, hasDeleteIntent, noteDeleteIntent, takeUnsyncedRename, peekUnsyncedRename, takeReplacedNote } from "./state";
 import { pullFileSafely } from "./merge";
-import { isMergeableText, recoverOverwrittenVersion } from "./overwrite-recovery";
+import { isMergeableText, recoverOverwrittenVersion, watchLateLanding } from "./overwrite-recovery";
 import { findPathCollision, freeCollisionPath, moveIndexEntry, pathKey } from "./path-collision";
 import { TransferPriority } from "./transfer-types";
 import { formatSize } from "../utils/format";
@@ -41,6 +41,9 @@ import {
     moveAttemptedUploads,
     forgetAttemptedVersion,
     attemptedUploadsSnapshot,
+    pendingPullsOf,
+    takePriorRunAttempts,
+    PRIOR_RUN_LANDING_MS,
 } from "./sync-helpers";
 import { storesTransformedContent } from "./content-identity";
 
@@ -617,6 +620,43 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                     const indexEntry = ctx.index[path];
                     if (indexEntry?.pendingMove && indexEntry.fileId) {
                         const moveInfo = indexEntry.pendingMove;
+                        if (takeReplacedNote(ctx, path, moveInfo.oldPath)) {
+                            const old = await ctx.adapter
+                                .getFileMetadataById(indexEntry.fileId, moveInfo.oldPath)
+                                .catch(() => undefined);
+                            const knownHash = indexEntry.hash?.toLowerCase();
+                            const theirHash = old?.hash?.toLowerCase();
+                            if (
+                                old &&
+                                knownHash &&
+                                theirHash &&
+                                theirHash !== knownHash &&
+                                !isAttemptedUpload(ctx, moveInfo.oldPath, theirHash) &&
+                                !isAttemptedUpload(ctx, path, theirHash)
+                            ) {
+                                // The deleted note was edited on another device: their edit
+                                // wins over our delete, and this new note is not that note.
+                                // Give it a name of its own and pull theirs back.
+                                const alt = await freeCollisionPath(ctx, path);
+                                await renameLocal(ctx, path, alt);
+                                ctx.logger.markActionTaken();
+                                delete ctx.index[path];
+                                delete ctx.localIndex[path];
+                                ctx.dirtyPaths.delete(path);
+                                ctx.dirtyPaths.set(alt, Date.now());
+                                moveAttemptedUploads(ctx, path, alt);
+                                pendingPullsOf(ctx).set(old.id, {
+                                    file: { ...old, path: old.path || moveInfo.oldPath },
+                                    attempts: 0,
+                                });
+                                await saveLocalIndex(ctx);
+                                await ctx.log(
+                                    `[Smart Push] ${moveInfo.oldPath} was deleted here but edited on another device, and ${path} is a new note. Kept their version and moved the new note to ${alt}.`,
+                                    "warn",
+                                );
+                                return;
+                            }
+                        }
                         try {
                             const newName = basename(path);
                             const newParentPath = dirname(path);
@@ -1326,6 +1366,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                         // index save the restarted app took this upload for another device's
                         // edit (our later edits then conflicted with our own version).
                         await saveLocalIndex(ctx);
+                        const priorRun = takePriorRunAttempts(ctx, file.path);
                         forgetAttemptedUpload(ctx, file.path);
                         noteUploadedForRetention(ctx, file.path, uploaded.id);
                         recordActivity(ctx, targetFileId ? "edit" : "create", file.path);
@@ -1338,6 +1379,16 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                 previousAncestorHash,
                                 previousHash,
                             ]);
+                        }
+                        if (uploaded.hash && priorRun.length > 0) {
+                            watchLateLanding(
+                                ctx,
+                                file.path,
+                                uploaded.id,
+                                priorRun,
+                                [uploaded.hash, previousAncestorHash, previousHash],
+                                PRIOR_RUN_LANDING_MS,
+                            );
                         }
                     }
 
