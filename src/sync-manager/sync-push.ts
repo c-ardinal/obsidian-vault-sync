@@ -1,3 +1,4 @@
+import { CtxState } from "./context-state";
 import { removeRemote } from "./remote-deletion";
 import { noteUploadedForRetention } from "./revision-retention";
 import { recordActivity } from "./device-registry";
@@ -10,6 +11,7 @@ import {
     runParallel,
     compress,
     isManagedSeparately,
+    isAlwaysForbiddenOnRemote,
     shouldNotBeOnRemote,
     shouldIgnore,
     holdsDeviceExcluded,
@@ -19,6 +21,7 @@ import {
 import { loadCommunication, saveIndex, saveLocalIndex, releaseLockAfterPush, findForeignLock, renameLocal, confirmMissingForDeletion, clearDeleteIntent, hasDeleteIntent, noteDeleteIntent, takeUnsyncedRename, peekUnsyncedRename, takeReplacedNote } from "./state";
 import { pullFileSafely } from "./merge";
 import { isMergeableText, recoverOverwrittenVersion, watchLateLanding } from "./overwrite-recovery";
+import { watchLateDuplicate } from "./merge";
 import { findPathCollision, freeCollisionPath, moveIndexEntry, pathKey } from "./path-collision";
 import { TransferPriority } from "./transfer-types";
 import { formatSize } from "../utils/format";
@@ -44,6 +47,7 @@ import {
     pendingPullsOf,
     takePriorRunAttempts,
     PRIOR_RUN_LANDING_MS,
+    noteDeletionMark,
 } from "./sync-helpers";
 import { storesTransformedContent } from "./content-identity";
 
@@ -135,6 +139,10 @@ async function executeFolderDeletions(
                         { id: meta.id, path: folderPath, kind: "folder" },
                         "user-folder",
                     );
+                    // The files inside went with it, each as last seen here
+                    for (const [p, e] of Object.entries(ctx.index)) {
+                        if (p.startsWith(folderPath + "/") && e.fileId) noteDeletionMark(ctx, e.fileId, e.hash);
+                    }
                     recordActivity(ctx, "delete", folderPath);
                     ctx.logger.markActionTaken();
                     folderDeletedCount++;
@@ -419,7 +427,19 @@ async function settleOrphanedUploads(ctx: SyncContext): Promise<void> {
  * O(1) when no dirty files, O(dirty count + .obsidian scan) otherwise
  * If scanVault is true, performs O(N) full vault scan before pushing
  */
+/**
+ * Counts full-cleanup requests (triggerFullCleanup). A request made while a push
+ * runs (a setting changed mid-sync) came after that push's scan: the push must
+ * leave the flag set, or the scan it asked for never happened.
+ */
+const cleanupRequests = new CtxState<number>("fullCleanupRequests", "Full-cleanup requests so far (a push resets the flag only for those it saw)");
+
+export function noteFullCleanupRequest(ctx: object): void {
+    cleanupRequests.set(ctx, (cleanupRequests.get(ctx) ?? 0) + 1);
+}
+
 export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<boolean> {
+    const cleanupSeen = cleanupRequests.get(ctx) ?? 0;
     if (scanVault) {
         ctx.progress?.setPhase("scanning");
         await scanVaultChanges(ctx);
@@ -601,6 +621,16 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                             }
                         }
 
+                        // Holds files synced from the cloud (e.g. the folder was just created
+                        // here by a pull): it is there already, no request needed
+                        const inCloud = Object.entries(ctx.index).some(
+                            ([p, e]) => p.startsWith(path + "/") && !!e.fileId && !e.pendingMove && e.lastAction === "pull",
+                        );
+                        if (inCloud) {
+                            ctx.dirtyPaths.delete(path);
+                            ctx.pendingFolderMoves.delete(path);
+                            return;
+                        }
                         try {
                             await ctx.adapter.ensureFoldersExist([path]);
                             ctx.logger.markActionTaken();
@@ -1176,6 +1206,25 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                         remoteMeta.path &&
                                         remoteMeta.path !== file.path &&
                                         !ctx.index[file.path]?.pendingMove &&
+                                        isDeviceExcluded(ctx, remoteMeta.path)
+                                    ) {
+                                        // Moved elsewhere to where this device does not sync: for
+                                        // this device the note left the sync. Following the rename
+                                        // stranded our edit there (never uploaded). Edit beats
+                                        // deletion: our copy stays and is uploaded as a new note.
+                                        delete ctx.index[file.path];
+                                        delete ctx.localIndex[file.path];
+                                        ctx.dirtyPaths.set(file.path, Date.now());
+                                        await ctx.log(
+                                            `[Smart Push] ${file.path} was moved to ${remoteMeta.path}, which this device does not sync. Keeping our edited copy as a new note.`,
+                                            "info",
+                                        );
+                                        return;
+                                    }
+                                    if (
+                                        remoteMeta.path &&
+                                        remoteMeta.path !== file.path &&
+                                        !ctx.index[file.path]?.pendingMove &&
                                         !ctx.index[remoteMeta.path] &&
                                         !(await ctx.vault.exists(remoteMeta.path))
                                     ) {
@@ -1232,7 +1281,10 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
 
                                             const previousAncestorHash =
                                                 ctx.localIndex[file.path]?.ancestorHash;
+                                            // The version our merge was made from (see the plain push)
+                                            const mergedFromHash = ctx.localIndex[file.path]?.mergedFrom;
                                             const mergedEntry = {
+                                                ...(mergedFromHash ? { includes: [mergedFromHash] } : {}),
                                                 fileId: mergedUploaded.id,
                                                 mtime: mergedStat?.mtime || Date.now(),
                                                 size: mergedUploaded.size,
@@ -1332,6 +1384,10 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
 
                     const plainHash = await hashContent(file.content);
 
+                    // The version our merge was made from (the index upload adds those the
+                    // merged remote version carried)
+                    const mergedFrom = ctx.localIndex[file.path]?.mergedFrom;
+                    const includes = mergedFrom ? [mergedFrom] : [];
                     const entry = {
                         fileId: uploaded.id,
                         mtime: file.mtime,
@@ -1340,6 +1396,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                         plainHash: plainHash,
                         lastAction: "push" as const,
                         ancestorHash: previousAncestorHash || uploaded.hash,
+                        ...(includes.length > 0 ? { includes } : {}),
                     };
                     if (await reconcileVanishedAfterUpload(ctx, file.path, file.content, entry)) {
                         // Handled as a rename/delete that happened while uploading. Saved
@@ -1379,6 +1436,10 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                 previousAncestorHash,
                                 previousHash,
                             ]);
+                        }
+                        if (!targetFileId && priorRun.length > 0) {
+                            // The previous run's create may still land as a second file
+                            watchLateDuplicate(ctx, file.path, uploaded.id, priorRun, PRIOR_RUN_LANDING_MS);
                         }
                         if (uploaded.hash && priorRun.length > 0) {
                             watchLateLanding(
@@ -1432,7 +1493,9 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
 
             for (let i = 1; i < parts.length; i++) {
                 const parentPath = parts.slice(0, i).join("/");
-                if (shouldNotBeOnRemote(ctx, parentPath + "/")) {
+                // Only folders no device may sync: a folder left out by this device's
+                // settings may hold files other devices sync.
+                if (isAlwaysForbiddenOnRemote(parentPath + "/")) {
                     highestIgnoredParent = parentPath;
                     break;
                 }
@@ -1530,6 +1593,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                 { id: entry.fileId, path, kind: "file" },
                                 "user-file",
                             );
+                            noteDeletionMark(ctx, entry.fileId, remote.hash ?? entry.hash);
                             recordActivity(ctx, "delete", path);
                         }
                         delete ctx.index[path];
@@ -1567,7 +1631,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
 
         await runParallel(tasks, ctx.settings.concurrency);
 
-        if (ctx.forceCleanupNextSync) {
+        if (ctx.forceCleanupNextSync && (cleanupRequests.get(ctx) ?? 0) === cleanupSeen) {
             ctx.forceCleanupNextSync = false;
             await ctx.log("[Smart Push] Full cleanup scan completed and flag reset.", "debug");
         }

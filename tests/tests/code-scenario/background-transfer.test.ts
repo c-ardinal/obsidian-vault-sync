@@ -23,6 +23,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { BackgroundTransferQueue } from "../../../src/sync-manager/background-transfer";
 import { TransferPriority } from "../../../src/sync-manager/transfer-types";
+import { pendingPullsOf } from "../../../src/sync-manager/sync-helpers";
 import type {
     TransferItem,
     TransferRecord,
@@ -60,6 +61,25 @@ function makeRecord(overrides: Partial<TransferRecord> = {}): TransferRecord {
         ...overrides,
     };
 }
+
+describe("background pull of a file changed here", () => {
+    it("is handed to the sync cycle as an owed pull, not dropped", async () => {
+        const queue = new BackgroundTransferQueue();
+        const ctx = {
+            dirtyPaths: new Map([["notes/big.md", Date.now()]]),
+            localIndex: { "notes/big.md": { fileId: "f1", mtime: 0, size: 1, hash: "h0", pendingTransfer: { direction: "pull" } } },
+            index: {},
+            log: vi.fn(async () => {}),
+        };
+        queue.setContext(ctx as never);
+        const item = makeItem({ direction: "pull", path: "notes/big.md", fileId: "f1", remoteHash: "h2", size: 500 });
+        await (queue as unknown as { executePull: (c: unknown, i: TransferItem) => Promise<void> }).executePull(ctx, item);
+        // Used to: dropped, and when the "edit" was our own earlier write the push found
+        // nothing to upload, so this device kept the older version
+        expect(pendingPullsOf(ctx as never).get("f1")?.file).toMatchObject({ path: "notes/big.md", hash: "h2" });
+        expect(pendingPullsOf(ctx as never).get("f1")?.background).toBeFalsy();
+    });
+});
 
 // ═══════════════════════════════════════════════════════════════════
 // PART 1: Unit tests for BackgroundTransferQueue

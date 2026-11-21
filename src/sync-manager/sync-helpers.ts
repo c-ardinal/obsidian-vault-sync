@@ -1,12 +1,13 @@
 import { contentFingerprint } from "./content-fingerprint";
 import type { SyncContext } from "./context";
-import { parseIndex, providerNameOf, serializeIndex } from "./remote-layout";
+import { parseIndex, providerNameOf, serializeIndex, type DeletionMark, type DeletionMarks, type MergeOrigins } from "./remote-layout";
 import { noteIndexFormat } from "./state";
 import type { LocalFileIndex } from "./types";
-import { tryDecompress, hashContent, matchesDeviceScope, deviceScopePatterns } from "./file-utils";
+import { tryDecompress, hashContent, isDeviceExcluded } from "./file-utils";
 import { storesTransformedContent } from "./content-identity";
 import { CtxFlag, CtxState } from "./context-state";
 import { capabilitiesOf } from "../types/adapter";
+import { leftOutUnderAppliedScope, noteSkippedOutOfScope } from "./sync-scope";
 
 
 /** What this module reads from the sync context */
@@ -45,8 +46,58 @@ export async function downloadRemoteIndexData(
     ctx: SyncHelpersCtx,
     fileId: string,
 ): Promise<{ index: LocalFileIndex; startPageToken: string | null }> {
-    return parseRemoteIndexBytes(ctx, await ctx.adapter.downloadFile(fileId));
+    const data = await parseRemoteIndexBytes(ctx, await ctx.adapter.downloadFile(fileId));
+    lastReadRemoteIndex.set(ctx, data.index);
+    return data;
 }
+
+/**
+ * Cloud version -> the versions it was merged from (its "includes" in the shared
+ * index), as read here. An index upload of another device may already have
+ * replaced that entry when our merge on top of it is uploaded.
+ */
+const knownIncludes = new CtxState<Map<string, string[]>>("knownIncludes", "Versions each cloud version was merged from, as read");
+/** At most this many are kept (the newest), here and in the shared index */
+const KNOWN_INCLUDES_MAX = 300;
+
+function noteIncludes(ctx: SyncHelpersCtx, hash: string, from: string[]): void {
+    if (!hash || from.length === 0) return;
+    let m = knownIncludes.get(ctx);
+    if (!m) knownIncludes.set(ctx, (m = new Map<string, string[]>()));
+    const key = hash.toLowerCase();
+    const all = [...new Set([...(m.get(key) ?? []), ...from.map((h) => String(h).toLowerCase())])].slice(0, 8);
+    m.delete(key);
+    m.set(key, all);
+    while (m.size > KNOWN_INCLUDES_MAX) m.delete(m.keys().next().value as string);
+}
+
+function learnIncludes(ctx: SyncHelpersCtx, index: LocalFileIndex, merges: MergeOrigins): void {
+    for (const [h, from] of Object.entries(merges)) if (Array.isArray(from)) noteIncludes(ctx, h, from);
+    for (const e of Object.values(index)) if (e.hash && e.includes?.length) noteIncludes(ctx, e.hash, e.includes);
+}
+
+function mergeOriginsForUpload(ctx: SyncHelpersCtx, index: LocalFileIndex): MergeOrigins {
+    learnIncludes(ctx, index, {});
+    const out: MergeOrigins = {};
+    for (const [h, from] of knownIncludes.get(ctx) ?? []) out[h] = from;
+    return out;
+}
+
+/** The versions the cloud version with this hash was merged from, as far as known here */
+export function includesOf(ctx: SyncHelpersCtx, hash: string | undefined): string[] {
+    return (hash && knownIncludes.get(ctx)?.get(hash.toLowerCase())) || [];
+}
+
+/**
+ * The shared index as this device last read or wrote it. Files this device
+ * leaves out are never in its own index: their entries are taken from here
+ * when the shared index has not changed since, or an upload dropped them
+ * from the shared index and devices doing their first sync never got them.
+ */
+const lastReadRemoteIndex = new CtxState<LocalFileIndex>(
+    "lastReadRemoteIndex",
+    "The shared index as last read or written (source of the entries of files left out here)",
+);
 
 async function parseRemoteIndexBytes(
     ctx: SyncHelpersCtx,
@@ -55,7 +106,54 @@ async function parseRemoteIndexBytes(
     const decompressed = await tryDecompress(content);
     const parsed = parseIndex(new TextDecoder().decode(decompressed), providerNameOf(ctx.adapter));
     await noteIndexFormat(ctx, parsed, "remote");
+    learnDeletionMarks(ctx, parsed.deleted);
+    learnIncludes(ctx, parsed.index, parsed.merges);
     return { index: parsed.index, startPageToken: parsed.startPageToken };
+}
+
+/**
+ * Deletion marks: which cloud version a device checked right before deleting a
+ * file. The cloud cannot delete "only if unchanged", so another device's upload
+ * can land between that check and the delete. The uploading device compares the
+ * mark with its own upload: a different version means the deletion never saw its
+ * edit, and the edit is uploaded again instead of being deleted with the file.
+ */
+const knownDeletionMarks = new CtxState<DeletionMarks>("knownDeletionMarks", "Deletion marks read from the shared index or written by us");
+/** Marks are kept this long, and at most this many */
+const DELETION_MARK_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const DELETION_MARK_MAX = 1000;
+
+function learnDeletionMarks(ctx: object, marks: DeletionMarks): void {
+    const known = knownDeletionMarks.get(ctx) ?? {};
+    for (const [id, m] of Object.entries(marks)) {
+        if (!m || typeof m.at !== "number") continue;
+        if (!known[id] || known[id].at < m.at) known[id] = m;
+    }
+    knownDeletionMarks.set(ctx, known);
+}
+
+/** Record that we deleted cloud file `fileId` after seeing version `hash` there. */
+export function noteDeletionMark(ctx: object, fileId: string, hash: string | undefined): void {
+    const mark: DeletionMark = { at: Date.now() };
+    if (hash) mark.hash = hash.toLowerCase();
+    learnDeletionMarks(ctx, { [fileId]: mark });
+}
+
+/** The mark another device (or we) left when deleting `fileId`, if known. */
+export function deletionMarkOf(ctx: object, fileId: string): DeletionMark | undefined {
+    return knownDeletionMarks.get(ctx)?.[fileId];
+}
+
+/** Marks for the next index upload: every known one, recent first, pruned. */
+function deletionMarksForUpload(ctx: object): DeletionMarks {
+    const now = Date.now();
+    const entries = Object.entries(knownDeletionMarks.get(ctx) ?? {})
+        .filter(([, m]) => now - m.at < DELETION_MARK_TTL_MS)
+        .sort((a, b) => b[1].at - a[1].at)
+        .slice(0, DELETION_MARK_MAX);
+    const kept = Object.fromEntries(entries);
+    knownDeletionMarks.set(ctx, kept);
+    return kept;
 }
 
 export function getThresholdBytes(ctx: SyncHelpersCtx): number {
@@ -197,16 +295,38 @@ async function owePullsFromIndex(ctx: SyncContext, remote: LocalFileIndex): Prom
     for (const [path, entry] of Object.entries(remote)) {
         if (path === ctx.pluginDataPath || !entry.fileId || ctx.index[path] || ourIds.has(entry.fileId)) continue;
         if (pending.has(entry.fileId) || ctx.dirtyPaths.has(path)) continue;
-        if (matchesDeviceScope(deviceScopePatterns(ctx.settings), path)) continue;
+        if (isDeviceExcluded(ctx, path)) {
+            // Left out here: never pulled, but the shared index must keep listing
+            // it (ours just replaced theirs). Our next upload takes it from here.
+            let relist = relistForOthers.get(ctx);
+            if (!relist) relistForOthers.set(ctx, (relist = {}));
+            relist[path] = entry;
+            // The shared index may never list it again: pulled by id once synced here
+            noteSkippedOutOfScope(ctx, path, entry, true);
+            continue;
+        }
         if (!(await ctx.adapter.fileExistsById(entry.fileId).catch(() => false))) continue;
         oweUnseenPull(ctx, path, entry);
         await ctx.log(`[Index] ${path} is listed by another device but was never pulled here. Pulling it next sync.`, "info");
     }
 }
 
-function oweUnseenPull(ctx: SyncHelpersCtx & { dirtyPaths?: Map<string, number> }, path: string, entry: LocalFileIndex[string]): void {
+/**
+ * Entries of an index ours replaced, for files this device leaves out (so never
+ * pulls, and its own index never lists): the next upload lists them again.
+ */
+const relistForOthers = new CtxState<LocalFileIndex>("relistForOthers", "Entries of a replaced index for files left out here, listed again by the next upload");
+
+/** A cloud file left out here that the shared index may not list: the next upload lists it */
+export function relistForOthersAdd(ctx: object, path: string, entry: LocalFileIndex[string]): void {
+    let relist = relistForOthers.get(ctx);
+    if (!relist) relistForOthers.set(ctx, (relist = {}));
+    relist[path] = entry;
+}
+
+export function oweUnseenPull(ctx: SyncHelpersCtx & { dirtyPaths?: Map<string, number> }, path: string, entry: LocalFileIndex[string]): void {
     if (!entry.fileId || ctx.dirtyPaths?.has(path)) return;
-    if (ctx.settings && matchesDeviceScope(deviceScopePatterns(ctx.settings), path)) return; // left out here
+    if (ctx.settings && isDeviceExcluded({ settings: ctx.settings }, path)) return; // left out here
     const pending = pendingPullsOf(ctx);
     if (pending.has(entry.fileId)) return;
     pending.set(entry.fileId, {
@@ -216,6 +336,15 @@ function oweUnseenPull(ctx: SyncHelpersCtx & { dirtyPaths?: Map<string, number> 
 }
 
 const carriedRemoteEntries = new CtxState<LocalFileIndex>("carriedRemoteEntries", "Remote index entries kept for files this device has not pulled yet");
+
+/**
+ * Our own upload (made before this device started leaving the file out): the
+ * shared index may not list it yet, and dropping it here hid the file from
+ * every device that skipped its change while leaving it out.
+ */
+function ownUpload(entry: LocalFileIndex[string] | undefined): boolean {
+    return !!entry && (entry.lastAction === "push" || entry.lastAction === "merge");
+}
 
 export async function buildRemoteIndexPayload(ctx: SyncHelpersCtx): Promise<ArrayBuffer> {
     const merged: LocalFileIndex = { ...ctx.index };
@@ -230,8 +359,31 @@ export async function buildRemoteIndexPayload(ctx: SyncHelpersCtx): Promise<Arra
         indexMergedFrom.set(ctx, meta?.hash?.toLowerCase() ?? "");
         const lastSeen = ctx.index[ctx.pluginDataPath]?.hash?.toLowerCase() || "";
         if (meta?.id && meta.hash && meta.hash.toLowerCase() === lastSeen) {
+            if (!knownDeletionMarks.has(ctx) || !lastReadRemoteIndex.has(ctx)) {
+                // Not read since the app started: read it once, or our upload would drop
+                // the deletion marks other devices left in it, and the entries of files
+                // this device leaves out (never in our own index).
+                readingRemote = true;
+                const read = await parseRemoteIndexBytes(ctx, await ctx.adapter.downloadFile(meta.id));
+                readingRemote = false;
+                if (!lastReadRemoteIndex.has(ctx)) lastReadRemoteIndex.set(ctx, read.index);
+            }
             const carried = carriedRemoteEntries.get(ctx) ?? {};
+            // Files left out here: the shared index has not changed since we last read
+            // (or wrote) it, so its entries are current. No lookups needed.
+            const last = lastReadRemoteIndex.get(ctx);
+            if (last) {
+                for (const p of Object.keys(merged)) {
+                    if (p !== ctx.pluginDataPath && isDeviceExcluded(ctx, p) && !last[p] && !ownUpload(merged[p])) delete merged[p];
+                }
+                for (const [p, e] of Object.entries(last)) {
+                    if (p !== ctx.pluginDataPath && isDeviceExcluded(ctx, p)) merged[p] = e;
+                    // Synced again by settings not applied yet: not pulled here so far
+                    else if (p !== ctx.pluginDataPath && !merged[p] && leftOutUnderAppliedScope(ctx, p)) merged[p] = e;
+                }
+            }
             for (const [path, entry] of Object.entries(carried)) {
+                if (path !== ctx.pluginDataPath && isDeviceExcluded(ctx, path)) continue; // taken above
                 const mine = ctx.index[path];
                 const caughtUp =
                     !!mine &&
@@ -316,10 +468,12 @@ export async function buildRemoteIndexPayload(ctx: SyncHelpersCtx): Promise<Arra
             // entries win (our copy is stale: an edit, rename or delete made elsewhere
             // would be undone in the shared index).
             for (const p of Object.keys(merged)) {
-                if (p !== ctx.pluginDataPath && matchesDeviceScope(deviceScopePatterns(ctx.settings), p) && !remote[p]) delete merged[p];
+                if (p !== ctx.pluginDataPath && isDeviceExcluded(ctx, p) && !remote[p] && !ownUpload(merged[p])) delete merged[p];
             }
             for (const [p, e] of Object.entries(remote)) {
-                if (p !== ctx.pluginDataPath && matchesDeviceScope(deviceScopePatterns(ctx.settings), p)) merged[p] = e;
+                if (p !== ctx.pluginDataPath && isDeviceExcluded(ctx, p)) merged[p] = e;
+                // Synced again by settings not applied yet: not pulled here so far
+                else if (p !== ctx.pluginDataPath && !merged[p] && leftOutUnderAppliedScope(ctx, p)) merged[p] = e;
             }
             const carried: LocalFileIndex = {};
             for (const [path, entry] of Object.entries(merged)) {
@@ -337,6 +491,13 @@ export async function buildRemoteIndexPayload(ctx: SyncHelpersCtx): Promise<Arra
         if (readingRemote) throw e;
         // Unreadable (damaged) cloud index: ours replaces it
         await ctx.log(`[Index] Could not merge remote index, uploading local index as-is: ${String(e)}`, "warn");
+    }
+    const relist = relistForOthers.get(ctx);
+    relistForOthers.delete(ctx);
+    for (const [p, e] of Object.entries(relist ?? {})) {
+        if (merged[p] || !isDeviceExcluded(ctx, p)) continue;
+        if (Object.values(merged).some((m) => m.fileId === e.fileId)) continue;
+        merged[p] = e;
     }
     // Cloud files we know of but have not pulled yet (deferred to the background queue,
     // or failed). The index carries our Changes token, which is already past them: a
@@ -368,7 +529,23 @@ export async function buildRemoteIndexPayload(ctx: SyncHelpersCtx): Promise<Arra
         const { forcePush: _owed, ...rest } = own;
         merged[ctx.pluginDataPath] = rest;
     }
-    const data = serializeIndex(merged, ctx.startPageToken, providerNameOf(ctx.adapter));
+    // A merge of ours carries the versions the remote version it merged carried
+    // (another device's merge of a version our upload had replaced, see
+    // overwrite-recovery): kept transitively, a few at most.
+    for (const [p, e] of Object.entries(merged)) {
+        if (!e.includes || !e.ancestorHash) continue;
+        const inherited = includesOf(ctx, e.ancestorHash);
+        if (inherited.length === 0) continue;
+        merged[p] = { ...e, includes: [...new Set([...e.includes, ...inherited])].slice(0, 8) };
+    }
+    for (const [p, e] of Object.entries(merged)) {
+        if (e.remoteDeletionSeenAt === undefined) continue;
+        // Local bookkeeping (a deletion we are checking), not for other devices
+        const { remoteDeletionSeenAt: _seen, ...rest } = e;
+        merged[p] = rest;
+    }
+    lastReadRemoteIndex.set(ctx, merged);
+    const data = serializeIndex(merged, ctx.startPageToken, providerNameOf(ctx.adapter), deletionMarksForUpload(ctx), mergeOriginsForUpload(ctx, merged));
     return new TextEncoder().encode(data).buffer;
 }
 

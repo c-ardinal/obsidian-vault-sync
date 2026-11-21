@@ -1,3 +1,5 @@
+import { basename } from "../utils/path";
+import { freeConflictCopyPath } from "./conflict-resolution";
 import { contentFingerprint } from "./content-fingerprint";
 import type { SyncContext } from "./context";
 import { hashContent } from "./file-utils";
@@ -5,7 +7,7 @@ import { getRevisionContent, listRevisions, supportsHistory } from "./history";
 import { perform3WayMerge } from "./merge";
 import { acquireMergeLock, releaseMergeLock, saveLocalIndex } from "./state";
 import { CtxState } from "./context-state";
-import { forgetAttemptedUpload, recordAttemptedUpload } from "./sync-helpers";
+import { downloadRemoteIndex, forgetAttemptedUpload, includesOf, recordAttemptedUpload } from "./sync-helpers";
 
 /** Files we can merge line by line; anything else keeps the newest version. */
 export function isMergeableText(path: string): boolean {
@@ -262,6 +264,26 @@ export async function retryOverwriteRepairs(ctx: SyncContext): Promise<void> {
     }
 }
 
+/**
+ * The current version was merged from the replaced one by another device (the
+ * device whose version we replaced merged it with ours): nothing is missing.
+ */
+async function mergedByOthers(ctx: SyncContext, path: string, repair: PendingRepair, headHash: string): Promise<boolean> {
+    const over = repair.overwrittenHash.toLowerCase();
+    // Our current upload was merged on top of a version that was merged from it
+    const ours = ctx.index[path];
+    if (ours?.hash?.toLowerCase() === headHash.toLowerCase() && includesOf(ctx, ours.ancestorHash).includes(over)) return true;
+    try {
+        const meta = await ctx.adapter.getFileMetadata(ctx.pluginDataPath);
+        if (!meta?.id) return false;
+        const entry = (await downloadRemoteIndex(ctx, meta.id))[path];
+        if (!entry?.hash || entry.hash.toLowerCase() !== headHash.toLowerCase()) return false;
+        return [...(entry.includes ?? []), ...includesOf(ctx, entry.ancestorHash)].some((h) => h.toLowerCase() === over);
+    } catch {
+        return false;
+    }
+}
+
 async function repairUnderLock(
     ctx: SyncContext,
     path: string,
@@ -291,6 +313,15 @@ async function repairUnderLock(
             await ctx.log(`[Overwrite Check] ${path} changed again meanwhile. Repairing after the next pull.`, "info");
             return false;
         }
+        const strategy = ctx.settings.conflictResolutionStrategy;
+        if (strategy === "force-local" || strategy === "force-remote") {
+            // One version wins by the user's choice, and the latest upload is the one
+            // every device converges on. Repairing swapped versions instead: two devices
+            // repairing at once each took the other's version, and ended up apart.
+            pending.delete(path);
+            await ctx.log(`[Overwrite Check] ${path}: the replaced version stays in its history (conflict setting: ${strategy}).`, "info");
+            return false;
+        }
         const theirs = new TextDecoder().decode(
             await getRevisionContent(ctx, path, repair.overwrittenId, repair.fileId),
         );
@@ -308,12 +339,25 @@ async function repairUnderLock(
                 repair.baseHash,
                 repair.fileId,
             );
+            if (!result && (await mergedByOthers(ctx, path, repair, head.hash))) {
+                // Another device merged the replaced version since (its upload is in the
+                // version we have): nothing of it is missing, no copy needed.
+                pending.delete(path);
+                await ctx.log(`[Overwrite Check] ${path}: the replaced version is already merged in.`, "info");
+                return false;
+            }
             if (!result) {
                 pending.delete(path);
+                // Not merged (a real conflict, or the "always keep both" setting): keep the
+                // other version next to ours as a conflict copy, as a pull does. Left only
+                // in the file's history, nobody ever saw that it had been replaced.
+                const copy = await freeConflictCopyPath((p) => ctx.vault.exists(p), path);
+                await ctx.vault.writeBinary(copy, new TextEncoder().encode(theirs).buffer);
                 await ctx.log(
-                    `[Overwrite Check] Could not merge ${path} automatically. The other version stays in its history.`,
+                    `[Overwrite Check] Could not merge ${path} automatically. The other version was saved as ${copy}.`,
                     "warn",
                 );
+                await ctx.notify("noticeConflictSaved", basename(copy), { sticky: true, openPath: copy });
                 return false;
             }
             const latest = await ctx.vault.readBinary(path);

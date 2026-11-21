@@ -376,6 +376,10 @@ async function pairLoneRename(ctx: ScanCtx, missing: string[], expired: string[]
         } catch {
             continue;
         }
+        // Another heading: another note made from the same template (daily notes share
+        // most lines). Pairing them merged two notes into one; missing a real rename
+        // only leaves a second copy.
+        if (title?.startsWith("#") && lines[0]?.startsWith("#") && lines[0] !== title) continue;
         const newLines = new Set(lines);
         const overlap = oldLines.filter((l) => newLines.has(l)).length / oldLines.length;
         if (overlap < 0.5) continue;
