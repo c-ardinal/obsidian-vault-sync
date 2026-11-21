@@ -1281,7 +1281,10 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
 
                                             const previousAncestorHash =
                                                 ctx.localIndex[file.path]?.ancestorHash;
+                                            // The version our merge was made from (see the plain push)
+                                            const mergedFromHash = ctx.localIndex[file.path]?.mergedFrom;
                                             const mergedEntry = {
+                                                ...(mergedFromHash ? { includes: [mergedFromHash] } : {}),
                                                 fileId: mergedUploaded.id,
                                                 mtime: mergedStat?.mtime || Date.now(),
                                                 size: mergedUploaded.size,

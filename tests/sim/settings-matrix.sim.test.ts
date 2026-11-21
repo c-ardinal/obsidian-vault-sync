@@ -395,6 +395,15 @@ const PINNED: { title: string; seed: number; levels: Record<string, string> }[] 
             network: "clean", devices: "mixed-os", "app-restarts": "restarts",
         },
     },
+    {
+        title: "push-conflict merge of a replaced version tells the repair it was merged back",
+        seed: 490,
+        levels: {
+            conflict: "smart-merge", exclusion: "none", images: "on", "device-list": "none", "settings-sync": "shared",
+            deletes: "none", "large-files": "inline", encryption: "off", concurrency: "1", "cloud-trash": "30-days",
+            "keep-revisions": "off", "sync-frequency": "near-realtime", network: "clean", devices: "linux", "app-restarts": "none",
+        },
+    },
 ];
 
 if (!ONLY_COMBO) {
