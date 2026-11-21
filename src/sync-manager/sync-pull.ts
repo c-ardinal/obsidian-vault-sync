@@ -1184,6 +1184,7 @@ export async function reconcileScopeChange(ctx: SyncContext): Promise<boolean> {
     // file under its old name, which this device would never pull again (its id is
     // known here under the new name). Forget the new name: the copy here stays, the
     // cloud file comes back under its own name.
+    const movedBack: Array<[string, LocalFileIndex[string]]> = [];
     for (const path of Object.keys(ctx.index)) {
         if (path === ctx.pluginDataPath || isDeviceExcluded(before, path) || !isDeviceExcluded(ctx, path)) continue;
         if (!ctx.index[path]?.pendingMove && !ctx.localIndex[path]?.pendingMove) continue;
@@ -1194,12 +1195,15 @@ export async function reconcileScopeChange(ctx: SyncContext): Promise<boolean> {
         if (moved?.pendingMove && moved.fileId) {
             const { pendingMove, forcePush: _f, ...rest } = moved;
             relistForOthersAdd(ctx, pendingMove.oldPath, { ...rest, lastAction: "push" });
+            // Synced here under its old name: pulled back by id (the copy here stays too)
+            if (!isDeviceExcluded(ctx, pendingMove.oldPath)) movedBack.push([pendingMove.oldPath, { ...rest }]);
         }
         delete ctx.index[path];
         delete ctx.localIndex[path];
         ctx.dirtyPaths.delete(path);
     }
     await forgetReincluded(ctx, (path) => isDeviceExcluded(before, path), "[Sync scope]");
+    for (const [path, entry] of movedBack) oweUnseenPull(ctx, path, entry);
     return true;
 }
 
@@ -1232,10 +1236,13 @@ async function refreshReincluded(ctx: SyncContext, seenFileIds: Set<string>): Pr
     let count = 0;
     const tasks = paths.map((path) => async () => {
         const entry = ctx.index[path];
-        if (!entry?.fileId || isDeviceExcluded(ctx, path)) {
+        if (!entry?.fileId) {
             reincludedOf(ctx).delete(path);
             return;
         }
+        // Left out again before this pull (settings changed meanwhile): compared once
+        // it is synced again, so the changes skipped while it was left out still come
+        if (isDeviceExcluded(ctx, path)) return;
         if (seenFileIds.has(entry.fileId)) {
             reincludedOf(ctx).delete(path); // this pull already brought its latest change
             return;

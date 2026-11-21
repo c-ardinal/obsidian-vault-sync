@@ -115,6 +115,19 @@ const PINNED: { title: string; seed: number; levels: Record<string, string> }[] 
         },
     },
     {
+        title: "left out again before the comparison ran: changes skipped meanwhile still arrive",
+        seed: 134,
+        levels: { exclusion: "changed-mid-run" },
+    },
+    {
+        title: "a move not uploaded yet whose new folder is then excluded: the note comes back under its synced name",
+        seed: 581,
+        levels: {
+            conflict: "always-fork", exclusion: "changed-mid-run", "device-list": "one-device", "settings-sync": "per-device",
+            "large-files": "background", concurrency: "5", "cloud-trash": "remove-at-once", "keep-revisions": "daily", network: "flaky",
+        },
+    },
+    {
         title: "background pull cancelled by our own earlier write: the newer version still arrives",
         seed: 44,
         levels: {
@@ -173,6 +186,19 @@ const KNOWN: { title: string; seed: number; levels: Record<string, string>; expe
             "sync-frequency": "near-realtime", devices: "mixed-os", "app-restarts": "restarts",
         },
         expect: "DUPLICATE",
+    },
+    {
+        // One device set to "keep local" uploads its older content over a newer edit
+        // (as chosen). That content equals what the other device had before its edit,
+        // so the other device takes the change for a late echo of the old version and
+        // keeps its edit locally: the two differ until either edits the note again.
+        title: "force-local reverting a note to its previous content is taken for a stale echo elsewhere",
+        seed: 594,
+        levels: {
+            conflict: "mixed", images: "off-on-one-device", "settings-sync": "per-device", deletes: "deletes",
+            "cloud-trash": "remove-at-once", "keep-revisions": "daily", network: "flaky",
+        },
+        expect: "DIVERGED",
     },
 ];
 
