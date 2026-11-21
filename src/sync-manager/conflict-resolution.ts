@@ -20,6 +20,23 @@ export function parseConflictCopyPath(path: string): { originalPath: string; sta
     return { originalPath: `${m[1]}${m[3] ?? ""}`, stamp: m[2] };
 }
 
+/**
+ * A free name for a conflict copy of `path`: "<name> (Conflict <time>).<ext>",
+ * a second later while that name is taken. Two copies made in the same second
+ * (a pull's and an overwrite repair's) used to get one name, and the second
+ * write replaced the version the first one held.
+ */
+export async function freeConflictCopyPath(exists: (path: string) => Promise<boolean>, path: string): Promise<string> {
+    const slash = path.lastIndexOf("/");
+    const dot = path.lastIndexOf(".");
+    const [stem, ext] = dot > slash + 1 ? [path.slice(0, dot), path.slice(dot)] : [path, ""];
+    for (let n = 0; ; n++) {
+        const stamp = new Date(Date.now() + n * 1000).toISOString().replace(/[:.]/g, "-").slice(0, 19);
+        const candidate = `${stem} (Conflict ${stamp})${ext}`;
+        if (n >= 60 || !(await exists(candidate))) return candidate;
+    }
+}
+
 export function isConflictCopyPath(path: string): boolean {
     return COPY_RE.test(path);
 }

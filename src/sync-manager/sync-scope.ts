@@ -53,10 +53,12 @@ export function noteSkippedOutOfScope(
     ctx: Pick<SyncContext, "settings">,
     path: string,
     entry: LocalFileIndex[string],
+    /** Remember it even when left out by the reconciled settings too (no other record of it here) */
+    always = false,
 ): void {
     const scope = applied.get(ctx);
-    if (!scope || !entry?.fileId) return;
-    if (isDeviceExcluded({ settings: { ...ctx.settings, ...scope } }, path)) return;
+    if (!entry?.fileId) return;
+    if (!always && (!scope || isDeviceExcluded({ settings: { ...ctx.settings, ...scope } }, path))) return;
     let m = skipped.get(ctx);
     if (!m) skipped.set(ctx, (m = new Map<string, LocalFileIndex[string]>()));
     m.set(path, entry);

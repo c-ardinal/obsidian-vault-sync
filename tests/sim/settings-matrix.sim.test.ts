@@ -98,6 +98,23 @@ const PINNED: { title: string; seed: number; levels: Record<string, string> }[] 
         },
     },
     {
+        title: "images turned on again: a file listed only by an index ours replaced is still pulled",
+        seed: 426,
+        levels: {
+            conflict: "changed-mid-run", exclusion: "one-device-only", images: "changed-mid-run",
+            "large-files": "background", encryption: "non-md5-cloud", "keep-revisions": "daily",
+            "sync-frequency": "near-realtime",
+        },
+    },
+    {
+        title: "always-fork: two conflict copies made in the same second do not overwrite each other",
+        seed: 418,
+        levels: {
+            conflict: "always-fork", images: "off-on-one-device", "device-list": "one-device", encryption: "e2ee",
+            concurrency: "2", network: "flaky", devices: "mixed-os", "app-restarts": "restarts",
+        },
+    },
+    {
         title: "background pull cancelled by our own earlier write: the newer version still arrives",
         seed: 44,
         levels: {
@@ -142,6 +159,20 @@ const KNOWN: { title: string; seed: number; levels: Record<string, string>; expe
             "cloud-trash": "remove-at-once", "sync-frequency": "near-realtime", devices: "mixed-os",
         },
         expect: "LOST_UPDATE",
+    },
+    {
+        // An upload whose response was lost created the note under a name the user
+        // had just renamed away from; the uploading device removes that stray file, but
+        // another device had pulled and edited it meanwhile. Edit beats deletion: two
+        // files with the same note, nothing lost.
+        title: "a stray upload edited elsewhere before its removal stays as a second file",
+        seed: 438,
+        levels: {
+            conflict: "force-remote", images: "changed-mid-run", "settings-sync": "per-device", concurrency: "2",
+            "large-files": "background-throttled", encryption: "non-md5-cloud", "keep-revisions": "daily",
+            "sync-frequency": "near-realtime", devices: "mixed-os", "app-restarts": "restarts",
+        },
+        expect: "DUPLICATE",
     },
 ];
 

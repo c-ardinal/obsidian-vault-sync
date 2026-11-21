@@ -4,6 +4,7 @@ import {
     composeConflictResult,
     decodeText,
     findConflictCopies,
+    freeConflictCopyPath,
     isConflictCopyPath,
     parseConflictCopyPath,
     resolveConflictCopy,
@@ -117,5 +118,24 @@ describe("resolveConflictCopy", () => {
     it("refuses a path that is no conflict copy", async () => {
         const { v } = vault();
         await expect(resolveConflictCopy(v, "n.md", null)).rejects.toThrow();
+    });
+});
+
+describe("freeConflictCopyPath", () => {
+    it("never returns a name already taken (two copies made in the same second)", async () => {
+        const taken = new Set<string>();
+        const exists = async (p: string) => taken.has(p);
+        const first = await freeConflictCopyPath(exists, "notes/a.md");
+        taken.add(first);
+        const second = await freeConflictCopyPath(exists, "notes/a.md");
+        expect(second).not.toBe(first);
+        // Both stay recognisable as conflict copies of the note
+        expect(parseConflictCopyPath(first)?.originalPath).toBe("notes/a.md");
+        expect(parseConflictCopyPath(second)?.originalPath).toBe("notes/a.md");
+    });
+
+    it("handles names without an extension", async () => {
+        const p = await freeConflictCopyPath(async () => false, "notes/README");
+        expect(parseConflictCopyPath(p)?.originalPath).toBe("notes/README");
     });
 });

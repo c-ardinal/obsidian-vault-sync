@@ -1,3 +1,4 @@
+import { freeConflictCopyPath } from "./conflict-resolution";
 import { TFile } from "obsidian";
 import { recordActivity } from "./device-registry";
 import { contentFingerprint } from "./content-fingerprint";
@@ -1636,10 +1637,7 @@ async function pullFileUnchecked(
                         // Merge failed - fall through to conflict file
                     }
 
-                    const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-                    const ext = item.path.split(".").pop();
-                    const baseName = item.path.substring(0, item.path.lastIndexOf("."));
-                    const conflictPath = `${baseName} (Conflict ${timestamp}).${ext}`;
+                    const conflictPath = await freeConflictCopyPath((p) => ctx.vault.exists(p), item.path);
 
                     const isLocalProbablyBetter =
                         localBase?.lastAction === "push" || localBase?.lastAction === "merge";

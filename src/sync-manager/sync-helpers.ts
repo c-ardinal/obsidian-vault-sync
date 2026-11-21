@@ -217,7 +217,8 @@ async function owePullsFromIndex(ctx: SyncContext, remote: LocalFileIndex): Prom
             let relist = relistForOthers.get(ctx);
             if (!relist) relistForOthers.set(ctx, (relist = {}));
             relist[path] = entry;
-            noteSkippedOutOfScope(ctx, path, entry);
+            // The shared index may never list it again: pulled by id once synced here
+            noteSkippedOutOfScope(ctx, path, entry, true);
             continue;
         }
         if (!(await ctx.adapter.fileExistsById(entry.fileId).catch(() => false))) continue;

@@ -1155,7 +1155,11 @@ export async function reconcileScopeChange(ctx: SyncContext): Promise<boolean> {
     // Changes skipped under settings changed after the last reconcile (and maybe
     // changed back since): compared with the cloud again when synced now.
     for (const [path, entry] of takeSkippedOutOfScope(ctx)) {
-        if (path === ctx.pluginDataPath || isDeviceExcluded(ctx, path)) continue;
+        if (path === ctx.pluginDataPath) continue;
+        if (isDeviceExcluded(ctx, path)) {
+            noteSkippedOutOfScope(ctx, path, entry, true); // still left out: kept for later
+            continue;
+        }
         reconcilePending.add(ctx);
         if (ctx.index[path]?.fileId) reincludedOf(ctx).add(path);
         // Not known here: the shared index may not list it either (an index upload
