@@ -1,9 +1,9 @@
 import { App, Modal, setIcon, ButtonComponent, TextComponent } from "obsidian";
 import type VaultSync from "../main";
-import type { VaultSyncSettings } from "../types/settings";
+import { OBSIDIAN_SCOPE_KEYS, type ObsidianScopeKey, type VaultSyncSettings } from "../types/settings";
 import { t } from "../i18n";
 import { matchWildcard } from "../utils/wildcard";
-import { PLUGIN_DIR } from "../sync-manager/file-utils";
+import { PLUGIN_DIR, obsidianScopeOn } from "../sync-manager/file-utils";
 
 interface ToggleExclusion {
     settingKey: keyof VaultSyncSettings;
@@ -291,7 +291,11 @@ export class ExclusionPatternModal extends Modal {
     private getActiveToggleExclusions(): ToggleExclusion[] {
         // The toggles apply to every device: shown only with the list that does too
         if (this.key !== "exclusionPatterns") return [];
-        return toggleExclusions().filter((te) => !this.plugin.settings[te.settingKey]);
+        return toggleExclusions().filter((te) =>
+            (OBSIDIAN_SCOPE_KEYS as readonly string[]).includes(te.settingKey)
+                ? !obsidianScopeOn(this.plugin.settings, te.settingKey as ObsidianScopeKey)
+                : !this.plugin.settings[te.settingKey],
+        );
     }
 
     private renderToggleExclusions(): void {

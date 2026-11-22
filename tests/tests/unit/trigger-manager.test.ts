@@ -332,6 +332,34 @@ describe("TriggerManager", () => {
             expect(syncManager.requestSmartSync).toHaveBeenCalledTimes(3);
         });
 
+        it("on mobile, runs no timer sync while hidden unless local changes wait", async () => {
+            const { Platform } = await import("../../../tests/__mocks__/obsidian");
+            const original = Platform.isMobile;
+            Platform.isMobile = true;
+            try {
+                const { tm, syncManager } = make();
+                tm.onVisibilityChange(true);
+                const tick = async () => {
+                    await (tm as any).triggerSmartSync("interval");
+                    await flush();
+                };
+                await tick();
+                vi.setSystemTime(Date.now() + HIDDEN_INTERVAL_MS);
+                await tick();
+                expect(syncManager.requestSmartSync).not.toHaveBeenCalled();
+                syncManager.pendingChangeCount = 1;
+                await tick();
+                expect(syncManager.requestSmartSync).toHaveBeenCalledTimes(1);
+                // Back in front: the resume sync fetches what changed meanwhile
+                syncManager.pendingChangeCount = 0;
+                tm.onVisibilityChange(false, Date.now() + RESUME_MIN_HIDDEN_MS);
+                await flush();
+                expect(syncManager.requestSmartSync).toHaveBeenCalledTimes(2);
+            } finally {
+                Platform.isMobile = original;
+            }
+        });
+
         it("registers the page and network listeners", () => {
             const m = createMockDeps();
             const seen: string[] = [];

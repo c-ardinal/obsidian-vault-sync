@@ -1,7 +1,7 @@
 import { Notice, Platform } from "obsidian";
 import { ConfirmModal } from "./confirm-modal";
 import { isValidCloudRootFolder } from "../utils/cloud-root";
-import { VaultSyncSettings } from "../types/settings";
+import { OBSIDIAN_SCOPE_KEYS, type ObsidianScopeKey, VaultSyncSettings } from "../types/settings";
 import { SETTINGS_LIMITS } from "../constants";
 import { t } from "../i18n";
 import VaultSync from "../main";
@@ -54,6 +54,29 @@ export interface SettingSection {
 }
 
 const DEFAULT_CLOUD_ROOT = "ObsidianVaultSync";
+
+/**
+ * A .obsidian category toggle: the shared one, or with "per PC / mobile" the one
+ * of this kind of device (each kind sets its own, like the sync triggers).
+ */
+const obsidianScopeToggle = (key: ObsidianScopeKey, label: string, desc: string): SettingItem[] => [
+    {
+        key,
+        type: "toggle",
+        label: t(label),
+        desc: t(desc),
+        isHidden: (s) => s.obsidianScopeStrategy === "per-platform",
+        onChange: async (_val, p) => p.triggerFullCleanup(),
+    },
+    {
+        key: `${Platform.isMobile ? "mobile" : "desktop"}ObsidianScope.${key}`,
+        type: "toggle",
+        label: t(label) + t(Platform.isMobile ? "settingSuffixMobile" : "settingSuffixDesktop"),
+        desc: t(desc),
+        isHidden: (s) => s.obsidianScopeStrategy !== "per-platform",
+        onChange: async (_val, p) => p.triggerFullCleanup(),
+    },
+];
 
 const getTriggerItems = (prefix: string): SettingItem[] => [
     // ── Startup ──
@@ -185,6 +208,13 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                     desc: t("settingAutoKeepRevisionsDesc"),
                     limits: SETTINGS_LIMITS.autoKeepRevisionDays,
                     unit: t("unitDays"),
+                },
+                {
+                    key: "autoKeepAttachmentRevisions",
+                    type: "toggle",
+                    label: t("settingAutoKeepAttachments"),
+                    desc: t("settingAutoKeepAttachmentsDesc"),
+                    isHidden: (s) => s.autoKeepRevisionDays < 1,
                 },
                 {
                     key: "_open_remote_trash",
@@ -346,19 +376,32 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                     label: t("settingSubheaderObsidian"),
                 },
                 {
-                    key: "syncCoreConfig",
-                    type: "toggle",
-                    label: t("settingSyncCoreConfig"),
-                    desc: t("settingSyncCoreConfigDesc"),
-                    onChange: async (_val, p) => p.triggerFullCleanup(),
+                    key: "obsidianScopeStrategy",
+                    type: "dropdown",
+                    label: t("settingObsidianScopeStrategy"),
+                    desc: t("settingObsidianScopeStrategyDesc"),
+                    options: {
+                        unified: t("settingTriggerStrategyUnified"),
+                        "per-platform": t("settingTriggerStrategyPerPlatform"),
+                    },
+                    onChange: async (val, p) => {
+                        // Start both kinds of device from the shared choices
+                        if (val === "per-platform") {
+                            for (const k of OBSIDIAN_SCOPE_KEYS) {
+                                p.settings.desktopObsidianScope[k] = p.settings[k];
+                                p.settings.mobileObsidianScope[k] = p.settings[k];
+                            }
+                            await p.saveSettings();
+                        }
+                        p.triggerFullCleanup();
+                    },
                 },
-                {
-                    key: "syncCommunityPlugins",
-                    type: "toggle",
-                    label: t("settingSyncCommunityPlugins"),
-                    desc: t("settingSyncCommunityPluginsDesc"),
-                    onChange: async (_val, p) => p.triggerFullCleanup(),
-                },
+                ...obsidianScopeToggle("syncCoreConfig", "settingSyncCoreConfig", "settingSyncCoreConfigDesc"),
+                ...obsidianScopeToggle(
+                    "syncCommunityPlugins",
+                    "settingSyncCommunityPlugins",
+                    "settingSyncCommunityPluginsDesc",
+                ),
                 {
                     key: "syncPluginSettings",
                     type: "toggle",
@@ -372,20 +415,8 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                     type: "subheader",
                     label: t("settingSubheaderAppearance"),
                 },
-                {
-                    key: "syncAppearance",
-                    type: "toggle",
-                    label: t("settingSyncAppearance"),
-                    desc: t("settingSyncAppearanceDesc"),
-                    onChange: async (_val, p) => p.triggerFullCleanup(),
-                },
-                {
-                    key: "syncWorkspace",
-                    type: "toggle",
-                    label: t("settingSyncWorkspace"),
-                    desc: t("settingSyncWorkspaceDesc"),
-                    onChange: async (_val, p) => p.triggerFullCleanup(),
-                },
+                ...obsidianScopeToggle("syncAppearance", "settingSyncAppearance", "settingSyncAppearanceDesc"),
+                ...obsidianScopeToggle("syncWorkspace", "settingSyncWorkspace", "settingSyncWorkspaceDesc"),
                 // ── Content ──
                 {
                     key: "_subheader_content",
@@ -442,6 +473,24 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                     // Called with the patterns before the change
                     onChange: async (before, p) =>
                         p.applyExclusionListChange("desktopExclusionPatterns", typeof before === "string" ? before : ""),
+                },
+                {
+                    key: "desktopMaxFileSizeMB",
+                    type: "toggle-number",
+                    label: t("settingDesktopMaxFileSize"),
+                    desc: t("settingMaxFileSizeDesc"),
+                    limits: SETTINGS_LIMITS.maxFileSizeMB,
+                    unit: t("unitMB"),
+                    onChange: async (_val, p) => p.applyMaxFileSizeChange("desktopMaxFileSizeMB"),
+                },
+                {
+                    key: "mobileMaxFileSizeMB",
+                    type: "toggle-number",
+                    label: t("settingMobileMaxFileSize"),
+                    desc: t("settingMaxFileSizeDesc"),
+                    limits: SETTINGS_LIMITS.maxFileSizeMB,
+                    unit: t("unitMB"),
+                    onChange: async (_val, p) => p.applyMaxFileSizeChange("mobileMaxFileSizeMB"),
                 },
                 {
                     key: "mobileExclusionPatterns",

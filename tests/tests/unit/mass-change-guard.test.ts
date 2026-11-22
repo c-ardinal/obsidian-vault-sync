@@ -1,8 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
 import {
-    MassDeleteGuard,
+    MassChangeGuard,
     PERCENT_RULE_MIN_FILES,
-    exceedsMassDeleteThreshold,
+    deletedFileCount,
+    exceedsMassChangeThreshold,
 } from "../../../src/sync-manager/mass-change-guard";
 import { summarizePlan, type SyncPlan } from "../../../src/sync-manager/sync-plan";
 import { DEFAULT_SETTINGS } from "../../../src/constants";
@@ -10,6 +11,13 @@ import { DEFAULT_SETTINGS } from "../../../src/constants";
 const files = (n: number, action: "delete-remote" | "delete-local" = "delete-remote") =>
     Array.from({ length: n }, (_, i) => ({ action, path: `n${i}.md`, kind: "file" as const }));
 const plan = (changes: SyncPlan["changes"], step: SyncPlan["step"] = "push"): SyncPlan => ({ step, changes });
+const exceedsMassDeleteThreshold = (
+    summary: ReturnType<typeof summarizePlan>,
+    synced: number,
+    t: { massDeleteConfirmFiles: number; massDeleteConfirmPercent: number },
+) => exceedsMassChangeThreshold(deletedFileCount(summary), synced, t);
+const overwrites = (n: number, dir = "") =>
+    Array.from({ length: n }, (_, i) => ({ action: "overwrite-remote" as const, path: `${dir}o${i}.md`, kind: "file" as const }));
 const defaults = {
     massDeleteConfirmFiles: DEFAULT_SETTINGS.massDeleteConfirmFiles,
     massDeleteConfirmPercent: DEFAULT_SETTINGS.massDeleteConfirmPercent,
@@ -52,24 +60,18 @@ describe("mass deletion thresholds", () => {
         ).toBe(true);
     });
 
-    it("ignores overwrites and can be turned off", () => {
-        const overwrites = Array.from({ length: 50 }, (_, i) => ({
-            action: "overwrite-remote" as const,
-            path: `o${i}.md`,
-            kind: "file" as const,
-        }));
-        expect(exceedsMassDeleteThreshold(summarizePlan(plan(overwrites)), 50, defaults)).toBe(false);
+    it("can be turned off", () => {
         const off = { massDeleteConfirmFiles: -1, massDeleteConfirmPercent: -1 };
         expect(exceedsMassDeleteThreshold(summarizePlan(plan(files(500))), 500, off)).toBe(false);
     });
 });
 
-describe("MassDeleteGuard", () => {
+describe("MassChangeGuard", () => {
     const overwrite = { action: "overwrite-remote" as const, path: "edit.md", kind: "file" as const };
 
     it("does not ask below the thresholds", async () => {
         const confirm = vi.fn(async () => true);
-        const guard = new MassDeleteGuard(() => defaults, () => 10_000, confirm);
+        const guard = new MassChangeGuard(() => defaults, () => 10_000, confirm);
         const d = await guard.review(plan(files(3)));
         expect(confirm).not.toHaveBeenCalled();
         expect(d.heldCount).toBe(0);
@@ -77,15 +79,15 @@ describe("MassDeleteGuard", () => {
 
     it("runs everything when the user confirms", async () => {
         const confirm = vi.fn(async () => true);
-        const guard = new MassDeleteGuard(() => defaults, () => 10_000, confirm);
+        const guard = new MassChangeGuard(() => defaults, () => 10_000, confirm);
         const p = plan([...files(20), overwrite]);
         const d = await guard.review(p);
-        expect(confirm).toHaveBeenCalledWith(p, summarizePlan(p));
+        expect(confirm).toHaveBeenCalledWith(p, summarizePlan(p), { deletes: true, overwrites: false });
         expect(d.heldCount).toBe(0);
     });
 
     it("holds only the deletions when the user declines", async () => {
-        const guard = new MassDeleteGuard(() => defaults, () => 10_000, async () => false);
+        const guard = new MassChangeGuard(() => defaults, () => 10_000, async () => false);
         const d = await guard.review(plan([...files(20), overwrite]));
         expect(d.heldCount).toBe(20);
         expect(d.allows("delete-remote", "n0.md")).toBe(false);
@@ -95,9 +97,49 @@ describe("MassDeleteGuard", () => {
     it("reads the thresholds at review time (settings changes apply at once)", async () => {
         let t = { ...defaults };
         const confirm = vi.fn(async () => true);
-        const guard = new MassDeleteGuard(() => t, () => 10_000, confirm);
+        const guard = new MassChangeGuard(() => t, () => 10_000, confirm);
         t = { massDeleteConfirmFiles: 3, massDeleteConfirmPercent: -1 };
         await guard.review(plan(files(3)));
         expect(confirm).toHaveBeenCalledTimes(1);
+    });
+
+    it("asks before overwriting many notes on the cloud, and holds them when declined", async () => {
+        const confirm = vi.fn(async () => false);
+        const guard = new MassChangeGuard(() => defaults, () => 10_000, confirm);
+        const p = plan([...overwrites(20), ...files(1)]);
+        const d = await guard.review(p);
+        expect(confirm).toHaveBeenCalledWith(p, summarizePlan(p), { deletes: false, overwrites: true });
+        expect(d.allows("overwrite-remote", "o0.md")).toBe(false);
+        // The one deletion was not asked about: it runs
+        expect(d.allows("delete-remote", "n0.md")).toBe(true);
+    });
+
+    it("does not count settings files under .obsidian as overwrites", async () => {
+        const confirm = vi.fn(async () => true);
+        const guard = new MassChangeGuard(() => defaults, () => 100, confirm);
+        await guard.review(plan(overwrites(60, ".obsidian/plugins/x/")));
+        expect(confirm).not.toHaveBeenCalled();
+    });
+
+    it("does not ask an automatic sync again about changes already held", async () => {
+        let userStarted = false;
+        const confirm = vi.fn(async () => false);
+        const guard = new MassChangeGuard(() => defaults, () => 10_000, confirm, () => userStarted);
+        await guard.review(plan(overwrites(20)));
+        expect(confirm).toHaveBeenCalledTimes(1);
+
+        // Same changes on the next timer sync: held without asking
+        const again = await guard.review(plan(overwrites(20)));
+        expect(confirm).toHaveBeenCalledTimes(1);
+        expect(again.allows("overwrite-remote", "o0.md")).toBe(false);
+
+        // One more edited note: the question is a new one
+        await guard.review(plan(overwrites(21)));
+        expect(confirm).toHaveBeenCalledTimes(2);
+
+        // A sync the user starts always asks
+        userStarted = true;
+        await guard.review(plan(overwrites(21)));
+        expect(confirm).toHaveBeenCalledTimes(3);
     });
 });

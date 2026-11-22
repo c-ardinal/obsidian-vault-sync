@@ -35,7 +35,7 @@ const PLUGIN_ID = JSON.parse(readFileSync(join(PLUGIN_DIR, "manifest.json"), "ut
 const DESKTOP = { width: 1280, height: 860 };
 const MOBILE = { width: 412, height: 915 };
 /** The plugin's own UI must stay neutral about what add-ons do. */
-const BANNED_UI_WORDS = /e2ee|encrypt|暗号|復号/i;
+const BANNED_UI_WORDS = /e2ee|encrypt|暗号|復号|加密|解密|암호화|복호화/i;
 
 const results = []; // { lang, name, ok, detail }
 const shots = []; // { lang, file, label }
@@ -558,9 +558,9 @@ async function checkSyncStatus(page, lang, { mobile = false } = {}) {
     for (let i = 0; i < 20; i++) {
         await sleep(i === 0 ? 300 : 250);
         authText = await statusText();
-        if (/Not signed in|未ログイン/.test(authText)) break;
+        if (/Not signed in|未ログイン|未登录|로그인 안 됨/.test(authText)) break;
     }
-    check(lang, `${tag}: status shows "not signed in"`, /Not signed in|未ログイン/.test(authText), authText);
+    check(lang, `${tag}: status shows "not signed in"`, /Not signed in|未ログイン|未登录|로그인 안 됨/.test(authText), authText);
     await shotStatus("auth");
     await openPanel();
     await shot(page, lang, `${tag}-scr-status-panel-auth`);
@@ -629,7 +629,7 @@ async function checkSyncStatus(page, lang, { mobile = false } = {}) {
     `);
     await sleep(300);
     const doneText = await statusText();
-    check(lang, `${tag}: status shows "synced"`, /Synced|同期済み/.test(doneText), doneText);
+    check(lang, `${tag}: status shows "synced"`, /Synced|同期済み|已同步|동기화됨/.test(doneText), doneText);
     await shotStatus("synced");
     await openPanel();
     await shot(page, lang, `${tag}-scr-status-panel-synced`);
@@ -738,7 +738,7 @@ async function checkDisplaySettings(main, lang, { mobile = false } = {}) {
     const page = await openSettings(main);
     if (page !== main) await page.setViewportSize(mobile ? MOBILE : DESKTOP).catch(() => {});
     const names = await navNames(page);
-    const idx = names.findIndex((n) => /^(Display|表示)$/.test(n));
+    const idx = names.findIndex((n) => /^(Display|表示|显示|표시)$/.test(n));
     check(lang, `${tag}: display settings page listed`, idx >= 0, names.join(" | "));
     if (idx < 0) return;
     const items = await page.$$(".vault-sync-settings-nav-item");
@@ -776,6 +776,65 @@ async function checkDisplaySettings(main, lang, { mobile = false } = {}) {
     await setSlider("14"); // back to the default
     await sleep(300);
     await closeSettings(main);
+}
+
+/**
+ * Settings and screens added for the sync proposals: per-PC/mobile .obsidian
+ * categories and file-size limit on the sync scope page, and the mass
+ * delete/overwrite question.
+ */
+async function checkScopeAndMassChange(main, lang, { mobile = false } = {}) {
+    const tag = mobile ? "mobile" : "desktop";
+    await main.evaluate((id) => {
+        const p = window.app.plugins.plugins[id];
+        p.settings.obsidianScopeStrategy = "per-platform";
+        p.settings.desktopMaxFileSizeMB = 100;
+        p.settings.mobileMaxFileSizeMB = 20;
+    }, PLUGIN_ID);
+    const page = await openSettings(main);
+    if (page !== main) await page.setViewportSize(mobile ? MOBILE : DESKTOP).catch(() => {});
+    const names = await navNames(page);
+    const idx = names.findIndex((n) => /^(Sync Scope|同期範囲|同步范围|동기화 범위)$/.test(n));
+    check(lang, `${tag}: sync scope page listed`, idx >= 0, names.join(" | "));
+    if (idx >= 0) {
+        await (await page.$$(".vault-sync-settings-nav-item"))[idx].click();
+        await page.waitForSelector(".vault-sync-settings-back", { timeout: 5000 });
+        const text = await settingsText(page);
+        const suffix = mobile ? /(mobile|モバイル|移动端|모바일)/ : /\(PC\)|（PC）/;
+        check(lang, `${tag}: own-platform .obsidian toggles shown`, suffix.test(text));
+        const scrollTo = (re) =>
+            page.evaluate((src) => {
+                const r = new RegExp(src);
+                [...document.querySelectorAll(".vault-sync-settings-page .setting-item")]
+                    .find((e) => r.test(e.querySelector(".setting-item-name")?.textContent ?? ""))
+                    ?.scrollIntoView({ block: "start" });
+            }, re);
+        await scrollTo("Obsidian");
+        await sleep(300);
+        await shot(page, lang, `${tag}-settings-scope-per-platform`);
+        await scrollTo("(File size limit|ファイルサイズ上限|文件大小上限|파일 크기 제한)");
+        await sleep(300);
+        await shot(page, lang, `${tag}-settings-size-limit`);
+    }
+    await closeSettings(main);
+
+    // The question one sync asks before deleting / overwriting many files
+    await main.evaluate((id) => {
+        const p = window.app.plugins.plugins[id];
+        const changes = [];
+        for (let i = 1; i <= 3; i++) changes.push({ action: "delete-remote", path: `Archive/old-${i}.md`, kind: "file" });
+        for (let i = 1; i <= 24; i++) changes.push({ action: "overwrite-remote", path: `Notes/note-${i}.md`, kind: "file" });
+        void p.syncManager.planGuard.review({ step: "push", changes });
+    }, PLUGIN_ID);
+    await modalOpen(main, ".vault-sync-mass-delete-list", "mass change");
+    await shotModal(main, lang, tag, "scr-mass-overwrite", "mass overwrite question");
+    await escape(main);
+    await main.evaluate((id) => {
+        const p = window.app.plugins.plugins[id];
+        p.settings.obsidianScopeStrategy = "unified";
+        p.settings.desktopMaxFileSizeMB = -1;
+        p.settings.mobileMaxFileSizeMB = -1;
+    }, PLUGIN_ID);
 }
 
 async function checkScreens(page, lang, { mobile = false } = {}) {
@@ -1088,7 +1147,7 @@ async function checkScreens(page, lang, { mobile = false } = {}) {
         await sp.waitForSelector(".vault-sync-settings-back", { timeout: 5000 });
         const btn = sp
             .locator(".vault-sync-settings-page button")
-            .filter({ hasText: /Configure|設定|編集|管理/ })
+            .filter({ hasText: /Configure|設定|編集|管理|配置|설정/ })
             .first();
         if (await btn.count()) {
             await btn.click();
@@ -1101,7 +1160,7 @@ async function checkScreens(page, lang, { mobile = false } = {}) {
 
             // The list for this device only: its own note, no toggle-managed rows,
             // and the patterns kept in this device's settings
-            const buttons = sp.locator(".vault-sync-settings-page button").filter({ hasText: /Configure|設定|編集|管理/ });
+            const buttons = sp.locator(".vault-sync-settings-page button").filter({ hasText: /Configure|設定|編集|管理|配置|설정/ });
             if ((await buttons.count()) >= 2) {
                 await buttons.nth(1).click();
                 await modalOpen(sp, ".vault-sync-exclusion-modal");
@@ -1282,6 +1341,10 @@ async function runLang(lang) {
         await checkDisplaySettings(page, lang).catch((e) =>
             check(lang, "desktop: display settings run completed", false, e.stack || String(e)),
         );
+        await checkScopeAndMassChange(page, lang).catch(async (e) => {
+            check(lang, "desktop: scope and mass change run completed", false, e.stack || String(e));
+            await closeModals(page);
+        });
         await checkScreens(page, lang).catch(async (e) => {
             check(lang, "desktop: screens run completed", false, e.stack || String(e));
             await shot(page, lang, "desktop-scr-error").catch(() => {});
@@ -1301,6 +1364,10 @@ async function runLang(lang) {
             await checkDisplaySettings(page, lang, { mobile: true }).catch((e) =>
                 check(lang, "mobile: display settings run completed", false, e.stack || String(e)),
             );
+            await checkScopeAndMassChange(page, lang, { mobile: true }).catch(async (e) => {
+                check(lang, "mobile: scope and mass change run completed", false, e.stack || String(e));
+                await closeModals(page);
+            });
             await checkScreens(page, lang, { mobile: true }).catch(async (e) => {
                 check(lang, "mobile: screens run completed", false, e.stack || String(e));
                 await shot(page, lang, "mobile-scr-error").catch(() => {});

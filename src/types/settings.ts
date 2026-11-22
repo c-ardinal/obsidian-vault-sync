@@ -37,6 +37,8 @@ export interface VaultSyncSettings {
     remoteTrashRetentionDays: number;
     /** Keep one version of each note for good per this many days (-1 = off) */
     autoKeepRevisionDays: number;
+    /** Also keep versions of attachments (images, PDFs, ...), not only notes */
+    autoKeepAttachmentRevisions: boolean;
 
     notificationLevel: "verbose" | "standard" | "error";
     /** Status bar / mobile progress display of the running sync. Progress notices are
@@ -64,6 +66,10 @@ export interface VaultSyncSettings {
      * cloud for the other kind of device: devices of this kind just neither
      * download, upload nor delete them.
      */
+    /** Files larger than this (MB) are left out on PCs (-1 = no limit) */
+    desktopMaxFileSizeMB: number;
+    /** Files larger than this (MB) are left out on mobile devices (-1 = no limit) */
+    mobileMaxFileSizeMB: number;
     desktopExclusionPatterns: string;
     mobileExclusionPatterns: string;
 
@@ -79,6 +85,10 @@ export interface VaultSyncSettings {
     syncFlexibleData: boolean; // data/flexible/*
     syncDeviceLogs: boolean; // logs/{deviceId}/*
     syncWorkspace: boolean; // workspace.json, workspace-mobile.json
+    /** The .obsidian categories above: the same on every device, or set per kind of device */
+    obsidianScopeStrategy: "unified" | "per-platform";
+    desktopObsidianScope: ObsidianScope;
+    mobileObsidianScope: ObsidianScope;
 
     // Authentication
     authMethod: OAuthMethod;
@@ -98,3 +108,8 @@ export interface VaultSyncSettings {
     /** Shape version of these settings (see services/settings-migration.ts). Absent = 0. */
     settingsVersion?: number;
 }
+
+/** The .obsidian categories that can be set per kind of device (PC or mobile) */
+export const OBSIDIAN_SCOPE_KEYS = ["syncCoreConfig", "syncCommunityPlugins", "syncAppearance", "syncWorkspace"] as const;
+export type ObsidianScopeKey = (typeof OBSIDIAN_SCOPE_KEYS)[number];
+export type ObsidianScope = Record<ObsidianScopeKey, boolean>;

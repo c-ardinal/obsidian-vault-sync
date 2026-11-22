@@ -1,4 +1,5 @@
 import { Platform } from "obsidian";
+import type { ObsidianScope, ObsidianScopeKey } from "../types/settings";
 import { normalizePath, basename } from "../utils/path";
 import { matchWildcard } from "../utils/wildcard";
 import { contentFingerprint } from "./content-fingerprint";
@@ -353,7 +354,7 @@ export function shouldNotBeOnRemote(ctx: FileUtilsCtx, path: string): boolean {
             return true;
         }
 
-        if (!ctx.settings.syncWorkspace) {
+        if (!obsidianScopeOn(ctx.settings, "syncWorkspace")) {
             if (
                 OBSIDIAN_WORKSPACE_FILES.some((f) => normalizedPath.endsWith("/" + f.toLowerCase()))
             ) {
@@ -361,7 +362,7 @@ export function shouldNotBeOnRemote(ctx: FileUtilsCtx, path: string): boolean {
             }
         }
 
-        if (!ctx.settings.syncAppearance) {
+        if (!obsidianScopeOn(ctx.settings, "syncAppearance")) {
             if (
                 normalizedPath.startsWith(".obsidian/themes/") ||
                 normalizedPath.startsWith(".obsidian/snippets/")
@@ -370,13 +371,13 @@ export function shouldNotBeOnRemote(ctx: FileUtilsCtx, path: string): boolean {
             }
         }
 
-        if (!ctx.settings.syncCommunityPlugins) {
+        if (!obsidianScopeOn(ctx.settings, "syncCommunityPlugins")) {
             if (normalizedPath.startsWith(".obsidian/plugins/")) {
                 return true;
             }
         }
 
-        if (!ctx.settings.syncCoreConfig) {
+        if (!obsidianScopeOn(ctx.settings, "syncCoreConfig")) {
             const coreFiles = [
                 ".obsidian/app.json",
                 ".obsidian/appearance.json",
@@ -445,6 +446,42 @@ function patternList(text: string | undefined): string[] {
         .filter((p) => p && !p.startsWith("#"));
 }
 
+/**
+ * Whether a .obsidian category syncs on this device: the shared toggle, or with
+ * "per PC / mobile" the toggle of this kind of device.
+ */
+export function obsidianScopeOn(
+    settings: {
+        obsidianScopeStrategy?: "unified" | "per-platform";
+        desktopObsidianScope?: Partial<ObsidianScope>;
+        mobileObsidianScope?: Partial<ObsidianScope>;
+    } & Partial<ObsidianScope>,
+    key: ObsidianScopeKey,
+): boolean {
+    if (settings.obsidianScopeStrategy === "per-platform") {
+        const own = Platform.isMobile ? settings.mobileObsidianScope : settings.desktopObsidianScope;
+        const v = own?.[key];
+        if (typeof v === "boolean") return v;
+    }
+    return !!settings[key];
+}
+
+/** Bytes above which a file is left out on this kind of device (PC or mobile); null = no limit */
+export function deviceMaxFileBytes(settings: { desktopMaxFileSizeMB?: number; mobileMaxFileSizeMB?: number }): number | null {
+    const mb = Platform.isMobile ? settings.mobileMaxFileSizeMB : settings.desktopMaxFileSizeMB;
+    return mb !== undefined && mb > 0 ? mb * 1024 * 1024 : null;
+}
+
+/**
+ * Over this kind of device's size limit: left out here like an excluded file. Not
+ * pulled, not pushed, and never deleted from the cloud on its account (other
+ * devices may sync it). A copy already here stays as it is.
+ */
+export function exceedsDeviceSizeLimit(ctx: Pick<FileUtilsCtx, "settings">, size: number | undefined): boolean {
+    const max = deviceMaxFileBytes(ctx.settings);
+    return max !== null && size !== undefined && size > max;
+}
+
 /** The list of this kind of device (PC or mobile) */
 export function deviceScopePatterns(settings: {
     desktopExclusionPatterns?: string;
@@ -489,6 +526,9 @@ export const SCOPE_SETTING_KEYS = [
     "syncWorkspace",
     "syncFlexibleData",
     "syncDeviceLogs",
+    "obsidianScopeStrategy",
+    "desktopObsidianScope",
+    "mobileObsidianScope",
 ] as const;
 
 /** The scope settings as one comparable value */

@@ -19,7 +19,7 @@ interface TriggerManagerDeps {
 
 /** Hidden at least this long: coming back syncs at once (the timer may not have run meanwhile) */
 export const RESUME_MIN_HIDDEN_MS = 3000;
-/** While the app is hidden and nothing local waits, the timer syncs at most this often */
+/** While the app is hidden on a PC and nothing local waits, the timer syncs at most this often (mobile: never) */
 export const HIDDEN_INTERVAL_MS = 5 * 60 * 1000;
 
 /** Shape of an Obsidian command entry (internal API) that we hook for save detection. */
@@ -289,9 +289,13 @@ export class TriggerManager {
         // Respect debounce: If user is actively editing, suppressed triggers (layout, interval)
         // should NOT interrupt. The 'modify' trigger (debounced) will handle it eventually.
         if (source === "interval" && this.hiddenSince) {
-            // In the background nobody looks: sync now and then, unless local changes wait
+            // In the background nobody looks: sync now and then, unless local changes wait.
+            // On a phone or tablet not at all: the sync when the app comes back to the
+            // front fetches what changed, and the battery is spared meanwhile.
             const now = Date.now();
-            if (syncManager.pendingChangeCount === 0 && now - this.lastHiddenRun < HIDDEN_INTERVAL_MS) return;
+            if (syncManager.pendingChangeCount === 0) {
+                if (Platform.isMobile || now - this.lastHiddenRun < HIDDEN_INTERVAL_MS) return;
+            }
             this.lastHiddenRun = now;
         }
 

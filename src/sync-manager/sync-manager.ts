@@ -1,6 +1,7 @@
 import { CloudAdapter } from "../types/adapter";
 import { TFile } from "obsidian";
-import { describeCtxState } from "./context-state";
+import { CtxFlag, describeCtxState } from "./context-state";
+import { isQuietCycle } from "./change-peek";
 import { logTail, MAX_LOG_LINES, type DiagnosticsSnapshot } from "./diagnostics";
 import {
     forgetDevice as _forgetDevice,
@@ -113,6 +114,17 @@ import { BackgroundTransferQueue } from "./background-transfer";
 import type { TransferItem, TransferRecord, TransferCallbacks } from "./transfer-types";
 export type { SyncManagerSettings, LocalFileIndex, SyncState, FullScanProgress, CommunicationData };
 export type { SyncTrigger } from "./notification-matrix";
+
+/** A vault-lock check found no lock since the plugin started */
+const vaultLockClear = new CtxFlag("vaultLockClear", "A vault-lock check found no lock since the plugin started");
+
+/** Automatic triggers whose vault-lock check can wait for a cycle that has changes */
+const QUIET_TRIGGERS: ReadonlySet<SyncTrigger> = new Set<SyncTrigger>([
+    "timer-sync",
+    "save-sync",
+    "modify-sync",
+    "layout-sync",
+]);
 export type { TransferItem, TransferRecord, TransferCallbacks } from "./transfer-types";
 
 export class SyncManager {
@@ -572,6 +584,21 @@ export class SyncManager {
 
     // === Sync Orchestration (delegated to sync-orchestration.ts) ===
 
+    /**
+     * The vault-lock check can wait for this sync: an automatic sync, nothing
+     * to upload or re-check here, an earlier check found no lock, and the
+     * change feed shows nothing new (a lock another device creates is a change
+     * there). The next sync with any change checks again.
+     */
+    private async lockCheckCanWait(trigger: SyncTrigger): Promise<boolean> {
+        if (!vaultLockClear.has(this) || !QUIET_TRIGGERS.has(trigger)) return false;
+        try {
+            return await isQuietCycle(this as unknown as SyncContext);
+        } catch {
+            return false; // the check itself reports the problem
+        }
+    }
+
     async requestSmartSync(
         trigger: SyncTrigger = "manual-sync",
         scanVault: boolean = false,
@@ -581,9 +608,10 @@ export class SyncManager {
             return;
         }
         // Auto-detect remote E2EE before first sync attempt
-        if (!this.settings.e2eeEnabled) {
+        if (!this.settings.e2eeEnabled && !(await this.lockCheckCanWait(trigger))) {
             try {
                 const hasRemoteLock = await this.vaultLockService.checkForLockFile();
+                if (!hasRemoteLock) vaultLockClear.add(this);
                 if (hasRemoteLock) {
                     await this.log("Remote E2EE detected. Enabling E2EE locally.", "system");
                     this.settings.e2eeEnabled = true;

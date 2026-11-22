@@ -3,8 +3,11 @@
 
 import { getLanguage } from "obsidian";
 import ja from "./lang/ja.json";
+import ko from "./lang/ko.json";
+import zh from "./lang/zh.json";
 
-const languages: Record<string, Record<string, string>> = { ja };
+/** Obsidian language codes: "zh" is Simplified Chinese */
+const languages: Record<string, Record<string, string>> = { ja, zh, ko };
 
 export const en: Record<string, string> = {
     // Settings UI
@@ -38,20 +41,25 @@ export const en: Record<string, string> = {
     unitFiles: "files",
     unitMB: "MB",
     unitPercent: "%",
-    settingSubheaderDeletionSafety: "Deletion safety",
-    settingMassDeleteFiles: "Confirm Deletions by Count",
-    settingMassDeleteFilesDesc: "Ask before one sync deletes at least this many files.",
-    settingMassDeletePercent: "Confirm Deletions by Share",
-    settingMassDeletePercentDesc: "Ask before one sync deletes at least this share of the synced files.\nApplies from 5 deleted files.",
+    settingSubheaderDeletionSafety: "Deletion and overwrite safety",
+    settingMassDeleteFiles: "Confirm by Count",
+    settingMassDeleteFilesDesc: "Ask before one sync deletes, or overwrites on the cloud, at least this many files.\nOverwrites count notes and attachments, not the .obsidian folder.",
+    settingMassDeletePercent: "Confirm by Share",
+    settingMassDeletePercentDesc: "Ask before one sync deletes, or overwrites on the cloud, at least this share of the synced files.\nApplies from 5 files.",
     massDeleteTitle: "Confirm deletions",
     massDeleteBodyPush: "This sync will delete {n} file(s) from the cloud.",
     massDeleteBodyPull: "Other devices deleted files: this sync will delete {n} file(s) on this device.",
     massDeleteFolderFiles: "{n} files",
     massDeleteMore: "…and {n} more",
-    massDeleteHoldNote: "If you hold: deletions made on this device are asked about again at the next sync. Files deleted on another device are kept here and uploaded again.",
+    massDeleteHoldNote: "If you hold: deletions made on this device are asked about again at the next sync you start. Files deleted on another device are kept here and uploaded again.",
     massDeleteRun: "Delete",
     massDeleteHold: "Hold for now",
-    noticeMassDeleteHeld: "Deletions held. They are asked about again at the next sync.",
+    noticeMassDeleteHeld: "Held. You are asked again at the next sync you start.",
+    massChangeTitle: "Confirm deletions and overwrites",
+    massOverwriteTitle: "Confirm overwrites",
+    massOverwriteBody: "This sync will overwrite {n} file(s) on the cloud with this device's version.",
+    massOverwriteHoldNote: "If you hold: the edits stay on this device only, and are asked about again at the next sync you start. Earlier versions stay in the file history.",
+    massChangeRun: "Proceed",
     unitDays: "days",
     settingRemoteTrash: "Keep Deleted Files",
     settingRemoteTrashDesc: "Keep a copy of files deleted from the cloud for this many days, so they can be restored.\nOff: files are deleted at once.",
@@ -71,7 +79,10 @@ export const en: Record<string, string> = {
     remoteTrashDeleteConfirm: "Click again to delete for good",
     noticeRemoteTrashRestored: "Restored: {path}. It arrives with the next sync.",
     settingAutoKeepRevisions: "Keep Note Versions",
-    settingAutoKeepRevisionsDesc: "Mark one version of each note as kept forever per this many days, so the cloud does not remove old versions on its own.\nMarkdown notes only.",
+    settingAutoKeepRevisionsDesc: "Mark one version of each note as kept forever per this many days, so the cloud does not remove old versions on its own.\nMarkdown notes only, unless attachments are included below.",
+    settingAutoKeepAttachments: "Include Attachments",
+    settingAutoKeepAttachmentsDesc:
+        "Also keep versions of images, PDFs and other attachments. Each kept version uses cloud storage, so large files that change often use more.",
     conflictResolveTitle: "Resolve Conflict",
     conflictResolveIntro: "This device and the cloud changed this note in {n} place(s). For each, choose which lines to keep. The result can also be edited.",
     conflictResolveSame: "Both versions have the same content now. Keep either to remove the conflict copy.",
@@ -203,7 +214,7 @@ export const en: Record<string, string> = {
     settingStartupSyncDesc: "Sync with cloud automatically upon starting Obsidian.",
     settingAutoSyncInterval: "Trigger: Auto-sync Interval",
     settingAutoSyncIntervalDesc:
-        "Sync periodically in background. Also syncs at once when the app comes back to the front or the network comes back; while the app is hidden, at most every 5 minutes unless local changes wait.\nNote: To prevent data loss, sync is skipped while you are actively editing.",
+        "Sync periodically in background. Also syncs at once when the app comes back to the front or the network comes back; while the app is hidden, at most every 5 minutes on a PC and not at all on mobile, unless local changes wait.\nNote: To prevent data loss, sync is skipped while you are actively editing.",
     settingTriggerSave: "Trigger: Save [Ctrl+S]",
     settingTriggerSaveDesc: "Sync when you explicitly save a file.",
     settingModify: "Trigger: Modify Delay",
@@ -248,6 +259,11 @@ export const en: Record<string, string> = {
     settingSubheaderCloudStorage: "Cloud Storage",
     settingSubheaderObsidian: "Obsidian Settings",
     settingSubheaderAppearance: "Appearance & Layout",
+    settingObsidianScopeStrategy: "Obsidian settings strategy",
+    settingObsidianScopeStrategyDesc:
+        "Sync the Obsidian settings below the same way on every device, or choose them separately for PCs and for mobile devices. Each kind of device shows and changes its own choices.",
+    settingSuffixDesktop: " (PC)",
+    settingSuffixMobile: " (mobile)",
     settingSubheaderContent: "Content",
     settingSubheaderExclusion: "Exclusions",
     settingSubheaderLogging: "Logging",
@@ -285,6 +301,10 @@ export const en: Record<string, string> = {
     settingMobileExclusionPatterns: "Exclude files/folders (mobile only)",
     settingMobileExclusionPatternsDesc:
         "Files and folders phones and tablets do not sync. They stay in the cloud and keep syncing on PCs. Files already on a mobile device are kept, and deleting them there does not delete them in the cloud. Shared by all your mobile devices.",
+    settingDesktopMaxFileSize: "File size limit (PC)",
+    settingMobileMaxFileSize: "File size limit (mobile)",
+    settingMaxFileSizeDesc:
+        "Files larger than this are not synced on this kind of device. They stay in the cloud and keep syncing on devices without the limit. A copy already on the device is kept as it is.",
     settingMobileExclusionModalTitle: "Exclusion patterns (mobile only)",
     settingMobileExclusionModalNote:
         "Matching files are not downloaded, uploaded or deleted by phones and tablets. They stay in the cloud for PCs.",

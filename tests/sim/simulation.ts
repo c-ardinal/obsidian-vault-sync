@@ -31,7 +31,7 @@ import { SimCloud, MUTATING_METHODS, PERFECT_NETWORK, type NetworkProfile } from
 import { SimDevice, isInternalPath } from "./sim-device";
 import type { FsPersonality } from "./sim-vault";
 import { createSimCryptoEngine } from "./sim-crypto";
-import { MassDeleteGuard } from "../../src/sync-manager/mass-change-guard";
+import { MassChangeGuard } from "../../src/sync-manager/mass-change-guard";
 
 // ───────────────────────── Config ─────────────────────────
 
@@ -414,17 +414,19 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
         const askRng = new Rng(cfg.seed).fork(13);
         for (const dev of devices.values()) {
             dev.onBoot = (d) => {
-                d.sm.planGuard = new MassDeleteGuard(
+                d.sm.planGuard = new MassChangeGuard(
                     () => ({ massDeleteConfirmFiles: md.files, massDeleteConfirmPercent: md.percent }),
                     () => d.sm.syncedFileCount(),
-                    async (plan, summary) => {
+                    async (plan, summary, kinds) => {
                         const ok = !chaosPhase || !askRng.chance(md.declineRate);
+                        const what = [kinds.deletes ? "delete" : "", kinds.overwrites ? "overwrite" : ""].filter(Boolean).join("+");
                         log(
                             d.name,
-                            `USER mass-delete prompt (${plan.step}, ${summary.remoteFilesDeleted + summary.localFilesDeleted} files): ${ok ? "run" : "hold"}`,
+                            `USER mass-${what} prompt (${plan.step}, ${summary.remoteFilesDeleted + summary.localFilesDeleted} deleted, ${summary.remoteFilesOverwritten} overwritten): ${ok ? "run" : "hold"}`,
                         );
                         return ok;
                     },
+                    () => d.sm.currentTrigger === "manual-sync" || d.sm.currentTrigger === "full-scan",
                 );
             };
             dev.onBoot(dev);

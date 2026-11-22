@@ -9,8 +9,8 @@ import { CtxState } from "./context-state";
  * keeps a version 30 days or for the last 100 versions unless it is marked
  * "keep forever"). After a sync, the notes it uploaded get their newest version
  * marked keep-forever when no version of that note was marked within the
- * interval. Only Markdown notes: they are small, and other files (images,
- * PDFs) would cost storage for every kept version.
+ * interval. Markdown notes by default: they are small. Attachments (images,
+ * PDFs) only when the user opts in, since every kept version costs storage.
  *
  * A note with many kept versions is left alone (Drive refuses more than 200
  * per file), so a manual "keep forever" in the history screen stays possible.
@@ -22,7 +22,7 @@ const MAX_KEPT_PER_FILE = 150;
 
 interface RetentionCtx {
     adapter: CloudAdapter;
-    settings: { autoKeepRevisionDays?: number };
+    settings: { autoKeepRevisionDays?: number; autoKeepAttachmentRevisions?: boolean };
     log: (message: string, level?: LogLevel) => Promise<void>;
 }
 
@@ -49,9 +49,18 @@ function applies(ctx: RetentionCtx): boolean {
     );
 }
 
-/** Record a note this sync uploaded (cheap; the work happens after the sync) */
+/**
+ * Files whose versions are kept: Markdown notes, and with the opt-in the other
+ * files of the vault. Never settings or plugin files (anything under a dot folder).
+ */
+export function keepsVersionsOf(ctx: RetentionCtx, path: string): boolean {
+    if (path.toLowerCase().endsWith(".md")) return true;
+    return !!ctx.settings.autoKeepAttachmentRevisions && !path.split("/").some((seg) => seg.startsWith("."));
+}
+
+/** Record a file this sync uploaded (cheap; the work happens after the sync) */
 export function noteUploadedForRetention(ctx: RetentionCtx, path: string, fileId: string): void {
-    if (!path.toLowerCase().endsWith(".md") || !applies(ctx)) return;
+    if (!keepsVersionsOf(ctx, path) || !applies(ctx)) return;
     mapOf(uploaded, ctx).set(path, fileId);
 }
 
