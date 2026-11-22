@@ -902,12 +902,13 @@ async function checkProtectionAndNumbers(main, lang, { mobile = false } = {}) {
         await input.fill("50");
         await input.press("Enter");
         await sleep(300);
-        const r = await page.evaluate((id) => {
-            const p = window.app.plugins.plugins[id];
+        // The settings may be their own window: read the field there, the value in the app
+        const r = await page.evaluate(() => {
             const el = document.querySelector(".vault-sync-settings-page .vault-sync-number-setting input");
             const hint = document.querySelector(".vault-sync-settings-page .vault-sync-number-hint");
-            return { saved: p.settings.concurrency, shown: el?.value, flagged: hint?.classList.contains("is-error") };
-        }, PLUGIN_ID);
+            return { shown: el?.value, flagged: hint?.classList.contains("is-error") };
+        });
+        r.saved = await main.evaluate((id) => window.app.plugins.plugins[id].settings.concurrency, PLUGIN_ID);
         check(
             lang,
             `${tag}: out-of-range number is clamped, shown and flagged`,
