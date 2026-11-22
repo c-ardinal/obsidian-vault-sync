@@ -168,6 +168,9 @@ export async function runPerf(opts: PerfOptions = DEFAULT_PERF): Promise<PerfRes
         // ── Idle ──
         await measure("A: idle", () => sync(A));
         await measure("B: idle", () => sync(B));
+        // What the app does while open: the timer, with nothing new anywhere
+        await measure("A: idle timer", () => A.startSync("timer-sync", false));
+        await measure("B: idle timer", () => B.startSync("timer-sync", false));
 
         // ── Correctness ──
         const user = (d: SimDevice) =>

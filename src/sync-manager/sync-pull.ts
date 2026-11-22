@@ -1,4 +1,5 @@
-import { capabilitiesOf } from "../types/adapter";
+import { capabilitiesOf, type CloudChanges } from "../types/adapter";
+import { isQuietCycle, takePeekedChanges } from "./change-peek";
 import { removeRemote } from "./remote-deletion";
 import { PlanDecision, reviewPlan } from "./sync-plan";
 import type { CommunicationData } from "./types";
@@ -25,6 +26,7 @@ import {
     renameLocal,
     alignFolderSpelling,
     hasDeleteIntent,
+    clearDeleteIntent,
     markDeleted,
 } from "./state";
 import { noteKeptCopy, pullFileSafely, takePullLockSkip } from "./merge";
@@ -393,6 +395,17 @@ function buildInlineDownloadTasks(
  * Returns true if the local file was deleted.
  */
 async function applyRemoteDeletion(ctx: SyncContext, path: string, decision: PlanDecision): Promise<boolean> {
+    if (hasDeleteIntent(ctx, path)) {
+        // Deleted here as well. On Windows/macOS a file still found at this name is
+        // another note under another spelling (renamed onto the name since): keeping
+        // it under this name uploaded that note as this one, trashing it lost it.
+        // Gone on both sides: nothing is left to push for this name.
+        delete ctx.index[path];
+        delete ctx.localIndex[path];
+        ctx.dirtyPaths.delete(path);
+        clearDeleteIntent(ctx, path);
+        return true;
+    }
     const file = ctx.vault.getAbstractFileByPath(path);
     const base = ctx.localIndex[path] ?? ctx.index[path];
     if (file && !decision.allows("delete-local", path)) {
@@ -696,6 +709,18 @@ function buildForbiddenRemoteCleanupTasks(
 export async function smartPull(ctx: SyncContext): Promise<boolean> {
     await ctx.log("[Smart Pull] Checking for remote changes...", "debug");
 
+    // Nothing new in the change feed and nothing waiting here: the merge locks
+    // and the rest of the pull only matter when something changed.
+    if (await isQuietCycle(ctx)) {
+        const page = takePeekedChanges(ctx, ctx.startPageToken!)!;
+        await ctx.log("[Smart Pull] No changes from Changes API (quiet cycle)", "debug");
+        if (page.newStartPageToken && page.newStartPageToken !== ctx.startPageToken) {
+            ctx.startPageToken = page.newStartPageToken;
+            await saveIndex(ctx);
+        }
+        return false;
+    }
+
     // Check for active merge locks from other devices FIRST
     await checkMergeLocks(ctx);
 
@@ -711,7 +736,11 @@ export async function smartPull(ctx: SyncContext): Promise<boolean> {
         // preventing a full pull on a fresh device.
         const hasIndex = Object.keys(ctx.index).length > 0;
         if (ctx.startPageToken && hasIndex) {
-            const changesResult = await pullViaChangesAPI(ctx);
+            const changesResult = await pullViaChangesAPI(
+                ctx,
+                false,
+                takePeekedChanges(ctx, ctx.startPageToken),
+            );
 
             // Re-check files with pendingConflict whose merge lock has expired.
             // Changes API may have consumed the change while the lock was active,
@@ -1000,6 +1029,8 @@ type ChangedFile = {
 export async function pullViaChangesAPI(
     ctx: SyncContext,
     drainAll: boolean = false,
+    /** The first page, already read from ctx.startPageToken (see change-peek.ts) */
+    firstPage?: CloudChanges,
 ): Promise<boolean> {
     if (!ctx.startPageToken) {
         ctx.startPageToken = await ctx.adapter.getStartPageToken!();
@@ -1052,7 +1083,10 @@ export async function pullViaChangesAPI(
     };
 
     for (let page = 0; page < CHANGES_MAX_PAGES_PER_SYNC && currentPageToken; page++) {
-        const changes = await ctx.adapter.getChanges!(currentPageToken);
+        const changes =
+            page === 0 && firstPage && currentPageToken === ctx.startPageToken
+                ? firstPage
+                : await ctx.adapter.getChanges!(currentPageToken);
 
         if (changes.changes.length === 0 && changes.nextPageToken) {
             // Drive may return an empty page that is not the last one (e.g. every change

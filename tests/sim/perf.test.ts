@@ -28,5 +28,9 @@ describe("sync performance benchmark", () => {
         for (const p of r.phases.filter((p) => p.name.includes("idle"))) {
             expect(p.calls).toBeLessThanOrEqual(8);
         }
+        // A timer sync with nothing new reads only the change feed
+        for (const p of r.phases.filter((p) => p.name.endsWith("idle timer"))) {
+            expect(p.byMethod).toEqual({ getChanges: 1 });
+        }
     });
 });
