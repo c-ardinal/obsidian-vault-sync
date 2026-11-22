@@ -139,15 +139,9 @@ const getTriggerItems = (prefix: string): SettingItem[] => [
 export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
     return [
         {
-            id: "performance",
-            title: t("settingPerfSection"),
+            id: "sync_behavior",
+            title: t("settingBehaviorSection"),
             items: [
-                // ── Sync Behavior ──
-                {
-                    key: "_subheader_sync_behavior",
-                    type: "subheader",
-                    label: t("settingSubheaderSyncBehavior"),
-                },
                 {
                     key: "conflictResolutionStrategy",
                     type: "dropdown",
@@ -170,6 +164,43 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                         standard: t("settingNotificationLevelStandard"),
                         error: t("settingNotificationLevelError"),
                     },
+                },
+            ],
+        },
+        {
+            id: "data_protection",
+            title: t("settingProtectionSection"),
+            items: [
+                // ── Restore ──
+                {
+                    key: "_subheader_restore",
+                    type: "subheader",
+                    label: t("settingSubheaderRestore"),
+                },
+                {
+                    key: "_open_remote_trash",
+                    type: "button",
+                    label: t("settingOpenRemoteTrash"),
+                    desc: t("settingOpenRemoteTrashDesc"),
+                    buttonText: t("settingOpenRemoteTrashButton"),
+                    onClick: (p) => p.openRemoteTrash(),
+                },
+                {
+                    key: "_open_point_in_time",
+                    type: "button",
+                    label: t("settingOpenPointInTime"),
+                    desc: t("settingOpenPointInTimeDesc"),
+                    buttonText: t("settingOpenPointInTimeButton"),
+                    isHidden: (_s, p) => !p.syncManager.supportsHistory,
+                    onClick: (p) => p.openPointInTime(""),
+                },
+                {
+                    key: "_open_devices",
+                    type: "button",
+                    label: t("settingOpenDevices"),
+                    desc: t("settingOpenDevicesDesc"),
+                    buttonText: t("settingOpenRemoteTrashButton"),
+                    onClick: (p) => p.openDevices(),
                 },
                 // ── Deletion Safety ──
                 {
@@ -201,6 +232,12 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                     limits: SETTINGS_LIMITS.remoteTrashRetentionDays,
                     unit: t("unitDays"),
                 },
+                // ── Version keeping ──
+                {
+                    key: "_subheader_keep_versions",
+                    type: "subheader",
+                    label: t("settingSubheaderKeepVersions"),
+                },
                 {
                     key: "autoKeepRevisionDays",
                     type: "toggle-number",
@@ -216,37 +253,12 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                     desc: t("settingAutoKeepAttachmentsDesc"),
                     isHidden: (s) => s.autoKeepRevisionDays < 1,
                 },
-                {
-                    key: "_open_remote_trash",
-                    type: "button",
-                    label: t("settingOpenRemoteTrash"),
-                    desc: t("settingOpenRemoteTrashDesc"),
-                    buttonText: t("settingOpenRemoteTrashButton"),
-                    onClick: (p) => p.openRemoteTrash(),
-                },
-                {
-                    key: "_open_point_in_time",
-                    type: "button",
-                    label: t("settingOpenPointInTime"),
-                    desc: t("settingOpenPointInTimeDesc"),
-                    buttonText: t("settingOpenPointInTimeButton"),
-                    isHidden: (_s, p) => !p.syncManager.supportsHistory,
-                    onClick: (p) => p.openPointInTime(""),
-                },
-                {
-                    key: "_open_devices",
-                    type: "button",
-                    label: t("settingOpenDevices"),
-                    desc: t("settingOpenDevicesDesc"),
-                    buttonText: t("settingOpenRemoteTrashButton"),
-                    onClick: (p) => p.openDevices(),
-                },
-                // ── Performance Tuning ──
-                {
-                    key: "_subheader_performance",
-                    type: "subheader",
-                    label: t("settingSubheaderPerformance"),
-                },
+            ],
+        },
+        {
+            id: "transfer",
+            title: t("settingTransferSection"),
+            items: [
                 {
                     key: "concurrency",
                     type: "number",

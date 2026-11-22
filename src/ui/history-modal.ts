@@ -9,10 +9,12 @@ import {
     Menu,
     TextComponent,
 } from "obsidian";
+import { formatDateTime, formatDay, formatTimeOfDay } from "./format-time";
 import { SyncManager } from "../sync-manager";
 import { FileRevision } from "../types/adapter";
 import { diff_match_patch } from "diff-match-patch";
 import { PromptModal } from "./prompt-modal";
+import { ConfirmModal } from "./confirm-modal";
 import { formatSize } from "../utils/format";
 
 interface DiffSegment {
@@ -41,6 +43,8 @@ export class HistoryModal extends Modal {
     private diffBlocks: HTMLElement[][] = [];
     private currentDiffIndex: number = -1;
     private isDrawerOpen: boolean = false;
+    /** A revision was picked with the keyboard: keep the focus on it after the re-render */
+    private focusSelectedAfterRender = false;
 
     // Cache: revisionId -> content string (Persistent across modal instances)
     private static contentCache: Map<string, string> = new Map();
@@ -195,7 +199,7 @@ export class HistoryModal extends Modal {
         let lastDateStr = "";
         for (const rev of this.revisions) {
             const date = new Date(rev.modifiedTime);
-            const dateStr = date.toLocaleDateString();
+            const dateStr = formatDay(date.getTime());
             if (dateStr !== lastDateStr) {
                 ul.createEl("li", { cls: "vault-sync-revision-date-header" }).setText(dateStr);
                 lastDateStr = dateStr;
@@ -206,11 +210,7 @@ export class HistoryModal extends Modal {
                 li.addClass("is-selected");
             }
 
-            const timeStr = date.toLocaleTimeString([], {
-                hour: "2-digit",
-                minute: "2-digit",
-                second: "2-digit",
-            });
+            const timeStr = formatTimeOfDay(date.getTime());
             const metaDiv = li.createDiv({ cls: "revision-meta" });
 
             // Row 1: Time and Hash
@@ -237,6 +237,23 @@ export class HistoryModal extends Modal {
                 pin.title = this.syncManager.t("historyProtectedFromDeletion");
             }
 
+            // Keyboard: Tab reaches the list, arrows move, Enter / Space select
+            li.tabIndex = 0;
+            li.setAttr("role", "button");
+            li.setAttr("aria-pressed", String(this.selectedRevision?.id === rev.id));
+            li.addEventListener("keydown", (e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    this.focusSelectedAfterRender = true;
+                    li.click();
+                } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                    e.preventDefault();
+                    const items = Array.from(ul.querySelectorAll<HTMLElement>(".vault-sync-revision-item"));
+                    const next = items[items.indexOf(li) + (e.key === "ArrowDown" ? 1 : -1)];
+                    next?.focus();
+                }
+            });
+
             li.addEventListener("click", () => {
                 this.selectedRevision = rev;
                 // Reset base to previous relative to the NEW selection
@@ -254,6 +271,10 @@ export class HistoryModal extends Modal {
         }
         ul.scrollLeft = this.listScrollLeft;
         ul.scrollTop = this.listScrollTop;
+        if (this.focusSelectedAfterRender) {
+            this.focusSelectedAfterRender = false;
+            ul.querySelector<HTMLElement>(".vault-sync-revision-item.is-selected")?.focus();
+        }
 
         if (!this.selectedRevision) {
             const placeholder = container.createDiv({ cls: "placeholder-container" });
@@ -282,7 +303,7 @@ export class HistoryModal extends Modal {
             const prev = this.revisions[currentIdx + 1];
             dropdown.addOption(
                 prev.id,
-                `${this.syncManager.t("historyPreviousVersion")} (${new Date(prev.modifiedTime).toLocaleString()})`,
+                `${this.syncManager.t("historyPreviousVersion")} (${formatDateTime(prev.modifiedTime)})`,
             );
         } else {
             dropdown.addOption(
@@ -299,7 +320,7 @@ export class HistoryModal extends Modal {
                 return;
             dropdown.addOption(
                 r.id,
-                `${new Date(r.modifiedTime).toLocaleString()} (${r.author || this.syncManager.t("historyAuthorUnknown")})`,
+                `${formatDateTime(r.modifiedTime)} (${r.author || this.syncManager.t("historyAuthorUnknown")})`,
             );
         });
         if (this.baseRevision) {
@@ -403,9 +424,11 @@ export class HistoryModal extends Modal {
 
                             // Warn before enabling, as it cannot be undone for past revisions
                             if (newVal) {
-                                const confirmed = window.confirm(
+                                const confirmed = await new ConfirmModal(
+                                    this.app,
                                     this.syncManager.t("historyKeepForeverConfirm"),
-                                );
+                                    this.syncManager.t("historyKeepForever"),
+                                ).ask();
                                 if (!confirmed) return;
                             }
 
@@ -496,12 +519,13 @@ export class HistoryModal extends Modal {
                         .setIcon("rotate-ccw")
                         .setWarning(true)
                         .onClick(async () => {
-                            const dateStr = new Date(
-                                this.selectedRevision!.modifiedTime,
-                            ).toLocaleString();
-                            const confirmed = window.confirm(
+                            const dateStr = formatDateTime(this.selectedRevision!.modifiedTime);
+                            const confirmed = await new ConfirmModal(
+                                this.app,
                                 this.syncManager.t("historyRestoreConfirm").replace("{0}", dateStr),
-                            );
+                                this.syncManager.t("historyRestoreVersion"),
+                                true,
+                            ).ask();
                             if (confirmed) {
                                 this.close();
                                 await this.syncManager.restoreRevision(
@@ -520,12 +544,13 @@ export class HistoryModal extends Modal {
                         .setIcon("trash")
                         .setWarning(true)
                         .onClick(async () => {
-                            const dateStr = new Date(
-                                this.selectedRevision!.modifiedTime,
-                            ).toLocaleString();
-                            const confirmed = window.confirm(
+                            const dateStr = formatDateTime(this.selectedRevision!.modifiedTime);
+                            const confirmed = await new ConfirmModal(
+                                this.app,
                                 this.syncManager.t("historyDeleteConfirm").replace("{0}", dateStr),
-                            );
+                                this.syncManager.t("historyDeleteRevision"),
+                                true,
+                            ).ask();
                             if (!confirmed) return;
 
                             try {

@@ -1,4 +1,5 @@
 import { App, Modal, Notice, Setting, TFile } from "obsidian";
+import { formatDateTime } from "./format-time";
 import { t } from "../i18n";
 import type { RestoreAction, RestorePlan, RestoreResult } from "../sync-manager/point-in-time";
 import { countByAction } from "../sync-manager/point-in-time";
@@ -137,7 +138,7 @@ export class PointInTimeModal extends Modal {
         const { contentEl } = this;
         contentEl.empty();
         const counts = countByAction(plan);
-        const when = new Date(plan.time).toLocaleString();
+        const when = formatDateTime(plan.time);
         contentEl.createEl("p", {
             cls: "vault-sync-pit-note",
             text: fill(t("pitPlanIntro"), { folder: plan.folder || t("pitWholeVault"), time: when }),

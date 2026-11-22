@@ -14,7 +14,9 @@ type PageId =
     | "account"
     | "triggers"
     | "scope"
-    | "performance"
+    | "behavior"
+    | "protection"
+    | "transfer"
     | "display"
     | "addons"
     | "advanced";
@@ -55,11 +57,25 @@ const CATEGORIES: SettingsCategory[] = [
         sectionIds: ["sync_scope"],
     },
     {
-        id: "performance",
+        id: "behavior",
+        icon: "git-merge",
+        titleKey: "settingBehaviorSection",
+        descKey: "settingCategoryBehaviorDesc",
+        sectionIds: ["sync_behavior"],
+    },
+    {
+        id: "protection",
+        icon: "shield-check",
+        titleKey: "settingProtectionSection",
+        descKey: "settingCategoryProtectionDesc",
+        sectionIds: ["data_protection"],
+    },
+    {
+        id: "transfer",
         icon: "gauge",
-        titleKey: "settingPerfSection",
-        descKey: "settingCategoryPerformanceDesc",
-        sectionIds: ["performance"],
+        titleKey: "settingTransferSection",
+        descKey: "settingCategoryTransferDesc",
+        sectionIds: ["transfer"],
     },
     {
         id: "display",
@@ -567,30 +583,7 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                 const numCol = setting.controlEl.createDiv({
                     cls: "vault-sync-number-column",
                 });
-                setting.addText((text) => {
-                    text.setValue(String(this.getSettingValue(item.key)))
-                        .setPlaceholder(item.limits ? String(item.limits.default) : "")
-                        .onChange(async (val) => {
-                            const numVal = this.validateNumber(
-                                val,
-                                item.limits?.min ?? -Infinity,
-                                item.limits?.max ?? Infinity,
-                                item.limits?.default ?? 0,
-                                item.limits?.disabled,
-                            );
-                            this.setSettingValue(item.key, numVal);
-                            await this.plugin.saveSettings();
-                            if (item.onChange) await item.onChange(numVal, this.plugin);
-                        });
-
-                    this.addUnitAddon(text.inputEl, item.unit);
-                    const el =
-                        text.inputEl.closest(".vault-sync-number-wrapper") || text.inputEl;
-                    numCol.appendChild(el);
-                });
-                if (item.limits) {
-                    this.addLimitsHint(numCol, item.limits);
-                }
+                this.addNumberInput(setting, numCol, item, item.limits?.disabled);
                 break;
             }
             case "toggle-number": {
@@ -614,30 +607,7 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                     const numCol = setting.controlEl.createDiv({
                         cls: "vault-sync-number-column",
                     });
-                    setting.addText((text) => {
-                        text.setValue(String(currentVal))
-                            .setPlaceholder(item.limits ? String(item.limits.default) : "")
-                            .onChange(async (val) => {
-                                const numVal = this.validateNumber(
-                                    val,
-                                    item.limits?.min ?? -Infinity,
-                                    item.limits?.max ?? Infinity,
-                                    item.limits?.default ?? 0,
-                                );
-                                this.setSettingValue(item.key, numVal);
-                                await this.plugin.saveSettings();
-                                if (item.onChange) await item.onChange(numVal, this.plugin);
-                            });
-
-                        this.addUnitAddon(text.inputEl, item.unit);
-                        const el =
-                            text.inputEl.closest(".vault-sync-number-wrapper") ||
-                            text.inputEl;
-                        numCol.appendChild(el);
-                    });
-                    if (item.limits) {
-                        this.addLimitsHint(numCol, item.limits);
-                    }
+                    this.addNumberInput(setting, numCol, item);
                 }
                 break;
             }
@@ -797,8 +767,8 @@ export class VaultSyncSettingTab extends PluginSettingTab {
     private addLimitsHint(
         controlEl: HTMLElement,
         limits: { min: number; max: number; default: number },
-    ): void {
-        controlEl.createDiv({
+    ): HTMLElement {
+        return controlEl.createDiv({
             cls: "vault-sync-number-hint",
             text: t("settingDefaultHint")
                 .replace("{0}", String(limits.min))
@@ -807,18 +777,67 @@ export class VaultSyncSettingTab extends PluginSettingTab {
         });
     }
 
-    private validateNumber(
-        value: string,
-        min: number,
-        max: number,
-        defaultValue: number,
+    /**
+     * Number field: checked and saved when committed (blur / Enter), not per
+     * keystroke. A value out of range is moved to the nearest limit, shown in the
+     * field, and the range hint is highlighted for a moment.
+     */
+    private addNumberInput(setting: Setting, numCol: HTMLElement, item: SettingItem, disabledValue?: number): void {
+        let hintEl: HTMLElement | null = null;
+        setting.addText((text) => {
+            const current = () => String(this.getSettingValue(item.key));
+            text.setValue(current()).setPlaceholder(item.limits ? String(item.limits.default) : "");
+            text.inputEl.inputMode = "numeric";
+            let busy = false;
+            const commit = async () => {
+                if (busy) return;
+                const raw = text.getValue().trim();
+                const prev = Number(this.getSettingValue(item.key));
+                const { value, adjusted } = this.normalizeNumber(raw, prev, item.limits, disabledValue);
+                text.setValue(String(value));
+                if (adjusted && hintEl) {
+                    hintEl.addClass("is-error");
+                    window.setTimeout(() => hintEl?.removeClass("is-error"), 2500);
+                }
+                if (value === prev) return;
+                busy = true;
+                try {
+                    this.setSettingValue(item.key, value);
+                    await this.plugin.saveSettings();
+                    if (item.onChange) await item.onChange(value, this.plugin);
+                } finally {
+                    busy = false;
+                }
+            };
+            text.inputEl.addEventListener("change", () => void commit());
+            text.inputEl.addEventListener("keydown", (e) => {
+                if (e.key === "Enter") text.inputEl.blur();
+            });
+
+            this.addUnitAddon(text.inputEl, item.unit);
+            const el = text.inputEl.closest(".vault-sync-number-wrapper") || text.inputEl;
+            numCol.appendChild(el);
+        });
+        if (item.limits) hintEl = this.addLimitsHint(numCol, item.limits);
+    }
+
+    /**
+     * Entered text to a stored number: empty or not a number keeps the previous
+     * value, out of range moves to the nearest limit. `adjusted` tells the caller
+     * to point at the allowed range.
+     */
+    private normalizeNumber(
+        raw: string,
+        prev: number,
+        limits: SettingItem["limits"],
         disabledValue?: number,
-    ): number {
-        const num = Number(value);
-        if (isNaN(num)) return defaultValue;
-        if (disabledValue !== undefined && num === disabledValue) return num;
-        if (num < min || num > max) return defaultValue;
-        return num;
+    ): { value: number; adjusted: boolean } {
+        const num = Number(raw);
+        if (raw === "" || !Number.isFinite(num)) return { value: prev, adjusted: raw !== "" };
+        if (!limits) return { value: num, adjusted: false };
+        if (disabledValue !== undefined && num === disabledValue) return { value: num, adjusted: false };
+        const clamped = Math.min(limits.max, Math.max(limits.min, num));
+        return { value: clamped, adjusted: clamped !== num };
     }
 
     private getSettingValue(key: string): unknown {

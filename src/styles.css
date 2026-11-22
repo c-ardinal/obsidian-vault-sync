@@ -773,6 +773,10 @@
     line-height: 1.2;
 }
 
+.vault-sync-number-hint.is-error {
+    color: var(--text-error);
+}
+
 /* Compact settings: prevent mobile wrap so label and control stay side-by-side */
 .is-mobile .vault-sync-number-setting.setting-item,
 .is-mobile .vault-sync-info-setting.setting-item {
@@ -2201,4 +2205,26 @@
     margin: 0 0 var(--size-4-3);
     color: var(--text-muted);
     font-size: var(--font-ui-small);
+}
+
+/* Conflict count in the sync status panel: opens the conflict resolver */
+.vault-sync-status-link {
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.vault-sync-status-btns .vault-sync-status-more {
+    padding: var(--size-2-2) var(--size-2-3);
+}
+
+.vault-sync-revision-item:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 2px var(--background-modifier-border-focus);
+}
+
+/* Delete button of an exclusion pattern: a full-size touch target on phones */
+.is-mobile .vault-sync-exclusion-delete {
+    min-width: 44px;
+    min-height: 44px;
+    justify-content: center;
 }
