@@ -1331,6 +1331,9 @@ async function checkAddonPages(main, lang, { mobile = false } = {}) {
     await page.locator(".vault-sync-addon-install button.mod-cta").last().click();
     // The install dialog closes and the settings move on to the add-on's own page
     await page.waitForSelector(".vault-sync-addon-page", { timeout: 10000 }).catch(() => {});
+    // Phone dialogs slide out: wait until the install dialog is really gone
+    await page.waitForSelector(".vault-sync-addon-install", { state: "detached", timeout: 5000 }).catch(() => {});
+    await sleep(300);
     const onPage = await page.$(".vault-sync-addon-page");
     check(lang, `${tag}: after install the add-on page opens by itself`, !!onPage);
     if (!onPage) {
