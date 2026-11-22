@@ -1311,7 +1311,7 @@ async function checkAddonPages(main, lang, { mobile = false } = {}) {
     const page = await openSettings(main);
     if (page !== main) await page.setViewportSize(mobile ? MOBILE : DESKTOP).catch(() => {});
     const target = !mobile && (await page.$(".modal.mod-settings")) ? ".modal.mod-settings" : undefined;
-    const addonTitle = await page.evaluate((id) => window.app.plugins.plugins[id].t("addonSectionTitle"), PLUGIN_ID);
+    const addonTitle = await main.evaluate((id) => window.app.plugins.plugins[id].t("addonSectionTitle"), PLUGIN_ID);
     const names = await navNames(page);
     const items = await page.$$(".vault-sync-settings-nav-item");
     await items[names.indexOf(addonTitle)].click();
@@ -1372,7 +1372,7 @@ async function checkAddonPages(main, lang, { mobile = false } = {}) {
 
     // Commands: the same actions are in the palette, and follow the state
     const ids = ["e2ee-setup", "e2ee-unlock", "e2ee-change-password", "e2ee-show-recovery", "e2ee-recover"];
-    const cmds = await page.evaluate(
+    const cmds = await main.evaluate(
         ({ id, ids }) => ids.map((c) => {
             const cmd = window.app.commands.commands[`${id}:${c}`];
             return cmd ? !!cmd.checkCallback(true) : null;
@@ -1387,7 +1387,7 @@ async function checkAddonPages(main, lang, { mobile = false } = {}) {
     );
 
     // Locked state (set up on another device): unlock and recover, plus auto-unlock
-    await page.evaluate((id) => {
+    await main.evaluate((id) => {
         const p = window.app.plugins.plugins[id];
         p.settings.e2eeEnabled = true;
         p.refreshSettingsUI();
@@ -1431,7 +1431,7 @@ async function checkAddonPages(main, lang, { mobile = false } = {}) {
     }
 
     // Clean up: back to the plain plugin
-    const removed = await page.evaluate(async (id) => {
+    const removed = await main.evaluate(async (id) => {
         const p = window.app.plugins.plugins[id];
         p.settings.e2eeEnabled = false;
         return p.removeAddon();
