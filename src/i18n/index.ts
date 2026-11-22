@@ -3,8 +3,11 @@
 
 import { getLanguage } from "obsidian";
 import ja from "./lang/ja.json";
+import ko from "./lang/ko.json";
+import zh from "./lang/zh.json";
 
-const languages: Record<string, Record<string, string>> = { ja };
+/** Obsidian language codes: "zh" is Simplified Chinese */
+const languages: Record<string, Record<string, string>> = { ja, zh, ko };
 
 export const en: Record<string, string> = {
     // Settings UI

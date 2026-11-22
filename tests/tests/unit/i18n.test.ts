@@ -69,6 +69,20 @@ describe("i18n", () => {
         expect(t(unknownKey)).toBe(unknownKey);
     });
 
+    it.each(["zh", "ko"])("initI18n() with '%s' uses a full dictionary with the same placeholders", async (lang) => {
+        localStorageMock["language"] = lang;
+        const { initI18n, t, en, currentLanguage } = await import("../../../src/i18n/index");
+        initI18n();
+        expect(currentLanguage()).toBe(lang);
+        const dict = (await import(`../../../src/i18n/lang/${lang}.json`)).default as Record<string, string>;
+        for (const [key, text] of Object.entries(en)) {
+            expect(dict[key], key).toBeTruthy();
+            const ph = (s: string) => (s.match(/\{[^}]*\}/g) ?? []).sort();
+            expect(ph(dict[key]), key).toEqual(ph(text));
+        }
+        expect(t("settingLogin")).toBe(dict.settingLogin);
+    });
+
     it("initI18n() with unsupported language should keep English", async () => {
         localStorageMock["language"] = "fr";
         const { initI18n, t } = await import("../../../src/i18n/index");
@@ -94,8 +108,10 @@ describe("i18n", () => {
     it("has no add-on specific wording in Vault-Sync's own dictionaries", async () => {
         const { en } = await import("../../../src/i18n/index");
         const ja = (await import("../../../src/i18n/lang/ja.json")).default as Record<string, string>;
-        const banned = /e2ee|encrypt|decrypt|暗号|復号/i;
-        for (const dict of [en, ja]) {
+        const zh = (await import("../../../src/i18n/lang/zh.json")).default as Record<string, string>;
+        const ko = (await import("../../../src/i18n/lang/ko.json")).default as Record<string, string>;
+        const banned = /e2ee|encrypt|decrypt|暗号|復号|加密|解密|암호화|복호화/i;
+        for (const dict of [en, ja, zh, ko]) {
             for (const [key, text] of Object.entries(dict)) {
                 expect(banned.test(text), `${key}: ${text}`).toBe(false);
             }
