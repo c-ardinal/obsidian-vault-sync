@@ -208,7 +208,7 @@ export const en: Record<string, string> = {
     settingStartupSyncDesc: "Sync with cloud automatically upon starting Obsidian.",
     settingAutoSyncInterval: "Trigger: Auto-sync Interval",
     settingAutoSyncIntervalDesc:
-        "Sync periodically in background. Also syncs at once when the app comes back to the front or the network comes back; while the app is hidden, at most every 5 minutes unless local changes wait.\nNote: To prevent data loss, sync is skipped while you are actively editing.",
+        "Sync periodically in background. Also syncs at once when the app comes back to the front or the network comes back; while the app is hidden, at most every 5 minutes on a PC and not at all on mobile, unless local changes wait.\nNote: To prevent data loss, sync is skipped while you are actively editing.",
     settingTriggerSave: "Trigger: Save [Ctrl+S]",
     settingTriggerSaveDesc: "Sync when you explicitly save a file.",
     settingModify: "Trigger: Modify Delay",
