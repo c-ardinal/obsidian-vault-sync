@@ -57,12 +57,23 @@ describe("revision retention", () => {
         expect(listed).toEqual([]);
     });
 
-    it("only looks at Markdown notes", async () => {
+    it("only looks at Markdown notes by default", async () => {
         revisions["b.png"] = [rev("9", 0)];
         const { ctx, listed } = makeCtx(1, revisions);
         noteUploadedForRetention(ctx, "b.png", "id-b");
         expect(await keepRevisionsIfDue(ctx, NOW)).toBe(0);
         expect(listed).toEqual([]);
+    });
+
+    it("includes attachments when opted in, but never files under dot folders", async () => {
+        revisions["img/b.png"] = [rev("9", 0)];
+        revisions[".obsidian/plugins/x/main.js"] = [rev("8", 0)];
+        const { ctx, marked } = makeCtx(1, revisions);
+        (ctx.settings as { autoKeepAttachmentRevisions?: boolean }).autoKeepAttachmentRevisions = true;
+        noteUploadedForRetention(ctx, "img/b.png", "id-b");
+        noteUploadedForRetention(ctx, ".obsidian/plugins/x/main.js", "id-p");
+        expect(await keepRevisionsIfDue(ctx, NOW)).toBe(1);
+        expect(marked).toEqual([{ path: "img/b.png", id: "9" }]);
     });
 
     it("skips a note with a version kept within the interval", async () => {

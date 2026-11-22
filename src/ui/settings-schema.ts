@@ -210,6 +210,13 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                     unit: t("unitDays"),
                 },
                 {
+                    key: "autoKeepAttachmentRevisions",
+                    type: "toggle",
+                    label: t("settingAutoKeepAttachments"),
+                    desc: t("settingAutoKeepAttachmentsDesc"),
+                    isHidden: (s) => s.autoKeepRevisionDays < 1,
+                },
+                {
                     key: "_open_remote_trash",
                     type: "button",
                     label: t("settingOpenRemoteTrash"),

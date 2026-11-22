@@ -30,6 +30,7 @@ export type SyncManagerSettings = Pick<
     Partial<
         Pick<
             VaultSyncSettings,
+            | "autoKeepAttachmentRevisions"
             | "desktopMaxFileSizeMB"
             | "mobileMaxFileSizeMB"
             | "obsidianScopeStrategy"

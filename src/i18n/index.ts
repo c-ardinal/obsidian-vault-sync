@@ -76,7 +76,10 @@ export const en: Record<string, string> = {
     remoteTrashDeleteConfirm: "Click again to delete for good",
     noticeRemoteTrashRestored: "Restored: {path}. It arrives with the next sync.",
     settingAutoKeepRevisions: "Keep Note Versions",
-    settingAutoKeepRevisionsDesc: "Mark one version of each note as kept forever per this many days, so the cloud does not remove old versions on its own.\nMarkdown notes only.",
+    settingAutoKeepRevisionsDesc: "Mark one version of each note as kept forever per this many days, so the cloud does not remove old versions on its own.\nMarkdown notes only, unless attachments are included below.",
+    settingAutoKeepAttachments: "Include Attachments",
+    settingAutoKeepAttachmentsDesc:
+        "Also keep versions of images, PDFs and other attachments. Each kept version uses cloud storage, so large files that change often use more.",
     conflictResolveTitle: "Resolve Conflict",
     conflictResolveIntro: "This device and the cloud changed this note in {n} place(s). For each, choose which lines to keep. The result can also be edited.",
     conflictResolveSame: "Both versions have the same content now. Keep either to remove the conflict copy.",

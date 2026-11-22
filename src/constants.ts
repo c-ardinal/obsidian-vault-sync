@@ -59,6 +59,7 @@ export const DEFAULT_SETTINGS: VaultSyncSettings = {
     massDeleteConfirmPercent: SETTINGS_LIMITS.massDeleteConfirmPercent.default,
     remoteTrashRetentionDays: SETTINGS_LIMITS.remoteTrashRetentionDays.default,
     autoKeepRevisionDays: SETTINGS_LIMITS.autoKeepRevisionDays.default,
+    autoKeepAttachmentRevisions: false,
     notificationLevel: "standard",
     showSyncStatus: true,
     diffFontSizeDesktop: 14,

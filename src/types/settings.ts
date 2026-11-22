@@ -37,6 +37,8 @@ export interface VaultSyncSettings {
     remoteTrashRetentionDays: number;
     /** Keep one version of each note for good per this many days (-1 = off) */
     autoKeepRevisionDays: number;
+    /** Also keep versions of attachments (images, PDFs, ...), not only notes */
+    autoKeepAttachmentRevisions: boolean;
 
     notificationLevel: "verbose" | "standard" | "error";
     /** Status bar / mobile progress display of the running sync. Progress notices are
