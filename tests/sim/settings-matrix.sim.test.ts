@@ -404,6 +404,16 @@ const PINNED: { title: string; seed: number; levels: Record<string, string> }[] 
             "keep-revisions": "off", "sync-frequency": "near-realtime", network: "clean", devices: "linux", "app-restarts": "none",
         },
     },
+    {
+        title: "a merge that matches the cloud copy is saved before the app is killed",
+        seed: 2033,
+        levels: {
+            conflict: "smart-merge", exclusion: "changed-mid-run", images: "changed-mid-run", "device-list": "changed-mid-run",
+            "settings-sync": "shared", deletes: "deletes+confirm", "large-files": "background-throttled", encryption: "off",
+            concurrency: "5", "cloud-trash": "remove-at-once", "keep-revisions": "off", "sync-frequency": "normal",
+            network: "clean", devices: "mixed-os", "app-restarts": "restarts",
+        },
+    },
 ];
 
 if (!ONLY_COMBO) {

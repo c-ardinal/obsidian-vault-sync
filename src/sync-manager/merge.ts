@@ -1781,6 +1781,7 @@ async function pullFileUnchecked(
                                     ctx.index[item.path] = entry;
                                     ctx.localIndex[item.path] = { ...entry };
                                     ctx.dirtyPaths.delete(item.path);
+                                    await saveLocalIndex(ctx);
                                 } else {
                                     const lockCheck = await checkMergeLock(ctx, item.path);
                                     if (!lockCheck.locked) {
