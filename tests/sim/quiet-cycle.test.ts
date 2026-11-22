@@ -90,6 +90,6 @@ describe("quiet timer sync", () => {
         const { cloud, b, callsOf } = await setup();
         await cloud.store.uploadFile(vaultLockPath(), new TextEncoder().encode("lock").buffer, Date.now());
         await callsOf(b, "timer-sync");
-        expect(b.sm.settings.e2eeEnabled).toBe(true);
+        expect((b.sm as unknown as { settings: { e2eeEnabled: boolean } }).settings.e2eeEnabled).toBe(true);
     });
 });

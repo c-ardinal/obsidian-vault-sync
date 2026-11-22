@@ -1,14 +1,14 @@
 import { deviceScopePatterns } from "./sync-manager/file-utils";
 import { Notice, Plugin, TFile, TFolder, setIcon, Platform, apiVersion } from "obsidian";
 import { createCloudAdapter, DEFAULT_CLOUD_PROVIDER } from "./cloud-adapters";
-import { MassDeleteGuard } from "./sync-manager/mass-change-guard";
+import { MassChangeGuard } from "./sync-manager/mass-change-guard";
 import { ConflictResolveModal, openConflictResolver } from "./ui/conflict-resolve-modal";
 import { isConflictCopyPath } from "./sync-manager/conflict-resolution";
 import { DevicesModal } from "./ui/devices-modal";
 import { DiagnosticsModal } from "./ui/diagnostics-modal";
 import { PointInTimeModal } from "./ui/point-in-time-modal";
 import { formatDiagnostics } from "./sync-manager/diagnostics";
-import { MassDeleteModal } from "./ui/mass-delete-modal";
+import { MassChangeModal } from "./ui/mass-change-modal";
 import { RemoteTrashModal } from "./ui/remote-trash-modal";
 import { FirstSyncModal } from "./ui/first-sync-modal";
 import type { OAuthCloudAdapter } from "./types/oauth-adapter";
@@ -48,6 +48,9 @@ import { SettingsManager } from "./services/settings-manager";
 import { CredentialManager } from "./services/credential-manager";
 import { setPluginDir } from "./sync-manager/file-utils";
 import { isLegacyCopyEnabled, migrateLegacyPluginData } from "./services/legacy-plugin-migration";
+
+/** Syncs the user starts: a mass-change question held before is asked again */
+const USER_TRIGGERS: ReadonlySet<SyncTrigger> = new Set<SyncTrigger>(["manual-sync", "full-scan", "initial-sync"]);
 
 export default class VaultSync extends Plugin {
     settings!: VaultSyncSettings;
@@ -321,14 +324,15 @@ export default class VaultSync extends Plugin {
             backgroundQueue,
         );
         this.syncManager.secureStorage = this.secureStorage;
-        this.syncManager.planGuard = new MassDeleteGuard(
+        this.syncManager.planGuard = new MassChangeGuard(
             () => this.settings,
             () => this.syncManager.syncedFileCount(),
-            async (plan, summary) => {
-                const ok = await new MassDeleteModal(this.app, plan, summary).ask();
+            async (plan, summary, kinds) => {
+                const ok = await new MassChangeModal(this.app, plan, summary, kinds).ask();
                 if (!ok) new Notice(t("noticeMassDeleteHeld"));
                 return ok;
             },
+            () => USER_TRIGGERS.has(this.syncManager.currentTrigger),
         );
         this.syncManager.firstSyncGuard = {
             choose: (summary) => new FirstSyncModal(this.app, summary).ask(),
