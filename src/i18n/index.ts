@@ -253,6 +253,11 @@ export const en: Record<string, string> = {
     settingSubheaderCloudStorage: "Cloud Storage",
     settingSubheaderObsidian: "Obsidian Settings",
     settingSubheaderAppearance: "Appearance & Layout",
+    settingObsidianScopeStrategy: "Obsidian settings strategy",
+    settingObsidianScopeStrategyDesc:
+        "Sync the Obsidian settings below the same way on every device, or choose them separately for PCs and for mobile devices. Each kind of device shows and changes its own choices.",
+    settingSuffixDesktop: " (PC)",
+    settingSuffixMobile: " (mobile)",
     settingSubheaderContent: "Content",
     settingSubheaderExclusion: "Exclusions",
     settingSubheaderLogging: "Logging",

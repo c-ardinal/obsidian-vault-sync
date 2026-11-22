@@ -162,12 +162,12 @@ export class PersonalityVaultAdapter extends MockVaultAdapter {
         const folders: string[] = [];
         for (const [k, e] of this.entries) {
             if (k.startsWith(base) && !k.slice(base.length).includes("/")) {
-                files.push(e.path.split("/").pop()!);
+                files.push(e.path);
             }
         }
         for (const [k, p] of this.dirs) {
             if (k.startsWith(base) && k !== base.slice(0, -1) && !k.slice(base.length).includes("/")) {
-                folders.push(p.split("/").pop()!);
+                folders.push(p);
             }
         }
         return { files, folders };
@@ -262,8 +262,9 @@ export class RealFsVaultAdapter extends MockVaultAdapter {
         if (!existsSync(dir)) return { files: [], folders: [] };
         const files: string[] = [];
         const folders: string[] = [];
+        const prefix = path === "/" || path === "" ? "" : `${path}/`;
         for (const d of readdirSync(dir, { withFileTypes: true })) {
-            (d.isDirectory() ? folders : files).push(d.name);
+            (d.isDirectory() ? folders : files).push(prefix + d.name);
         }
         return { files, folders };
     }

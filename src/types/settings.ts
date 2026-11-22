@@ -83,6 +83,10 @@ export interface VaultSyncSettings {
     syncFlexibleData: boolean; // data/flexible/*
     syncDeviceLogs: boolean; // logs/{deviceId}/*
     syncWorkspace: boolean; // workspace.json, workspace-mobile.json
+    /** The .obsidian categories above: the same on every device, or set per kind of device */
+    obsidianScopeStrategy: "unified" | "per-platform";
+    desktopObsidianScope: ObsidianScope;
+    mobileObsidianScope: ObsidianScope;
 
     // Authentication
     authMethod: OAuthMethod;
@@ -102,3 +106,8 @@ export interface VaultSyncSettings {
     /** Shape version of these settings (see services/settings-migration.ts). Absent = 0. */
     settingsVersion?: number;
 }
+
+/** The .obsidian categories that can be set per kind of device (PC or mobile) */
+export const OBSIDIAN_SCOPE_KEYS = ["syncCoreConfig", "syncCommunityPlugins", "syncAppearance", "syncWorkspace"] as const;
+export type ObsidianScopeKey = (typeof OBSIDIAN_SCOPE_KEYS)[number];
+export type ObsidianScope = Record<ObsidianScopeKey, boolean>;

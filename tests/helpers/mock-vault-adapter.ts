@@ -111,6 +111,7 @@ export class MockVaultAdapter {
         this.files.delete(from);
     }
 
+    /** Like Obsidian's DataAdapter.list: full vault paths, not names */
     async list(path: string): Promise<{ files: string[]; folders: string[] }> {
         const files: string[] = [];
         const folders: string[] = [];
@@ -119,13 +120,13 @@ export class MockVaultAdapter {
         for (const f of this.files.keys()) {
             if (f.startsWith(prefix)) {
                 const relative = f.slice(prefix.length);
-                if (!relative.includes("/")) files.push(relative);
+                if (!relative.includes("/")) files.push(f);
             }
         }
         for (const f of this.folders) {
             if (f.startsWith(prefix) && f !== path) {
                 const relative = f.slice(prefix.length);
-                if (!relative.includes("/")) folders.push(relative);
+                if (!relative.includes("/")) folders.push(f);
             }
         }
         return { files, folders };

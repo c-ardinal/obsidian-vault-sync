@@ -15,6 +15,7 @@ export const MAX_LOG_LINES = 200;
 /** String settings whose value is one of a few fixed choices (safe to show) */
 const CHOICE_SETTINGS = new Set([
     "triggerConfigStrategy",
+    "obsidianScopeStrategy",
     "notificationLevel",
     "conflictResolutionStrategy",
     "authMethod",

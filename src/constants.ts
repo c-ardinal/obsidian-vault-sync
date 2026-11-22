@@ -83,6 +83,9 @@ export const DEFAULT_SETTINGS: VaultSyncSettings = {
     syncFlexibleData: true,
     syncDeviceLogs: false,
     syncWorkspace: false,
+    obsidianScopeStrategy: "unified",
+    desktopObsidianScope: { syncCoreConfig: true, syncCommunityPlugins: true, syncAppearance: true, syncWorkspace: false },
+    mobileObsidianScope: { syncCoreConfig: true, syncCommunityPlugins: true, syncAppearance: true, syncWorkspace: false },
 
     authMethod: "default" as const,
     customProxyUrl: "",

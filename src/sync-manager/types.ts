@@ -27,7 +27,16 @@ export type SyncManagerSettings = Pick<
     | "hasCompletedFirstSync"
     | "e2eeEnabled"
 > &
-    Partial<Pick<VaultSyncSettings, "desktopMaxFileSizeMB" | "mobileMaxFileSizeMB">>;
+    Partial<
+        Pick<
+            VaultSyncSettings,
+            | "desktopMaxFileSizeMB"
+            | "mobileMaxFileSizeMB"
+            | "obsidianScopeStrategy"
+            | "desktopObsidianScope"
+            | "mobileObsidianScope"
+        >
+    >;
 
 export interface LocalFileIndex {
     [path: string]: {
