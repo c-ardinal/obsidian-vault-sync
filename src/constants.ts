@@ -20,6 +20,8 @@ export const SETTINGS_LIMITS = {
     massDeleteConfirmPercent: { min: 1, max: 100, default: 10, disabled: -1 },
     /** Days a file deleted from the cloud stays in the cloud trash (-1 = no trash) */
     remoteTrashRetentionDays: { min: 1, max: 3650, default: 30, disabled: -1 },
+    /** Files larger than this (MB) are left out on this kind of device (-1 = no limit) */
+    maxFileSizeMB: { min: 1, max: 10000, default: 100, disabled: -1 },
     diffFontSizeDesktop: { min: 10, max: 24, default: 14 },
     diffFontSizeMobile: { min: 10, max: 24, default: 13 },
     /** Keep one version of each note for good per this many days (-1 = off) */
@@ -67,6 +69,8 @@ export const DEFAULT_SETTINGS: VaultSyncSettings = {
     startupDelaySec: SETTINGS_LIMITS.startupDelay.default,
     cloudRootFolder: "ObsidianVaultSync",
     exclusionPatterns: ".git\n.svn\n.hg\n.bzr",
+    desktopMaxFileSizeMB: SETTINGS_LIMITS.maxFileSizeMB.disabled,
+    mobileMaxFileSizeMB: SETTINGS_LIMITS.maxFileSizeMB.disabled,
     desktopExclusionPatterns: "",
     mobileExclusionPatterns: "",
 

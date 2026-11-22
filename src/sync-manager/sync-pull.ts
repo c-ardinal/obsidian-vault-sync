@@ -13,6 +13,7 @@ import {
     isAlwaysForbiddenOnRemote,
     shouldIgnore,
     isDeviceExcluded,
+    exceedsDeviceSizeLimit,
     matchesDeviceScope,
 } from "./file-utils";
 import {
@@ -152,6 +153,7 @@ async function detectPullChanges(
             noteSkippedOutOfScope(ctx, path, remoteEntry);
             continue;
         }
+        if (exceedsDeviceSizeLimit(ctx, remoteEntry.size)) continue;
 
         const localBaseEntry = ctx.localIndex[path];
 
@@ -1507,6 +1509,7 @@ async function pullFilesMissingFromIndex(
         if (knownIds.has(entry.fileId) || seenFileIds.has(entry.fileId)) continue;
         if (pendingRetries.has(entry.fileId)) continue;
         if (ctx.dirtyPaths.has(path) || ctx.recentlyDeletedFromRemote.has(path)) continue;
+        if (exceedsDeviceSizeLimit(ctx, entry.size)) continue;
         missing.push([path, entry]);
     }
     if (missing.length === 0) return 0;
@@ -1631,6 +1634,12 @@ async function processChangePage(
             const cloudFile: ChangedFile = change.file;
             if (cloudFile.path === ctx.pluginDataPath) continue;
             if (isManagedSeparately(cloudFile.path)) continue;
+            // Over this device's size limit: not fetched; a copy already here stays as it is.
+            // A full scan after the limit changes fetches it.
+            if (exceedsDeviceSizeLimit(ctx, cloudFile.size)) {
+                await ctx.log(`[Changes API] Left out (over this device's size limit): ${cloudFile.path}`, "debug");
+                continue;
+            }
             if (isDeviceExcluded(ctx, cloudFile.path)) {
                 noteSkippedOutOfScope(ctx, cloudFile.path, {
                     fileId: cloudFile.id,

@@ -26,7 +26,8 @@ export type SyncManagerSettings = Pick<
     | "syncWorkspace"
     | "hasCompletedFirstSync"
     | "e2eeEnabled"
->;
+> &
+    Partial<Pick<VaultSyncSettings, "desktopMaxFileSizeMB" | "mobileMaxFileSizeMB">>;
 
 export interface LocalFileIndex {
     [path: string]: {

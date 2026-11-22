@@ -1038,6 +1038,15 @@ export default class VaultSync extends Plugin {
         if (this.settings.hasCompletedFirstSync) void this.requestManualSync();
     }
 
+    /**
+     * The file-size limit of this kind of device changed: the next sync checks the
+     * whole vault, so files no longer over the limit are fetched and uploaded.
+     */
+    applyMaxFileSizeChange(key: "desktopMaxFileSizeMB" | "mobileMaxFileSizeMB"): void {
+        const ownKey = Platform.isMobile ? "mobileMaxFileSizeMB" : "desktopMaxFileSizeMB";
+        if (key === ownKey) this.syncManager.triggerFullCleanup();
+    }
+
     updateLoggerOptions(): void {
         this.syncManager.updateLoggerOptions();
     }

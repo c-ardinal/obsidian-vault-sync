@@ -290,6 +290,10 @@ export const en: Record<string, string> = {
     settingMobileExclusionPatterns: "Exclude files/folders (mobile only)",
     settingMobileExclusionPatternsDesc:
         "Files and folders phones and tablets do not sync. They stay in the cloud and keep syncing on PCs. Files already on a mobile device are kept, and deleting them there does not delete them in the cloud. Shared by all your mobile devices.",
+    settingDesktopMaxFileSize: "File size limit (PC)",
+    settingMobileMaxFileSize: "File size limit (mobile)",
+    settingMaxFileSizeDesc:
+        "Files larger than this are not synced on this kind of device. They stay in the cloud and keep syncing on devices without the limit. A copy already on the device is kept as it is.",
     settingMobileExclusionModalTitle: "Exclusion patterns (mobile only)",
     settingMobileExclusionModalNote:
         "Matching files are not downloaded, uploaded or deleted by phones and tablets. They stay in the cloud for PCs.",

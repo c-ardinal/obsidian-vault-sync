@@ -16,6 +16,8 @@ import {
     shouldIgnore,
     holdsDeviceExcluded,
     isDeviceExcluded,
+    deviceMaxFileBytes,
+    exceedsDeviceSizeLimit,
     hashContent,
 } from "./file-utils";
 import { loadCommunication, saveIndex, saveLocalIndex, releaseLockAfterPush, findForeignLock, renameLocal, confirmMissingForDeletion, clearDeleteIntent, hasDeleteIntent, noteDeleteIntent, takeUnsyncedRename, peekUnsyncedRename, takeReplacedNote } from "./state";
@@ -521,6 +523,16 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
             if (isDeviceExcluded(ctx, path)) {
                 ctx.dirtyPaths.delete(path);
                 return;
+            }
+            // Over this device's size limit: left out here, the cloud copy is not touched.
+            // Marked again when the file changes, so a file made smaller is uploaded then.
+            if (deviceMaxFileBytes(ctx.settings) !== null) {
+                const stat = await ctx.vault.stat(path);
+                if (stat?.type === "file" && exceedsDeviceSizeLimit(ctx, stat.size)) {
+                    ctx.dirtyPaths.delete(path);
+                    await ctx.log(`[Smart Push] Left out (over this device's size limit): ${path}`, "debug");
+                    return;
+                }
             }
 
             // A new note whose name differs from a synced one only by case/normalization

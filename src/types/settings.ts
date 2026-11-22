@@ -64,6 +64,10 @@ export interface VaultSyncSettings {
      * cloud for the other kind of device: devices of this kind just neither
      * download, upload nor delete them.
      */
+    /** Files larger than this (MB) are left out on PCs (-1 = no limit) */
+    desktopMaxFileSizeMB: number;
+    /** Files larger than this (MB) are left out on mobile devices (-1 = no limit) */
+    mobileMaxFileSizeMB: number;
     desktopExclusionPatterns: string;
     mobileExclusionPatterns: string;
 

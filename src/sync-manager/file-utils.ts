@@ -445,6 +445,22 @@ function patternList(text: string | undefined): string[] {
         .filter((p) => p && !p.startsWith("#"));
 }
 
+/** Bytes above which a file is left out on this kind of device (PC or mobile); null = no limit */
+export function deviceMaxFileBytes(settings: { desktopMaxFileSizeMB?: number; mobileMaxFileSizeMB?: number }): number | null {
+    const mb = Platform.isMobile ? settings.mobileMaxFileSizeMB : settings.desktopMaxFileSizeMB;
+    return mb !== undefined && mb > 0 ? mb * 1024 * 1024 : null;
+}
+
+/**
+ * Over this kind of device's size limit: left out here like an excluded file. Not
+ * pulled, not pushed, and never deleted from the cloud on its account (other
+ * devices may sync it). A copy already here stays as it is.
+ */
+export function exceedsDeviceSizeLimit(ctx: Pick<FileUtilsCtx, "settings">, size: number | undefined): boolean {
+    const max = deviceMaxFileBytes(ctx.settings);
+    return max !== null && size !== undefined && size > max;
+}
+
 /** The list of this kind of device (PC or mobile) */
 export function deviceScopePatterns(settings: {
     desktopExclusionPatterns?: string;
