@@ -37,6 +37,7 @@ import { getMergeStrategy } from "./strategies";
 import { storesTransformedContent } from "./content-identity";
 import { CtxState } from "./context-state";
 import { checkLateUploadForOverwrite, isMergeableText } from "./overwrite-recovery";
+import { isPullMergeable } from "./strategies/structured-merge";
 
 /**
  * A local file this device never synced that may simply be replaced by the
@@ -1060,7 +1061,7 @@ async function pullFileUnchecked(
     isRemoteDeleted: boolean,
     fileId: string | undefined,
 ): Promise<boolean> {
-    const isText = item.path.endsWith(".md") || item.path.endsWith(".txt") || item.path.endsWith(".json");
+    const isText = isPullMergeable(item.path);
 
     const lockStatus = await checkMergeLock(ctx, item.path);
     if (lockStatus.locked) {
