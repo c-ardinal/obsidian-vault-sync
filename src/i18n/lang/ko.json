@@ -545,5 +545,18 @@
     "settingExclusionPatternsDetail": "한 줄에 하나씩. *는 임의의 문자, **는 임의의 폴더 깊이와 일치합니다. 예: Templates/ 또는 *.tmp",
     "historySignInRequired": "클라우드의 버전 기록을 보려면 로그인이 필요합니다.",
     "historyLoading": "버전 기록을 읽는 중…",
-    "massOverwriteRun": "{n}개 덮어쓰기"
+    "massOverwriteRun": "{n}개 덮어쓰기",
+    "settingSubheaderStorage": "클라우드 용량",
+    "settingStorage": "사용량",
+    "settingStorageDesc": "클라우드 계정 저장 공간의 사용 현황입니다.",
+    "settingStorageDetail": "동기화 후 하루에 한 번 확인합니다. 90% 이상이면 주 1회 알립니다(용량이 가득 차면 모든 업로드가 멈춥니다). 보관 버전과 클라우드에 보관한 삭제 파일도 용량을 씁니다.",
+    "settingStorageRefresh": "지금 확인",
+    "settingStorageNotChecked": "아직 확인하지 않았습니다.",
+    "settingStorageUsedOf": "{used} / {total} ({percent}%)",
+    "settingStorageUsed": "사용량 {used}",
+    "settingStorageVault": "이 Vault {size}",
+    "settingStorageTrash": "Drive 휴지통 {size}",
+    "settingStorageSeparator": ", ",
+    "settingStorageCheckedAt": "(확인 {time})",
+    "noticeStorageAlmostFull": "⚠️ Vault-Sync: 클라우드 용량이 거의 가득 찼습니다({0} 사용). 가득 차면 더 이상 업로드되지 않습니다."
 }

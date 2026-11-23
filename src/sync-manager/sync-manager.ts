@@ -88,6 +88,7 @@ import {
     restoreRevision as _restoreRevision,
 } from "./history";
 import { forgetAutoKept } from "./revision-retention";
+import { refreshStorage, storageSummary, storageSummaryNow, type StorageSummary } from "./storage-check";
 import {
     linesToChars3 as _linesToChars3,
     perform3WayMerge as _perform3WayMerge,
@@ -722,6 +723,11 @@ export class SyncManager {
 
     // === History Management (delegated to history.ts) ===
 
+    /** The cloud tells how much storage the account uses */
+    get supportsStorageQuota(): boolean {
+        return !!this.adapter?.getStorageQuota;
+    }
+
     get supportsHistory(): boolean {
         return _supportsHistory(this as unknown as SyncContext);
     }
@@ -880,6 +886,18 @@ export class SyncManager {
             revisionId,
             keepForever,
         );
+    }
+
+    /** Cloud storage as last read (null: not read yet this session) */
+    getStorageSummary(): StorageSummary | null {
+        return storageSummaryNow(this as unknown as SyncContext);
+    }
+
+    /** Read the cloud storage now, or the stored reading (settings page) */
+    async loadStorageSummary(refresh: boolean): Promise<StorageSummary> {
+        const ctx = this as unknown as SyncContext;
+        if (refresh) await refreshStorage(ctx);
+        return storageSummary(ctx);
     }
 
     async deleteRevision(path: string, revisionId: string): Promise<void> {

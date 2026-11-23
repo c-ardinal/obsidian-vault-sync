@@ -545,5 +545,18 @@
     "settingExclusionPatternsDetail": "1 行に 1 件。* は任意の文字列、** は任意の階層に一致します。例：Templates/ や *.tmp",
     "historySignInRequired": "クラウドの版履歴の表示には、ログインが必要です。",
     "historyLoading": "版履歴の読込中…",
-    "massOverwriteRun": "{n} 件を上書き"
+    "massOverwriteRun": "{n} 件を上書き",
+    "settingSubheaderStorage": "クラウド容量",
+    "settingStorage": "使用量",
+    "settingStorageDesc": "クラウドアカウントの容量の使用状況です。",
+    "settingStorageDetail": "同期後に 1 日 1 回確認します。使用率 90% 以上の場合、週 1 回通知します（容量が満杯の場合、全送信が停止します）。保持版と削除ファイルの保管も容量を消費します。",
+    "settingStorageRefresh": "今すぐ確認",
+    "settingStorageNotChecked": "未確認です。",
+    "settingStorageUsedOf": "{used} / {total}（{percent}%）",
+    "settingStorageUsed": "使用量 {used}",
+    "settingStorageVault": "本 Vault {size}",
+    "settingStorageTrash": "Drive のゴミ箱 {size}",
+    "settingStorageSeparator": "・",
+    "settingStorageCheckedAt": "（確認日時 {time}）",
+    "noticeStorageAlmostFull": "⚠️ Vault-Sync: クラウド容量の残量が僅少です（使用率 {0}）。満杯の場合、以後の送信は全停止します。"
 }

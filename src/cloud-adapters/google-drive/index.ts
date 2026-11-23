@@ -1,4 +1,4 @@
-import { CloudAdapter, CloudCapabilities, CloudChanges, CloudFile } from "../../types/adapter";
+import { CloudAdapter, CloudCapabilities, CloudChanges, CloudFile, StorageQuota } from "../../types/adapter";
 import type { OAuthCloudAdapter } from "../../types/oauth-adapter";
 import { basename } from "../../utils/path";
 import { CloudError, isCloudNotFound } from "../cloud-error";
@@ -636,6 +636,24 @@ export class GoogleDriveAdapter implements OAuthCloudAdapter {
             if (isNotFound(e)) return false;
             throw e;
         }
+    }
+
+    // === Storage ===
+
+    async getStorageQuota(): Promise<StorageQuota> {
+        const response = await this.http.fetchWithAuth(
+            "https://www.googleapis.com/drive/v3/about?fields=storageQuota(limit,usage,usageInDriveTrash)",
+        );
+        const data = (await response.json()) as {
+            storageQuota?: { limit?: string; usage?: string; usageInDriveTrash?: string };
+        };
+        const q = data.storageQuota ?? {};
+        const num = (v?: string) => (v === undefined || v === "" ? undefined : Number(v));
+        return {
+            limit: num(q.limit),
+            usage: num(q.usage) ?? 0,
+            usageInTrash: num(q.usageInDriveTrash),
+        };
     }
 
     // === Changes API ===

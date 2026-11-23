@@ -14,6 +14,7 @@ import { holdsNewFiles } from "./sync-scan";
 import { purgeTrashIfDue } from "./remote-trash";
 import { prepareFirstSync } from "./first-sync";
 import { keepRevisionsIfDue } from "./revision-retention";
+import { checkStorageIfDue } from "./storage-check";
 import { publishDeviceRecordIfDue } from "./device-registry";
 import { migratePlainHashes } from "./plain-hash-migration";
 import { reconcileScopeChange } from "./sync-pull";
@@ -171,6 +172,7 @@ export async function executeSmartSync(ctx: SyncContext, scanVault: boolean): Pr
         await retryOverwriteRepairs(ctx);
         await purgeTrashIfDue(ctx);
         await keepRevisionsIfDue(ctx);
+        await checkStorageIfDue(ctx);
         await publishDeviceRecordIfDue(ctx);
 
         if (!pulled && !pushed) {

@@ -317,6 +317,8 @@ const ALWAYS_SHOW = new Set([
     "noticeAddonUpdateRequired",
     "noticeEngineVerifyFailed",
     "noticeVaultLocked",
+    // A full account stops every upload
+    "noticeStorageAlmostFull",
 ]);
 
 /**

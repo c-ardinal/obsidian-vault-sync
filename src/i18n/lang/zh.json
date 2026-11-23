@@ -545,5 +545,18 @@
     "settingExclusionPatternsDetail": "每行一个。* 匹配任意字符，** 匹配任意层级文件夹。例：Templates/ 或 *.tmp",
     "historySignInRequired": "登录后才能查看云端的版本历史。",
     "historyLoading": "正在读取版本历史…",
-    "massOverwriteRun": "覆盖 {n} 个文件"
+    "massOverwriteRun": "覆盖 {n} 个文件",
+    "settingSubheaderStorage": "云端存储空间",
+    "settingStorage": "已用空间",
+    "settingStorageDesc": "云端账户存储空间的使用情况。",
+    "settingStorageDetail": "每天同步后检查一次。使用率达到 90% 以上时每周提醒一次（空间已满时所有上传都会停止）。保留的版本和云端保存的已删除文件也会占用空间。",
+    "settingStorageRefresh": "立即检查",
+    "settingStorageNotChecked": "尚未检查。",
+    "settingStorageUsedOf": "{used} / {total}（{percent}%）",
+    "settingStorageUsed": "已用 {used}",
+    "settingStorageVault": "本库 {size}",
+    "settingStorageTrash": "Drive 回收站 {size}",
+    "settingStorageSeparator": "，",
+    "settingStorageCheckedAt": "（检查于 {time}）",
+    "noticeStorageAlmostFull": "⚠️ Vault-Sync：云端存储空间即将用尽（已用 {0}）。用尽后将无法继续上传。"
 }

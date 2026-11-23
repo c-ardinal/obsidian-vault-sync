@@ -601,6 +601,19 @@ export const en: Record<string, string> = {
     historySignInRequired: "Log in to see the version history in the cloud.",
     historyLoading: "Loading the version history…",
     massOverwriteRun: "Overwrite {n} files",
+    settingSubheaderStorage: "Cloud storage",
+    settingStorage: "Storage used",
+    settingStorageDesc: "How much of the cloud account's storage is used.",
+    settingStorageDetail: "Checked once a day after a sync. At 90% or more you are told once a week: a full account stops every upload. Kept versions and deleted files kept in the cloud use this storage too.",
+    settingStorageRefresh: "Check now",
+    settingStorageNotChecked: "Not checked yet.",
+    settingStorageUsedOf: "{used} of {total} ({percent}%)",
+    settingStorageUsed: "{used} used",
+    settingStorageVault: "this vault {size}",
+    settingStorageTrash: "Drive trash {size}",
+    settingStorageSeparator: ", ",
+    settingStorageCheckedAt: "(checked {time})",
+    noticeStorageAlmostFull: "⚠️ Vault-Sync: The cloud storage is almost full ({0} used). When it is full, nothing more is uploaded.",
 };
 
 let activeDict: Record<string, string> = en;
