@@ -638,73 +638,73 @@ interface FormatSpec {
  * These define the EXACT user-visible text including filename placement.
  */
 const FORMAT_SPECS: FormatSpec[] = [
-    { key: "noticeSyncing", specJa: "⚡ [同期] 処理開始..." },
-    { key: "noticeScanningLocalFiles", specJa: "🔍️ [同期] 本端末のファイルを走査中..." },
+    { key: "noticeSyncing", specJa: "Vault-Sync: 同期開始..." },
+    { key: "noticeScanningLocalFiles", specJa: "Vault-Sync: 本端末のファイルを走査中..." },
     {
         key: "noticeWaitingForRemoteRegistration",
-        specJa: "⌛️ [同期] クラウド側の反映完了を待機中...",
+        specJa: "Vault-Sync: クラウド側の反映完了を待機中...",
     },
-    { key: "noticeFilePulled", specJa: "📥 [同期] 受信中: {file}" },
-    { key: "noticePullCompleted", specJa: "✅ [同期] 受信完了（{0} 件）" },
-    { key: "noticeFilePushed", specJa: "📤 [同期] 送信中: {file}" },
-    { key: "noticePushCompleted", specJa: "✅ [同期] 送信完了（{0} 件）" },
-    { key: "noticeVaultUpToDate", specJa: "✅ [同期] 全ファイルが最新状態です" },
+    { key: "noticeFilePulled", specJa: "Vault-Sync: 受信中: {file}" },
+    { key: "noticePullCompleted", specJa: "Vault-Sync: 受信完了（{0} 件）" },
+    { key: "noticeFilePushed", specJa: "Vault-Sync: 送信中: {file}" },
+    { key: "noticePushCompleted", specJa: "Vault-Sync: 送信完了（{0} 件）" },
+    { key: "noticeVaultUpToDate", specJa: "Vault-Sync: 全ファイルが最新状態です" },
     {
         key: "noticeInitialSyncConfirmation",
-        specJa: "📝 [同期] 送信結果を検証中...",
+        specJa: "Vault-Sync: 送信結果を検証中...",
     },
-    { key: "noticeSyncConfirmed", specJa: "✅ [同期] 成功: {file}" },
-    { key: "noticeFileTrashed", specJa: "🗑️ [同期] 削除: {file}" },
-    { key: "noticeFileRenamed", specJa: "✏️ [同期] リネーム: {file}" },
-    { key: "noticeMergingFile", specJa: "⌛️ [競合] マージ中: {file}" },
-    { key: "noticeMergeSuccess", specJa: "✅ [競合] 自動解決されました: {file}" },
+    { key: "noticeSyncConfirmed", specJa: "Vault-Sync: 同期完了: {file}" },
+    { key: "noticeFileTrashed", specJa: "Vault-Sync: 削除: {file}" },
+    { key: "noticeFileRenamed", specJa: "Vault-Sync: リネーム: {file}" },
+    { key: "noticeMergingFile", specJa: "Vault-Sync: マージ中: {file}" },
+    { key: "noticeMergeSuccess", specJa: "Vault-Sync: 競合を自動解決しました: {file}" },
     {
         key: "noticeConflictSaved",
-        specJa: "⚠️ [競合] 本端末の版を保護し、クラウドの版を反映しました: {file}",
+        specJa: "⚠️ Vault-Sync: 本端末の版を保護し、クラウドの版を反映しました: {file}",
     },
     {
         key: "noticeConflictRemoteSaved",
-        specJa: "⚠️ [競合] クラウドの版を保護し、本端末の版を反映しました: {file}",
+        specJa: "⚠️ Vault-Sync: クラウドの版を保護し、本端末の版を反映しました: {file}",
     },
     {
         key: "noticeCheckOtherDevice",
-        specJa: "⚠️ [競合] マージに失敗した可能性があります。詳細は他端末で確認してください。",
+        specJa: "⚠️ Vault-Sync: マージに失敗した可能性があります。詳細は他端末で確認してください。",
     },
     {
         key: "noticeMergeLockLost",
-        specJa: "⚠️ [競合] マージロックが失効しました。本端末に保存済みのため、次回の同期で送信します。: {file}",
+        specJa: "⚠️ Vault-Sync: マージロックが失効しました。本端末に保存済みのため、次回の同期で送信します。: {file}",
     },
     {
         key: "noticeWaitOtherDeviceMerge",
-        specJa: "⌛️ [競合] 他端末による解決を待機中...: {0}",
+        specJa: "Vault-Sync: 他端末による解決を待機中...: {0}",
     },
     {
         key: "noticeRemoteMergeSynced",
-        specJa: "✅ [競合] 他端末の解決結果を反映しました: {file}",
+        specJa: "Vault-Sync: 他端末の解決結果を反映しました: {file}",
     },
     // ═══ Auth Notifications ═══
-    { key: "noticeAuthSuccess", specJa: "✅ [認証] 成功！" },
-    { key: "noticeAuthFailed", specJa: "❌ [認証] 失敗" },
+    { key: "noticeAuthSuccess", specJa: "Vault-Sync: ログインしました" },
+    { key: "noticeAuthFailed", specJa: "❌ Vault-Sync: ログインに失敗しました。再度ログインしてください。" },
     // ═══ History Notifications ═══
-    { key: "noticeSavedKeepForever", specJa: "✅ [履歴] 無期限保護設定完了" },
+    { key: "noticeSavedKeepForever", specJa: "Vault-Sync: 無期限保護設定完了" },
     {
         key: "historyKeepForeverError",
         specJa: "❌ [履歴] クラウド側の仕様により、無期限保存設定を解除することはできません。",
     },
-    { key: "noticeFileRestored", specJa: "💾 [履歴] ファイルを復元しました" },
-    { key: "noticeHistoryRestoreAs", specJa: "💾 [履歴] 別名で復元しました: {0}" },
-    { key: "noticeRevisionDeleted", specJa: "🗑️ [履歴] 版を削除しました" },
+    { key: "noticeFileRestored", specJa: "Vault-Sync: ファイルを復元しました" },
+    { key: "noticeHistoryRestoreAs", specJa: "Vault-Sync: 別名で復元しました: {0}" },
+    { key: "noticeRevisionDeleted", specJa: "Vault-Sync: 版を削除しました" },
     {
         key: "noticeAddonRequired",
-        specJa: "⚠️ このVaultでは、本端末に未導入のアドオンを使用中です。設定 → アドオン から導入してください。同期を一時停止しています。",
+        specJa: "⚠️ Vault-Sync: このVaultでは、本端末に未導入のアドオンを使用中です。設定 → アドオン から導入してください。同期を一時停止しています。",
     },
     {
         key: "noticeEngineVerifyFailed",
-        specJa: "❌ アドオンの検証に失敗しました。承認済みリリースと不一致です。最新パッケージを再ダウンロードして再導入してください。",
+        specJa: "❌ Vault-Sync: アドオンの検証に失敗しました。承認済みリリースと不一致です。最新パッケージを再ダウンロードして再導入してください。",
     },
     {
         key: "noticeAddonUpdateRequired",
-        specJa: "⚠️ 導入済みのアドオンは、本バージョンのVault-Syncに非対応の旧版です。最新パッケージをダウンロードし、設定 → アドオン から導入してください。同期を一時停止しています。",
+        specJa: "⚠️ Vault-Sync: 導入済みのアドオンは、本バージョンのVault-Syncに非対応の旧版です。最新パッケージをダウンロードし、設定 → アドオン から導入してください。同期を一時停止しています。",
     },
 ];
 

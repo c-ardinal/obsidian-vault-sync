@@ -1,7 +1,7 @@
 import { App, Modal, Setting } from "obsidian";
 import { t } from "../i18n";
 import type { PlanSummary, PlannedChange, SyncPlan } from "../sync-manager/sync-plan";
-import { deletedFileCount, isCountedOverwrite, type MassChangeAsk } from "../sync-manager/mass-change-guard";
+import { deletedFileCount, groupPathsByFolder, isCountedOverwrite, type MassChangeAsk } from "../sync-manager/mass-change-guard";
 
 /** Paths listed per kind before the rest is summarized as "…and N more" */
 const MAX_LISTED = 50;
@@ -53,7 +53,9 @@ export class MassChangeModal extends Modal {
         if (overwrites) {
             const changes = this.plan.changes.filter(isCountedOverwrite);
             contentEl.createEl("p", { text: fill(t("massOverwriteBody"), changes.length) });
-            this.list(changes, (c) => c.path);
+            // Folded by folder, like the deletion list
+            const groups = groupPathsByFolder(changes.map((c) => c.path));
+            this.listLabels(groups.map((g) => (g.count > 1 ? `${g.path}/ (${fill(t("massDeleteFolderFiles"), g.count)})` : g.path)));
         }
 
         const notes = [deletes ? t("massDeleteHoldNote") : null, overwrites ? t("massOverwriteHoldNote") : null];
@@ -70,7 +72,13 @@ export class MassChangeModal extends Modal {
             )
             .addButton((btn) =>
                 btn
-                    .setButtonText(t(overwrites ? "massChangeRun" : "massDeleteRun"))
+                    .setButtonText(
+                        fill(
+                            t(deletes && overwrites ? "massChangeRun" : overwrites ? "massOverwriteRun" : "massDeleteRun"),
+                            (deletes ? deletedFileCount(this.summary) : 0) +
+                                (overwrites ? this.plan.changes.filter(isCountedOverwrite).length : 0),
+                        ),
+                    )
                     .setWarning()
                     .onClick(() => {
                         this.confirmed = true;
@@ -80,10 +88,14 @@ export class MassChangeModal extends Modal {
     }
 
     private list(changes: PlannedChange[], label: (c: PlannedChange) => string): void {
+        this.listLabels(changes.map(label));
+    }
+
+    private listLabels(labels: string[]): void {
         const ul = this.contentEl.createEl("ul", { cls: "vault-sync-mass-delete-list" });
-        for (const c of changes.slice(0, MAX_LISTED)) ul.createEl("li", { text: label(c) });
-        if (changes.length > MAX_LISTED) {
-            ul.createEl("li", { text: fill(t("massDeleteMore"), changes.length - MAX_LISTED) });
+        for (const l of labels.slice(0, MAX_LISTED)) ul.createEl("li", { text: l });
+        if (labels.length > MAX_LISTED) {
+            ul.createEl("li", { text: fill(t("massDeleteMore"), labels.length - MAX_LISTED) });
         }
     }
 

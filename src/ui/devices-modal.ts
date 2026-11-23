@@ -68,7 +68,7 @@ export class DevicesModal extends Modal {
 
     private renderDevices(): void {
         const { contentEl } = this;
-        contentEl.createDiv({ cls: "vault-sync-devices-heading" }).createEl("h4", { text: t("devicesListHeading") });
+        new Setting(contentEl).setName(t("devicesListHeading")).setHeading().settingEl.addClass("vault-sync-modal-heading");
         const own = this.records.some((r) => r.id === this.source.thisDeviceId);
         if (!own) {
             contentEl.createEl("p", { cls: "vault-sync-devices-note", text: t("devicesThisNotYet") });
@@ -127,9 +127,9 @@ export class DevicesModal extends Modal {
 
     private renderActivity(): void {
         const { contentEl } = this;
-        const heading = contentEl.createDiv({ cls: "vault-sync-devices-heading" });
-        heading.createEl("h4", { text: t("devicesActivityHeading") });
-        const dd = new DropdownComponent(heading);
+        const heading = new Setting(contentEl).setName(t("devicesActivityHeading")).setHeading();
+        heading.settingEl.addClass("vault-sync-modal-heading");
+        const dd = new DropdownComponent(heading.controlEl);
         dd.addOption("", t("devicesAllDevices"));
         for (const r of this.records) dd.addOption(r.id, r.name);
         dd.setValue(this.filter).onChange((v) => {

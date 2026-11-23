@@ -1,4 +1,4 @@
-import { App, Modal, Notice, Setting, TFile } from "obsidian";
+import { AbstractInputSuggest, App, Modal, Notice, Setting, TFile, TFolder } from "obsidian";
 import { formatDateTime } from "./format-time";
 import { t } from "../i18n";
 import type { RestoreAction, RestorePlan, RestoreResult } from "../sync-manager/point-in-time";
@@ -43,6 +43,36 @@ function toLocalInput(ms: number): string {
     return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
+/** Vault folders matching the typed text, Obsidian's own suggestion list */
+class FolderSuggest extends AbstractInputSuggest<TFolder> {
+    constructor(
+        app: App,
+        private readonly input: HTMLInputElement,
+        private readonly onPick: (path: string) => void,
+    ) {
+        super(app, input);
+    }
+
+    protected getSuggestions(query: string): TFolder[] {
+        const q = query.toLowerCase();
+        return this.app.vault
+            .getAllLoadedFiles()
+            .filter((f): f is TFolder => f instanceof TFolder && !f.isRoot() && f.path.toLowerCase().includes(q))
+            .sort((a, b) => a.path.localeCompare(b.path));
+    }
+
+    renderSuggestion(folder: TFolder, el: HTMLElement): void {
+        el.setText(folder.path);
+    }
+
+    selectSuggestion(folder: TFolder): void {
+        this.input.value = folder.path;
+        this.input.dispatchEvent(new Event("input"));
+        this.onPick(folder.path);
+        this.close();
+    }
+}
+
 /** A folder (or the whole vault) back to a past time: choose, check, then restore */
 export class PointInTimeModal extends Modal {
     private folder: string;
@@ -83,6 +113,7 @@ export class PointInTimeModal extends Modal {
                     .setValue(this.folder)
                     .onChange((v) => (this.folder = v));
                 text.inputEl.addClass("vault-sync-pit-folder");
+                new FolderSuggest(this.app, text.inputEl, (path) => (this.folder = path));
             });
 
         new Setting(contentEl).setName(t("pitTime")).addText((text) => {

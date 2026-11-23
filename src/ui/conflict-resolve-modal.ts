@@ -1,4 +1,4 @@
-import { App, FuzzySuggestModal, Modal, Notice, Platform, TFile, normalizePath } from "obsidian";
+import { App, FuzzySuggestModal, Modal, Notice, Platform, Setting, TFile, normalizePath } from "obsidian";
 import { t } from "../i18n";
 import {
     buildConflictChunks,
@@ -112,7 +112,7 @@ export class ConflictResolveModal extends Modal {
 
         if (differing > 0) this.renderChunks(contentEl);
 
-        contentEl.createEl("h4", { text: t("conflictResolveResult") });
+        new Setting(contentEl).setName(t("conflictResolveResult")).setHeading().settingEl.addClass("vault-sync-modal-heading");
         contentEl.createDiv({ cls: "vault-sync-conflict-hint", text: t("conflictResolveResultDesc") });
         this.resultEl = contentEl.createDiv().createEl("textarea", { cls: "vault-sync-conflict-result" });
         this.resultEl.rows = Platform.isPhone ? 8 : 12;
@@ -209,7 +209,7 @@ export class ConflictResolveModal extends Modal {
             new Notice(t("conflictResolveDone").replace("{path}", path));
             this.close();
         } catch (e) {
-            new Notice(`${t("conflictResolveFailed")}: ${String(e)}`);
+            new Notice(`${t("conflictResolveFailed")}\n${String(e)}`);
         }
     }
 

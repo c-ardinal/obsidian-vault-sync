@@ -97,3 +97,24 @@ export class MassChangeGuard implements PlanGuard {
         return PlanDecision.holdWhere(plan, asked);
     }
 }
+
+/**
+ * Paths for a confirmation list, folded like the deletion list: a folder that
+ * holds two or more of them is one entry with its file count.
+ */
+export function groupPathsByFolder(paths: string[]): { path: string; count: number }[] {
+    const byFolder = new Map<string, string[]>();
+    for (const p of paths) {
+        const i = p.lastIndexOf("/");
+        const folder = i < 0 ? "" : p.slice(0, i);
+        const list = byFolder.get(folder) ?? [];
+        list.push(p);
+        byFolder.set(folder, list);
+    }
+    const out: { path: string; count: number }[] = [];
+    for (const [folder, list] of byFolder) {
+        if (folder !== "" && list.length >= 2) out.push({ path: folder, count: list.length });
+        else for (const p of list) out.push({ path: p, count: 1 });
+    }
+    return out.sort((a, b) => a.path.localeCompare(b.path));
+}

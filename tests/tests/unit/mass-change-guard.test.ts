@@ -143,3 +143,14 @@ describe("MassChangeGuard", () => {
         expect(confirm).toHaveBeenCalledTimes(3);
     });
 });
+
+describe("groupPathsByFolder", () => {
+    it("folds a folder holding two or more paths, keeps single files", async () => {
+        const { groupPathsByFolder } = await import("../../../src/sync-manager/mass-change-guard");
+        expect(groupPathsByFolder(["a/x.md", "a/y.md", "b/z.md", "top.md"])).toEqual([
+            { path: "a", count: 2 },
+            { path: "b/z.md", count: 1 },
+            { path: "top.md", count: 1 },
+        ]);
+    });
+});

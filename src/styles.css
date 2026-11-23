@@ -241,7 +241,7 @@
 
 /* Details Colors */
 .revision-meta {
-    font-size: 0.85em;
+    font-size: var(--font-ui-small);
     display: flex;
     flex-direction: column;
     gap: 4px;
@@ -260,7 +260,7 @@
 
 .revision-hash {
     font-family: var(--font-monospace);
-    font-size: 0.85em;
+    font-size: var(--font-ui-small);
     color: var(--text-muted);
     background-color: var(--background-modifier-form-field); /* Slightly darker/lighter box */
     padding: 1px 4px;
@@ -270,7 +270,7 @@
 .revision-author,
 .revision-size {
     color: var(--text-muted);
-    font-size: 0.8em;
+    font-size: var(--font-ui-smaller);
 }
 
 /* Info Header Styling */
@@ -379,7 +379,7 @@
     user-select: none;
     background-color: var(--background-secondary);
     flex-shrink: 0;
-    font-size: 0.8em;
+    font-size: var(--font-ui-smaller);
 }
 
 .diff-cn {
@@ -732,7 +732,7 @@
     justify-content: center;
     background-color: var(--background-modifier-border);
     color: var(--text-muted);
-    font-size: 0.7em;
+    font-size: var(--font-ui-smaller);
     font-weight: bold;
     border-radius: 4px;
     pointer-events: none;
@@ -751,7 +751,7 @@
 }
 .vault-sync-info-status {
     color: var(--text-muted);
-    font-size: 0.85em;
+    font-size: var(--font-ui-small);
     background-color: var(--background-modifier-border);
     padding: 2px 8px;
     border-radius: 4px;
@@ -759,14 +759,14 @@
 }
 
 .is-mobile .vault-sync-info-status {
-    font-size: 0.75em;
+    font-size: var(--font-ui-smaller);
     padding: 4px 10px;
 }
 
 /* Number Limits Hint — sits inside .setting-item-control */
 .vault-sync-number-hint {
     width: 100%;
-    font-size: 0.75em;
+    font-size: var(--font-ui-smaller);
     color: var(--text-muted);
     margin-top: 4px;
     text-align: right;
@@ -777,25 +777,38 @@
     color: var(--text-error);
 }
 
-/* Compact settings: prevent mobile wrap so label and control stay side-by-side */
+/* Phone and tablet: the description keeps the full width, the number field goes below it */
 .is-mobile .vault-sync-number-setting.setting-item,
-.is-mobile .vault-sync-info-setting.setting-item {
-    display: flex !important;
-    flex-direction: row !important;
-    flex-wrap: nowrap !important;
-    align-items: center !important;
+.is-mobile .vault-sync-toggle-number-setting.setting-item {
+    flex-wrap: wrap;
 }
 
 .is-mobile .vault-sync-number-setting .setting-item-info,
-.is-mobile .vault-sync-info-setting .setting-item-info {
-    flex: 1 1 0 !important;
-    min-width: 0;
+.is-mobile .vault-sync-toggle-number-setting .setting-item-info {
+    flex: 1 1 100%;
+    margin-right: 0;
 }
 
 .is-mobile .vault-sync-number-setting .setting-item-control,
+.is-mobile .vault-sync-toggle-number-setting .setting-item-control {
+    flex: 1 1 100%;
+    justify-content: flex-end;
+    margin-top: var(--size-4-2);
+}
+
+.is-mobile .vault-sync-info-setting.setting-item {
+    flex-wrap: nowrap;
+    align-items: center;
+}
+
+.is-mobile .vault-sync-info-setting .setting-item-info {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
 .is-mobile .vault-sync-info-setting .setting-item-control {
-    flex: 0 0 auto !important;
-    width: auto !important;
+    flex: 0 0 auto;
+    width: auto;
 }
 
 /* Number column: input+unit stacked above limits hint */
@@ -817,31 +830,29 @@
     flex-basis: 100%;
 }
 
-/* Subheader group: label + nested children block */
+/* Subheader group: an Obsidian setting heading and the rows below it */
 .vault-sync-subheader-group {
-    margin-top: 12px;
-    margin-bottom: 16px;
-    margin-left: 8px;
-    padding-left: 12px;
-    border-left: 2px solid var(--background-modifier-border);
-}
-
-.vault-sync-subheader-label {
-    display: flex;
-    align-items: center;
-    padding: 6px 0;
+    margin-top: var(--size-4-3);
 }
 
 .vault-sync-subheader-text {
-    font-size: 0.82em;
-    font-weight: 600;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+    font-weight: var(--font-semibold);
+    color: var(--text-normal);
 }
 
-.vault-sync-subheader-body > .setting-item {
+.vault-sync-subheader-body > .setting-item:first-child {
     border-top: none;
+}
+
+/* Folded secondary facts under a setting's description */
+.vault-sync-setting-detail > summary {
+    cursor: pointer;
+    color: var(--text-muted);
+    width: fit-content;
+}
+
+.vault-sync-setting-detail > div {
+    margin-top: var(--size-2-2);
 }
 
 /* Exclusion Pattern Modal */
@@ -888,7 +899,7 @@
 }
 
 .vault-sync-exclusion-match-count {
-    font-size: 0.75em;
+    font-size: var(--font-ui-smaller);
     color: var(--text-muted);
     white-space: nowrap;
     flex-shrink: 0;
@@ -915,7 +926,7 @@
 
 .vault-sync-exclusion-file-item {
     font-family: var(--font-monospace);
-    font-size: 0.78em;
+    font-size: var(--font-ui-smaller);
     color: var(--text-muted);
     padding: 1px 0;
     user-select: text;
@@ -962,7 +973,7 @@
 
 .vault-sync-exclusion-error {
     color: var(--text-error);
-    font-size: 0.85em;
+    font-size: var(--font-ui-small);
     margin-top: 4px;
 }
 
@@ -985,7 +996,7 @@
     padding: 6px 10px;
     cursor: pointer;
     font-family: var(--font-monospace);
-    font-size: 0.85em;
+    font-size: var(--font-ui-small);
     display: flex;
     align-items: center;
     gap: 6px;
@@ -1001,7 +1012,7 @@
 }
 
 .vault-sync-exclusion-status {
-    font-size: 0.78em;
+    font-size: var(--font-ui-smaller);
     color: var(--text-muted);
     text-align: right;
     padding: 6px 4px 0;
@@ -1017,7 +1028,7 @@
 }
 
 .vault-sync-exclusion-section-label {
-    font-size: 0.78em;
+    font-size: var(--font-ui-smaller);
     font-weight: 600;
     color: var(--text-muted);
     text-transform: uppercase;
@@ -1037,7 +1048,7 @@
 }
 
 .vault-sync-exclusion-managed-badge {
-    font-size: 0.72em;
+    font-size: var(--font-ui-smaller);
     color: var(--text-muted);
     background: var(--background-modifier-border);
     padding: 1px 6px;
@@ -1075,7 +1086,7 @@
 }
 
 .vault-sync-migration-file {
-    font-size: 0.8em;
+    font-size: var(--font-ui-smaller);
     color: var(--text-faint);
     white-space: nowrap;
     overflow: hidden;
@@ -1390,7 +1401,7 @@
 
 .vault-sync-prompt-error {
     color: var(--text-error);
-    font-size: 0.85em;
+    font-size: var(--font-ui-small);
     margin-top: 4px;
     min-height: 1.2em;
 }
@@ -1486,9 +1497,7 @@
 }
 
 .vault-sync-settings-section-title {
-    margin-top: 20px;
-    font-weight: 600;
-    color: var(--text-normal);
+    margin-top: var(--size-4-4);
 }
 
 /* ── Sync status display ─────────────────────────────────────────────
@@ -2040,6 +2049,12 @@
     flex-shrink: 0;
 }
 
+/* Phone: the page scrolls as one, the diff has no scroll of its own */
+.is-phone .vault-sync-conflict-chunks {
+    max-height: none;
+    overflow-y: visible;
+}
+
 /* Devices and changes */
 .vault-sync-activity-list {
     max-height: 50vh;
@@ -2075,20 +2090,6 @@
 
 .vault-sync-activity-more {
     margin-top: var(--size-4-2);
-}
-
-.vault-sync-devices-heading {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--size-4-2);
-    margin-top: var(--size-4-4);
-    border-bottom: 1px solid var(--background-modifier-border);
-    padding-bottom: var(--size-4-1);
-}
-
-.vault-sync-devices-heading h4 {
-    margin: 0;
 }
 
 /* Full-height phone modals lay out their content as a flex column: never let
@@ -2227,4 +2228,14 @@
     min-width: 44px;
     min-height: 44px;
     justify-content: center;
+}
+
+/* Headings inside this plugin's dialogs line up with the rows below them */
+.modal .vault-sync-modal-heading.setting-item-heading {
+    padding-inline: 0;
+}
+
+/* Version history when signed out: the reason and the way to fix it */
+.vault-sync-history-signin {
+    padding: var(--size-4-4);
 }

@@ -26,6 +26,8 @@ export interface SettingItem {
     type: SettingType;
     label: string;
     desc?: string;
+    /** Secondary facts, folded under a "Details" toggle below the description */
+    detail?: string;
     placeholder?: string;
     options?: Record<string, string>; // For dropdown: value -> label
     unit?: string;
@@ -81,12 +83,12 @@ const obsidianScopeToggle = (key: ObsidianScopeKey, label: string, desc: string)
     },
 ];
 
-const getTriggerItems = (prefix: string): SettingItem[] => [
+const getTriggerItems = (prefix: string, suffix = ""): SettingItem[] => [
     // ── Startup ──
     {
         key: "_subheader_startup",
         type: "subheader",
-        label: t("settingSubheaderStartup"),
+        label: t("settingSubheaderStartup") + suffix,
     },
     {
         key: `${prefix}.enableStartupSync`,
@@ -99,6 +101,7 @@ const getTriggerItems = (prefix: string): SettingItem[] => [
         type: "toggle-number",
         label: t("settingAutoSyncInterval"),
         desc: t("settingAutoSyncIntervalDesc"),
+                    detail: t("settingAutoSyncIntervalDetail"),
         limits: SETTINGS_LIMITS.autoSyncInterval,
         unit: t("unitSec"),
         onChange: async (val, p) => {
@@ -111,7 +114,7 @@ const getTriggerItems = (prefix: string): SettingItem[] => [
     {
         key: "_subheader_event_triggers",
         type: "subheader",
-        label: t("settingSubheaderEventTriggers"),
+        label: t("settingSubheaderEventTriggers") + suffix,
     },
     {
         key: `${prefix}.onSaveDelaySec`,
@@ -216,6 +219,7 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                     type: "toggle-number",
                     label: t("settingMassDeleteFiles"),
                     desc: t("settingMassDeleteFilesDesc"),
+                    detail: t("settingMassDeleteFilesDetail"),
                     limits: SETTINGS_LIMITS.massDeleteConfirmFiles,
                     unit: t("unitFiles"),
                 },
@@ -224,6 +228,7 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                     type: "toggle-number",
                     label: t("settingMassDeletePercent"),
                     desc: t("settingMassDeletePercentDesc"),
+                    detail: t("settingMassDeletePercentDetail"),
                     limits: SETTINGS_LIMITS.massDeleteConfirmPercent,
                     unit: t("unitPercent"),
                 },
@@ -232,6 +237,7 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                     type: "toggle-number",
                     label: t("settingRemoteTrash"),
                     desc: t("settingRemoteTrashDesc"),
+                    detail: t("settingRemoteTrashDetail"),
                     limits: SETTINGS_LIMITS.remoteTrashRetentionDays,
                     unit: t("unitDays"),
                 },
@@ -246,6 +252,7 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                     type: "toggle-number",
                     label: t("settingAutoKeepRevisions"),
                     desc: t("settingAutoKeepRevisionsDesc"),
+                    detail: t("settingAutoKeepRevisionsDetail"),
                     limits: SETTINGS_LIMITS.autoKeepRevisionDays,
                     unit: t("unitDays"),
                 },
@@ -300,7 +307,7 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                 {
                     key: "triggerConfigStrategy",
                     type: "dropdown",
-                    label: t("settingTriggerStrategy") || "Sync Trigger Strategy", // Fallback if i18n missing
+                    label: t("settingTriggerStrategy"),
                     desc:
                         t("settingTriggerStrategyDesc") ||
                         "Choose how sync triggers are configured across devices.",
@@ -320,23 +327,23 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
         },
         {
             id: "triggers_unified",
-            title: t("settingTriggerSectionUnified") || "Sync Triggers",
+            title: t("settingTriggerSection"),
             isHidden: (s: VaultSyncSettings) => s.triggerConfigStrategy !== "unified",
             items: getTriggerItems("unifiedTriggers"),
         },
         {
             id: "triggers_desktop",
-            title: t("settingTriggerSectionDesktop") || "Desktop Sync Triggers",
+            title: t("settingTriggerSection"),
             isHidden: (s: VaultSyncSettings) =>
                 s.triggerConfigStrategy !== "per-platform" || Platform.isMobile,
-            items: getTriggerItems("desktopTriggers"),
+            items: getTriggerItems("desktopTriggers", t("settingSuffixDesktop")),
         },
         {
             id: "triggers_mobile",
-            title: t("settingTriggerSectionMobile") || "Mobile Sync Triggers",
+            title: t("settingTriggerSection"),
             isHidden: (s: VaultSyncSettings) =>
                 s.triggerConfigStrategy !== "per-platform" || !Platform.isMobile,
-            items: getTriggerItems("mobileTriggers"),
+            items: getTriggerItems("mobileTriggers", t("settingSuffixMobile")),
         },
         {
             id: "sync_scope",
@@ -459,13 +466,6 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                     desc: t("settingSyncFlexibleDataDesc"),
                     onChange: async (_val, p) => p.triggerFullCleanup(),
                 },
-                {
-                    key: "syncDeviceLogs",
-                    type: "toggle",
-                    label: t("settingSyncDeviceLogs"),
-                    desc: t("settingSyncDeviceLogsDesc"),
-                    onChange: async (_val, p) => p.triggerFullCleanup(),
-                },
                 // ── Exclusions ──
                 {
                     key: "_subheader_exclusion",
@@ -477,6 +477,7 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                     type: "textarea",
                     label: t("settingExclusionPatterns"),
                     desc: t("settingExclusionPatternsDesc"),
+                    detail: t("settingExclusionPatternsDetail"),
                     placeholder: "*.tmp\ntemp/**\n.git/**",
                     onChange: async (_val, p) => p.triggerFullCleanup(),
                 },
@@ -485,6 +486,7 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                     type: "textarea",
                     label: t("settingDesktopExclusionPatterns"),
                     desc: t("settingDesktopExclusionPatternsDesc"),
+                    detail: t("settingDesktopExclusionPatternsDetail"),
                     // Called with the patterns before the change
                     onChange: async (before, p) =>
                         p.applyExclusionListChange("desktopExclusionPatterns", typeof before === "string" ? before : ""),
@@ -494,26 +496,29 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                     type: "toggle-number",
                     label: t("settingDesktopMaxFileSize"),
                     desc: t("settingMaxFileSizeDesc"),
+                    detail: t("settingMaxFileSizeDetail"),
                     limits: SETTINGS_LIMITS.maxFileSizeMB,
                     unit: t("unitMB"),
                     onChange: async (_val, p) => p.applyMaxFileSizeChange("desktopMaxFileSizeMB"),
-                },
-                {
-                    key: "mobileMaxFileSizeMB",
-                    type: "toggle-number",
-                    label: t("settingMobileMaxFileSize"),
-                    desc: t("settingMaxFileSizeDesc"),
-                    limits: SETTINGS_LIMITS.maxFileSizeMB,
-                    unit: t("unitMB"),
-                    onChange: async (_val, p) => p.applyMaxFileSizeChange("mobileMaxFileSizeMB"),
                 },
                 {
                     key: "mobileExclusionPatterns",
                     type: "textarea",
                     label: t("settingMobileExclusionPatterns"),
                     desc: t("settingMobileExclusionPatternsDesc"),
+                    detail: t("settingMobileExclusionPatternsDetail"),
                     onChange: async (before, p) =>
                         p.applyExclusionListChange("mobileExclusionPatterns", typeof before === "string" ? before : ""),
+                },
+                {
+                    key: "mobileMaxFileSizeMB",
+                    type: "toggle-number",
+                    label: t("settingMobileMaxFileSize"),
+                    desc: t("settingMaxFileSizeDesc"),
+                    detail: t("settingMaxFileSizeDetail"),
+                    limits: SETTINGS_LIMITS.maxFileSizeMB,
+                    unit: t("unitMB"),
+                    onChange: async (_val, p) => p.applyMaxFileSizeChange("mobileMaxFileSizeMB"),
                 },
             ],
         },
@@ -586,6 +591,13 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                     onChange: async (_val, p) => {
                         p.updateLoggerOptions();
                     },
+                },
+                {
+                    key: "syncDeviceLogs",
+                    type: "toggle",
+                    label: t("settingSyncDeviceLogs"),
+                    desc: t("settingSyncDeviceLogsDesc"),
+                    onChange: async (_val, p) => p.triggerFullCleanup(),
                 },
                 // ── Support ──
                 {

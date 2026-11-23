@@ -391,28 +391,30 @@ export function renderSyncPanel(el: HTMLElement, s: SyncProgressSnapshot, o: Syn
     }
     if (sub) head.createSpan({ cls: "vault-sync-status-sub", text: sub });
 
+    // After a finished sync the steps and per-direction bars would all be full:
+    // only the overall bar stays, the rest carries no news.
+    const finished = !s.active && state === "synced";
+
     // Steps: check -> (scan) -> download -> upload -> done
-    const steps = el.createDiv({ cls: "vault-sync-status-steps" });
-    const order: Array<{ id: string; label: string }> = [
-        { id: "checking", label: t("statusStepCheck") },
-        ...(s.phase === "scanning" || s.scan.total > 0 ? [{ id: "scanning", label: t("statusStepScan") }] : []),
-        { id: "pulling", label: t("statusStepPull") },
-        { id: "pushing", label: t("statusStepPush") },
-        { id: "done", label: t("statusStepDone") },
-    ];
-    const currentIdx = s.active
-        ? order.findIndex((o) => o.id === s.phase)
-        : state === "synced"
-          ? order.length
-          : -1;
-    order.forEach((o, i) => {
-        const step = steps.createDiv({ cls: "vault-sync-status-step" });
-        if (currentIdx >= 0 && i < currentIdx) step.addClass("is-done");
-        if (i === currentIdx) step.addClass("is-current");
-        step.createDiv({ cls: "vault-sync-status-step-bar" });
-        step.createSpan({ text: o.label });
-    });
-    steps.style.setProperty("--vs-steps", String(order.length));
+    if (!finished) {
+        const steps = el.createDiv({ cls: "vault-sync-status-steps" });
+        const order: Array<{ id: string; label: string }> = [
+            { id: "checking", label: t("statusStepCheck") },
+            ...(s.phase === "scanning" || s.scan.total > 0 ? [{ id: "scanning", label: t("statusStepScan") }] : []),
+            { id: "pulling", label: t("statusStepPull") },
+            { id: "pushing", label: t("statusStepPush") },
+            { id: "done", label: t("statusStepDone") },
+        ];
+        const currentIdx = s.active ? order.findIndex((o) => o.id === s.phase) : -1;
+        order.forEach((o, i) => {
+            const step = steps.createDiv({ cls: "vault-sync-status-step" });
+            if (currentIdx >= 0 && i < currentIdx) step.addClass("is-done");
+            if (i === currentIdx) step.addClass("is-current");
+            step.createDiv({ cls: "vault-sync-status-step-bar" });
+            step.createSpan({ text: o.label });
+        });
+        steps.style.setProperty("--vs-steps", String(order.length));
+    }
 
     // Overall bar
     const total = s.pull.total + s.push.total;
@@ -446,9 +448,11 @@ export function renderSyncPanel(el: HTMLElement, s: SyncProgressSnapshot, o: Syn
         const kv = el.createDiv({ cls: "vault-sync-status-kv" });
         const dir = (label: string, d: { done: number; total: number }) => {
             kv.createSpan({ cls: "vault-sync-status-muted", text: label });
-            const mini = kv.createDiv({ cls: "vault-sync-status-mini" });
-            mini.createDiv({ cls: "vault-sync-status-bar-fill" }).style.width =
-                `${d.total > 0 ? Math.round((d.done / d.total) * 100) : 0}%`;
+            const mini = kv.createDiv({ cls: finished ? "" : "vault-sync-status-mini" });
+            if (!finished) {
+                mini.createDiv({ cls: "vault-sync-status-bar-fill" }).style.width =
+                    `${d.total > 0 ? Math.round((d.done / d.total) * 100) : 0}%`;
+            }
             kv.createSpan({ cls: "vault-sync-status-num", text: `${d.done} / ${d.total}` });
         };
         dir(t("statusPull"), s.pull);
