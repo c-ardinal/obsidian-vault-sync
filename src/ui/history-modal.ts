@@ -55,6 +55,7 @@ export class HistoryModal extends Modal {
         app: App,
         private syncManager: SyncManager,
         private file: TFile,
+        private openSettings?: () => void,
     ) {
         super(app);
     }
@@ -79,7 +80,7 @@ export class HistoryModal extends Modal {
         } else {
             const loadingContainer = contentEl.createDiv({ cls: "vault-sync-loading-container" });
             loadingContainer.createDiv({ cls: "vault-sync-spinner" });
-            loadingContainer.createDiv({ text: "Loading history..." });
+            loadingContainer.createDiv({ text: this.syncManager.t("historyLoading") });
         }
 
         try {
@@ -111,6 +112,20 @@ export class HistoryModal extends Modal {
             }
         } catch (e) {
             contentEl.empty();
+            if (this.syncManager.isSignedIn === false) {
+                // Same wording and action as the sync status panel when signed out
+                const box = contentEl.createDiv({ cls: "vault-sync-history-signin" });
+                box.createEl("p", { text: this.syncManager.t("historySignInRequired") });
+                const open = this.openSettings;
+                if (open) {
+                    const btn = box.createEl("button", { cls: "mod-cta", text: this.syncManager.t("statusOpenSettings") });
+                    btn.addEventListener("click", () => {
+                        this.close();
+                        open();
+                    });
+                }
+                return;
+            }
             this.setTitle(this.syncManager.t("historyError"));
             const errDiv = contentEl.createDiv({ cls: "error-text" });
             errDiv.setText(
@@ -294,19 +309,24 @@ export class HistoryModal extends Modal {
             cls: "revision-control-row vault-sync-revision-control-row",
         });
 
-        controlRow.createSpan({ text: this.syncManager.t("historyCompareWith") });
+        // Phone: the label goes inside the choices so it does not take a line of its own
+        const compareWith = this.syncManager.t("historyCompareWith");
+        if (!Platform.isPhone) controlRow.createSpan({ text: compareWith });
 
         const dropdown = new DropdownComponent(controlRow);
-        dropdown.addOption("local", this.syncManager.t("historyCurrentLocalFile"));
+        dropdown.selectEl.setAttr("aria-label", compareWith.trim());
+        const add = (value: string, label: string) =>
+            dropdown.addOption(value, Platform.isPhone ? `${compareWith}${label}` : label);
+        add("local", this.syncManager.t("historyCurrentLocalFile"));
         const currentIdx = this.revisions.indexOf(this.selectedRevision);
         if (currentIdx < this.revisions.length - 1) {
             const prev = this.revisions[currentIdx + 1];
-            dropdown.addOption(
+            add(
                 prev.id,
                 `${this.syncManager.t("historyPreviousVersion")} (${formatDateTime(prev.modifiedTime)})`,
             );
         } else {
-            dropdown.addOption(
+            add(
                 "empty",
                 `${this.syncManager.t("historyPreviousVersion")} (${this.syncManager.t("historyInitialEmptyVersion")})`,
             );
@@ -318,7 +338,7 @@ export class HistoryModal extends Modal {
                 r.id === this.revisions[currentIdx + 1].id
             )
                 return;
-            dropdown.addOption(
+            add(
                 r.id,
                 `${formatDateTime(r.modifiedTime)} (${r.author || this.syncManager.t("historyAuthorUnknown")})`,
             );

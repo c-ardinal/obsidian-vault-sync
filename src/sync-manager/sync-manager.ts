@@ -252,6 +252,11 @@ export class SyncManager {
         return this.baseAdapter;
     }
 
+    /** Whether the cloud account is signed in on this device */
+    get isSignedIn(): boolean {
+        return this.baseAdapter.isAuthenticated();
+    }
+
     /**
      * Swap the add-on engine (null removes it). The cached adapter wraps the old
      * engine, so it is dropped as well.

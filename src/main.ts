@@ -60,7 +60,6 @@ const BUILTIN_COMMAND_IDS: ReadonlySet<string> = new Set([
     "show-remote-trash",
     "resolve-conflicts",
     "show-devices",
-    "report-issue",
     "copy-diagnostics",
     "restore-to-point-in-time",
     "show-sync-status",
@@ -666,12 +665,6 @@ export default class VaultSync extends Plugin {
         });
 
         this.addCommand({
-            id: "report-issue",
-            name: t("labelReportIssueCommand"),
-            callback: () => this.openDiagnostics(),
-        });
-
-        this.addCommand({
             id: "copy-diagnostics",
             name: t("labelDiagnosticsCommand"),
             callback: () => this.openDiagnostics(),
@@ -782,7 +775,7 @@ export default class VaultSync extends Plugin {
                             item.setTitle(t("labelViewHistory"))
                                 .setIcon("history")
                                 .onClick(() => {
-                                    new HistoryModal(this.app, this.syncManager, file).open();
+                                    new HistoryModal(this.app, this.syncManager, file, () => this.openSettingsTab()).open();
                                 });
                         });
                     }

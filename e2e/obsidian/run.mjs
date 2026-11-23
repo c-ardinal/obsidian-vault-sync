@@ -880,7 +880,7 @@ async function checkProtectionAndNumbers(main, lang, { mobile = false } = {}) {
     if (prot >= 0) {
         await (await page.$$(".vault-sync-settings-nav-item"))[prot].click();
         await page.waitForSelector(".vault-sync-settings-back", { timeout: 5000 });
-        const firstRows = await page.$$eval(".vault-sync-settings-page .setting-item", (els) =>
+        const firstRows = await page.$$eval(".vault-sync-settings-page .setting-item:not(.setting-item-heading)", (els) =>
             els.slice(0, 3).map((e) => !!e.querySelector("button")),
         );
         check(
@@ -917,10 +917,60 @@ async function checkProtectionAndNumbers(main, lang, { mobile = false } = {}) {
             JSON.stringify(r),
         );
         await shot(page, lang, `${tag}-settings-number-clamped`);
-        await input.fill("5");
-        await input.press("Enter");
-        await sleep(200);
+        const resetShown = await page.evaluate(() => {
+            const b = document.querySelector(".vault-sync-settings-page .vault-sync-number-setting .vault-sync-reset-default");
+            return !!b && b.style.display !== "none";
+        });
+        check(lang, `${tag}: changed number offers "restore default"`, resetShown);
+        await page.click(".vault-sync-settings-page .vault-sync-number-setting .vault-sync-reset-default");
+        await sleep(300);
+        const afterReset = await main.evaluate((id) => window.app.plugins.plugins[id].settings.concurrency, PLUGIN_ID);
+        check(lang, `${tag}: "restore default" sets the default`, afterReset === 5, String(afterReset));
+        await page.click(".vault-sync-settings-back");
+        await sleep(300);
     }
+    // Triggers page: Obsidian headings (no uppercase), folded details, no "Trigger:" prefix
+    names = await navNames(page);
+    const trg = names.findIndex((n) => /^(Sync triggers|同期トリガー|同步触发|동기화 트리거)/.test(n));
+    check(lang, `${tag}: triggers page listed`, trg >= 0, names.join(" | "));
+    if (trg >= 0) {
+        await (await page.$$(".vault-sync-settings-nav-item"))[trg].click();
+        await page.waitForSelector(".vault-sync-settings-back", { timeout: 5000 });
+        const t = await page.evaluate(() => {
+            const pageEl = document.querySelector(".vault-sync-settings-page");
+            const heads = [...pageEl.querySelectorAll(".vault-sync-subheader-group > .setting-item-heading")];
+            const names = [...pageEl.querySelectorAll(".setting-item:not(.setting-item-heading) .setting-item-name")].map(
+                (e) => e.textContent.trim(),
+            );
+            return {
+                heads: heads.length,
+                upper: heads.some((h) => getComputedStyle(h.querySelector(".setting-item-name")).textTransform === "uppercase"),
+                details: pageEl.querySelectorAll("details.vault-sync-setting-detail").length,
+                prefixed: names.filter((n) => /^(Trigger:|トリガー:)/.test(n)),
+                hint: pageEl.querySelector(".vault-sync-number-hint")?.textContent ?? "",
+            };
+        });
+        check(
+            lang,
+            `${tag}: triggers page uses plain headings, folded details, no prefix`,
+            t.heads >= 2 && !t.upper && t.details >= 1 && t.prefixed.length === 0,
+            JSON.stringify(t),
+        );
+        check(lang, `${tag}: number range reads "default first"`, /^(Default|既定) /.test(t.hint), t.hint);
+        await page.evaluate(() => {
+            const d = document.querySelector(".vault-sync-settings-page details.vault-sync-setting-detail");
+            if (d) d.open = true;
+        });
+        await shot(page, lang, `${tag}-settings-triggers`);
+        await page.click(".vault-sync-settings-back");
+        await sleep(300);
+    }
+    // Obsidian's own settings search lists Vault-Sync rows (Obsidian 1.13+)
+    const defs = await main.evaluate((id) => {
+        const tab = window.app.setting.pluginTabs.find((x) => x.id === id);
+        return tab?.settingItems?.length ?? -1;
+    }, PLUGIN_ID);
+    check(lang, `${tag}: settings are offered to Obsidian's own search`, defs > 10, String(defs));
     await closeSettings(main);
 }
 
@@ -1234,7 +1284,7 @@ async function checkScreens(page, lang, { mobile = false } = {}) {
         await sp.waitForSelector(".vault-sync-settings-back", { timeout: 5000 });
         const btn = sp
             .locator(".vault-sync-settings-page button")
-            .filter({ hasText: /Configure|設定|編集|管理|配置|설정/ })
+            .filter({ hasText: /Configure|Edit|設定|編集|管理|配置|编辑|설정|편집/ })
             .first();
         if (await btn.count()) {
             await btn.click();
@@ -1247,7 +1297,7 @@ async function checkScreens(page, lang, { mobile = false } = {}) {
 
             // The list for this device only: its own note, no toggle-managed rows,
             // and the patterns kept in this device's settings
-            const buttons = sp.locator(".vault-sync-settings-page button").filter({ hasText: /Configure|設定|編集|管理|配置|설정/ });
+            const buttons = sp.locator(".vault-sync-settings-page button").filter({ hasText: /Configure|Edit|設定|編集|管理|配置|编辑|설정|편집/ });
             if ((await buttons.count()) >= 2) {
                 await buttons.nth(1).click();
                 await modalOpen(sp, ".vault-sync-exclusion-modal");

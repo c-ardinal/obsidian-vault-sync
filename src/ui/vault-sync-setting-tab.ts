@@ -101,6 +101,14 @@ const CATEGORIES: SettingsCategory[] = [
     },
 ];
 
+/** A row of Obsidian's own settings search */
+interface SearchRow {
+    name: string;
+    desc: string;
+    visible?: () => boolean;
+    action: () => void;
+}
+
 const MAPPED_SECTION_IDS = new Set(CATEGORIES.flatMap((c) => c.sectionIds));
 
 /** Settings of the account page (drawn by hand, not from the schema), for search: name and description keys */
@@ -137,6 +145,53 @@ export class VaultSyncSettingTab extends PluginSettingTab {
         this.query = "";
         this.addonPage = null;
         super.hide();
+    }
+
+    /**
+     * Rows for Obsidian's own settings search (Obsidian 1.13 and later; older
+     * versions never ask). Each row opens the page here that holds the setting.
+     * Obsidian draws a tab from these rows instead of display() unless renderTab
+     * is overridden, so they are offered only where renderTab exists.
+     */
+    getSettingDefinitions(): SearchRow[] {
+        if (typeof (PluginSettingTab.prototype as unknown as { renderTab?: unknown }).renderTab !== "function") return [];
+        const rows: SearchRow[] = [];
+        const row = (name: string, desc: string | undefined, page: PageId, visible?: () => boolean): void => {
+            if (name) rows.push({ name, desc: desc ?? "", visible, action: () => this.openFromSearch(page) });
+        };
+        const all = getSettingsSections(this.plugin);
+        for (const category of CATEGORIES) {
+            if (category.id === "account") {
+                for (const [name, desc] of ACCOUNT_SEARCH_KEYS) row(t(name), t(desc), category.id);
+                continue;
+            }
+            const sections =
+                category.id === "addons"
+                    ? all.filter((sec) => !MAPPED_SECTION_IDS.has(sec.id))
+                    : category.sectionIds
+                          .map((id) => all.find((sec) => sec.id === id))
+                          .filter((sec): sec is SettingSection => !!sec);
+            for (const section of sections) {
+                for (const item of section.items) {
+                    if (item.type === "subheader" || item.type === "diff-preview") continue;
+                    row(item.label, item.desc, category.id, () =>
+                        !section.isHidden?.(this.plugin.settings, this.plugin) &&
+                        !item.isHidden?.(this.plugin.settings, this.plugin),
+                    );
+                }
+            }
+        }
+        return rows;
+    }
+
+    /** Obsidian's hook for drawing the tab: always our own pages (see getSettingDefinitions) */
+    renderTab(): void {
+        this.display();
+    }
+
+    private openFromSearch(page: PageId): void {
+        this.plugin.openSettingsTab();
+        this.navigate(page);
     }
 
     /** Switch page and scroll to its top. */
@@ -197,6 +252,22 @@ export class VaultSyncSettingTab extends PluginSettingTab {
             });
         search.inputEl.setAttr("aria-label", t("settingSearchPlaceholder"));
         this.renderSearchResults(list, results);
+
+        if (!this.plugin.isAdapterAuthenticated()) {
+            // First thing a new user has to do: say so above the list
+            new Setting(list)
+                .setName(t("settingLoginRequired"))
+                .setDesc(t("settingLoginRequiredDesc"))
+                .addButton((b) =>
+                    b
+                        .setButtonText(t("settingLogin"))
+                        .setCta()
+                        .onClick(async () => {
+                            await this.plugin.adapterLogin();
+                        }),
+                )
+                .settingEl.addClass("vault-sync-settings-login-cta");
+        }
 
         for (const category of CATEGORIES) {
             const row = this.renderNavRow(list, t(category.titleKey), this.getCategoryDesc(category), category.id);
@@ -272,7 +343,7 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                         continue;
                     }
                     const desc = item.getDesc ? item.getDesc(this.plugin.settings, this.plugin) : item.desc;
-                    if (matchesWords(words, [pageTitle, section.title, subheader, item.label, desc])) {
+                    if (matchesWords(words, [pageTitle, section.title, subheader, item.label, desc, item.detail])) {
                         hits.push(item);
                     }
                 }
@@ -516,7 +587,7 @@ export class VaultSyncSettingTab extends PluginSettingTab {
 
     private renderSection(el: HTMLElement, section: SettingSection, showTitle: boolean): void {
         if (showTitle) {
-            el.createDiv({ cls: "vault-sync-settings-section-title", text: section.title });
+            new Setting(el).setName(section.title).setHeading().settingEl.addClass("vault-sync-settings-section-title");
         }
         if (section.description) {
             el.createEl("p", { text: section.description, cls: "setting-item-description" });
@@ -526,13 +597,10 @@ export class VaultSyncSettingTab extends PluginSettingTab {
         for (const item of section.items) {
             if (item.isHidden?.(this.plugin.settings, this.plugin)) continue;
 
-            // A subheader starts a new group (static, no collapsing)
+            // A subheader starts a new group, headed like Obsidian's own settings
             if (item.type === "subheader") {
                 const groupEl = el.createDiv({ cls: "vault-sync-subheader-group" });
-                groupEl.createDiv({ cls: "vault-sync-subheader-label" }).createSpan({
-                    cls: "vault-sync-subheader-text",
-                    text: item.label,
-                });
+                new Setting(groupEl).setName(item.label).setHeading().settingEl.addClass("vault-sync-subheader-label");
                 groupBody = groupEl.createDiv({ cls: "vault-sync-subheader-body" });
                 continue;
             }
@@ -548,6 +616,16 @@ export class VaultSyncSettingTab extends PluginSettingTab {
             : item.desc || "";
 
         const setting = new Setting(targetEl).setName(item.label).setDesc(description);
+        this.fillControl(setting, item, description);
+        if (item.detail) {
+            // Secondary facts stay folded so the description reads in one line
+            const details = setting.descEl.createEl("details", { cls: "vault-sync-setting-detail" });
+            details.createEl("summary", { text: t("settingDetailToggle") });
+            details.createDiv({ text: item.detail });
+        }
+    }
+
+    private fillControl(setting: Setting, item: SettingItem, description: string): void {
 
         switch (item.type) {
             case "toggle":
@@ -611,7 +689,7 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                         patternCount > 0
                             ? `${patternCount} ${t("settingExclusionPatternCount")}`
                             : t("settingExclusionPatternNone");
-                    setting.setDesc(summary);
+                    setting.setDesc(description ? `${description}\n${summary}` : summary);
                     setting.addButton((btn) => {
                         btn.setButtonText(t("settingExclusionConfigure")).onClick(() => {
                             const before = String((this.getSettingValue(listKey) as string | undefined) || "");
@@ -996,6 +1074,9 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                 } finally {
                     busy = false;
                 }
+                setting.settingEl
+                    .querySelector<HTMLElement>(".vault-sync-reset-default")
+                    ?.toggle(item.limits !== undefined && value !== item.limits.default);
             };
             text.inputEl.addEventListener("change", () => void commit());
             text.inputEl.addEventListener("keydown", (e) => {
@@ -1007,6 +1088,24 @@ export class VaultSyncSettingTab extends PluginSettingTab {
             numCol.appendChild(el);
         });
         if (item.limits) hintEl = this.addLimitsHint(numCol, item.limits);
+        if (item.limits) this.addResetButton(setting, item, item.limits.default);
+    }
+
+    /** "Restore default" icon, shown while the value differs from the default */
+    private addResetButton(setting: Setting, item: SettingItem, defaultValue: number): void {
+        setting.addExtraButton((btn) => {
+            btn.setIcon("rotate-ccw")
+                .setTooltip(t("settingResetDefault"))
+                .onClick(async () => {
+                    this.setSettingValue(item.key, defaultValue);
+                    await this.plugin.saveSettings();
+                    if (item.onChange) await item.onChange(defaultValue, this.plugin);
+                    this.display();
+                });
+            btn.extraSettingsEl.addClass("vault-sync-reset-default");
+            btn.extraSettingsEl.setAttr("aria-label", t("settingResetDefault"));
+            btn.extraSettingsEl.toggle(Number(this.getSettingValue(item.key)) !== defaultValue);
+        });
     }
 
     /**
