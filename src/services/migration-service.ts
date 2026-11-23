@@ -409,11 +409,17 @@ export class MigrationService {
                 const localNow = await this.localHash(f.path);
                 if (localNow === remotePlain) continue;
                 const base = rec.base[f.path];
-                const untouched = base === undefined ? localNow === null : localNow === base;
+                let untouched = base === undefined ? localNow === null : localNow === base;
+                if (untouched) {
+                    // Check again right before replacing it: the note may have been
+                    // saved here while the checks above were waiting on the disk
+                    await ensureLocalFolder(this.ctx, f.path);
+                    if ((await this.localHash(f.path)) !== localNow) untouched = false;
+                }
                 const target = untouched
                     ? f.path
                     : await freeConflictCopyPath((p) => this.ctx.vault.exists(p), f.path);
-                await ensureLocalFolder(this.ctx, target);
+                if (!untouched) await ensureLocalFolder(this.ctx, target);
                 await this.ctx.vault.writeBinary(target, content);
                 this.ctx.dirtyPaths.set(target, Date.now());
                 await this.ctx.log(
@@ -424,9 +430,11 @@ export class MigrationService {
                 );
             }
             for (const path of Object.keys(rec.scan)) {
-                if (seen.has(path)) continue;
+                // Left out of sync since (scope changed): not a deletion
+                if (seen.has(path) || shouldIgnore(this.ctx, path)) continue;
                 const localNow = await this.localHash(path);
                 if (localNow === null || localNow !== rec.base[path]) continue; // the edit here wins
+                if ((await this.localHash(path)) !== localNow) continue;
                 const file = this.ctx.vault.getAbstractFileByPath(path);
                 if (file) await this.ctx.vault.trashFile(file, true);
                 markDeleted(this.ctx, path);

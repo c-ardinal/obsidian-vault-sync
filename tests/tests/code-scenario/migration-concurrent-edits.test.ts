@@ -374,4 +374,24 @@ describe("Pushes into the old folder after the catch-up read it", () => {
         expect(t.localText("a.md")).toBe("late edit from B");
         expect(t.drive.backupName()).toBeUndefined();
     });
+
+    it("keeps a save made here while the cleanup is about to replace the note", async () => {
+        const t = await lateEdit({ "dir/a.md": "v1" }, (t) => t.drive.write(VAULT, "dir/a.md", "late edit from B", t.idOf("dir/a.md")));
+        vi.setSystemTime(Date.now() + 2 * HOUR);
+        // The parent-folder check of the cleanup write is where the save lands
+        t.onExists.set("dir", () => t.local.set("dir/a.md", enc("saved on A during cleanup")));
+        await t.svc.finishBackupCleanup();
+        expect(t.localText("dir/a.md")).toBe("saved on A during cleanup");
+        const copy = [...t.local.keys()].find((p) => p.startsWith("dir/a (Conflict "));
+        expect(copy && t.localText(copy)).toBe("late edit from B");
+    });
+
+    it("does not delete a note left out of sync during the grace time", async () => {
+        const t = await lateEdit({ "a.md": "v1", "private/b.md": "b1" }, () => {});
+        (t.ctx.settings as any).exclusionPatterns = "private/**";
+        vi.setSystemTime(Date.now() + 2 * HOUR);
+        await t.svc.finishBackupCleanup();
+        expect(t.localText("private/b.md")).toBe("b1");
+        expect(t.drive.backupName()).toBeUndefined();
+    });
 });
