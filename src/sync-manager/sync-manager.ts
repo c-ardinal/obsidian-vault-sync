@@ -89,6 +89,7 @@ import {
 } from "./history";
 import { forgetAutoKept } from "./revision-retention";
 import { fetchCloudOnlyFile, listCloudOnlyFiles, type CloudOnlyFile } from "./on-demand";
+import { verifySync, type VerifyReport } from "./sync-verify";
 import { refreshStorage, storageSummary, storageSummaryNow, type StorageSummary } from "./storage-check";
 import {
     linesToChars3 as _linesToChars3,
@@ -347,6 +348,11 @@ export class SyncManager {
     /** Local changes waiting for the next upload */
     public get pendingChangeCount(): number {
         return this.dirtyPaths.size;
+    }
+
+    /** Read-only comparison of this device with the cloud */
+    async verifySync(): Promise<VerifyReport> {
+        return verifySync(this as unknown as SyncContext);
     }
 
     /** Cloud files this device leaves out and does not have (fetch one by one) */

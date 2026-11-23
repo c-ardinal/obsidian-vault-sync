@@ -667,6 +667,14 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                     buttonText: t("settingOpenDiagnosticsButton"),
                     onClick: (p) => p.openDiagnostics(),
                 },
+                {
+                    key: "_open_verify",
+                    type: "button",
+                    label: t("settingOpenVerify"),
+                    desc: t("settingOpenVerifyDesc"),
+                    buttonText: t("settingOpenVerifyButton"),
+                    onClick: (p) => p.openSyncVerify(),
+                },
             ],
         },
         {

@@ -15,6 +15,7 @@ import type { OAuthCloudAdapter } from "./types/oauth-adapter";
 import { SyncManager, type SyncTrigger } from "./sync-manager";
 import type { SecureStorage } from "./services/secure-storage";
 import { HistoryModal } from "./ui/history-modal";
+import { SyncVerifyModal } from "./ui/sync-verify-modal";
 import { fetchLinkedCloudOnly, openCloudOnlyPicker } from "./ui/cloud-only-modal";
 import { TransferStatusModal, type TransferModalActions } from "./ui/transfer-status-modal";
 import { SyncStatusView } from "./ui/sync-status-view";
@@ -684,6 +685,12 @@ export default class VaultSync extends Plugin {
         });
 
         this.addCommand({
+            id: "verify-sync",
+            name: t("labelVerifyCommand"),
+            callback: () => this.openSyncVerify(),
+        });
+
+        this.addCommand({
             id: "fetch-cloud-only",
             name: t("labelCloudOnlyCommand"),
             callback: () => void openCloudOnlyPicker(this.app, this.syncManager),
@@ -909,9 +916,19 @@ export default class VaultSync extends Plugin {
         add(t("labelDevicesCommand"), "monitor-smartphone", () => this.openDevices());
         add(t("labelCloudOnlyCommand"), "cloud-download", () => void openCloudOnlyPicker(this.app, this.syncManager));
         menu.addSeparator();
+        add(t("labelVerifyCommand"), "list-checks", () => this.openSyncVerify());
         add(t("labelDiagnosticsCommand"), "stethoscope", () => this.openDiagnostics());
         add(t("statusOpenSettings"), "settings", () => this.openSettingsTab());
         menu.showAtMouseEvent(evt);
+    }
+
+    /** Read-only check: this device against the cloud */
+    openSyncVerify(): void {
+        new SyncVerifyModal(this.app, {
+            run: () => this.syncManager.verifySync(),
+            isSyncing: () => this.syncManager.isSyncing(),
+            syncNow: () => void this.requestManualSync(),
+        }).open();
     }
 
     /** Open this plugin's settings tab. */
