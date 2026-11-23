@@ -317,8 +317,7 @@ export class MigrationService {
             if (localNow !== null) {
                 if (!this.untouchedSinceStart(path, localNow)) continue; // the edit here wins
                 if ((await this.localHash(path)) !== localNow) continue;
-                const file = this.ctx.vault.getAbstractFileByPath(path);
-                if (file) await this.ctx.vault.trashFile(file, true);
+                await this.removeLocal(path);
             }
             if (converted?.fileId) {
                 await remoteDeletionOf(this.ctx).remove(
@@ -331,6 +330,16 @@ export class MigrationService {
             delete this.ctx.index[path];
             await this.ctx.log(`[Migration] ${path} was deleted on another device: deleted it here too.`, "info");
         }
+    }
+
+    /**
+     * Delete a local file: to the system trash when it is a vault file, directly
+     * when only the adapter sees it (files under the config folder)
+     */
+    private async removeLocal(path: string): Promise<void> {
+        const file = this.ctx.vault.getAbstractFileByPath(path);
+        if (file) await this.ctx.vault.trashFile(file, true);
+        else await this.ctx.vault.remove(path);
     }
 
     /**
@@ -422,6 +431,10 @@ export class MigrationService {
                 if (!untouched) await ensureLocalFolder(this.ctx, target);
                 await this.ctx.vault.writeBinary(target, content);
                 this.ctx.dirtyPaths.set(target, Date.now());
+                // Taken: a retry after a later failure must not take it again
+                rec.scan[f.path] = f.hash ?? "";
+                if (untouched) rec.base[f.path] = remotePlain;
+                await this.savePendingCleanup(rec);
                 await this.ctx.log(
                     untouched
                         ? `[Migration] Took another device's late version of ${f.path} from the old folder.`
@@ -435,9 +448,10 @@ export class MigrationService {
                 const localNow = await this.localHash(path);
                 if (localNow === null || localNow !== rec.base[path]) continue; // the edit here wins
                 if ((await this.localHash(path)) !== localNow) continue;
-                const file = this.ctx.vault.getAbstractFileByPath(path);
-                if (file) await this.ctx.vault.trashFile(file, true);
+                await this.removeLocal(path);
                 markDeleted(this.ctx, path);
+                delete rec.scan[path];
+                await this.savePendingCleanup(rec);
                 await this.ctx.log(`[Migration] ${path} was deleted late on another device: deleted it here too.`, "info");
             }
             await remoteDeletionOf(this.ctx).remove(

@@ -169,7 +169,8 @@ async function setup(files: Record<string, string>) {
             write: vi.fn(async (p: string, d: string) => void local.set(p, enc(d))),
             read: vi.fn(async (p: string) => dec(local.get(p)!)),
             remove: vi.fn(async (p: string) => void local.delete(p)),
-            getAbstractFileByPath: (p: string) => (local.has(p) ? { path: p } : null),
+            // Files under the config folder are not vault files: only the adapter sees them
+            getAbstractFileByPath: (p: string) => (local.has(p) && !p.startsWith("cfg/") ? { path: p } : null),
             trashFile: vi.fn(async (f: { path: string }) => void local.delete(f.path)),
             exists: vi.fn(async (p: string) => {
                 const hook = onExists.get(p);
@@ -393,5 +394,33 @@ describe("Pushes into the old folder after the catch-up read it", () => {
         await t.svc.finishBackupCleanup();
         expect(t.localText("private/b.md")).toBe("b1");
         expect(t.drive.backupName()).toBeUndefined();
+    });
+
+    it("deletes a file only the adapter sees when another device deleted it", async () => {
+        const t = await setup({ "a.md": "v1", "cfg/b.json": "b1" });
+        t.onRead.set("a.md", () => t.drive.remove(VAULT, "cfg/b.json"));
+        await t.run();
+        expect(t.localText("cfg/b.json")).toBeUndefined();
+        expect((await t.converted())["cfg/b.json"]).toBeUndefined();
+    });
+
+    it("does not copy a late conflict again when the cleanup is retried", async () => {
+        const t = await lateEdit({ "a.md": "v1" }, (t) => t.drive.write(VAULT, "a.md", "late edit from B", t.idOf("a.md")));
+        t.local.set("a.md", enc("edit on A after the conversion"));
+        vi.setSystemTime(Date.now() + 2 * HOUR);
+        const base = t.drive.adapter(VAULT) as any;
+        const realDelete = base.deleteFile;
+        let failures = 1;
+        const svc = new MigrationService(
+            { ...base, deleteFile: async (id: string) => { if (failures-- > 0) throw new Error("503"); return realDelete(id); } },
+            new VaultLockService(base),
+            t.ctx,
+        );
+        await svc.finishBackupCleanup();
+        expect(t.drive.backupName()).toBeDefined();
+        await svc.finishBackupCleanup();
+        expect(t.drive.backupName()).toBeUndefined();
+        const copies = [...t.local.keys()].filter((p) => p.startsWith("a (Conflict "));
+        expect(copies).toHaveLength(1);
     });
 });
