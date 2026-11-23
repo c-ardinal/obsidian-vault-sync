@@ -567,7 +567,7 @@
     "transferDeferredCellular": "等待 Wi-Fi（移动网络）。",
     "transferDeferredLowBattery": "等待充电（电量低）。",
     "labelCloudOnlyCommand": "获取本设备不同步的文件",
-    "labelFetchLinkedCloudOnly": "获取链接的未同步文件",
+    "labelFetchLinkedCloudOnly": "获取链接的未同步文件 (Vault-Sync)",
     "cloudOnlyPick": "要获取的文件（在本设备上仍不同步）",
     "cloudOnlyNone": "Vault-Sync：没有未获取的云端文件。",
     "cloudOnlyNoneLinked": "Vault-Sync：此笔记链接的文件中没有未获取的不同步文件。",
@@ -595,5 +595,7 @@
     "verifyCheckedAt": "检查于 {0}。本设备不同步的文件不参与比对。",
     "verifyAgain": "重新检查",
     "settingFileExplorerMarks": "文件列表中的标记",
-    "settingFileExplorerMarksDesc": "在本设备已更改但尚未上传的文件（强调色）和冲突副本（红色）的名称后显示小圆点。"
+    "settingFileExplorerMarksDesc": "在本设备已更改但尚未上传的文件（强调色）和冲突副本（红色）的名称后显示小圆点。",
+    "verifySignInRequired": "与云端比对需要先登录。",
+    "cloudOnlySignInRequired": "Vault-Sync：从云端获取文件需要先登录。"
 }

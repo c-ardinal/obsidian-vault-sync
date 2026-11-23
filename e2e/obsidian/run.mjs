@@ -1581,6 +1581,127 @@ async function checkAddonPages(main, lang, { mobile = false } = {}) {
     await closeModals(main);
 }
 
+/**
+ * Proposals of 2026-11-24: sync check, files left out here fetched one by one,
+ * cloud storage line, large-transfer deferral settings, file explorer marks.
+ * The cloud parts are stubbed on the plugin object (no account here).
+ */
+async function checkNewFeatures(page, lang, { mobile = false } = {}) {
+    const tag = mobile ? "mobile" : "desktop";
+    const plugin = (fn, arg) =>
+        page.evaluate(
+            ([id, body, a]) => new Function("p", "a", body)(window.app.plugins.plugins[id], a),
+            [PLUGIN_ID, fn, arg],
+        );
+
+    // Sync check, signed out: asks for the log-in, changes nothing
+    await cmd(page, "verify-sync");
+    await modalOpen(page, ".vault-sync-verify-modal");
+    await sleep(1500);
+    const signedOut = await page.$eval(".vault-sync-verify-modal .modal-content", (e) => e.textContent);
+    check(lang, `${tag}: sync check asks for the log-in when signed out`, /log in|ログイン|登录|로그인/i.test(signedOut), signedOut.slice(0, 80));
+    await shotModal(page, lang, tag, "scr-verify-signed-out", "sync check (signed out)");
+    await escape(page);
+
+    // Sync check with a report
+    await plugin(`
+        p.syncManager.__verify = p.syncManager.verifySync;
+        p.syncManager.verifySync = async () => ({
+            checkedAt: Date.now(), matching: 128, pending: 1,
+            differences: [
+                { path: "Daily/2026-11-24.md", kind: "local-changed" },
+                { path: "Projects/plan.canvas", kind: "cloud-changed" },
+                { path: "Inbox/idea.md", kind: "local-only" },
+                { path: "Attachments/scan.pdf", kind: "cloud-only" },
+            ],
+        });`);
+    await cmd(page, "verify-sync");
+    await modalOpen(page, ".vault-sync-verify-group");
+    await page.$$eval(".vault-sync-verify-group", (els) => els.forEach((e) => (e.open = true)));
+    await sleep(300);
+    const groups = await page.$$eval(".vault-sync-verify-group summary", (els) => els.map((e) => e.textContent));
+    check(lang, `${tag}: sync check lists each kind of difference`, groups.length === 4, groups.join(" | "));
+    await shotModal(page, lang, tag, "scr-verify-report", "sync check (report)");
+    await escape(page);
+    await plugin(`p.syncManager.verifySync = p.syncManager.__verify;`);
+
+    // Files left out here: the picker lists them with their size
+    await plugin(`
+        p.syncManager.__list = p.syncManager.listCloudOnlyFiles;
+        p.syncManager.listCloudOnlyFiles = async () => [
+            { path: "Attachments/manual.pdf", size: 48234567, fileId: "x1" },
+            { path: "Attachments/video.mp4", size: 268435456, fileId: "x2" },
+        ];`);
+    await cmd(page, "fetch-cloud-only");
+    await page.waitForSelector(".prompt .suggestion-item", { timeout: 5000 });
+    await sleep(300);
+    const picks = await page.$$eval(".prompt .suggestion-item", (els) => els.map((e) => e.textContent));
+    check(lang, `${tag}: left-out files picker lists the cloud files`, picks.length === 2 && picks.some((t) => t.includes("MB")), picks.join(" | "));
+    await shot(page, lang, `${tag}-scr-cloud-only-picker`);
+    await page.keyboard.press("Escape");
+    await sleep(300);
+    await plugin(`p.syncManager.listCloudOnlyFiles = p.syncManager.__list;`);
+
+    // Cloud storage line on the data protection page
+    await plugin(`
+        const a = p.syncManager.adapter;
+        a.getStorageQuota = async () => ({ usage: 13.8 * 1024 ** 3, limit: 15 * 1024 ** 3, usageInTrash: 320 * 1024 ** 2 });
+        return p.syncManager.loadStorageSummary(true);`);
+    const sp = await openSettings(page);
+    if (sp !== page) await sp.setViewportSize(mobile ? MOBILE : DESKTOP).catch(() => {});
+    const names = await navNames(sp);
+    const prot = names.findIndex((n) => /^(Data protection and restore|データ保護・復元|数据保护与恢复|데이터 보호·복원)$/.test(n));
+    if (prot >= 0) {
+        await (await sp.$$(".vault-sync-settings-nav-item"))[prot].click();
+        await sp.waitForSelector(".vault-sync-settings-back", { timeout: 5000 });
+        const row = sp.locator(".vault-sync-settings-page .setting-item").filter({ hasText: /15\.0 GB/ });
+        check(lang, `${tag}: storage line shows the account's use`, (await row.count()) === 1, "");
+        if (await row.count()) await row.first().scrollIntoViewIfNeeded();
+        await sleep(300);
+        await shot(sp, lang, `${tag}-settings-storage`);
+        await sp.click(".vault-sync-settings-back");
+        await sleep(300);
+    }
+    const tr = (await navNames(sp)).findIndex((n) => /^(Transfers|転送|传输|전송)$/.test(n));
+    if (tr >= 0) {
+        await (await sp.$$(".vault-sync-settings-nav-item"))[tr].click();
+        await sp.waitForSelector(".vault-sync-settings-back", { timeout: 5000 });
+        const toggles = await sp.$$eval(".vault-sync-settings-page .setting-item .checkbox-container", (els) => els.length);
+        check(lang, `${tag}: transfer page has the two deferral switches`, toggles >= 2, `toggles=${toggles}`);
+        await shot(sp, lang, `${tag}-settings-transfer-defer`);
+    }
+    await closeSettings(page);
+
+    // File explorer marks (desktop: the explorer is in view)
+    if (!mobile) {
+        const copy = "Welcome (Conflict 2026-11-24T09-00-00).md";
+        await plugin(`
+            p.settings.showFileExplorerMarks = true;
+            p.syncManager.dirtyPaths.set("Welcome.md", Date.now());
+            p.refreshFileExplorerMarks();`);
+        await page.evaluate(async (f) => {
+            if (!window.app.vault.getAbstractFileByPath(f)) await window.app.vault.create(f, "copy");
+        }, copy);
+        await sleep(1200);
+        await plugin(`p.fileMarks.refresh();`);
+        const marks = await page.$$eval(".nav-file-title.vault-sync-mark-pending, .nav-file-title.vault-sync-mark-conflict", (els) =>
+            els.map((e) => e.className),
+        );
+        check(lang, `${tag}: file explorer marks the waiting file and the conflict copy`, marks.length === 2, marks.join(" | "));
+        await shot(page, lang, `${tag}-scr-file-marks`, ".workspace-split.mod-left-split");
+        await plugin(`
+            p.settings.showFileExplorerMarks = false;
+            p.syncManager.dirtyPaths.delete("Welcome.md");
+            p.refreshFileExplorerMarks();`);
+        await page.evaluate(async (f) => {
+            const file = window.app.vault.getAbstractFileByPath(f);
+            if (file) await window.app.fileManager.trashFile(file);
+        }, copy);
+        const left = await page.$$eval(".vault-sync-mark-pending, .vault-sync-mark-conflict", (els) => els.length);
+        check(lang, `${tag}: marks are gone when turned off`, left === 0, `left=${left}`);
+    }
+}
+
 async function runLang(lang) {
     const root = mkdtempSync(join(tmpdir(), `obsidian-e2e-${lang}-`));
     const { proc, browser, page } = await launch(root);
@@ -1637,6 +1758,11 @@ async function runLang(lang) {
             await shot(page, lang, "desktop-scr-error").catch(() => {});
             await closeModals(page);
         });
+        await checkNewFeatures(page, lang).catch(async (e) => {
+            check(lang, "desktop: new features run completed", false, e.stack || String(e));
+            await shot(page, lang, "desktop-new-error").catch(() => {});
+            await closeModals(page);
+        });
         if (process.env.ADDON_ZIP) {
             await checkAddonPages(page, lang).catch(async (e) => {
                 check(lang, "desktop: add-on pages run completed", false, e.stack || String(e));
@@ -1669,6 +1795,11 @@ async function runLang(lang) {
             await checkScreens(page, lang, { mobile: true }).catch(async (e) => {
                 check(lang, "mobile: screens run completed", false, e.stack || String(e));
                 await shot(page, lang, "mobile-scr-error").catch(() => {});
+            });
+            await checkNewFeatures(page, lang, { mobile: true }).catch(async (e) => {
+                check(lang, "mobile: new features run completed", false, e.stack || String(e));
+                await shot(page, lang, "mobile-new-error").catch(() => {});
+                await closeModals(page);
             });
             if (process.env.ADDON_ZIP) {
                 await checkAddonPages(page, lang, { mobile: true }).catch(async (e) => {

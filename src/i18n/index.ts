@@ -622,7 +622,7 @@ export const en: Record<string, string> = {
     transferDeferredCellular: "Waiting for Wi-Fi (mobile network).",
     transferDeferredLowBattery: "Waiting for charging (low battery).",
     labelCloudOnlyCommand: "Fetch a file not synced on this device",
-    labelFetchLinkedCloudOnly: "Fetch linked files not synced here",
+    labelFetchLinkedCloudOnly: "Fetch linked files not synced here (Vault-Sync)",
     cloudOnlyPick: "File to fetch (stays out of sync on this device)",
     cloudOnlyNone: "Vault-Sync: Every cloud file is on this device.",
     cloudOnlyNoneLinked: "Vault-Sync: This note links to no file left out on this device.",
@@ -651,6 +651,8 @@ export const en: Record<string, string> = {
     verifyAgain: "Check again",
     settingFileExplorerMarks: "Marks in the file explorer",
     settingFileExplorerMarksDesc: "Show a small dot after files changed here and not sent yet (accent color) and after conflict copies (red).",
+    verifySignInRequired: "Log in to compare this device with the cloud.",
+    cloudOnlySignInRequired: "Vault-Sync: Log in to fetch files from the cloud.",
 };
 
 let activeDict: Record<string, string> = en;

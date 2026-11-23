@@ -18,6 +18,8 @@ const KIND_LABEL: Record<VerifyDifference, string> = {
 export interface VerifyActions {
     run: () => Promise<VerifyReport>;
     isSyncing: () => boolean;
+    /** false: not logged in (the check needs the cloud) */
+    isSignedIn: () => boolean | undefined;
     syncNow: () => void;
 }
 
@@ -52,6 +54,10 @@ export class SyncVerifyModal extends Modal {
             report = await this.actions.run();
         } catch (e) {
             el.empty();
+            if (this.actions.isSignedIn() === false) {
+                el.createEl("p", { text: t("verifySignInRequired") });
+                return;
+            }
             el.createEl("p", { text: t("verifyFailed") });
             el.createEl("p", { cls: "setting-item-description", text: String(e) });
             return;

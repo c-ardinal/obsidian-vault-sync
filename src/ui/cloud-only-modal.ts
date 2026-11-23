@@ -52,7 +52,7 @@ async function loadList(sm: SyncManager): Promise<CloudOnlyFile[] | null> {
     try {
         return await sm.listCloudOnlyFiles();
     } catch (e) {
-        new Notice(t("cloudOnlyListFailed"));
+        new Notice(sm.isSignedIn === false ? t("cloudOnlySignInRequired") : t("cloudOnlyListFailed"));
         void sm.log(`[On demand] Listing failed: ${String(e)}`, "error");
         return null;
     }

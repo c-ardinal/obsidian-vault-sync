@@ -790,13 +790,6 @@ export default class VaultSync extends Plugin {
                             .onClick(() => new ConflictResolveModal(this.app, file.path).open());
                     });
                 }
-                if (this.syncManager && file instanceof TFile && file.extension === "md") {
-                    menu.addItem((item) => {
-                        item.setTitle(t("labelFetchLinkedCloudOnly"))
-                            .setIcon("cloud-download")
-                            .onClick(() => void fetchLinkedCloudOnly(this.app, this.syncManager, file));
-                    });
-                }
                 if (this.syncManager && this.syncManager.supportsHistory) {
                     if (file instanceof TFile) {
                         menu.addItem((item) => {
@@ -814,6 +807,13 @@ export default class VaultSync extends Plugin {
                                 .onClick(() => this.openPointInTime(file.isRoot() ? "" : file.path));
                         });
                     }
+                }
+                if (this.syncManager && file instanceof TFile && file.extension === "md") {
+                    menu.addItem((item) => {
+                        item.setTitle(t("labelFetchLinkedCloudOnly"))
+                            .setIcon("cloud-download")
+                            .onClick(() => void fetchLinkedCloudOnly(this.app, this.syncManager, file));
+                    });
                 }
             }),
         );
@@ -948,6 +948,7 @@ export default class VaultSync extends Plugin {
         new SyncVerifyModal(this.app, {
             run: () => this.syncManager.verifySync(),
             isSyncing: () => this.syncManager.isSyncing(),
+            isSignedIn: () => this.syncManager.isSignedIn,
             syncNow: () => void this.requestManualSync(),
         }).open();
     }
