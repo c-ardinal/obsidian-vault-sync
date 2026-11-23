@@ -5,6 +5,26 @@ import { OBSIDIAN_SCOPE_KEYS, type ObsidianScopeKey, VaultSyncSettings } from ".
 import { SETTINGS_LIMITS } from "../constants";
 import { t } from "../i18n";
 import VaultSync from "../main";
+import { formatSize } from "../utils/format";
+import { formatDateTime } from "./format-time";
+
+/** The cloud storage line of the data protection page (last reading; no request) */
+function storageDesc(p: VaultSync): string {
+    const sum = p.syncManager.getStorageSummary();
+    if (!sum || !sum.quota) return t("settingStorageNotChecked");
+    const q = sum.quota;
+    const parts = [
+        q.limit
+            ? t("settingStorageUsedOf")
+                  .replace("{used}", formatSize(q.usage))
+                  .replace("{total}", formatSize(q.limit))
+                  .replace("{percent}", String(Math.round((q.usage / q.limit) * 100)))
+            : t("settingStorageUsed").replace("{used}", formatSize(q.usage)),
+        t("settingStorageVault").replace("{size}", formatSize(sum.vaultBytes)),
+    ];
+    if (q.usageInTrash) parts.push(t("settingStorageTrash").replace("{size}", formatSize(q.usageInTrash)));
+    return `${parts.join(t("settingStorageSeparator"))} ${t("settingStorageCheckedAt").replace("{time}", formatDateTime(sum.checkedAt))}`;
+}
 
 export type SettingType =
     | "toggle"
@@ -263,6 +283,26 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                     desc: t("settingAutoKeepAttachmentsDesc"),
                     isHidden: (s) => s.autoKeepRevisionDays < 1,
                 },
+                // ── Cloud storage ──
+                {
+                    key: "_subheader_storage",
+                    type: "subheader",
+                    label: t("settingSubheaderStorage"),
+                    isHidden: (_s, p) => !p.syncManager.supportsStorageQuota,
+                },
+                {
+                    key: "_storage_usage",
+                    type: "button",
+                    label: t("settingStorage"),
+                    desc: t("settingStorageDesc"),
+                    getDesc: (_s, p) => storageDesc(p),
+                    detail: t("settingStorageDetail"),
+                    buttonText: t("settingStorageRefresh"),
+                    isHidden: (_s, p) => !p.syncManager.supportsStorageQuota,
+                    onClick: (p) => {
+                        void p.syncManager.loadStorageSummary(true).then(() => p.refreshSettingsUI());
+                    },
+                },
             ],
         },
         {
@@ -292,6 +332,20 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                     desc: t("settingBgTransferIntervalDesc"),
                     limits: SETTINGS_LIMITS.bgTransferIntervalSec,
                     unit: t("unitSec"),
+                },
+                {
+                    key: "deferLargeOnCellular",
+                    type: "toggle",
+                    label: t("settingDeferCellular"),
+                    desc: t("settingDeferCellularDesc"),
+                    detail: t("settingDeferDetail"),
+                },
+                {
+                    key: "deferLargeOnLowBattery",
+                    type: "toggle",
+                    label: t("settingDeferLowBattery"),
+                    desc: t("settingDeferLowBatteryDesc"),
+                    detail: t("settingDeferDetail"),
                 },
             ],
         },
@@ -541,6 +595,15 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                         p.refreshSyncStatusView();
                     },
                 },
+                {
+                    key: "showFileExplorerMarks",
+                    type: "toggle",
+                    label: t("settingFileExplorerMarks"),
+                    desc: t("settingFileExplorerMarksDesc"),
+                    onChange: async (_val, p) => {
+                        p.refreshFileExplorerMarks();
+                    },
+                },
                 // ── Diff view ──
                 {
                     key: "_subheader_diff",
@@ -612,6 +675,14 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                     desc: t("settingOpenDiagnosticsDesc"),
                     buttonText: t("settingOpenDiagnosticsButton"),
                     onClick: (p) => p.openDiagnostics(),
+                },
+                {
+                    key: "_open_verify",
+                    type: "button",
+                    label: t("settingOpenVerify"),
+                    desc: t("settingOpenVerifyDesc"),
+                    buttonText: t("settingOpenVerifyButton"),
+                    onClick: (p) => p.openSyncVerify(),
                 },
             ],
         },

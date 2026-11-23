@@ -61,6 +61,8 @@ describe("sync-helpers", () => {
                 syncWorkspace: false,
                 hasCompletedFirstSync: false,
                 e2eeEnabled: false,
+                deferLargeOnCellular: false,
+                deferLargeOnLowBattery: false,
             },
             localIndex: {},
         };

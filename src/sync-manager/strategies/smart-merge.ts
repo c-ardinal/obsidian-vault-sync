@@ -10,6 +10,7 @@ import {
 } from "../constants";
 import type { IMergeStrategy, MergeParams } from "./merge-strategy";
 import { mergeLines3 } from "./diff3";
+import { isValidStructured, mergeJsonText, mergeYamlText, structuredKindOf } from "./structured-merge";
 
 /** How many versions before the base the merge may look back (see below). */
 const MERGE_OLDER_BASE_ATTEMPTS = 3;
@@ -72,7 +73,43 @@ export class SmartMergeStrategy implements IMergeStrategy {
 
         await ctx.log(`[Merge] Found base revision: ${baseRev.id} (hash: ${baseRev.hash})`, "debug");
 
+        const kind = structuredKindOf(path);
+        /**
+         * Canvas and JSON merge as data first. Anything a line merge gives for a
+         * structured file must still be readable, or it is a conflict copy rather
+         * than a broken file (Obsidian's settings under .obsidian/ included).
+         */
         const mergeFrom = async (baseContentStr: string): Promise<string | null> => {
+            if (kind === "json") {
+                const asData = mergeJsonText(
+                    normalizeLineEndings(baseContentStr),
+                    normalizeLineEndings(localContentStr),
+                    normalizeLineEndings(remoteContentStr),
+                );
+                if (asData !== null) {
+                    await ctx.log(`[Merge] SUCCESS: Merged ${path} as data.`, "info");
+                    return asData;
+                }
+            }
+            const asText = await mergeTextFrom(baseContentStr);
+            if (!kind) return asText;
+            if (asText !== null && isValidStructured(kind, asText)) return asText;
+            if (asText !== null) await ctx.log(`[Merge] Line merge left ${path} unreadable: not used.`, "warn");
+            if (kind === "yaml") {
+                const asYaml = mergeYamlText(
+                    normalizeLineEndings(baseContentStr),
+                    normalizeLineEndings(localContentStr),
+                    normalizeLineEndings(remoteContentStr),
+                );
+                if (asYaml !== null) {
+                    await ctx.log(`[Merge] SUCCESS: Merged ${path} as data.`, "info");
+                    return asYaml;
+                }
+            }
+            return null;
+        };
+
+        const mergeTextFrom = async (baseContentStr: string): Promise<string | null> => {
             const baseNorm = normalizeLineEndings(baseContentStr);
             const localNorm = normalizeLineEndings(localContentStr);
             const remoteNorm = normalizeLineEndings(remoteContentStr);

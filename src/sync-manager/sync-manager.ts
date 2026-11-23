@@ -87,6 +87,10 @@ import {
     deleteRevision as _deleteRevision,
     restoreRevision as _restoreRevision,
 } from "./history";
+import { forgetAutoKept } from "./revision-retention";
+import { fetchCloudOnlyFile, listCloudOnlyFiles, type CloudOnlyFile } from "./on-demand";
+import { verifySync, type VerifyReport } from "./sync-verify";
+import { refreshStorage, storageSummary, storageSummaryNow, type StorageSummary } from "./storage-check";
 import {
     linesToChars3 as _linesToChars3,
     perform3WayMerge as _perform3WayMerge,
@@ -342,8 +346,32 @@ export class SyncManager {
     // === Background Transfer Public API ===
 
     /** Local changes waiting for the next upload */
+    /** Files changed here and not sent yet */
+    public get pendingPaths(): string[] {
+        return [...this.dirtyPaths.keys()];
+    }
+
     public get pendingChangeCount(): number {
         return this.dirtyPaths.size;
+    }
+
+    /** Read-only comparison of this device with the cloud */
+    async verifySync(): Promise<VerifyReport> {
+        return verifySync(this as unknown as SyncContext);
+    }
+
+    /** Cloud files this device leaves out and does not have (fetch one by one) */
+    async listCloudOnlyFiles(): Promise<CloudOnlyFile[]> {
+        return listCloudOnlyFiles(this as unknown as SyncContext);
+    }
+
+    async fetchCloudOnlyFile(file: CloudOnlyFile): Promise<void> {
+        return fetchCloudOnlyFile(this as unknown as SyncContext, file);
+    }
+
+    /** Why large transfers wait now (mobile network, low battery), or null */
+    public getTransferDeferReason(): "cellular" | "low-battery" | null {
+        return this.backgroundTransferQueue.deferredReason;
     }
 
     public getActiveTransfers(): TransferItem[] {
@@ -721,6 +749,11 @@ export class SyncManager {
 
     // === History Management (delegated to history.ts) ===
 
+    /** The cloud tells how much storage the account uses */
+    get supportsStorageQuota(): boolean {
+        return !!this.adapter?.getStorageQuota;
+    }
+
     get supportsHistory(): boolean {
         return _supportsHistory(this as unknown as SyncContext);
     }
@@ -871,12 +904,26 @@ export class SyncManager {
         revisionId: string,
         keepForever: boolean,
     ): Promise<void> {
+        // Set by hand: the user's from now on, never thinned
+        await forgetAutoKept(this as unknown as SyncContext, revisionId);
         return _setRevisionKeepForever(
             this as unknown as SyncContext,
             path,
             revisionId,
             keepForever,
         );
+    }
+
+    /** Cloud storage as last read (null: not read yet this session) */
+    getStorageSummary(): StorageSummary | null {
+        return storageSummaryNow(this as unknown as SyncContext);
+    }
+
+    /** Read the cloud storage now, or the stored reading (settings page) */
+    async loadStorageSummary(refresh: boolean): Promise<StorageSummary> {
+        const ctx = this as unknown as SyncContext;
+        if (refresh) await refreshStorage(ctx);
+        return storageSummary(ctx);
     }
 
     async deleteRevision(path: string, revisionId: string): Promise<void> {

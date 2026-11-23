@@ -171,6 +171,13 @@ export class TransferStatusModal extends Modal {
             el.createDiv({ cls: "vault-sync-xfer-empty", text: t("transferNoActive") });
             return;
         }
+        const deferred = this.syncManager.getTransferDeferReason?.();
+        if (deferred) {
+            el.createDiv({
+                cls: "vault-sync-xfer-muted vault-sync-xfer-deferred",
+                text: t(deferred === "cellular" ? "transferDeferredCellular" : "transferDeferredLowBattery"),
+            });
+        }
         // Transferring first, then waiting in queue order.
         const sorted = [...active].sort(
             (a, b) => Number(b.status === "active") - Number(a.status === "active"),

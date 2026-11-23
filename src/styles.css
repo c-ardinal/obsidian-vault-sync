@@ -2239,3 +2239,39 @@
 .vault-sync-history-signin {
     padding: var(--size-4-4);
 }
+
+/* Size after a file name in a suggestion list */
+.vault-sync-suggest-note {
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+}
+
+/* Sync check: one folded list per kind of difference */
+.vault-sync-verify-group {
+    margin: var(--size-4-2) 0;
+}
+.vault-sync-verify-group ul {
+    max-height: 12em;
+    overflow-y: auto;
+    margin: var(--size-4-1) 0 0;
+    font-size: var(--font-ui-small);
+    overflow-wrap: anywhere;
+}
+
+/* File explorer marks (optional): a small dot after the name */
+.nav-file-title.vault-sync-mark-pending::after,
+.nav-file-title.vault-sync-mark-conflict::after {
+    content: "";
+    flex-shrink: 0;
+    width: 6px;
+    height: 6px;
+    margin-inline-start: var(--size-4-1);
+    border-radius: 50%;
+    align-self: center;
+}
+.nav-file-title.vault-sync-mark-pending::after {
+    background-color: var(--text-accent);
+}
+.nav-file-title.vault-sync-mark-conflict::after {
+    background-color: var(--text-error);
+}

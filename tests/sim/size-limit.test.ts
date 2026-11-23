@@ -134,4 +134,59 @@ describe("file-size limit of one kind of device", () => {
         await sync(a);
         expect(a.read("mine.md")).toBe(BIG("from B"));
     });
+
+    it("fetches a left-out file on demand; it stays out of sync and the cloud keeps it", async () => {
+        const { make, sync } = setup();
+        const a = make("A");
+        await a.init();
+        await a.userCreate("docs/big.md", BIG("v1"));
+        await a.userCreate("small.md", "s1");
+        await sync(a);
+        const b = make("B", LIMIT_MB);
+        await b.init();
+        await sync(b, true);
+
+        const run = async <T>(p: Promise<T>): Promise<T> => {
+            expect(await drive(p, 600_000)).toBe("ok");
+            return p;
+        };
+        const list = await run(b.sm.listCloudOnlyFiles());
+        expect(list.map((f) => f.path)).toEqual(["docs/big.md"]);
+        await run(b.sm.fetchCloudOnlyFile(list[0]));
+        expect(b.read("docs/big.md")).toBe(BIG("v1"));
+        expect(await run(b.sm.listCloudOnlyFiles())).toEqual([]);
+
+        // Neither uploaded nor counted as a change, and deleting it here keeps the cloud file
+        await sync(b, true);
+        await b.userDelete("docs/big.md");
+        await sync(b);
+        await sync(b, true);
+        await sync(a);
+        expect(a.read("docs/big.md")).toBe(BIG("v1"));
+        expect((await run(b.sm.listCloudOnlyFiles())).map((f) => f.path)).toEqual(["docs/big.md"]);
+    });
+
+    it("on demand: a file made at that path during the download is kept, not overwritten", async () => {
+        const { make, sync } = setup();
+        const a = make("A");
+        await a.init();
+        await a.userCreate("big.md", BIG("cloud"));
+        await sync(a);
+        const b = make("B", LIMIT_MB);
+        await b.init();
+        await sync(b, true);
+
+        const list = b.sm.listCloudOnlyFiles();
+        expect(await drive(list, 600_000)).toBe("ok");
+        const adapter = b.sm.adapter;
+        const real = adapter.downloadFile.bind(adapter);
+        adapter.downloadFile = async (id: string) => {
+            const data = await real(id);
+            await b.userCreate("big.md", "typed here meanwhile");
+            return data;
+        };
+        const fetch = b.sm.fetchCloudOnlyFile((await list)[0]);
+        expect(await drive(fetch, 600_000)).toBe("ok");
+        expect(b.read("big.md")).toBe("typed here meanwhile");
+    });
 });

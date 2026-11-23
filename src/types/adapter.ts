@@ -181,6 +181,9 @@ export interface CloudAdapter {
     ): Promise<void>;
     fileExistsById(fileId: string): Promise<boolean>;
 
+    /** Account storage: used / total bytes (optional; one cheap request) */
+    getStorageQuota?(): Promise<StorageQuota>;
+
     // Change feed (only when capabilities.changeFeed)
     getStartPageToken?(): Promise<string>;
     getChanges?(pageToken: string): Promise<CloudChanges>;
@@ -243,4 +246,14 @@ export interface FileRevision {
     author?: string; // 更新者名（取得可能な場合）
     keepForever?: boolean;
     hash?: string; // [Sec] コンテンツ整合性検証用 (MD5等)
+}
+
+/** The cloud account's storage, in bytes */
+export interface StorageQuota {
+    /** Total allowed (absent: unlimited) */
+    limit?: number;
+    /** Used by everything in the account (all services) */
+    usage: number;
+    /** Of that, files in the cloud's own trash */
+    usageInTrash?: number;
 }

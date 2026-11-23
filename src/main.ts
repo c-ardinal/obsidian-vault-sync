@@ -15,6 +15,9 @@ import type { OAuthCloudAdapter } from "./types/oauth-adapter";
 import { SyncManager, type SyncTrigger } from "./sync-manager";
 import type { SecureStorage } from "./services/secure-storage";
 import { HistoryModal } from "./ui/history-modal";
+import { FileExplorerMarks } from "./ui/file-explorer-marks";
+import { SyncVerifyModal } from "./ui/sync-verify-modal";
+import { fetchLinkedCloudOnly, openCloudOnlyPicker } from "./ui/cloud-only-modal";
 import { TransferStatusModal, type TransferModalActions } from "./ui/transfer-status-modal";
 import { SyncStatusView } from "./ui/sync-status-view";
 import { DEFAULT_SETTINGS } from "./constants";
@@ -63,6 +66,8 @@ const BUILTIN_COMMAND_IDS: ReadonlySet<string> = new Set([
     "copy-diagnostics",
     "restore-to-point-in-time",
     "show-sync-status",
+    "fetch-cloud-only",
+    "verify-sync",
     "dev-demo-history",
     "dev-demo-transfer-status",
     "dev-demo-notifications",
@@ -385,6 +390,7 @@ export default class VaultSync extends Plugin {
                 await this.syncManager.applyDeviceScopeChange(scopeBefore);
             }
             this.triggerManager.setupAutoSyncInterval();
+            this.refreshFileExplorerMarks();
             if (this.settingTab) {
                 this.settingTab.display();
             }
@@ -681,6 +687,18 @@ export default class VaultSync extends Plugin {
         });
 
         this.addCommand({
+            id: "verify-sync",
+            name: t("labelVerifyCommand"),
+            callback: () => this.openSyncVerify(),
+        });
+
+        this.addCommand({
+            id: "fetch-cloud-only",
+            name: t("labelCloudOnlyCommand"),
+            callback: () => void openCloudOnlyPicker(this.app, this.syncManager),
+        });
+
+        this.addCommand({
             id: "show-sync-status",
             name: t("labelShowSyncStatusCommand"),
             checkCallback: (checking: boolean) => {
@@ -752,7 +770,10 @@ export default class VaultSync extends Plugin {
 
         // 3. Sync status display (status bar / mobile pill). On mobile, the older
         // spinning indicator (FAB) is used only when the status display is off.
-        this.app.workspace.onLayoutReady(() => this.refreshSyncStatusView());
+        this.app.workspace.onLayoutReady(() => {
+            this.refreshSyncStatusView();
+            this.refreshFileExplorerMarks();
+        });
 
         this.settingTab = new VaultSyncSettingTab(this.app, this);
         this.addSettingTab(this.settingTab);
@@ -787,6 +808,13 @@ export default class VaultSync extends Plugin {
                         });
                     }
                 }
+                if (this.syncManager && file instanceof TFile && file.extension === "md") {
+                    menu.addItem((item) => {
+                        item.setTitle(t("labelFetchLinkedCloudOnly"))
+                            .setIcon("cloud-download")
+                            .onClick(() => void fetchLinkedCloudOnly(this.app, this.syncManager, file));
+                    });
+                }
             }),
         );
 
@@ -797,6 +825,7 @@ export default class VaultSync extends Plugin {
     }
 
     onunload() {
+        this.fileMarks?.disable();
         this.triggerManager?.destroy();
         this.syncStatusView?.unmount();
         this.syncStatusView = null;
@@ -817,6 +846,21 @@ export default class VaultSync extends Plugin {
             ? this.settings.diffFontSizeMobile
             : this.settings.diffFontSizeDesktop;
         activeDocument.body.style.setProperty("--vault-sync-diff-font-size", `${px}px`);
+    }
+
+    private fileMarks: FileExplorerMarks | null = null;
+
+    /** Show or hide the file explorer marks to match the setting. */
+    refreshFileExplorerMarks(): void {
+        if (this.settings.showFileExplorerMarks) {
+            this.fileMarks ??= new FileExplorerMarks(this.app, {
+                pendingPaths: () => this.syncManager.pendingPaths,
+                subscribe: (cb) => this.syncManager.progress.subscribe(() => cb()),
+            });
+            this.fileMarks.enable();
+        } else {
+            this.fileMarks?.disable();
+        }
     }
 
     /** Show or hide the sync status display to match the setting. */
@@ -891,10 +935,22 @@ export default class VaultSync extends Plugin {
             add(t("labelPointInTimeCommand"), "history", () => this.openPointInTime(""));
         }
         add(t("labelDevicesCommand"), "monitor-smartphone", () => this.openDevices());
+        add(t("labelCloudOnlyCommand"), "cloud-download", () => void openCloudOnlyPicker(this.app, this.syncManager));
         menu.addSeparator();
+        add(t("labelVerifyCommand"), "list-checks", () => this.openSyncVerify());
         add(t("labelDiagnosticsCommand"), "stethoscope", () => this.openDiagnostics());
         add(t("statusOpenSettings"), "settings", () => this.openSettingsTab());
         menu.showAtMouseEvent(evt);
+    }
+
+    /** Read-only check: this device against the cloud */
+    openSyncVerify(): void {
+        new SyncVerifyModal(this.app, {
+            run: () => this.syncManager.verifySync(),
+            isSyncing: () => this.syncManager.isSyncing(),
+            isSignedIn: () => this.syncManager.isSignedIn,
+            syncNow: () => void this.requestManualSync(),
+        }).open();
     }
 
     /** Open this plugin's settings tab. */

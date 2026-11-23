@@ -7,6 +7,8 @@ export type SyncManagerSettings = Pick<
     | "autoKeepRevisionDays"
     | "largeFileThresholdMB"
     | "bgTransferIntervalSec"
+    | "deferLargeOnCellular"
+    | "deferLargeOnLowBattery"
     | "notificationLevel"
     | "showSyncStatus"
     | "conflictResolutionStrategy"

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { keepRevisionsIfDue, noteUploadedForRetention } from "../../../src/sync-manager/revision-retention";
+import { forgetAutoKept, keepRevisionsIfDue, noteUploadedForRetention, versionsToThin } from "../../../src/sync-manager/revision-retention";
 import { NO_CLOUD_CAPABILITIES, type CloudAdapter, type FileRevision } from "../../../src/types/adapter";
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -121,5 +121,80 @@ describe("revision retention", () => {
         noteUploadedForRetention(ctx, "c.md", "id-c");
         expect(await keepRevisionsIfDue(ctx, NOW)).toBe(1);
         expect(marked).toEqual([{ path: "c.md", id: "5" }]);
+    });
+
+    describe("thinning auto-kept versions near Drive's limit", () => {
+        const memVault = () => {
+            const files = new Map<string, string>();
+            return {
+                files,
+                exists: async (p: string) => files.has(p) || [...files.keys()].some((k) => k.startsWith(p + "/")),
+                read: async (p: string) => files.get(p)!,
+                write: async (p: string, d: string) => void files.set(p, d),
+                mkdir: async () => {},
+            };
+        };
+
+        it("removes auto-kept versions sharing a week, then keeps the new one", async () => {
+            // 150 daily versions kept by this device, the oldest 400+ days back
+            revisions["a.md"] = Array.from({ length: 150 }, (_, i) => rev(`k${i}`, 1 + i * 3, true));
+            revisions["a.md"].push(rev("new", 0));
+            const { ctx, marked } = makeCtx(1, revisions);
+            const vault = memVault();
+            vault.files.set("p/data/local/auto-kept-revisions.json", JSON.stringify({ "id-a": revisions["a.md"].slice(0, 150).map((r) => r.id) }));
+            Object.assign(ctx, { vault, pluginDir: "p" });
+            const released: string[] = [];
+            const setKeep = ctx.adapter.setRevisionKeepForever!.bind(ctx.adapter);
+            // As Drive: keepForever cannot be turned off; a version can be removed
+            (ctx.adapter as any).setRevisionKeepForever = async (path: string, id: string, keep: boolean) => {
+                if (!keep) throw new Error("Cannot update a revision to false");
+                return setKeep(path, id, keep);
+            };
+            (ctx.adapter as any).deleteRevision = async (path: string, id: string) => {
+                released.push(id);
+                revisions[path] = revisions[path].filter((r) => r.id !== id);
+            };
+            noteUploadedForRetention(ctx, "a.md", "id-a");
+            expect(await keepRevisionsIfDue(ctx, NOW)).toBe(1);
+            expect(released.length).toBeGreaterThan(0);
+            // Everything in the last 30 days stays
+            const recent = revisions["a.md"].filter((r) => NOW - r.modifiedTime <= 30 * DAY && r.id !== "new");
+            expect(recent.length).toBe(10);
+            expect(recent.every((r) => r.keepForever)).toBe(true);
+            expect(marked.at(-1)).toEqual({ path: "a.md", id: "new" });
+            const rec = JSON.parse(vault.files.get("p/data/local/auto-kept-revisions.json")!);
+            expect(rec["id-a"]).toContain("new");
+            for (const id of released) expect(rec["id-a"]).not.toContain(id);
+        });
+
+        it("without version removal, a file at the cap is left as it is", async () => {
+            revisions["a.md"] = Array.from({ length: 150 }, (_, i) => rev(`k${i}`, 1 + i * 3, true));
+            revisions["a.md"].push(rev("new", 0));
+            const { ctx, marked } = makeCtx(1, revisions);
+            const vault = memVault();
+            vault.files.set("p/data/local/auto-kept-revisions.json", JSON.stringify({ "id-a": revisions["a.md"].slice(0, 150).map((r) => r.id) }));
+            Object.assign(ctx, { vault, pluginDir: "p" });
+            noteUploadedForRetention(ctx, "a.md", "id-a");
+            expect(await keepRevisionsIfDue(ctx, NOW)).toBe(0);
+            expect(marked).toEqual([]);
+            expect(revisions["a.md"].length).toBe(151);
+        });
+
+        it("never releases versions the user kept by hand", async () => {
+            const kept = Array.from({ length: 150 }, (_, i) => ({ id: `k${i}`, modifiedTime: NOW - (40 + i) * DAY }));
+            const auto = new Set(kept.filter((_, i) => i % 2 === 0).map((r) => r.id));
+            const thin = versionsToThin(kept, auto, NOW);
+            expect(thin.length).toBeGreaterThan(0);
+            expect(thin.every((id) => auto.has(id))).toBe(true);
+        });
+
+        it("a version set by hand leaves the record", async () => {
+            const { ctx } = makeCtx(1, revisions);
+            const vault = memVault();
+            vault.files.set("p/data/local/auto-kept-revisions.json", JSON.stringify({ f: ["x", "y"] }));
+            Object.assign(ctx, { vault, pluginDir: "p" });
+            await forgetAutoKept(ctx, "x");
+            expect(JSON.parse(vault.files.get("p/data/local/auto-kept-revisions.json")!)).toEqual({ f: ["y"] });
+        });
     });
 });

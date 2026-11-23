@@ -804,6 +804,77 @@ describe("Online/Offline detection", () => {
         expect((queue as any).isProcessing || queue.hasPendingItems()).toBe(true);
     });
 
+    it("waits on a mobile network and goes once Wi-Fi is back", async () => {
+        const cloud = new MockCloudAdapter();
+        const device = new DeviceSimulator("TestDevice", cloud);
+        const sm = device.syncManager as any;
+        sm.settings.deferLargeOnCellular = true;
+        // Node 20 has no navigator: stub one (Node 21+ has one without "connection")
+        vi.stubGlobal("navigator", { onLine: true, connection: { type: "cellular" } });
+        try {
+            const queue = sm.backgroundTransferQueue;
+            queue.enqueue(makeItem({ path: "big.pdf" }));
+            await (queue as any).processLoop(sm);
+            expect(queue.deferredReason).toBe("cellular");
+            expect(queue.hasPendingItems()).toBe(true);
+            expect(sm.getTransferDeferReason()).toBe("cellular");
+            vi.stubGlobal("navigator", { onLine: true, connection: { type: "wifi" } });
+            const exec = vi.spyOn(queue as any, "executePush").mockResolvedValue(undefined);
+            await (queue as any).processLoop(sm);
+            expect(exec).toHaveBeenCalled();
+            expect(queue.deferredReason).toBeNull();
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it("does not start a transfer when a sync paused the queue while the battery was read", async () => {
+        const cloud = new MockCloudAdapter();
+        const device = new DeviceSimulator("TestDevice", cloud);
+        const sm = device.syncManager as any;
+        sm.settings.deferLargeOnLowBattery = true;
+        let release!: (b: unknown) => void;
+        const battery = new Promise((r) => (release = r));
+        vi.stubGlobal("navigator", { onLine: true, getBattery: () => battery });
+        try {
+            const queue = sm.backgroundTransferQueue;
+            const exec = vi.spyOn(queue as any, "executePush").mockResolvedValue(undefined);
+            queue.enqueue(makeItem({ path: "big.pdf" }));
+            const loop = (queue as any).processLoop(sm);
+            await Promise.resolve();
+            queue.pause();
+            release({ level: 1, charging: true });
+            await loop;
+            expect(exec).not.toHaveBeenCalled();
+            expect(queue.hasPendingItems()).toBe(true);
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it("does not start an item cancelled while the battery was read", async () => {
+        const cloud = new MockCloudAdapter();
+        const device = new DeviceSimulator("TestDevice", cloud);
+        const sm = device.syncManager as any;
+        sm.settings.deferLargeOnLowBattery = true;
+        let release!: (b: unknown) => void;
+        const battery = new Promise((r) => (release = r));
+        vi.stubGlobal("navigator", { onLine: true, getBattery: () => battery });
+        try {
+            const queue = sm.backgroundTransferQueue;
+            const exec = vi.spyOn(queue as any, "executePush").mockResolvedValue(undefined);
+            queue.enqueue(makeItem({ path: "big.pdf" }));
+            const loop = (queue as any).processLoop(sm);
+            await Promise.resolve();
+            queue.cancelAll();
+            release({ level: 1, charging: true });
+            await loop;
+            expect(exec).not.toHaveBeenCalled();
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
     it("should break processLoop when e2eeLocked is true", () => {
         const cloud = new MockCloudAdapter();
         const device = new DeviceSimulator("TestDevice", cloud);

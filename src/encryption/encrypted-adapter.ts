@@ -168,6 +168,11 @@ export class EncryptedAdapter implements CloudAdapter {
         return this.baseAdapter.fileExistsById(fileId);
     }
 
+    async getStorageQuota() {
+        if (!this.baseAdapter.getStorageQuota) throw new Error("Base adapter does not support getStorageQuota");
+        return this.baseAdapter.getStorageQuota();
+    }
+
     async getStartPageToken(): Promise<string> {
         return this.baseAdapter.getStartPageToken!();
     }
