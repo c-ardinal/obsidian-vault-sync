@@ -49,7 +49,7 @@ function same(a: Slot, b: Slot): boolean {
         const bArr = b as Json[];
         return a.length === bArr.length && a.every((x, i) => same(x, bArr[i]));
     }
-    const ao = a as { [key: string]: Json };
+    const ao = a;
     const bo = b as { [key: string]: Json };
     const ak = Object.keys(ao);
     if (ak.length !== Object.keys(bo).length) return false;
@@ -160,7 +160,7 @@ export function mergeData(base: Json | undefined, local: Json, remote: Json): Js
 
 function parseJson(text: string): Json | undefined {
     try {
-        return JSON.parse(text.replace(/^﻿/, "")) as Json;
+        return JSON.parse(text.replace(/^\uFEFF/, "")) as Json;
     } catch {
         return undefined;
     }
