@@ -809,9 +809,8 @@ describe("Online/Offline detection", () => {
         const device = new DeviceSimulator("TestDevice", cloud);
         const sm = device.syncManager as any;
         sm.settings.deferLargeOnCellular = true;
-        const nav = globalThis.navigator as any;
-        const had = Object.getOwnPropertyDescriptor(nav, "connection");
-        Object.defineProperty(nav, "connection", { value: { type: "cellular" }, configurable: true });
+        // Node 20 has no navigator: stub one (Node 21+ has one without "connection")
+        vi.stubGlobal("navigator", { onLine: true, connection: { type: "cellular" } });
         try {
             const queue = sm.backgroundTransferQueue;
             queue.enqueue(makeItem({ path: "big.pdf" }));
@@ -819,14 +818,13 @@ describe("Online/Offline detection", () => {
             expect(queue.deferredReason).toBe("cellular");
             expect(queue.hasPendingItems()).toBe(true);
             expect(sm.getTransferDeferReason()).toBe("cellular");
-            Object.defineProperty(nav, "connection", { value: { type: "wifi" }, configurable: true });
+            vi.stubGlobal("navigator", { onLine: true, connection: { type: "wifi" } });
             const exec = vi.spyOn(queue as any, "executePush").mockResolvedValue(undefined);
             await (queue as any).processLoop(sm);
             expect(exec).toHaveBeenCalled();
             expect(queue.deferredReason).toBeNull();
         } finally {
-            if (had) Object.defineProperty(nav, "connection", had);
-            else delete nav.connection;
+            vi.unstubAllGlobals();
         }
     });
 
