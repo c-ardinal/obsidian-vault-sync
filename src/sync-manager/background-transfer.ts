@@ -255,8 +255,7 @@ export class BackgroundTransferQueue {
                     break;
                 }
 
-                const next = this.queue.find((q) => q.status === "pending");
-                if (!next) break;
+                if (!this.queue.some((q) => q.status === "pending")) break;
 
                 // Mobile network or low battery: large files wait; the next sync looks again
                 const reason = await deferReason(ctx.settings);
@@ -264,12 +263,16 @@ export class BackgroundTransferQueue {
                     this.deferredBy = reason;
                     this.callbacks.onQueueChange?.(this.getPendingTransfers());
                 }
-                // A sync may have paused the queue while the battery was being read
+                // A sync may have paused the queue, or items been cancelled, while the battery was read
                 if (this.isPaused || ctx.e2eeLocked) break;
                 if (reason) {
                     await ctx.log(`[Background Transfer] Waiting (${reason}): ${this.queue.filter((q) => q.status === "pending").length} large file(s).`, "info");
                     break;
                 }
+
+                // Picked only now, after the wait, so a cancelled item is never started
+                const next = this.queue.find((q) => q.status === "pending");
+                if (!next) break;
 
                 next.status = "active";
                 next.startedAt = Date.now();

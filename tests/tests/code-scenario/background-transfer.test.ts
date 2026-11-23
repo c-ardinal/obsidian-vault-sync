@@ -852,6 +852,29 @@ describe("Online/Offline detection", () => {
         }
     });
 
+    it("does not start an item cancelled while the battery was read", async () => {
+        const cloud = new MockCloudAdapter();
+        const device = new DeviceSimulator("TestDevice", cloud);
+        const sm = device.syncManager as any;
+        sm.settings.deferLargeOnLowBattery = true;
+        let release!: (b: unknown) => void;
+        const battery = new Promise((r) => (release = r));
+        vi.stubGlobal("navigator", { onLine: true, getBattery: () => battery });
+        try {
+            const queue = sm.backgroundTransferQueue;
+            const exec = vi.spyOn(queue as any, "executePush").mockResolvedValue(undefined);
+            queue.enqueue(makeItem({ path: "big.pdf" }));
+            const loop = (queue as any).processLoop(sm);
+            await Promise.resolve();
+            queue.cancelAll();
+            release({ level: 1, charging: true });
+            await loop;
+            expect(exec).not.toHaveBeenCalled();
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
     it("should break processLoop when e2eeLocked is true", () => {
         const cloud = new MockCloudAdapter();
         const device = new DeviceSimulator("TestDevice", cloud);
