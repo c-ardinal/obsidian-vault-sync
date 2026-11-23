@@ -24,7 +24,7 @@ import {
 import { SyncLogger, type LogLevel } from "./logger";
 import { ICryptoEngine } from "../encryption/interfaces";
 import { EncryptedAdapter } from "../encryption/encrypted-adapter";
-import { VaultLockService } from "../services/vault-lock-service";
+import { MIGRATION_LOCK_STALE_MS, VaultLockService } from "../services/vault-lock-service";
 import { MigrationService } from "../services/migration-service";
 import { SecureStorage } from "../services/secure-storage";
 import {
@@ -275,6 +275,7 @@ export class SyncManager {
     }
 
     private vaultLockedNotified = false;
+    private vaultConvertingNotified = false;
 
     private syncRequestedWhileSyncing: boolean = false;
     private nextSyncParams: { trigger: SyncTrigger; scanVault: boolean } | null = null;
@@ -595,6 +596,28 @@ export class SyncManager {
      * change feed shows nothing new (a lock another device creates is a change
      * there). The next sync with any change checks again.
      */
+    /**
+     * Another device is converting this vault for an add-on (migration.lock): it
+     * re-uploads every file into a new folder, swaps it in and deletes the old
+     * folder. Whatever this device pushed meanwhile went into the old folder and
+     * was deleted with it, so sync waits until the conversion is done (the
+     * vault-lock then appears). A lock older than a day is a leftover of an
+     * abandoned conversion (the converting device overrides it after that too).
+     */
+    private async otherDeviceConvertingVault(trigger: SyncTrigger): Promise<boolean> {
+        const lock = await this.vaultLockService.getMigrationLock();
+        if (!lock || lock.deviceId === this.deviceId) return false;
+        if (!(lock.timestamp > Date.now() - MIGRATION_LOCK_STALE_MS)) return false;
+        const isUserAction = trigger === "manual-sync" || trigger === "full-scan";
+        await this.log(`Sync skipped: device ${lock.deviceId} is converting this vault.`, "warn");
+        if (isUserAction || !this.vaultConvertingNotified) {
+            this.currentTrigger = trigger;
+            await this.notify("noticeVaultConverting");
+            this.vaultConvertingNotified = true;
+        }
+        return true;
+    }
+
     private async lockCheckCanWait(trigger: SyncTrigger): Promise<boolean> {
         if (!vaultLockClear.has(this) || !QUIET_TRIGGERS.has(trigger)) return false;
         try {
@@ -617,6 +640,7 @@ export class SyncManager {
             try {
                 const hasRemoteLock = await this.vaultLockService.checkForLockFile();
                 if (!hasRemoteLock) vaultLockClear.add(this);
+                if (!hasRemoteLock && (await this.otherDeviceConvertingVault(trigger))) return;
                 if (hasRemoteLock) {
                     await this.log("Remote E2EE detected. Enabling E2EE locally.", "system");
                     this.settings.e2eeEnabled = true;
@@ -655,6 +679,7 @@ export class SyncManager {
             return;
         }
         this.vaultLockedNotified = false;
+        this.vaultConvertingNotified = false;
         if (isFirstSyncDeferred(this) && trigger !== "manual-sync" && trigger !== "full-scan") {
             await this.log(`Sync request (${trigger}) skipped: first sync held until a manual sync.`, "debug");
             return;

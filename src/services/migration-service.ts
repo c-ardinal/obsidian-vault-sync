@@ -1,9 +1,16 @@
 import { CloudAdapter } from "../types/adapter";
 import { remoteDeletionOf } from "../sync-manager/remote-deletion";
 import { ICryptoEngine } from "../encryption/interfaces";
-import { VaultLockService } from "./vault-lock-service";
+import { MIGRATION_LOCK_FILENAME, MIGRATION_LOCK_STALE_MS, VaultLockService } from "./vault-lock-service";
 import { EncryptedAdapter } from "../encryption/encrypted-adapter";
-import { getLocalFiles, shouldIgnore, runParallel, hashContent } from "../sync-manager/file-utils";
+import {
+    getLocalFiles,
+    shouldIgnore,
+    runParallel,
+    hashContent,
+    ensureLocalFolder,
+} from "../sync-manager/file-utils";
+import { freeConflictCopyPath } from "../sync-manager/conflict-resolution";
 import { saveIndex, saveLocalIndex } from "../sync-manager/state";
 import { SyncContext } from "../sync-manager/context";
 
@@ -15,6 +22,21 @@ interface MigrationProgress {
 
 export class MigrationService {
     private pendingLockBlob: string | null = null;
+    /**
+     * Cloud hash of every file as this device last synced it, taken before the
+     * conversion rewrites the index: a vault file whose cloud hash differs at
+     * the end was changed by another device (see catchUpOtherDevices).
+     */
+    private syncedHashes = new Map<string, string | undefined>();
+    /** Paths with local edits not yet pushed when the conversion started */
+    private dirtyAtStart = new Set<string>();
+    /**
+     * Plaintext hash of every file as this device last synced it. A file counts
+     * as untouched here only when its converted copy is still that version: an
+     * edit made after the conversion started, but before the file was read,
+     * is in the converted copy and must not be replaced by another device's.
+     */
+    private syncedPlainHashes = new Map<string, string | undefined>();
     public isMigrating = false;
     public currentProgress: MigrationProgress | null = null;
 
@@ -49,7 +71,7 @@ export class MigrationService {
         const existingLock = await this.lockService.getMigrationLock();
         if (existingLock && existingLock.deviceId !== this.ctx.deviceId) {
             // Check if it's very old (24 hours for large vaults)
-            const dayAgo = Date.now() - 24 * 3600 * 1000;
+            const dayAgo = Date.now() - MIGRATION_LOCK_STALE_MS;
             if (existingLock.timestamp > dayAgo) {
                 throw new Error(
                     `Another device (${existingLock.deviceId}) is migrating this vault. ` +
@@ -63,6 +85,11 @@ export class MigrationService {
         }
 
         await this.lockService.createMigrationLock(this.ctx.deviceId);
+        this.syncedHashes = new Map(Object.entries(this.ctx.index).map(([p, e]) => [p, e.hash]));
+        this.dirtyAtStart = new Set(this.ctx.dirtyPaths?.keys() ?? []);
+        this.syncedPlainHashes = new Map(
+            Object.entries(this.ctx.localIndex).map(([p, e]) => [p, e.plainHash]),
+        );
 
         this.ctx.syncState = "MIGRATING";
         this.isMigrating = true;
@@ -107,28 +134,7 @@ export class MigrationService {
 
             const content = await this.ctx.vault.readBinary(file.path);
 
-            const result = await tempEncryptedAdapter.uploadFile(file.path, content, file.mtime);
-
-            // Compute plaintext hash BEFORE encryption for E2EE change detection
-            const plainHash = await hashContent(content);
-
-            // CRITICAL: Update local index with new ENCRYPTED remote hash
-            // This prevents "conflict" or "download required" spikes after migration.
-            const entry = this.ctx.localIndex[file.path] || {
-                path: file.path,
-                size: file.size,
-                mtime: file.mtime,
-            };
-            this.ctx.localIndex[file.path] = {
-                ...entry,
-                hash: result.hash,
-                plainHash: plainHash,
-                ancestorHash: result.hash, // Current version is now remote version
-                size: result.size,
-                mtime: file.mtime,
-                fileId: result.id,
-            };
-            this.ctx.index[file.path] = { ...this.ctx.localIndex[file.path] };
+            const result = await this.uploadConverted(tempEncryptedAdapter, file.path, content, file.mtime);
 
             // Collect samples for integrity verification (up to 5, distributed)
             if (verificationSamples.length < 5 && current % Math.ceil(total / 5) === 0) {
@@ -177,6 +183,103 @@ export class MigrationService {
     }
 
     /**
+     * Upload one file into the converted vault and record it in both indexes.
+     * The local index gets the new (encrypted) cloud hash, so the first sync after
+     * the conversion sees no change, and the plaintext hash for change detection.
+     */
+    private async uploadConverted(
+        tempEncryptedAdapter: CloudAdapter,
+        path: string,
+        content: ArrayBuffer,
+        mtime: number,
+        existingFileId?: string,
+    ): Promise<{ id: string; hash?: string; size: number }> {
+        const result = existingFileId
+            ? await tempEncryptedAdapter.uploadFile(path, content, mtime, existingFileId)
+            : await tempEncryptedAdapter.uploadFile(path, content, mtime);
+        const plainHash = await hashContent(content);
+        const entry = this.ctx.localIndex[path] || { path, size: content.byteLength, mtime };
+        this.ctx.localIndex[path] = {
+            ...entry,
+            hash: result.hash,
+            plainHash,
+            ancestorHash: result.hash, // Current version is now remote version
+            size: result.size,
+            mtime,
+            fileId: result.id,
+        };
+        this.ctx.index[path] = { ...this.ctx.localIndex[path] };
+        return result;
+    }
+
+    /** Plaintext hash of the local file, or null when there is none */
+    private async localHash(path: string): Promise<string | null> {
+        if (!(await this.ctx.vault.exists(path))) return null;
+        return hashContent(await this.ctx.vault.readBinary(path));
+    }
+
+    /**
+     * Bring in what other devices pushed to the vault that this device has not:
+     * edits made before the conversion and not pulled yet, and everything other
+     * devices pushed while it ran (devices that started a sync before the
+     * migration lock existed, or run an older version that ignores it). All of it
+     * sits in the old folder, which is deleted after the swap.
+     *
+     * A file this device had not touched takes the other device's version, here
+     * and in the converted vault. When this device changed it too, the other
+     * device's version is kept as a conflict copy next to it.
+     */
+    private async catchUpOtherDevices(tempEncryptedAdapter: CloudAdapter): Promise<void> {
+        const remoteFiles = await this.baseAdapter.listFiles();
+        for (const f of remoteFiles) {
+            if (f.kind !== "file" || f.path === MIGRATION_LOCK_FILENAME) continue;
+            if (shouldIgnore(this.ctx, f.path)) continue;
+            const synced = this.syncedHashes.get(f.path);
+            if (f.hash && synced && f.hash === synced) continue;
+
+            const content = await this.baseAdapter.downloadFile(f.id);
+            const remotePlain = await hashContent(content);
+            const converted = this.ctx.localIndex[f.path];
+            if (converted?.plainHash === remotePlain) continue; // same content as converted
+
+            const localNow = await this.localHash(f.path);
+            if (localNow === remotePlain) continue;
+            // Untouched here: the converted copy is the version this device last
+            // synced, and the local file is still that version
+            const syncedPlain = this.syncedPlainHashes.get(f.path);
+            let untouched =
+                localNow === null
+                    ? !converted
+                    : !this.dirtyAtStart.has(f.path) &&
+                      syncedPlain !== undefined &&
+                      converted?.plainHash === syncedPlain &&
+                      localNow === syncedPlain;
+
+            if (untouched) {
+                // Check again right before replacing it: the note may have been
+                // saved here while the checks above were waiting on the disk
+                await ensureLocalFolder(this.ctx, f.path);
+                if ((await this.localHash(f.path)) !== localNow) untouched = false;
+            }
+            let target = f.path;
+            let existingFileId: string | undefined = converted?.fileId;
+            if (!untouched) {
+                target = await freeConflictCopyPath((p) => this.ctx.vault.exists(p), f.path);
+                existingFileId = undefined;
+                await ensureLocalFolder(this.ctx, target);
+            }
+            await this.ctx.vault.writeBinary(target, content);
+            await this.uploadConverted(tempEncryptedAdapter, target, content, Date.now(), existingFileId);
+            await this.ctx.log(
+                untouched
+                    ? `[Migration] Took another device's version of ${f.path}.`
+                    : `[Migration] ${f.path} was changed here and on another device: kept theirs as ${target}.`,
+                "info",
+            );
+        }
+    }
+
+    /**
      * Finalize: Rename folders and upload vault-lock.vault.
      * Implements atomic folder swap with recovery capabilities.
      */
@@ -195,6 +298,9 @@ export class MigrationService {
         const tempId = await this.lockService.getFolderId(tempName, appRootId);
 
         if (!tempId) throw new Error("Temporary encrypted folder not found.");
+
+        // Last, so that it also covers what other devices pushed during the upload
+        await this.catchUpOtherDevices(tempEncryptedAdapter);
 
         await this.ctx.log(
             `[Migration] Finalizing swap. Original: ${originalId}, Temp: ${tempId}`,

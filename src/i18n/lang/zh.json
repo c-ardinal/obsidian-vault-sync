@@ -406,6 +406,7 @@
     "addonErrorHash": "此安装包与已认可的发布版本不一致。请重新下载最新的发布版本。若仍失败，请更新 Vault-Sync。",
     "addonErrorWrite": "无法保存附加组件。请检查存储空间后重试。",
     "noticeAddonRequired": "⚠️ Vault-Sync: 此仓库使用了此设备上未安装的附加组件。请在“设置 → 附加组件”中安装。同步已暂停。",
+    "noticeVaultConverting": "⚠️ Vault-Sync: 另一台设备正在为此仓库设置附加组件。完成之前同步已暂停。",
     "labelTransferStatus": "传输状态（Vault-Sync）",
     "labelTransferStatusCommand": "显示传输状态",
     "transferTitle": "传输状态",
