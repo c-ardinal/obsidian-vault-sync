@@ -276,7 +276,7 @@ const missingSince = new CtxState<Map<string, number>>(
 
 /** Whether a scan held back new files that a later scan must look at again */
 export function holdsNewFiles(ctx: object): boolean {
-    return (unexplainedNew.get(ctx as ScanCtx)?.size ?? 0) > 0;
+    return (unexplainedNew.get(ctx)?.size ?? 0) > 0;
 }
 
 /**
@@ -333,7 +333,7 @@ async function holdUnexplainedNewFiles(
     if (!since) missingSince.set(ctx, (since = new Map<string, number>()));
     for (const p of [...since.keys()]) if (!stillMissing.includes(p)) since.delete(p);
     for (const p of stillMissing) if (!since.has(p)) since.set(p, now);
-    const waited = stillMissing.filter((p) => now - since!.get(p)! >= MISSING_EVENT_GRACE_MS);
+    const waited = stillMissing.filter((p) => now - since.get(p)! >= MISSING_EVENT_GRACE_MS);
     const edited = added.filter((p) => !unreported.has(p) && !ctx.localIndex[p]);
     if (waited.length === stillMissing.length) {
         await pairLoneRename(ctx, stillMissing, [...new Set([...expired, ...edited])]);

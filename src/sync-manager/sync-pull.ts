@@ -2260,7 +2260,7 @@ async function resolveDuplicateIds(ctx: SyncContext, remoteIndex: LocalFileIndex
             delete out[p];
             const there = await ctx.adapter.getFileMetadata(p).catch(() => null);
             if (there?.id && there.id !== id && !byId.has(there.id)) {
-                out[p] = { fileId: there.id, mtime: there.mtime ?? 0, size: there.size ?? 0, hash: there.hash } as LocalFileIndex[string];
+                out[p] = { fileId: there.id, mtime: there.mtime ?? 0, size: there.size ?? 0, hash: there.hash };
             }
             await ctx.log(`[Smart Pull] The remote index lists ${id} under ${p} too, but it is at ${actual ?? "(gone)"}. Using the cloud's file at ${p}.`, "info");
         }

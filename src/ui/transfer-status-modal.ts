@@ -8,7 +8,8 @@
  * Kept close to Obsidian's own lists: plain rows, one-colour icons, colour only
  * for failures, no cards or badges.
  */
-import { App, DropdownComponent, Modal, moment, setIcon } from "obsidian";
+import { App, DropdownComponent, Modal, setIcon } from "obsidian";
+import { formatMoment } from "./format-time";
 import { SyncManager } from "../sync-manager";
 import type { TransferItem, TransferRecord } from "../sync-manager/transfer-types";
 import type { SyncProgressSnapshot } from "../sync-manager/sync-progress";
@@ -262,7 +263,7 @@ export class TransferStatusModal extends Modal {
                         ? t("transferToday")
                         : day.kind === "yesterday"
                           ? t("transferYesterday")
-                          : moment(day.dayStart).format("LL"),
+                          : formatMoment(day.dayStart, "LL"),
             });
             for (const batch of day.batches) {
                 this.renderBatch(dayEl, batch, first);
@@ -331,7 +332,7 @@ export class TransferStatusModal extends Modal {
             }
             meta.createSpan({
                 cls: "vault-sync-xfer-time",
-                text: moment(r.completedAt).format("LTS"),
+                text: formatMoment(r.completedAt, "LTS"),
             });
         }
     }

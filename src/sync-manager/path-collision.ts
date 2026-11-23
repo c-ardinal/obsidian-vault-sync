@@ -136,7 +136,7 @@ export function moveIndexEntry(ctx: PathCollisionCtx, from: string, to: string):
  */
 export function windowsNameProblem(path: string): string | null {
     for (const seg of path.split("/")) {
-        if (/[<>:"|?*\\\u0000-\u001f]/.test(seg)) return "character";
+        if (/[<>:"|?*\\]/.test(seg) || [...seg].some((c) => c.charCodeAt(0) < 0x20)) return "character";
         if (/[. ]$/.test(seg)) return "trailing dot or space";
         const base = seg.split(".")[0].trimEnd().toUpperCase();
         if (/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/.test(base)) return "reserved name";
@@ -155,9 +155,10 @@ export function announceIncoming(ctx: PathCollisionCtx, paths: string[]): () => 
     const keys = paths.map(pathKey);
     let set = incoming.get(ctx);
     if (!set) incoming.set(ctx, (set = new Set<string>()));
-    const added = keys.filter((k) => !set!.has(k));
-    for (const k of added) set.add(k);
+    const batch = set;
+    const added = keys.filter((k) => !batch.has(k));
+    for (const k of added) batch.add(k);
     return () => {
-        for (const k of added) set!.delete(k);
+        for (const k of added) batch.delete(k);
     };
 }

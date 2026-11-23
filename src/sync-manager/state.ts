@@ -848,7 +848,7 @@ export function markDirty(ctx: StateCtx, path: string): void {
         deleteIntents.get(ctx)?.delete(replaced);
         markRenamed(ctx, replaced, path);
         let m = replacedNotes.get(ctx);
-        if (!m) replacedNotes.set(ctx, (m = new Map()));
+        if (!m) replacedNotes.set(ctx, (m = new Map<string, string>()));
         m.set(path, replaced);
         return;
     }

@@ -119,7 +119,7 @@ export function watchLateLanding(
 ): void {
     if (!supportsHistory(ctx) || !isMergeableText(path) || hashes.length === 0) return;
     let m = lateLandings.get(ctx);
-    if (!m) lateLandings.set(ctx, (m = new Map()));
+    if (!m) lateLandings.set(ctx, (m = new Map<string, { fileId: string; hashes: string[]; known: string[]; until: number }>()));
     const known = [...hashes, ...knownHashes].filter((h): h is string => !!h).map((h) => h.toLowerCase());
     m.set(path, { fileId, hashes: hashes.map((h) => h.toLowerCase()), known, until: Date.now() + forMs });
 }
