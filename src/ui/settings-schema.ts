@@ -16,6 +16,8 @@ export type SettingType =
     | "info"
     | "subheader"
     | "button"
+    /** A row that opens another page (onClick), drawn like the category rows */
+    | "page-link"
     | "slider"
     | "diff-preview";
 
@@ -42,6 +44,7 @@ export interface SettingItem {
     getDesc?: (settings: VaultSyncSettings, plugin: VaultSync) => string;
     /** Button only: its text and what it does */
     buttonText?: string;
+    buttonStyle?: "cta" | "warning";
     onClick?: (plugin: VaultSync) => void;
 }
 
@@ -621,28 +624,5 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                 },
             ],
         },
-        // Auto-unlock setting, only once the add-on is installed (it owns this feature)
-        ...(plugin.settings.e2eeEnabled && plugin.syncManager.cryptoEngine
-            ? [
-                  {
-                      id: "e2ee-autounlock",
-                      title: t("settingSecuritySection"),
-                      items: [
-                          {
-                              key: "_subheader_security",
-                              type: "subheader" as const,
-                              label: t("settingSubheaderSecurity"),
-                          },
-                          {
-                              key: "e2eeAutoUnlock",
-                              type: "toggle" as const,
-                              label: t("settingE2EEAutoUnlock"),
-                              desc: t("settingE2EEAutoUnlockDesc"),
-                          },
-                      ],
-                  },
-              ]
-            : []),
-        ...plugin.getE2EESettingsSections(),
     ];
 };

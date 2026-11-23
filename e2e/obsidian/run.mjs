@@ -12,7 +12,8 @@
  *   PLUGIN_DIR     built plugin (default: dist/cardinal-vault-sync)
  *   OUT_DIR        screenshots + report (default: test-results/e2e-obsidian)
  *   E2E_LANGS      comma separated UI languages (default: en,ja)
- *   ADDON_ZIP      optional add-on package (.zip) to show the install review screen
+ *   ADDON_ZIP      optional add-on package (.zip): shows the install review screen, then
+ *                  installs it and checks the add-on's own settings page and commands
  *
  * Needs a display; in CI it runs under xvfb-run. Exit code 1 on any failed check.
  */
@@ -1384,6 +1385,152 @@ async function checkScreens(page, lang, { mobile = false } = {}) {
     );
 }
 
+/**
+ * Add-on pages (needs ADDON_ZIP): install the add-on from Settings › Add-ons the
+ * way a user does, then check that its own page is listed, opens, shows only the
+ * actions that fit the state, runs them, is found by the search, and that its
+ * actions are commands. The add-on is removed again at the end so the other
+ * checks see the plugin without it.
+ */
+async function checkAddonPages(main, lang, { mobile = false } = {}) {
+    const tag = mobile ? "mobile" : "desktop";
+    const page = await openSettings(main);
+    if (page !== main) await page.setViewportSize(mobile ? MOBILE : DESKTOP).catch(() => {});
+    const target = !mobile && (await page.$(".modal.mod-settings")) ? ".modal.mod-settings" : undefined;
+    const addonTitle = await main.evaluate((id) => window.app.plugins.plugins[id].t("addonSectionTitle"), PLUGIN_ID);
+    const names = await navNames(page);
+    const items = await page.$$(".vault-sync-settings-nav-item");
+    await items[names.indexOf(addonTitle)].click();
+    await page.waitForSelector(".vault-sync-settings-back", { timeout: 5000 });
+    check(
+        lang,
+        `${tag}: add-on list has no add-on page before install`,
+        (await page.$$(".vault-sync-addon-page-row")).length === 0,
+    );
+
+    // Install through the button on the add-on page
+    await page.locator(".vault-sync-settings-page .setting-item button").first().click();
+    await modalOpen(page, ".vault-sync-addon-install");
+    await page.setInputFiles(".vault-sync-addon-install input[type=file]", process.env.ADDON_ZIP);
+    await page.waitForSelector(".vault-sync-addon-terms", { timeout: 10000 });
+    await page.locator(".vault-sync-addon-install .checkbox-container").last().click();
+    await page.locator(".vault-sync-addon-install button.mod-cta").last().click();
+    // The install dialog closes and the settings move on to the add-on's own page
+    await page.waitForSelector(".vault-sync-addon-page", { timeout: 10000 }).catch(() => {});
+    // Phone dialogs slide out: wait until the install dialog is really gone
+    await page.waitForSelector(".vault-sync-addon-install", { state: "detached", timeout: 5000 }).catch(() => {});
+    await sleep(300);
+    const onPage = await page.$(".vault-sync-addon-page");
+    check(lang, `${tag}: after install the add-on page opens by itself`, !!onPage);
+    if (!onPage) {
+        await shot(page, lang, `${tag}-addon-install-error`);
+        return;
+    }
+    const state = () =>
+        page.evaluate(() => ({
+            title: document
+                .querySelector(".vault-sync-settings-page-title .setting-item-name")
+                ?.textContent.trim(),
+            rows: [...document.querySelectorAll(".vault-sync-addon-page .setting-item")].map((r) => ({
+                name: r.querySelector(".setting-item-name")?.textContent.trim() ?? "",
+                button: r.querySelector("button")?.textContent.trim() ?? null,
+                cta: !!r.querySelector("button.mod-cta"),
+                toggle: !!r.querySelector(".checkbox-container"),
+            })),
+        }));
+    let st = await state();
+    const buttons = st.rows.filter((r) => r.button);
+    check(lang, `${tag}: add-on page has a title from the add-on`, !!st.title && st.title !== addonTitle, st.title);
+    check(
+        lang,
+        `${tag}: before set-up only the start action is offered`,
+        buttons.length === 1 && buttons[0].cta && !st.rows.some((r) => r.toggle),
+        JSON.stringify(st.rows),
+    );
+    await shotSettings(page, lang, `${tag}-addon-page-setup`, target);
+
+    // Run the action from its button: the add-on's dialog opens over the settings
+    const modalsBefore = await page.$$eval(".modal-container", (els) => els.length);
+    await page.locator(".vault-sync-addon-page button.mod-cta").first().click();
+    await sleep(800);
+    const modalsAfter = await page.$$eval(".modal-container", (els) => els.length);
+    check(lang, `${tag}: start action opens the add-on's dialog`, modalsAfter > modalsBefore, `${modalsBefore} -> ${modalsAfter}`);
+    if (modalsAfter > modalsBefore) await shot(page, lang, `${tag}-addon-action-dialog`);
+    await page.keyboard.press("Escape");
+    await sleep(400);
+
+    // Commands: the same actions are in the palette, and follow the state
+    const ids = ["e2ee-setup", "e2ee-unlock", "e2ee-change-password", "e2ee-show-recovery", "e2ee-recover"];
+    const cmds = await main.evaluate(
+        ({ id, ids }) => ids.map((c) => {
+            const cmd = window.app.commands.commands[`${id}:${c}`];
+            return cmd ? !!cmd.checkCallback(true) : null;
+        }),
+        { id: PLUGIN_ID, ids },
+    );
+    check(
+        lang,
+        `${tag}: add-on actions are commands, only start applies now`,
+        JSON.stringify(cmds) === JSON.stringify([true, false, false, false, false]),
+        JSON.stringify(cmds),
+    );
+
+    // Locked state (set up on another device): unlock and recover, plus auto-unlock
+    await main.evaluate((id) => {
+        const p = window.app.plugins.plugins[id];
+        p.settings.e2eeEnabled = true;
+        p.refreshSettingsUI();
+    }, PLUGIN_ID);
+    await sleep(300);
+    st = await state();
+    const locked = st.rows.filter((r) => r.button);
+    check(
+        lang,
+        `${tag}: locked state offers unlock (main) and recover, and auto-unlock`,
+        locked.length === 2 && locked[0].cta && !locked[1].cta && st.rows.some((r) => r.toggle),
+        JSON.stringify(st.rows),
+    );
+    await shotSettings(page, lang, `${tag}-addon-page-locked`, target);
+
+    // Back goes to the add-on list, which now lists the page
+    await page.click(".vault-sync-settings-back");
+    await page.waitForSelector(".vault-sync-addon-page-row", { timeout: 5000 }).catch(() => {});
+    const rowName = await page
+        .$eval(".vault-sync-addon-page-row .setting-item-name", (e) => e.textContent.trim())
+        .catch(() => null);
+    check(lang, `${tag}: add-on list shows the add-on page`, rowName === st.title, String(rowName));
+    await shotSettings(page, lang, `${tag}-addon-list`, target);
+
+    // Search finds the add-on's rows and leads to its page
+    await page.click(".vault-sync-settings-back");
+    await page.waitForSelector(".vault-sync-settings-search input", { timeout: 5000 });
+    const word = locked[1].name;
+    await page.fill(".vault-sync-settings-search input", word);
+    await sleep(400);
+    const groups = await page.$$eval(".vault-sync-settings-search-group", (els) =>
+        els.map((e) => e.textContent.trim()),
+    );
+    const hit = groups.find((g) => g.startsWith(addonTitle) && g.includes(st.title));
+    check(lang, `${tag}: search finds the add-on page rows`, !!hit, `"${word}" -> ${groups.join(" | ")}`);
+    await shotSettings(page, lang, `${tag}-addon-search`, target);
+    if (hit) {
+        await page.locator(".vault-sync-settings-search-group a").filter({ hasText: st.title }).first().click();
+        await sleep(300);
+        check(lang, `${tag}: search group opens the add-on page`, !!(await page.$(".vault-sync-addon-page")));
+    }
+
+    // Clean up: back to the plain plugin
+    const removed = await main.evaluate(async (id) => {
+        const p = window.app.plugins.plugins[id];
+        p.settings.e2eeEnabled = false;
+        return p.removeAddon();
+    }, PLUGIN_ID);
+    await sleep(300);
+    check(lang, `${tag}: add-on removed again`, removed && (await page.$$(".vault-sync-addon-page")).length === 0);
+    await closeSettings(main);
+    await closeModals(main);
+}
+
 async function runLang(lang) {
     const root = mkdtempSync(join(tmpdir(), `obsidian-e2e-${lang}-`));
     const { proc, browser, page } = await launch(root);
@@ -1440,6 +1587,13 @@ async function runLang(lang) {
             await shot(page, lang, "desktop-scr-error").catch(() => {});
             await closeModals(page);
         });
+        if (process.env.ADDON_ZIP) {
+            await checkAddonPages(page, lang).catch(async (e) => {
+                check(lang, "desktop: add-on pages run completed", false, e.stack || String(e));
+                await shot(page, lang, "desktop-addon-error").catch(() => {});
+                await closeModals(page);
+            });
+        }
 
         // Mobile layout, emulated by Obsidian itself.
         await page.setViewportSize(MOBILE);
@@ -1466,6 +1620,13 @@ async function runLang(lang) {
                 check(lang, "mobile: screens run completed", false, e.stack || String(e));
                 await shot(page, lang, "mobile-scr-error").catch(() => {});
             });
+            if (process.env.ADDON_ZIP) {
+                await checkAddonPages(page, lang, { mobile: true }).catch(async (e) => {
+                    check(lang, "mobile: add-on pages run completed", false, e.stack || String(e));
+                    await shot(page, lang, "mobile-addon-error").catch(() => {});
+                    await closeModals(page);
+                });
+            }
         }
     } catch (e) {
         check(lang, "run completed", false, e.stack || String(e));

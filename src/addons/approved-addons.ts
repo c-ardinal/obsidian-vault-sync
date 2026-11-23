@@ -38,12 +38,14 @@ export const APPROVED_ADDONS: ApprovedAddon[] = [
         installAs: "e2ee-engine.js",
         downloadUrl: "https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine/releases/latest",
         files: {
-            "addon.json": "5300403f1a88c889a6127581b69f9c0eb35a1a6ee1d017bd47828d254cd7842a",
-            "e2ee-engine.js": "9874a1b6356ec367715b233868cf3f294bd9eb4168fba19a63ae7715022a461e",
+            "addon.json": "267eccbd97d36464406dbb4c0798c1db4a8104cb5f163b470b109eef3ee60599",
+            "e2ee-engine.js": "115c3307aee64b9c903495dbc6187864c7ef7ff3d5565f5c8ba803bc0382f588",
             "TERMS.md": "4b8eb81c12094b937a2899718d646f8e0bdd75e060ea391030d5e622fadfb48f",
             "TERMS_ja.md": "23d6da4dca54e907ac85625a6d258ced178f04c513c9b9941ef0518d90edaf79",
         },
         retiredEntryHashes: [
+            // 0.17.1
+            "9874a1b6356ec367715b233868cf3f294bd9eb4168fba19a63ae7715022a461e",
             // 0.17.0
             "fc3525012589fee6fca63fe06219b6baddcfdc6bb83a0c35b2dc9af7d285e23c",
             // 0.16.0
