@@ -37,6 +37,7 @@ export interface VerifyReport {
 const key = (p: string) => p.normalize("NFC");
 
 export async function verifySync(ctx: SyncContext, now = Date.now()): Promise<VerifyReport> {
+    if (ctx.e2eeLocked) throw new Error("Add-on locked: cloud files cannot be compared now");
     const leftOut = (path: string, size?: number) => shouldIgnore(ctx, path) || exceedsDeviceSizeLimit(ctx, size);
 
     const cloud = new Map<string, { hash?: string; size?: number }>();

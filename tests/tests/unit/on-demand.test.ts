@@ -5,8 +5,10 @@
  * - 完全パス・拡張子なし・ファイル名のみのリンク表記と照合可能なこと
  * - 見出し・別名付きリンクも照合可能なこと
  */
-import { describe, it, expect } from "vitest";
-import { matchLinkedFiles } from "../../../src/sync-manager/on-demand";
+import { describe, it, expect, vi } from "vitest";
+import { fetchCloudOnlyFile, listCloudOnlyFiles, matchLinkedFiles } from "../../../src/sync-manager/on-demand";
+import { verifySync } from "../../../src/sync-manager/sync-verify";
+import type { SyncContext } from "../../../src/sync-manager/context";
 
 const files = [
     { path: "att/scan.pdf", size: 9, fileId: "1" },
@@ -24,5 +26,22 @@ describe("files a note links to", () => {
 
     it("does not match a different file that only ends the same", () => {
         expect(matchLinkedFiles(files, ["can.pdf"])).toEqual([]);
+    });
+});
+
+describe("while the add-on is locked", () => {
+    it("lists, fetches and compares nothing, and never writes cloud bytes", async () => {
+        const download = vi.fn();
+        const write = vi.fn();
+        const ctx = {
+            e2eeLocked: true,
+            adapter: { downloadFile: download, listFiles: vi.fn() },
+            vault: { exists: async () => false, writeBinary: write },
+        } as unknown as SyncContext;
+        await expect(listCloudOnlyFiles(ctx)).rejects.toThrow();
+        await expect(fetchCloudOnlyFile(ctx, files[0])).rejects.toThrow();
+        await expect(verifySync(ctx)).rejects.toThrow();
+        expect(download).not.toHaveBeenCalled();
+        expect(write).not.toHaveBeenCalled();
     });
 });

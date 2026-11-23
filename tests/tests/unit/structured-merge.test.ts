@@ -98,6 +98,13 @@ describe("structured merge", () => {
             expect(mergeJsonText('{"position":[0,1]}', '{"position":[2,1]}', '{"position":[3,1]}')).toBeNull();
         });
 
+        it("keeps a \"__proto__\" key as plain data", () => {
+            const out = mergeJsonText('{"__proto__":{"value":1},"a":0,"b":0}', '{"__proto__":{"value":1},"a":1,"b":0}', '{"__proto__":{"value":1},"a":0,"b":1}')!;
+            expect(out).toContain('"__proto__"');
+            expect(JSON.parse(out).a).toBe(1);
+            expect(JSON.parse(out).b).toBe(1);
+        });
+
         it("cannot read a side: no result (never a broken file)", () => {
             expect(mergeJsonText("{}", "{", "{}")).toBeNull();
         });

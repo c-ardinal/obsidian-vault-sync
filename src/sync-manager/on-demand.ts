@@ -47,6 +47,8 @@ async function sharedIndex(ctx: SyncContext): Promise<Record<string, { fileId?: 
 
 /** Files in the cloud this device leaves out and does not have, sorted by path */
 export async function listCloudOnlyFiles(ctx: SyncContext): Promise<CloudOnlyFile[]> {
+    // While the add-on is locked, the cloud content cannot be read as files
+    if (ctx.e2eeLocked) throw new Error("Add-on locked: cloud files cannot be read now");
     const out: CloudOnlyFile[] = [];
     const all = { ...(await sharedIndex(ctx)), ...ctx.index };
     for (const [path, entry] of Object.entries(all)) {
@@ -79,6 +81,7 @@ export function matchLinkedFiles(files: CloudOnlyFile[], links: string[]): Cloud
 /** Download one cloud-only file to its place in the vault */
 export async function fetchCloudOnlyFile(ctx: SyncContext, file: CloudOnlyFile): Promise<void> {
     if (await ctx.vault.exists(file.path)) return;
+    if (ctx.e2eeLocked) throw new Error("Add-on locked: cloud files cannot be read now");
     const content = await ctx.adapter.downloadFile(file.fileId);
     // A file made at this path while downloading wins; never overwrite it
     if (await ctx.vault.exists(file.path)) {

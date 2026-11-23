@@ -81,7 +81,8 @@ function mergeObjects(
         !!o && Object.prototype.hasOwnProperty.call(o, k);
     for (const k of unionKeys(Object.keys(local), Object.keys(remote), Object.keys(base ?? {}))) {
         const v = mergeSlot(has(base, k) ? base![k] : ABSENT, has(local, k) ? local[k] : ABSENT, has(remote, k) ? remote[k] : ABSENT);
-        if (v !== ABSENT) out[k] = v;
+        // defineProperty: a "__proto__" key stays a plain key, not the prototype setter
+        if (v !== ABSENT) Object.defineProperty(out, k, { value: v, enumerable: true, writable: true, configurable: true });
     }
     return out;
 }
