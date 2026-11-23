@@ -99,6 +99,11 @@ const lastReadRemoteIndex = new CtxState<LocalFileIndex>(
     "The shared index as last read or written (source of the entries of files left out here)",
 );
 
+/** The shared index as last read here (null: not read since start) */
+export function lastRemoteIndex(ctx: object): LocalFileIndex | null {
+    return lastReadRemoteIndex.get(ctx) ?? null;
+}
+
 async function parseRemoteIndexBytes(
     ctx: SyncHelpersCtx,
     content: ArrayBuffer,

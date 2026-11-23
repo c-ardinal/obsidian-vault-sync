@@ -565,5 +565,14 @@
     "settingDeferLowBatteryDesc": "電池残量 20% 未満かつ非充電中、大容量ファイル（背景転送）の送受信を延期します。ノートの同期は継続します。",
     "settingDeferDetail": "Android 版と PC 版で有効です。iOS 版は回線種別と電池状態を取得不可のため、延期しません。",
     "transferDeferredCellular": "Wi-Fi 接続待機中（モバイル回線）。",
-    "transferDeferredLowBattery": "充電待機中（電池残量低下）。"
+    "transferDeferredLowBattery": "充電待機中（電池残量低下）。",
+    "labelCloudOnlyCommand": "本端末の同期対象外ファイルの個別取得",
+    "labelFetchLinkedCloudOnly": "リンク先の同期対象外ファイルを取得",
+    "cloudOnlyPick": "取得するファイル（本端末では同期対象外のまま）",
+    "cloudOnlyNone": "Vault-Sync: 未取得のクラウドファイルはありません。",
+    "cloudOnlyNoneLinked": "Vault-Sync: 本ノートのリンク先に、未取得の同期対象外ファイルはありません。",
+    "cloudOnlyFetched": "Vault-Sync: {0} を取得しました。本端末では同期対象外です。",
+    "cloudOnlyFetchedCount": "Vault-Sync: {0} 件を取得しました。本端末では同期対象外です。",
+    "cloudOnlyFetchFailed": "❌ Vault-Sync: {0} の取得に失敗しました。通信状態の確認後、再実行してください。",
+    "cloudOnlyListFailed": "❌ Vault-Sync: クラウドのファイル一覧の取得に失敗しました。通信状態の確認後、再実行してください。"
 }

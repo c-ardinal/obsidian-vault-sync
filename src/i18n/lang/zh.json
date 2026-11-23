@@ -565,5 +565,14 @@
     "settingDeferLowBatteryDesc": "电量低于 20% 且未充电时推迟大文件（后台传输）。笔记照常同步。",
     "settingDeferDetail": "适用于 Android 和电脑。iOS 不提供网络类型和电量信息，因此不会推迟。",
     "transferDeferredCellular": "等待 Wi-Fi（移动网络）。",
-    "transferDeferredLowBattery": "等待充电（电量低）。"
+    "transferDeferredLowBattery": "等待充电（电量低）。",
+    "labelCloudOnlyCommand": "获取本设备不同步的文件",
+    "labelFetchLinkedCloudOnly": "获取链接的未同步文件",
+    "cloudOnlyPick": "要获取的文件（在本设备上仍不同步）",
+    "cloudOnlyNone": "Vault-Sync：没有未获取的云端文件。",
+    "cloudOnlyNoneLinked": "Vault-Sync：此笔记链接的文件中没有未获取的不同步文件。",
+    "cloudOnlyFetched": "Vault-Sync：已获取 {0}。本设备不会同步此文件。",
+    "cloudOnlyFetchedCount": "Vault-Sync：已获取 {0} 个文件。本设备不会同步这些文件。",
+    "cloudOnlyFetchFailed": "❌ Vault-Sync：无法获取 {0}。请检查网络后重试。",
+    "cloudOnlyListFailed": "❌ Vault-Sync：无法读取云端文件列表。请检查网络后重试。"
 }

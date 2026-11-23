@@ -621,6 +621,15 @@ export const en: Record<string, string> = {
     settingDeferDetail: "Works on Android and PCs. iOS does not report the network type or battery, so nothing waits there.",
     transferDeferredCellular: "Waiting for Wi-Fi (mobile network).",
     transferDeferredLowBattery: "Waiting for charging (low battery).",
+    labelCloudOnlyCommand: "Fetch a file not synced on this device",
+    labelFetchLinkedCloudOnly: "Fetch linked files not synced here",
+    cloudOnlyPick: "File to fetch (stays out of sync on this device)",
+    cloudOnlyNone: "Vault-Sync: Every cloud file is on this device.",
+    cloudOnlyNoneLinked: "Vault-Sync: This note links to no file left out on this device.",
+    cloudOnlyFetched: "Vault-Sync: Fetched {0}. It is not synced on this device.",
+    cloudOnlyFetchedCount: "Vault-Sync: Fetched {0} file(s). They are not synced on this device.",
+    cloudOnlyFetchFailed: "❌ Vault-Sync: Could not fetch {0}. Check the network and try again.",
+    cloudOnlyListFailed: "❌ Vault-Sync: Could not read the cloud's file list. Check the network and try again.",
 };
 
 let activeDict: Record<string, string> = en;

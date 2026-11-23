@@ -2239,3 +2239,9 @@
 .vault-sync-history-signin {
     padding: var(--size-4-4);
 }
+
+/* Size after a file name in a suggestion list */
+.vault-sync-suggest-note {
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+}

@@ -15,6 +15,7 @@ import type { OAuthCloudAdapter } from "./types/oauth-adapter";
 import { SyncManager, type SyncTrigger } from "./sync-manager";
 import type { SecureStorage } from "./services/secure-storage";
 import { HistoryModal } from "./ui/history-modal";
+import { fetchLinkedCloudOnly, openCloudOnlyPicker } from "./ui/cloud-only-modal";
 import { TransferStatusModal, type TransferModalActions } from "./ui/transfer-status-modal";
 import { SyncStatusView } from "./ui/sync-status-view";
 import { DEFAULT_SETTINGS } from "./constants";
@@ -63,6 +64,8 @@ const BUILTIN_COMMAND_IDS: ReadonlySet<string> = new Set([
     "copy-diagnostics",
     "restore-to-point-in-time",
     "show-sync-status",
+    "fetch-cloud-only",
+    "verify-sync",
     "dev-demo-history",
     "dev-demo-transfer-status",
     "dev-demo-notifications",
@@ -681,6 +684,12 @@ export default class VaultSync extends Plugin {
         });
 
         this.addCommand({
+            id: "fetch-cloud-only",
+            name: t("labelCloudOnlyCommand"),
+            callback: () => void openCloudOnlyPicker(this.app, this.syncManager),
+        });
+
+        this.addCommand({
             id: "show-sync-status",
             name: t("labelShowSyncStatusCommand"),
             checkCallback: (checking: boolean) => {
@@ -767,6 +776,13 @@ export default class VaultSync extends Plugin {
                         item.setTitle(t("labelResolveConflict"))
                             .setIcon("git-merge")
                             .onClick(() => new ConflictResolveModal(this.app, file.path).open());
+                    });
+                }
+                if (this.syncManager && file instanceof TFile && file.extension === "md") {
+                    menu.addItem((item) => {
+                        item.setTitle(t("labelFetchLinkedCloudOnly"))
+                            .setIcon("cloud-download")
+                            .onClick(() => void fetchLinkedCloudOnly(this.app, this.syncManager, file));
                     });
                 }
                 if (this.syncManager && this.syncManager.supportsHistory) {
@@ -891,6 +907,7 @@ export default class VaultSync extends Plugin {
             add(t("labelPointInTimeCommand"), "history", () => this.openPointInTime(""));
         }
         add(t("labelDevicesCommand"), "monitor-smartphone", () => this.openDevices());
+        add(t("labelCloudOnlyCommand"), "cloud-download", () => void openCloudOnlyPicker(this.app, this.syncManager));
         menu.addSeparator();
         add(t("labelDiagnosticsCommand"), "stethoscope", () => this.openDiagnostics());
         add(t("statusOpenSettings"), "settings", () => this.openSettingsTab());

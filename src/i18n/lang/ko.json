@@ -565,5 +565,14 @@
     "settingDeferLowBatteryDesc": "배터리가 20% 미만이고 충전 중이 아니면 대용량 파일(백그라운드 전송)을 미룹니다. 노트 동기화는 계속됩니다.",
     "settingDeferDetail": "Android와 PC에서 작동합니다. iOS는 네트워크 종류와 배터리 상태를 알려주지 않아 미루지 않습니다.",
     "transferDeferredCellular": "Wi-Fi 대기 중(모바일 네트워크).",
-    "transferDeferredLowBattery": "충전 대기 중(배터리 부족)."
+    "transferDeferredLowBattery": "충전 대기 중(배터리 부족).",
+    "labelCloudOnlyCommand": "이 기기에서 동기화하지 않는 파일 가져오기",
+    "labelFetchLinkedCloudOnly": "링크된 동기화 제외 파일 가져오기",
+    "cloudOnlyPick": "가져올 파일(이 기기에서는 계속 동기화 제외)",
+    "cloudOnlyNone": "Vault-Sync: 가져오지 않은 클라우드 파일이 없습니다.",
+    "cloudOnlyNoneLinked": "Vault-Sync: 이 노트가 링크한 파일 중 가져오지 않은 동기화 제외 파일이 없습니다.",
+    "cloudOnlyFetched": "Vault-Sync: {0}을(를) 가져왔습니다. 이 기기에서는 동기화하지 않습니다.",
+    "cloudOnlyFetchedCount": "Vault-Sync: {0}개 파일을 가져왔습니다. 이 기기에서는 동기화하지 않습니다.",
+    "cloudOnlyFetchFailed": "❌ Vault-Sync: {0}을(를) 가져오지 못했습니다. 네트워크를 확인한 뒤 다시 시도하세요.",
+    "cloudOnlyListFailed": "❌ Vault-Sync: 클라우드 파일 목록을 읽지 못했습니다. 네트워크를 확인한 뒤 다시 시도하세요."
 }

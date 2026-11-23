@@ -88,6 +88,7 @@ import {
     restoreRevision as _restoreRevision,
 } from "./history";
 import { forgetAutoKept } from "./revision-retention";
+import { fetchCloudOnlyFile, listCloudOnlyFiles, type CloudOnlyFile } from "./on-demand";
 import { refreshStorage, storageSummary, storageSummaryNow, type StorageSummary } from "./storage-check";
 import {
     linesToChars3 as _linesToChars3,
@@ -346,6 +347,15 @@ export class SyncManager {
     /** Local changes waiting for the next upload */
     public get pendingChangeCount(): number {
         return this.dirtyPaths.size;
+    }
+
+    /** Cloud files this device leaves out and does not have (fetch one by one) */
+    async listCloudOnlyFiles(): Promise<CloudOnlyFile[]> {
+        return listCloudOnlyFiles(this as unknown as SyncContext);
+    }
+
+    async fetchCloudOnlyFile(file: CloudOnlyFile): Promise<void> {
+        return fetchCloudOnlyFile(this as unknown as SyncContext, file);
     }
 
     /** Why large transfers wait now (mobile network, low battery), or null */
