@@ -595,6 +595,15 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                         p.refreshSyncStatusView();
                     },
                 },
+                {
+                    key: "showFileExplorerMarks",
+                    type: "toggle",
+                    label: t("settingFileExplorerMarks"),
+                    desc: t("settingFileExplorerMarksDesc"),
+                    onChange: async (_val, p) => {
+                        p.refreshFileExplorerMarks();
+                    },
+                },
                 // ── Diff view ──
                 {
                     key: "_subheader_diff",

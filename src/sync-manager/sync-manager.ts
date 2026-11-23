@@ -346,6 +346,11 @@ export class SyncManager {
     // === Background Transfer Public API ===
 
     /** Local changes waiting for the next upload */
+    /** Files changed here and not sent yet */
+    public get pendingPaths(): string[] {
+        return [...this.dirtyPaths.keys()];
+    }
+
     public get pendingChangeCount(): number {
         return this.dirtyPaths.size;
     }

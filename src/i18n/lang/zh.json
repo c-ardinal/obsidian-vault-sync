@@ -593,5 +593,7 @@
     "verifyCloudOnly": "仅在云端",
     "verifyMore": "…另有 {0} 个",
     "verifyCheckedAt": "检查于 {0}。本设备不同步的文件不参与比对。",
-    "verifyAgain": "重新检查"
+    "verifyAgain": "重新检查",
+    "settingFileExplorerMarks": "文件列表中的标记",
+    "settingFileExplorerMarksDesc": "在本设备已更改但尚未上传的文件（强调色）和冲突副本（红色）的名称后显示小圆点。"
 }

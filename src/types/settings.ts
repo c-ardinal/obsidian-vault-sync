@@ -48,6 +48,8 @@ export interface VaultSyncSettings {
     /** Status bar / mobile progress display of the running sync. Progress notices are
      *  folded into it unless the notification level is verbose. */
     showSyncStatus: boolean;
+    /** Small marks in the file explorer: not sent yet, conflict copy */
+    showFileExplorerMarks: boolean;
     /** Text size (px) of the history diff view, per device type */
     diffFontSizeDesktop: number;
     diffFontSizeMobile: number;

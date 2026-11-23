@@ -593,5 +593,7 @@
     "verifyCloudOnly": "クラウドのみに存在",
     "verifyMore": "…ほか {0} 件",
     "verifyCheckedAt": "検証日時 {0}。本端末の同期対象外ファイルは照合対象外です。",
-    "verifyAgain": "再検証"
+    "verifyAgain": "再検証",
+    "settingFileExplorerMarks": "ファイル一覧の同期状態表示",
+    "settingFileExplorerMarksDesc": "本端末で変更済み・未送信のファイル（強調色）と競合コピー（赤色）の名称後部に小型の点を表示します。"
 }

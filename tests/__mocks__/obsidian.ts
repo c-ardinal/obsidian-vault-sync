@@ -37,6 +37,14 @@ export class App {
 }
 
 /** Obsidian's UI language; like the app, reads the "language" key of localStorage. */
+export function debounce<T extends unknown[]>(cb: (...args: T) => unknown, _timeout?: number, _resetTimer?: boolean) {
+    const fn = (...args: T) => {
+        cb(...args);
+    };
+    (fn as any).cancel = () => fn;
+    return fn;
+}
+
 export function parseYaml(text: string): any {
     return YAML.parse(text);
 }

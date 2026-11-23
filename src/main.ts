@@ -15,6 +15,7 @@ import type { OAuthCloudAdapter } from "./types/oauth-adapter";
 import { SyncManager, type SyncTrigger } from "./sync-manager";
 import type { SecureStorage } from "./services/secure-storage";
 import { HistoryModal } from "./ui/history-modal";
+import { FileExplorerMarks } from "./ui/file-explorer-marks";
 import { SyncVerifyModal } from "./ui/sync-verify-modal";
 import { fetchLinkedCloudOnly, openCloudOnlyPicker } from "./ui/cloud-only-modal";
 import { TransferStatusModal, type TransferModalActions } from "./ui/transfer-status-modal";
@@ -389,6 +390,7 @@ export default class VaultSync extends Plugin {
                 await this.syncManager.applyDeviceScopeChange(scopeBefore);
             }
             this.triggerManager.setupAutoSyncInterval();
+            this.refreshFileExplorerMarks();
             if (this.settingTab) {
                 this.settingTab.display();
             }
@@ -768,7 +770,10 @@ export default class VaultSync extends Plugin {
 
         // 3. Sync status display (status bar / mobile pill). On mobile, the older
         // spinning indicator (FAB) is used only when the status display is off.
-        this.app.workspace.onLayoutReady(() => this.refreshSyncStatusView());
+        this.app.workspace.onLayoutReady(() => {
+            this.refreshSyncStatusView();
+            this.refreshFileExplorerMarks();
+        });
 
         this.settingTab = new VaultSyncSettingTab(this.app, this);
         this.addSettingTab(this.settingTab);
@@ -820,6 +825,7 @@ export default class VaultSync extends Plugin {
     }
 
     onunload() {
+        this.fileMarks?.disable();
         this.triggerManager?.destroy();
         this.syncStatusView?.unmount();
         this.syncStatusView = null;
@@ -840,6 +846,21 @@ export default class VaultSync extends Plugin {
             ? this.settings.diffFontSizeMobile
             : this.settings.diffFontSizeDesktop;
         activeDocument.body.style.setProperty("--vault-sync-diff-font-size", `${px}px`);
+    }
+
+    private fileMarks: FileExplorerMarks | null = null;
+
+    /** Show or hide the file explorer marks to match the setting. */
+    refreshFileExplorerMarks(): void {
+        if (this.settings.showFileExplorerMarks) {
+            this.fileMarks ??= new FileExplorerMarks(this.app, {
+                pendingPaths: () => this.syncManager.pendingPaths,
+                subscribe: (cb) => this.syncManager.progress.subscribe(() => cb()),
+            });
+            this.fileMarks.enable();
+        } else {
+            this.fileMarks?.disable();
+        }
     }
 
     /** Show or hide the sync status display to match the setting. */

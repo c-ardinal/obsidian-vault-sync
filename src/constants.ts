@@ -64,6 +64,7 @@ export const DEFAULT_SETTINGS: VaultSyncSettings = {
     autoKeepAttachmentRevisions: false,
     notificationLevel: "standard",
     showSyncStatus: true,
+    showFileExplorerMarks: false,
     diffFontSizeDesktop: 14,
     diffFontSizeMobile: 13,
     conflictResolutionStrategy: "smart-merge",

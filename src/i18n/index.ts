@@ -649,6 +649,8 @@ export const en: Record<string, string> = {
     verifyMore: "…and {0} more",
     verifyCheckedAt: "Checked {0}. Files this device leaves out are not compared.",
     verifyAgain: "Check again",
+    settingFileExplorerMarks: "Marks in the file explorer",
+    settingFileExplorerMarksDesc: "Show a small dot after files changed here and not sent yet (accent color) and after conflict copies (red).",
 };
 
 let activeDict: Record<string, string> = en;

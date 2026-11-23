@@ -593,5 +593,7 @@
     "verifyCloudOnly": "클라우드에만 있음",
     "verifyMore": "…외 {0}개",
     "verifyCheckedAt": "확인 {0}. 이 기기에서 동기화하지 않는 파일은 비교하지 않습니다.",
-    "verifyAgain": "다시 확인"
+    "verifyAgain": "다시 확인",
+    "settingFileExplorerMarks": "파일 탐색기 표시",
+    "settingFileExplorerMarksDesc": "이 기기에서 변경되어 아직 보내지 않은 파일(강조색)과 충돌 사본(빨간색) 이름 뒤에 작은 점을 표시합니다."
 }
