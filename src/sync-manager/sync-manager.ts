@@ -348,6 +348,11 @@ export class SyncManager {
         return this.dirtyPaths.size;
     }
 
+    /** Why large transfers wait now (mobile network, low battery), or null */
+    public getTransferDeferReason(): "cellular" | "low-battery" | null {
+        return this.backgroundTransferQueue.deferredReason;
+    }
+
     public getActiveTransfers(): TransferItem[] {
         return this.backgroundTransferQueue.getPendingTransfers();
     }

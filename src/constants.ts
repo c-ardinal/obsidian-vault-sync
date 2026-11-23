@@ -55,6 +55,8 @@ export const DEFAULT_SETTINGS: VaultSyncSettings = {
     concurrency: SETTINGS_LIMITS.concurrency.default,
     largeFileThresholdMB: 5,
     bgTransferIntervalSec: 0,
+    deferLargeOnCellular: true,
+    deferLargeOnLowBattery: true,
     massDeleteConfirmFiles: SETTINGS_LIMITS.massDeleteConfirmFiles.default,
     massDeleteConfirmPercent: SETTINGS_LIMITS.massDeleteConfirmPercent.default,
     remoteTrashRetentionDays: SETTINGS_LIMITS.remoteTrashRetentionDays.default,

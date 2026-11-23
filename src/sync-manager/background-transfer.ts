@@ -38,6 +38,7 @@ import {
     TRANSFER_LOG_RETENTION_DAYS,
 } from "./constants";
 import { storesTransformedContent } from "./content-identity";
+import { deferReason, type DeferReason } from "./transfer-conditions";
 
 export class BackgroundTransferQueue {
     private queue: TransferItem[] = [];
@@ -52,6 +53,13 @@ export class BackgroundTransferQueue {
     private unflushedRecords: TransferRecord[] = [];
     /** Tracks inline (sync-cycle) transfers that are currently in progress */
     private inlineActive = new Map<string, TransferItem>();
+    /** Why the queue waits now (mobile network, low battery), or null */
+    private deferredBy: DeferReason | null = null;
+
+    /** Why large transfers wait right now (null: they do not) */
+    get deferredReason(): DeferReason | null {
+        return this.deferredBy;
+    }
 
     /** Bind to SyncContext after construction (needed because SyncManager creates queue before context is available) */
     setContext(ctx: SyncContext): void {
@@ -249,6 +257,17 @@ export class BackgroundTransferQueue {
 
                 const next = this.queue.find((q) => q.status === "pending");
                 if (!next) break;
+
+                // Mobile network or low battery: large files wait; the next sync looks again
+                const reason = await deferReason(ctx.settings);
+                if (reason !== this.deferredBy) {
+                    this.deferredBy = reason;
+                    this.callbacks.onQueueChange?.(this.getPendingTransfers());
+                }
+                if (reason) {
+                    await ctx.log(`[Background Transfer] Waiting (${reason}): ${this.queue.filter((q) => q.status === "pending").length} large file(s).`, "info");
+                    break;
+                }
 
                 next.status = "active";
                 next.startedAt = Date.now();

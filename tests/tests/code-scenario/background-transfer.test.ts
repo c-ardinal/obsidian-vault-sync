@@ -804,6 +804,32 @@ describe("Online/Offline detection", () => {
         expect((queue as any).isProcessing || queue.hasPendingItems()).toBe(true);
     });
 
+    it("waits on a mobile network and goes once Wi-Fi is back", async () => {
+        const cloud = new MockCloudAdapter();
+        const device = new DeviceSimulator("TestDevice", cloud);
+        const sm = device.syncManager as any;
+        sm.settings.deferLargeOnCellular = true;
+        const nav = globalThis.navigator as any;
+        const had = Object.getOwnPropertyDescriptor(nav, "connection");
+        Object.defineProperty(nav, "connection", { value: { type: "cellular" }, configurable: true });
+        try {
+            const queue = sm.backgroundTransferQueue;
+            queue.enqueue(makeItem({ path: "big.pdf" }));
+            await (queue as any).processLoop(sm);
+            expect(queue.deferredReason).toBe("cellular");
+            expect(queue.hasPendingItems()).toBe(true);
+            expect(sm.getTransferDeferReason()).toBe("cellular");
+            Object.defineProperty(nav, "connection", { value: { type: "wifi" }, configurable: true });
+            const exec = vi.spyOn(queue as any, "executePush").mockResolvedValue(undefined);
+            await (queue as any).processLoop(sm);
+            expect(exec).toHaveBeenCalled();
+            expect(queue.deferredReason).toBeNull();
+        } finally {
+            if (had) Object.defineProperty(nav, "connection", had);
+            else delete nav.connection;
+        }
+    });
+
     it("should break processLoop when e2eeLocked is true", () => {
         const cloud = new MockCloudAdapter();
         const device = new DeviceSimulator("TestDevice", cloud);

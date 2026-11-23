@@ -558,5 +558,12 @@
     "settingStorageTrash": "Drive のゴミ箱 {size}",
     "settingStorageSeparator": "・",
     "settingStorageCheckedAt": "（確認日時 {time}）",
-    "noticeStorageAlmostFull": "⚠️ Vault-Sync: クラウド容量の残量が僅少です（使用率 {0}）。満杯の場合、以後の送信は全停止します。"
+    "noticeStorageAlmostFull": "⚠️ Vault-Sync: クラウド容量の残量が僅少です（使用率 {0}）。満杯の場合、以後の送信は全停止します。",
+    "settingDeferCellular": "大容量ファイルの Wi-Fi 待機",
+    "settingDeferCellularDesc": "モバイル回線接続中、大容量ファイル（背景転送）の送受信を延期します。ノートの同期は継続します。",
+    "settingDeferLowBattery": "低電池時の大容量ファイル延期",
+    "settingDeferLowBatteryDesc": "電池残量 20% 未満かつ非充電中、大容量ファイル（背景転送）の送受信を延期します。ノートの同期は継続します。",
+    "settingDeferDetail": "Android 版と PC 版で有効です。iOS 版は回線種別と電池状態を取得不可のため、延期しません。",
+    "transferDeferredCellular": "Wi-Fi 接続待機中（モバイル回線）。",
+    "transferDeferredLowBattery": "充電待機中（電池残量低下）。"
 }

@@ -614,6 +614,13 @@ export const en: Record<string, string> = {
     settingStorageSeparator: ", ",
     settingStorageCheckedAt: "(checked {time})",
     noticeStorageAlmostFull: "⚠️ Vault-Sync: The cloud storage is almost full ({0} used). When it is full, nothing more is uploaded.",
+    settingDeferCellular: "Wait for Wi-Fi for large files",
+    settingDeferCellularDesc: "Large files (background transfers) wait while on a mobile network. Notes keep syncing.",
+    settingDeferLowBattery: "Hold large files on low battery",
+    settingDeferLowBatteryDesc: "Large files (background transfers) wait while the battery is under 20% and not charging. Notes keep syncing.",
+    settingDeferDetail: "Works on Android and PCs. iOS does not report the network type or battery, so nothing waits there.",
+    transferDeferredCellular: "Waiting for Wi-Fi (mobile network).",
+    transferDeferredLowBattery: "Waiting for charging (low battery).",
 };
 
 let activeDict: Record<string, string> = en;

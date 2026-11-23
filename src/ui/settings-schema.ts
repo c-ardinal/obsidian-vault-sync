@@ -333,6 +333,20 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                     limits: SETTINGS_LIMITS.bgTransferIntervalSec,
                     unit: t("unitSec"),
                 },
+                {
+                    key: "deferLargeOnCellular",
+                    type: "toggle",
+                    label: t("settingDeferCellular"),
+                    desc: t("settingDeferCellularDesc"),
+                    detail: t("settingDeferDetail"),
+                },
+                {
+                    key: "deferLargeOnLowBattery",
+                    type: "toggle",
+                    label: t("settingDeferLowBattery"),
+                    desc: t("settingDeferLowBatteryDesc"),
+                    detail: t("settingDeferDetail"),
+                },
             ],
         },
         {

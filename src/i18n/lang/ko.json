@@ -558,5 +558,12 @@
     "settingStorageTrash": "Drive 휴지통 {size}",
     "settingStorageSeparator": ", ",
     "settingStorageCheckedAt": "(확인 {time})",
-    "noticeStorageAlmostFull": "⚠️ Vault-Sync: 클라우드 용량이 거의 가득 찼습니다({0} 사용). 가득 차면 더 이상 업로드되지 않습니다."
+    "noticeStorageAlmostFull": "⚠️ Vault-Sync: 클라우드 용량이 거의 가득 찼습니다({0} 사용). 가득 차면 더 이상 업로드되지 않습니다.",
+    "settingDeferCellular": "대용량 파일은 Wi-Fi에서 전송",
+    "settingDeferCellularDesc": "모바일 네트워크 연결 중에는 대용량 파일(백그라운드 전송)을 미룹니다. 노트 동기화는 계속됩니다.",
+    "settingDeferLowBattery": "배터리 부족 시 대용량 파일 보류",
+    "settingDeferLowBatteryDesc": "배터리가 20% 미만이고 충전 중이 아니면 대용량 파일(백그라운드 전송)을 미룹니다. 노트 동기화는 계속됩니다.",
+    "settingDeferDetail": "Android와 PC에서 작동합니다. iOS는 네트워크 종류와 배터리 상태를 알려주지 않아 미루지 않습니다.",
+    "transferDeferredCellular": "Wi-Fi 대기 중(모바일 네트워크).",
+    "transferDeferredLowBattery": "충전 대기 중(배터리 부족)."
 }

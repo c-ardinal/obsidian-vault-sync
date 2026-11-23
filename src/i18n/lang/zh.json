@@ -558,5 +558,12 @@
     "settingStorageTrash": "Drive 回收站 {size}",
     "settingStorageSeparator": "，",
     "settingStorageCheckedAt": "（检查于 {time}）",
-    "noticeStorageAlmostFull": "⚠️ Vault-Sync：云端存储空间即将用尽（已用 {0}）。用尽后将无法继续上传。"
+    "noticeStorageAlmostFull": "⚠️ Vault-Sync：云端存储空间即将用尽（已用 {0}）。用尽后将无法继续上传。",
+    "settingDeferCellular": "大文件等待 Wi-Fi",
+    "settingDeferCellularDesc": "使用移动网络时推迟大文件（后台传输）。笔记照常同步。",
+    "settingDeferLowBattery": "低电量时推迟大文件",
+    "settingDeferLowBatteryDesc": "电量低于 20% 且未充电时推迟大文件（后台传输）。笔记照常同步。",
+    "settingDeferDetail": "适用于 Android 和电脑。iOS 不提供网络类型和电量信息，因此不会推迟。",
+    "transferDeferredCellular": "等待 Wi-Fi（移动网络）。",
+    "transferDeferredLowBattery": "等待充电（电量低）。"
 }
