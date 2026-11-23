@@ -685,6 +685,8 @@ export class SyncManager {
             return;
         }
         this.currentTrigger = trigger;
+        // After a conversion: the old folder is checked and deleted once its grace time is over
+        await this.migrationService.finishBackupCleanup();
         return _requestSmartSync(this as unknown as SyncContext, scanVault);
     }
 
