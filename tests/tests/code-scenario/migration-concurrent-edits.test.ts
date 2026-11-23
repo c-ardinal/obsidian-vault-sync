@@ -134,6 +134,8 @@ async function setup(files: Record<string, string>) {
         index[path] = { path, fileId: i.id, hash: md5(i.content), plainHash: await hashContent(i.content), mtime: 1, size: i.content.byteLength };
     }
     const onRead = new Map<string, () => void>();
+    /** Runs once when the existence of this path is checked */
+    const onExists = new Map<string, () => void>();
     const ctx = {
         syncState: "IDLE",
         deviceId: "device-A",
@@ -149,7 +151,12 @@ async function setup(files: Record<string, string>) {
             }),
             writeBinary: vi.fn(async (p: string, d: ArrayBuffer) => void local.set(p, d.slice(0))),
             write: vi.fn(async (p: string, d: string) => void local.set(p, enc(d))),
-            exists: vi.fn(async (p: string) => local.has(p) || [...local.keys()].some((k) => k.startsWith(p + "/"))),
+            exists: vi.fn(async (p: string) => {
+                const hook = onExists.get(p);
+                onExists.delete(p);
+                hook?.();
+                return local.has(p) || [...local.keys()].some((k) => k.startsWith(p + "/"));
+            }),
             stat: vi.fn(async () => null),
             mkdir: vi.fn(async () => {}),
             createFolder: vi.fn(async () => {}),
@@ -184,7 +191,7 @@ async function setup(files: Record<string, string>) {
         await svc.runMigration(temp, () => {});
         await svc.finalizeMigration(temp);
     };
-    return { drive, local, ctx, svc, onRead, converted, localText, run, idOf: (p: string) => index[p].fileId as string };
+    return { drive, local, ctx, svc, onRead, onExists, converted, localText, run, idOf: (p: string) => index[p].fileId as string };
 }
 
 describe("Vault conversion while another device keeps syncing", () => {
@@ -237,6 +244,19 @@ describe("Vault conversion while another device keeps syncing", () => {
         const converted = await t.converted();
         expect(converted["a.md"]).toBe("edit on A while queued");
         expect(Object.entries(converted).filter(([p]) => p.startsWith("a (Conflict ")).map(([, v]) => v)).toEqual(["edit from B"]);
+    });
+
+    it("keeps an edit saved here while the catch-up is about to replace the note", async () => {
+        const t = await setup({ "dir/a.md": "v1" });
+        t.onRead.set("dir/a.md", () => {
+            t.drive.write(VAULT, "dir/a.md", "edit from B", t.idOf("dir/a.md"));
+            // The parent-folder check of the catch-up write is where the save lands
+            t.onExists.set("dir", () => t.local.set("dir/a.md", enc("saved on A during catch-up")));
+        });
+        await t.run();
+        expect(t.localText("dir/a.md")).toBe("saved on A during catch-up");
+        const copies = Object.entries(await t.converted()).filter(([p]) => p.startsWith("dir/a (Conflict "));
+        expect(copies.map(([, v]) => v)).toEqual(["edit from B"]);
     });
 
     it("does not upload unchanged files again", async () => {

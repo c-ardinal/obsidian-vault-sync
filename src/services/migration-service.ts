@@ -212,6 +212,12 @@ export class MigrationService {
         return result;
     }
 
+    /** Plaintext hash of the local file, or null when there is none */
+    private async localHash(path: string): Promise<string | null> {
+        if (!(await this.ctx.vault.exists(path))) return null;
+        return hashContent(await this.ctx.vault.readBinary(path));
+    }
+
     /**
      * Bring in what other devices pushed to the vault that this device has not:
      * edits made before the conversion and not pulled yet, and everything other
@@ -236,14 +242,12 @@ export class MigrationService {
             const converted = this.ctx.localIndex[f.path];
             if (converted?.plainHash === remotePlain) continue; // same content as converted
 
-            const localNow = (await this.ctx.vault.exists(f.path))
-                ? await hashContent(await this.ctx.vault.readBinary(f.path))
-                : null;
+            const localNow = await this.localHash(f.path);
             if (localNow === remotePlain) continue;
             // Untouched here: the converted copy is the version this device last
             // synced, and the local file is still that version
             const syncedPlain = this.syncedPlainHashes.get(f.path);
-            const untouched =
+            let untouched =
                 localNow === null
                     ? !converted
                     : !this.dirtyAtStart.has(f.path) &&
@@ -251,13 +255,19 @@ export class MigrationService {
                       converted?.plainHash === syncedPlain &&
                       localNow === syncedPlain;
 
+            if (untouched) {
+                // Check again right before replacing it: the note may have been
+                // saved here while the checks above were waiting on the disk
+                await ensureLocalFolder(this.ctx, f.path);
+                if ((await this.localHash(f.path)) !== localNow) untouched = false;
+            }
             let target = f.path;
             let existingFileId: string | undefined = converted?.fileId;
             if (!untouched) {
                 target = await freeConflictCopyPath((p) => this.ctx.vault.exists(p), f.path);
                 existingFileId = undefined;
+                await ensureLocalFolder(this.ctx, target);
             }
-            await ensureLocalFolder(this.ctx, target);
             await this.ctx.vault.writeBinary(target, content);
             await this.uploadConverted(tempEncryptedAdapter, target, content, Date.now(), existingFileId);
             await this.ctx.log(
