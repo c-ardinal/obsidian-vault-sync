@@ -425,9 +425,10 @@ export const en: Record<string, string> = {
     settingCategoryTriggersDesc: "When to sync: on startup, on save, at intervals",
     settingCategoryScopeDesc: "Cloud folder, file types to sync, exclusions",
     settingCategoryPerformanceDesc: "Conflict handling, notifications, transfers",
-    settingCategoryAddonsDesc: "Install and manage optional add-ons",
+    settingCategoryAddonsDesc: "Install, manage and set up optional add-ons",
     settingCategoryAdvancedDesc: "Logging and other detailed settings",
     addonSectionTitle: "Add-ons",
+    addonPagesTitle: "Add-on settings",
     addonStatusNone: "No add-ons installed",
     addonStatusNoneDesc:
         "Add-ons are optional extensions distributed separately from Vault-Sync, each with its own terms of use. Install one only if you want it.",

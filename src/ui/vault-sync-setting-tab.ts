@@ -5,6 +5,7 @@ import { getSettingsSections, SettingItem, SettingSection } from "./settings-sch
 import { ExclusionPatternModal } from "./exclusion-modal";
 import { ConfirmModal } from "./confirm-modal";
 import { matchesWords, queryWords } from "./settings-search";
+import type { AddonPage, AddonSettingItem, AddonSettingSection, RegisteredAddon } from "../addons/addon-ui";
 
 /** Old accordion state; no longer used, removed on load. */
 const LEGACY_CLOSED_GROUPS_KEY = "vault-sync:closed-groups";
@@ -102,6 +103,8 @@ export class VaultSyncSettingTab extends PluginSettingTab {
     private page: PageId = "root";
     /** Text in the search box of the top page. Kept across re-renders, cleared when the tab is hidden. */
     private query = "";
+    /** Add-on page shown (a sub-page of the add-on category), or null. */
+    private addonPage: { addonId: string; pageId: string } | null = null;
 
     constructor(app: App, plugin: VaultSync) {
         super(app, plugin);
@@ -116,12 +119,23 @@ export class VaultSyncSettingTab extends PluginSettingTab {
     hide(): void {
         this.page = "root";
         this.query = "";
+        this.addonPage = null;
         super.hide();
     }
 
     /** Switch page and scroll to its top. */
     private navigate(page: PageId): void {
         this.page = page;
+        this.addonPage = null;
+        this.display();
+        this.containerEl.scrollTop = 0;
+    }
+
+    /** Show one of an add-on's own pages (from the add-on list, a search hit or the add-on itself). */
+    openAddonPage(addonId: string, pageId: string): void {
+        if (!this.plugin.addonUi.findPage(addonId, pageId)) return;
+        this.page = "addons";
+        this.addonPage = { addonId, pageId };
         this.display();
         this.containerEl.scrollTop = 0;
     }
@@ -133,7 +147,14 @@ export class VaultSyncSettingTab extends PluginSettingTab {
         containerEl.addClass("vault-sync-settings-container");
 
         const category = CATEGORIES.find((c) => c.id === this.page);
-        if (!category) {
+        const addonPage = this.addonPage
+            ? this.plugin.addonUi.findPage(this.addonPage.addonId, this.addonPage.pageId)
+            : undefined;
+        // The add-on may have gone (removed on this device) while its page was open
+        if (!addonPage) this.addonPage = null;
+        if (addonPage && this.addonPage) {
+            this.renderAddonPage(containerEl, this.addonPage.addonId, addonPage);
+        } else if (!category) {
             this.page = "root";
             this.renderRoot(containerEl);
         } else {
@@ -171,7 +192,8 @@ export class VaultSyncSettingTab extends PluginSettingTab {
     }
 
     /** A row that opens a page (click, Enter or Space) */
-    private renderNavRow(el: HTMLElement, name: string, desc: string, page: PageId): HTMLElement {
+    private renderNavRow(el: HTMLElement, name: string, desc: string, page: PageId | (() => void)): HTMLElement {
+        const open = typeof page === "function" ? page : () => this.navigate(page);
         const setting = new Setting(el).setName(name).setDesc(desc);
         const row = setting.settingEl;
         // mod-navigable: Obsidian keeps these rows horizontal on narrow screens
@@ -180,11 +202,11 @@ export class VaultSyncSettingTab extends PluginSettingTab {
         row.setAttr("tabindex", "0");
         const chevron = setting.controlEl.createDiv({ cls: "vault-sync-settings-nav-chevron" });
         setIcon(chevron, "chevron-right");
-        row.addEventListener("click", () => this.navigate(page));
+        row.addEventListener("click", open);
         row.addEventListener("keydown", (e) => {
             if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
-                this.navigate(page);
+                open();
             }
         });
         return row;
@@ -245,21 +267,68 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                 for (const item of hits) this.renderItem(group, item);
             }
         }
+        found += this.renderAddonSearchResults(results, words);
         if (found === 0) {
             results.createEl("p", { cls: "vault-sync-settings-search-none", text: t("settingSearchNone") });
         }
     }
 
     /** Heading of a group of search results (opens its page) and the group's body */
-    private renderResultGroup(results: HTMLElement, category: SettingsCategory, label: string): HTMLElement {
+    private renderResultGroup(
+        results: HTMLElement,
+        category: SettingsCategory | (() => void),
+        label: string,
+    ): HTMLElement {
+        const open = typeof category === "function" ? category : () => this.navigate(category.id);
         const groupEl = results.createDiv({ cls: "vault-sync-subheader-group" });
         const head = groupEl.createDiv({ cls: "vault-sync-subheader-label vault-sync-settings-search-group" });
         const link = head.createEl("a", { cls: "vault-sync-subheader-text", text: label, href: "#" });
         link.addEventListener("click", (e) => {
             e.preventDefault();
-            this.navigate(category.id);
+            open();
         });
         return groupEl.createDiv({ cls: "vault-sync-subheader-body" });
+    }
+
+    /** Search hits on add-on pages, grouped as "Add-ons › <page> › <section>". Returns the hit count. */
+    private renderAddonSearchResults(results: HTMLElement, words: string[]): number {
+        const categoryTitle = t("addonSectionTitle");
+        let found = 0;
+        for (const addon of this.plugin.addonUi.list()) {
+            for (const page of addon.pages) {
+                for (const section of this.plugin.addonUi.sectionsOf(page)) {
+                    if (this.isAddonHidden(section)) continue;
+                    const hits: SettingItem[] = [];
+                    let subheader = "";
+                    for (const raw of section.items) {
+                        if (this.isAddonHidden(raw)) continue;
+                        if (raw.type === "subheader") {
+                            subheader = raw.label;
+                            continue;
+                        }
+                        const item = this.toSettingItem(addon, raw);
+                        if (!item || item.isHidden?.(this.plugin.settings, this.plugin)) continue;
+                        const desc = item.getDesc ? item.getDesc(this.plugin.settings, this.plugin) : item.desc;
+                        if (
+                            matchesWords(words, [categoryTitle, page.title, section.title, subheader, item.label, desc])
+                        ) {
+                            hits.push(item);
+                        }
+                    }
+                    if (hits.length === 0) continue;
+                    found += hits.length;
+                    const parts = [categoryTitle, page.title];
+                    if (section.title && section.title !== page.title) parts.push(section.title);
+                    const group = this.renderResultGroup(
+                        results,
+                        () => this.openAddonPage(addon.id, page.id),
+                        parts.join(" › "),
+                    );
+                    for (const item of hits) this.renderItem(group, item);
+                }
+            }
+        }
+        return found;
     }
 
     private getCategoryDesc(category: SettingsCategory): string {
@@ -274,19 +343,23 @@ export class VaultSyncSettingTab extends PluginSettingTab {
     }
 
     private renderPageHeader(el: HTMLElement, category: SettingsCategory): void {
+        this.renderHeader(el, t(category.titleKey), () => this.navigate("root"));
+    }
+
+    private renderHeader(el: HTMLElement, title: string, back: () => void): void {
         const header = el.createDiv({ cls: "vault-sync-settings-page-header" });
-        const back = header.createEl("button", {
+        const backBtn = header.createEl("button", {
             cls: ["clickable-icon", "vault-sync-settings-back"],
             attr: { "aria-label": t("settingNavBackAria") },
         });
-        setIcon(back.createSpan({ cls: "vault-sync-settings-back-icon" }), "chevron-left");
-        back.createSpan({ text: t("settingNavBack") });
-        back.addEventListener("click", () => this.navigate("root"));
+        setIcon(backBtn.createSpan({ cls: "vault-sync-settings-back-icon" }), "chevron-left");
+        backBtn.createSpan({ text: t("settingNavBack") });
+        backBtn.addEventListener("click", back);
 
         // Obsidian indents setting headings to the card text; the class below aligns
         // the page title with the back button and the card edges instead.
         new Setting(header)
-            .setName(t(category.titleKey))
+            .setName(title)
             .setHeading()
             .settingEl.addClass("vault-sync-settings-page-title");
     }
@@ -305,7 +378,10 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                       .map((id) => all.find((s) => s.id === id))
                       .filter((s): s is SettingSection => !!s);
 
-        if (category.id === "addons") this.renderAddonManagement(el);
+        if (category.id === "addons") {
+            this.renderAddonManagement(el);
+            this.renderAddonPageList(el);
+        }
 
         const pageTitle = t(category.titleKey);
         for (const section of sections) {
@@ -658,15 +734,33 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                 );
                 break;
             }
+            case "page-link": {
+                const row = setting.settingEl;
+                row.addClass("mod-navigable", "vault-sync-settings-nav-row");
+                row.setAttr("role", "button");
+                row.setAttr("tabindex", "0");
+                setIcon(setting.controlEl.createDiv({ cls: "vault-sync-settings-nav-chevron" }), "chevron-right");
+                const open = () => item.onClick?.(this.plugin);
+                row.addEventListener("click", open);
+                row.addEventListener("keydown", (e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        open();
+                    }
+                });
+                break;
+            }
             case "diff-preview":
                 setting.settingEl.addClass("vault-sync-diff-preview-setting");
                 this.renderDiffPreview(setting.settingEl);
                 break;
             // subheader is handled in renderSection, never reaches here
             case "button":
-                setting.addButton((btn) =>
-                    btn.setButtonText(item.buttonText ?? item.label).onClick(() => item.onClick?.(this.plugin)),
-                );
+                setting.addButton((btn) => {
+                    btn.setButtonText(item.buttonText ?? item.label).onClick(() => item.onClick?.(this.plugin));
+                    if (item.buttonStyle === "cta") btn.setCta();
+                    if (item.buttonStyle === "warning") btn.setWarning();
+                });
                 break;
             case "info":
                 setting.settingEl.addClass("vault-sync-info-setting");
@@ -731,6 +825,100 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                     pane.dataset.device === "mobile" ? s.diffFontSizeMobile : s.diffFontSizeDesktop;
                 pane.style.setProperty("--vault-sync-diff-font-size", `${px}px`);
             });
+    }
+
+    /** One row per add-on page, under the install / remove row. */
+    private renderAddonPageList(el: HTMLElement): void {
+        const addons = this.plugin.addonUi.list().filter((a) => a.pages.length > 0);
+        if (addons.length === 0) return;
+        el.createDiv({ cls: "vault-sync-settings-section-title", text: t("addonPagesTitle") });
+        for (const addon of addons) {
+            for (const page of addon.pages) {
+                const row = this.renderNavRow(el, page.title, page.description ?? "", () =>
+                    this.openAddonPage(addon.id, page.id),
+                );
+                row.addClass("vault-sync-addon-page-row");
+                row.setAttr("data-addon-page", `${addon.id}/${page.id}`);
+                const iconEl = createDiv({ cls: ["setting-item-icon", "vault-sync-settings-nav-icon"] });
+                setIcon(iconEl, page.icon || "puzzle");
+                row.prepend(iconEl);
+            }
+        }
+    }
+
+    /** An add-on's own page: its sections, drawn like Vault-Sync's. Back goes to the add-on list. */
+    private renderAddonPage(el: HTMLElement, addonId: string, page: AddonPage): void {
+        const addon = this.plugin.addonUi.get(addonId)!;
+        this.renderHeader(el, page.title, () => this.navigate("addons"));
+        const body = el.createDiv({ cls: "vault-sync-settings-page vault-sync-addon-page" });
+        if (page.description) {
+            body.createEl("p", { text: page.description, cls: "setting-item-description" });
+        }
+        for (const section of this.plugin.addonUi.sectionsOf(page)) {
+            if (this.isAddonHidden(section)) continue;
+            this.renderSection(body, this.toSettingSection(addon, section), !!section.title && section.title !== page.title);
+        }
+    }
+
+    private isAddonHidden(part: AddonSettingItem | AddonSettingSection): boolean {
+        try {
+            return !!part.isHidden?.(this.plugin.settings);
+        } catch {
+            return true;
+        }
+    }
+
+    private toSettingSection(addon: RegisteredAddon, section: AddonSettingSection): SettingSection {
+        return {
+            id: section.id,
+            title: section.title,
+            description: section.description,
+            items: section.items
+                .filter((i) => !this.isAddonHidden(i))
+                .map((i) => this.toSettingItem(addon, i))
+                .filter((i): i is SettingItem => !!i),
+        };
+    }
+
+    /**
+     * An add-on row as a Vault-Sync row. "action" becomes a button that runs the
+     * action (hidden while it is unavailable), "page" a row that opens the page;
+     * an unknown action or page is left out.
+     */
+    private toSettingItem(addon: RegisteredAddon, raw: AddonSettingItem): SettingItem | null {
+        const base = raw as unknown as SettingItem;
+        if (raw.type === "action") {
+            const action = addon.actions.find((a) => a.id === raw.actionId);
+            if (!action) return null;
+            return {
+                key: raw.key,
+                type: "button",
+                label: raw.label || action.label,
+                desc: raw.desc ?? action.description,
+                getDesc: raw.getDesc as SettingItem["getDesc"],
+                buttonText: action.buttonText ?? action.label,
+                buttonStyle: action.style === "default" ? undefined : action.style,
+                isHidden: () => !this.plugin.addonUi.isAvailable(action),
+                onClick: () => {
+                    void this.plugin.addonUi.run(action.id).then(() => {
+                        // The action may change what the page shows (status, which actions apply)
+                        if (this.addonPage) this.display();
+                    });
+                },
+            };
+        }
+        if (raw.type === "page") {
+            const target = addon.pages.find((p) => p.id === raw.pageId);
+            if (!target) return null;
+            return {
+                key: raw.key,
+                type: "page-link",
+                label: raw.label || target.title,
+                desc: raw.desc ?? target.description,
+                onClick: () => this.openAddonPage(addon.id, target.id),
+            };
+        }
+        return base;
     }
 
     private renderAddonManagement(el: HTMLElement): void {

@@ -347,6 +347,7 @@ The E2EE Engine is a separately distributed **add-on** with its own terms of use
 2. Tap **Open download page** and download `vault-sync-e2ee-engine.zip` from the latest release.
 3. Tap **Choose file** and pick the downloaded zip. Vault-Sync checks every file in it against the approved release (SHA-256).
 4. Read the add-on's terms of use shown in the dialog, agree, and tap **Install**. The add-on is active right away, without a restart.
+5. The add-on's own settings page now appears under "Add-ons" in Vault-Sync's settings. Its operations can be started from there as well as from the command palette.
 
 Vault-Sync itself never downloads add-ons. If the vault already uses the add-on on another device, the install dialog opens on startup and then asks for the password. Copying `e2ee-engine.js` into `.obsidian/plugins/cardinal-vault-sync/` by hand still works too.
 

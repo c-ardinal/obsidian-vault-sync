@@ -29,6 +29,8 @@ import {
 } from "./encryption/engine-loader";
 import { AddonInstallModal, type AddonInstallOutcome } from "./ui/addon-install-modal";
 import type { AddonPackage } from "./addons/addon-package";
+import { AddonUiRegistry, type AddonUiHost } from "./addons/addon-ui";
+import { APPROVED_ADDONS } from "./addons/approved-addons";
 import { checkPasswordStrength } from "./encryption/password-strength";
 import type { E2EEPluginContext } from "./encryption/interfaces";
 import {
@@ -48,6 +50,29 @@ import { SettingsManager } from "./services/settings-manager";
 import { CredentialManager } from "./services/credential-manager";
 import { setPluginDir } from "./sync-manager/file-utils";
 import { isLegacyCopyEnabled, migrateLegacyPluginData } from "./services/legacy-plugin-migration";
+
+/** Command ids of Vault-Sync itself; an add-on action may not take them. */
+const BUILTIN_COMMAND_IDS: ReadonlySet<string> = new Set([
+    "sync-vault",
+    "force-full-scan",
+    "install-addon",
+    "transfer-status",
+    "show-remote-trash",
+    "resolve-conflicts",
+    "show-devices",
+    "report-issue",
+    "copy-diagnostics",
+    "restore-to-point-in-time",
+    "show-sync-status",
+    "dev-demo-history",
+    "dev-demo-transfer-status",
+    "dev-demo-notifications",
+    "dev-demo-sync-animation",
+    "dev-demo-prompt-modal",
+]);
+
+/** Id of the crypto-engine add-on (its UI parts are registered under it). */
+const CRYPTO_ADDON_ID = APPROVED_ADDONS.find((a) => a.kind === "crypto-engine")?.id ?? "crypto-engine";
 
 /** Syncs the user starts: a mass-change question held before is asked again */
 const USER_TRIGGERS: ReadonlySet<SyncTrigger> = new Set<SyncTrigger>(["manual-sync", "full-scan", "initial-sync"]);
@@ -72,6 +97,10 @@ export default class VaultSync extends Plugin {
     private settingsMgr!: SettingsManager;
     private credentialMgr!: CredentialManager;
     public t = t;
+    /** Settings pages and actions of the active add-ons. */
+    public readonly addonUi = new AddonUiRegistry(BUILTIN_COMMAND_IDS);
+    /** Add-on action ids already registered as commands (Obsidian has no unregister for us). */
+    private addonCommandIds = new Set<string>();
 
     /**
      * Installs a verified add-on package the user picked and agreed to (see
@@ -95,7 +124,6 @@ export default class VaultSync extends Plugin {
             };
         }
 
-        this.attachCryptoEngine(result.engine);
         this.settings.addonAgreements = {
             ...(this.settings.addonAgreements ?? {}),
             [pkg.addon.id]: {
@@ -105,6 +133,7 @@ export default class VaultSync extends Plugin {
                 agreedAt: new Date().toISOString(),
             },
         };
+        this.attachCryptoEngine(result.engine);
         await this.saveSettings();
         await this.syncManager.log(
             `Add-on installed: ${pkg.manifest.id} ${pkg.manifest.version} (terms ${pkg.termsHash.slice(0, 12)})`,
@@ -139,85 +168,69 @@ export default class VaultSync extends Plugin {
         return true;
     }
 
-    private addonCommandsRegistered = false;
-
     /**
      * Activate (or with null, remove) the add-on engine: hand it to the sync
-     * manager, take its display text, and register its commands. Commands are
-     * registered on first activation so their names come from the add-on; they
-     * hide themselves while no add-on is present.
+     * manager, take its display text, and register its settings pages and
+     * actions. Each action becomes a command the first time it is seen (its
+     * name comes from the add-on); commands hide themselves while their action
+     * is missing or unavailable.
      */
     private attachCryptoEngine(engine: ICryptoEngine | null): void {
         this.syncManager.setCryptoEngine(engine);
         setAddonStrings(engine?.getStrings ? (lang) => engine.getStrings!(lang) : null);
-        if (engine && !this.addonCommandsRegistered) {
-            this.addonCommandsRegistered = true;
-            this.registerAddonCommands();
+        if (!engine) {
+            this.addonUi.remove(CRYPTO_ADDON_ID);
+            return;
         }
+        const name = this.settings.addonAgreements?.[CRYPTO_ADDON_ID]?.name ?? CRYPTO_ADDON_ID;
+        let problems: string[];
+        try {
+            const ui = engine.getUiContributions?.(this.buildE2EEContext(), this.addonUiHost(CRYPTO_ADDON_ID));
+            problems = this.addonUi.set(CRYPTO_ADDON_ID, name, ui);
+        } catch (e) {
+            problems = [`UI parts could not be read: ${String(e)}`];
+            this.addonUi.set(CRYPTO_ADDON_ID, name, null);
+        }
+        for (const p of problems) void this.syncManager.log(`Add-on UI: ${p}`, "warn");
+        this.registerAddonCommands();
+    }
+
+    private addonUiHost(addonId: string): AddonUiHost {
+        return {
+            refresh: () => this.refreshSettingsUI(),
+            openPage: (pageId) => this.openAddonPage(addonId, pageId),
+            runAction: (actionId) => this.addonUi.run(actionId),
+        };
     }
 
     private registerAddonCommands(): void {
-        this.addCommand({
-            id: "e2ee-setup",
-            name: t("labelE2EESetup"),
-            checkCallback: (checking: boolean) => {
-                if (!this.syncManager.cryptoEngine || this.settings.e2eeEnabled) return false;
-                if (!checking) {
-                    this.syncManager.cryptoEngine.showSetupModal(this.buildE2EEContext());
-                }
-                return true;
-            },
-        });
+        for (const action of this.addonUi.commandActions()) {
+            if (this.addonCommandIds.has(action.id)) continue;
+            this.addonCommandIds.add(action.id);
+            const id = action.id;
+            this.addCommand({
+                id,
+                name: action.label,
+                checkCallback: (checking: boolean) => {
+                    const found = this.addonUi.findAction(id);
+                    if (!found || found.action.command === false) return false;
+                    if (!this.addonUi.isAvailable(found.action)) return false;
+                    if (!checking) void this.addonUi.run(id);
+                    return true;
+                },
+            });
+        }
+    }
 
-        this.addCommand({
-            id: "e2ee-unlock",
-            name: t("labelE2EEUnlock"),
-            checkCallback: (checking: boolean) => {
-                const isLocked =
-                    this.settings.e2eeEnabled &&
-                    this.syncManager.cryptoEngine &&
-                    !this.syncManager.cryptoEngine.isUnlocked();
-                if (!isLocked) return false;
-                if (!checking) {
-                    this.syncManager.cryptoEngine?.showUnlockModal(this.buildE2EEContext());
-                }
-                return true;
-            },
-        });
-
-        this.addCommand({
-            id: "e2ee-change-password",
-            name: t("labelE2EEChangePassword"),
-            checkCallback: (checking: boolean) => {
-                const engine = this.syncManager.cryptoEngine;
-                if (!engine?.showPasswordChangeModal || !engine.isUnlocked()) return false;
-                if (!checking) engine.showPasswordChangeModal(this.buildE2EEContext());
-                return true;
-            },
-        });
-
-        this.addCommand({
-            id: "e2ee-show-recovery",
-            name: t("labelE2EEShowRecovery"),
-            checkCallback: (checking: boolean) => {
-                const engine = this.syncManager.cryptoEngine;
-                if (!engine?.showRecoveryExportModal || !engine.isUnlocked()) return false;
-                if (!checking) engine.showRecoveryExportModal(this.buildE2EEContext());
-                return true;
-            },
-        });
-
-        this.addCommand({
-            id: "e2ee-recover",
-            name: t("labelE2EERecover"),
-            checkCallback: (checking: boolean) => {
-                const engine = this.syncManager.cryptoEngine;
-                if (!engine?.showRecoveryImportModal || !this.settings.e2eeEnabled) return false;
-                if (engine.isUnlocked()) return false;
-                if (!checking) engine.showRecoveryImportModal(this.buildE2EEContext());
-                return true;
-            },
-        });
+    /** Open the settings screen on an add-on's page. */
+    public openAddonPage(addonId: string, pageId: string): void {
+        if (!this.settingTab || !this.addonUi.findPage(addonId, pageId)) return;
+        const setting = (this.app as unknown as {
+            setting?: { open(): void; openTabById(id: string): unknown };
+        }).setting;
+        setting?.open();
+        setting?.openTabById(this.manifest.id);
+        this.settingTab.openAddonPage(addonId, pageId);
     }
 
     public openAddonInstallModal(): void {
@@ -228,6 +241,12 @@ export default class VaultSync extends Plugin {
                 // The vault already uses the add-on on another device: go straight to unlocking.
                 if (this.settings.e2eeEnabled && this.syncManager.e2eeLocked) {
                     this.syncManager.cryptoEngine?.showUnlockModal(this.buildE2EEContext());
+                    return;
+                }
+                // Installed from the settings screen: show the add-on's own page next
+                const page = this.addonUi.get(CRYPTO_ADDON_ID)?.pages[0];
+                if (page && this.settingTab?.containerEl.isShown()) {
+                    this.settingTab.openAddonPage(CRYPTO_ADDON_ID, page.id);
                 }
             },
             this.settings.e2eeEnabled,
@@ -1058,11 +1077,5 @@ export default class VaultSync extends Plugin {
             this.vaultOps.getVaultName(),
             this.settings.cloudRootFolder,
         );
-    }
-
-    getE2EESettingsSections(): ReturnType<
-        NonNullable<typeof this.syncManager.cryptoEngine>["getSettingsSections"]
-    > {
-        return this.syncManager.cryptoEngine?.getSettingsSections(this.buildE2EEContext()) || [];
     }
 }
