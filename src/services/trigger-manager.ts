@@ -23,6 +23,8 @@ export const RESUME_MIN_HIDDEN_MS = 3000;
 export const HIDDEN_INTERVAL_MS = 5 * 60 * 1000;
 /** Longest the PC app's closing waits for the last changes to go out */
 export const QUIT_FLUSH_MAX_MS = 8000;
+const QUIT_FLUSH_POLL_MS = 200;
+const QUIT_FLUSH_MAX_REQUESTS = 3;
 
 /** Shape of an Obsidian command entry (internal API) that we hook for save detection. */
 interface HookableCommand {
@@ -150,13 +152,30 @@ export class TriggerManager {
             this.modifyTimeout = null;
         }
         await this.deps.syncManager.log("[Trigger] App closing: sending waiting changes", "system");
+        const sm = this.deps.syncManager;
         let timer: number | undefined;
-        await Promise.race([
-            this.requestSync("modify-sync"),
-            new Promise<void>((resolve) => {
-                timer = window.setTimeout(resolve, QUIT_FLUSH_MAX_MS);
-            }),
-        ]);
+        const deadline = new Promise<"timeout">((resolve) => {
+            timer = window.setTimeout(() => resolve("timeout"), QUIT_FLUSH_MAX_MS);
+        });
+        const pause = () => new Promise<void>((r) => window.setTimeout(r, QUIT_FLUSH_POLL_MS));
+        // A sync already running only queues one more pass and returns with the
+        // running one: wait until the queue has drained and nothing is left, still
+        // inside the limit. At most a few requests, so a failing send does not loop.
+        let stopped = false;
+        const drain = async (): Promise<void> => {
+            let requests = 0;
+            while (!stopped && requests < QUIT_FLUSH_MAX_REQUESTS) {
+                if (!sm.isSyncing()) {
+                    if (sm.pendingChangeCount === 0) return;
+                    requests++;
+                    await this.requestSync("modify-sync");
+                    continue;
+                }
+                await pause();
+            }
+        };
+        await Promise.race([drain(), deadline]);
+        stopped = true;
         if (timer !== undefined) window.clearTimeout(timer);
     }
 

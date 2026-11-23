@@ -208,12 +208,15 @@ export async function keepRevisionsIfDue(ctx: RetentionCtx, now = Date.now()): P
                 }
             }
             if (kept.length >= MAX_KEPT_PER_FILE) {
+                // Drive refuses to turn keepForever off ("Cannot update a revision to false"):
+                // a spare version is removed instead. Without that, the file just stays at the cap.
+                if (!ctx.adapter.deleteRevision) continue;
                 const thin = versionsToThin(kept, new Set(rec[fileId] ?? []), now).slice(
                     0,
                     Math.max(0, MAX_RELEASES_PER_RUN - releases),
                 );
                 for (const id of thin) {
-                    await ctx.adapter.setRevisionKeepForever!(path, id, false);
+                    await ctx.adapter.deleteRevision(path, id);
                     releases++;
                     rec[fileId] = (rec[fileId] ?? []).filter((x) => x !== id);
                     recChanged = true;
@@ -221,7 +224,7 @@ export async function keepRevisionsIfDue(ctx: RetentionCtx, now = Date.now()): P
                 if (thin.length) {
                     const gone = new Set(thin);
                     kept = kept.filter((r) => !gone.has(r.id));
-                    await ctx.log(`[Revisions] Thinned ${thin.length} kept version(s) of ${path}.`, "info");
+                    await ctx.log(`[Revisions] Removed ${thin.length} spare kept version(s) of ${path}.`, "info");
                 }
                 if (kept.length >= MAX_KEPT_PER_FILE) continue;
             }

@@ -584,7 +584,7 @@ export const en: Record<string, string> = {
     settingMassDeletePercentDetail: "Applies from 5 files.",
     settingRemoteTrashDetail: "Off: files are deleted at once.",
     settingAutoKeepRevisionsDetail:
-        "Markdown notes only, unless attachments are included below. When a file nears the limit of kept versions, older automatically kept versions are thinned out (daily for the last 30 days, weekly for the last year, monthly before). Versions you kept yourself stay.",
+        "Markdown notes only, unless attachments are included below. When a file nears the limit of kept versions, spare older versions it kept automatically are removed, keeping one per day for the last 30 days, one per week for the last year and one per month before). Versions you kept yourself stay.",
     settingAutoSyncIntervalDesc: "Sync in the background at this interval. A shorter interval uses more data.",
     settingAutoSyncIntervalDetail: "Also syncs at once when the app comes back to the front or the network comes back. While the app is hidden, at most every 5 minutes on a PC and not at all on mobile, unless local changes wait. Sync is skipped while you are actively editing, to prevent data loss.",
     settingDesktopExclusionPatternsDesc: "Files and folders PCs do not sync.",

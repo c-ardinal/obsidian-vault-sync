@@ -1530,7 +1530,15 @@ describe("TriggerManager", () => {
             const { tm, syncManager, eventHandlers } = make();
             syncManager.pendingChangeCount = 1;
             let finish!: () => void;
-            syncManager.requestSmartSync.mockImplementation(() => new Promise<void>((r) => (finish = r)));
+            syncManager.requestSmartSync.mockImplementation(
+                () =>
+                    new Promise<void>((r) => {
+                        finish = () => {
+                            syncManager.pendingChangeCount = 0;
+                            r();
+                        };
+                    }),
+            );
             const added: Array<() => Promise<unknown>> = [];
             eventHandlers.quit[0]({ add: (cb: () => Promise<unknown>) => added.push(cb) });
             expect(added).toHaveLength(1);
@@ -1541,6 +1549,28 @@ describe("TriggerManager", () => {
             expect(done).toBe(false);
             finish();
             await p;
+            expect(done).toBe(true);
+        });
+
+        it("PC closing during a running sync waits for the queued pass that sends the rest", async () => {
+            const { tm, syncManager } = make();
+            syncManager.pendingChangeCount = 1;
+            syncManager.isSyncing.mockReturnValue(true);
+            let done = false;
+            const p = tm.onQuit().then(() => (done = true));
+            await flush();
+            // The running sync ends; the edits made during it are still waiting
+            vi.advanceTimersByTime(1000);
+            await flush();
+            expect(done).toBe(false);
+            syncManager.isSyncing.mockReturnValue(false);
+            syncManager.requestSmartSync.mockImplementation(async () => {
+                syncManager.pendingChangeCount = 0;
+            });
+            vi.advanceTimersByTime(200);
+            await p;
+            expect(syncManager.requestSmartSync).toHaveBeenCalledWith("modify-sync");
+            expect(syncManager.pendingChangeCount).toBe(0);
             expect(done).toBe(true);
         });
 
