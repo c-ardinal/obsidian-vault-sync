@@ -21,6 +21,8 @@ interface TriggerManagerDeps {
 export const RESUME_MIN_HIDDEN_MS = 3000;
 /** While the app is hidden on a PC and nothing local waits, the timer syncs at most this often (mobile: never) */
 export const HIDDEN_INTERVAL_MS = 5 * 60 * 1000;
+/** Longest the PC app's closing waits for the last changes to go out */
+export const QUIT_FLUSH_MAX_MS = 8000;
 
 /** Shape of an Obsidian command entry (internal API) that we hook for save detection. */
 interface HookableCommand {
@@ -45,12 +47,17 @@ export class TriggerManager {
     private hiddenSince = 0;
     /** Last timer sync run while hidden */
     private lastHiddenRun = 0;
+    /** Edit delay running (send after the user stops typing) */
+    private modifyTimeout: number | null = null;
 
     private static readonly TRIGGER_MAP: Record<string, SyncTrigger> = {
         interval: "timer-sync",
         // Quiet like the timer: the user did not ask for these
         resume: "timer-sync",
         online: "timer-sync",
+        // Local edits going out early: like the edit trigger
+        hide: "modify-sync",
+        quit: "modify-sync",
         save: "save-sync",
         modify: "modify-sync",
         "layout-change": "layout-sync",
@@ -99,6 +106,9 @@ export class TriggerManager {
     onVisibilityChange(hidden: boolean, now = Date.now()): void {
         if (hidden) {
             if (!this.hiddenSince) this.hiddenSince = now;
+            // Phones and tablets stop a hidden app within seconds: what waits for the
+            // edit delay would stay here until the app comes back. Send it now.
+            this.flushPendingChanges("hide");
             return;
         }
         const since = this.hiddenSince;
@@ -108,6 +118,46 @@ export class TriggerManager {
         if (since && now - since >= RESUME_MIN_HIDDEN_MS && this.timerSyncEnabled) {
             void this.triggerSmartSync("resume");
         }
+    }
+
+    /**
+     * Local changes wait (edit delay running or not yet sent): send them now
+     * instead of after the delay. Nothing waits: nothing is sent. Follows the
+     * edit trigger setting: when that is off, the user sends by hand.
+     */
+    private flushPendingChanges(source: "hide" | "quit"): boolean {
+        if (!this.isReady) return false;
+        if (this.deps.syncManager.pendingChangeCount === 0) return false;
+        if (this.currentTriggers.onModifyDelaySec === SETTINGS_LIMITS.onModifyDelay.disabled) return false;
+        if (this.modifyTimeout) {
+            window.clearTimeout(this.modifyTimeout);
+            this.modifyTimeout = null;
+        }
+        void this.triggerSmartSync(source);
+        return true;
+    }
+
+    /**
+     * PC app closing: send what waits, for at most QUIT_FLUSH_MAX_MS, so the
+     * next device opened gets this device's last edits.
+     */
+    async onQuit(): Promise<void> {
+        if (Platform.isMobile) return;
+        if (!this.isReady || this.deps.syncManager.pendingChangeCount === 0) return;
+        if (this.currentTriggers.onModifyDelaySec === SETTINGS_LIMITS.onModifyDelay.disabled) return;
+        if (this.modifyTimeout) {
+            window.clearTimeout(this.modifyTimeout);
+            this.modifyTimeout = null;
+        }
+        await this.deps.syncManager.log("[Trigger] App closing: sending waiting changes", "system");
+        let timer: number | undefined;
+        await Promise.race([
+            this.requestSync("modify-sync"),
+            new Promise<void>((resolve) => {
+                timer = window.setTimeout(resolve, QUIT_FLUSH_MAX_MS);
+            }),
+        ]);
+        if (timer !== undefined) window.clearTimeout(timer);
     }
 
     /** The network came back: what waited goes out, what changed comes in */
@@ -188,7 +238,6 @@ export class TriggerManager {
             });
         });
 
-        let modifyTimeout: number | null = null;
         this.deps.registerEvent(
             app.vault.on("modify", async (file) => {
                 if (!this.isReady) return;
@@ -207,7 +256,8 @@ export class TriggerManager {
                         `[Trigger] Fast-tracking sync due to recent save`,
                         "system",
                     );
-                    if (modifyTimeout) window.clearTimeout(modifyTimeout);
+                    if (this.modifyTimeout) window.clearTimeout(this.modifyTimeout);
+                    this.modifyTimeout = null;
                     void this.triggerSmartSync("save");
                     return;
                 }
@@ -216,8 +266,15 @@ export class TriggerManager {
                     this.currentTriggers.onModifyDelaySec === SETTINGS_LIMITS.onModifyDelay.disabled
                 )
                     return;
-                if (modifyTimeout) window.clearTimeout(modifyTimeout);
-                modifyTimeout = window.setTimeout(() => {
+                if (this.modifyTimeout) window.clearTimeout(this.modifyTimeout);
+                // Hidden (the editor saved on the way out): the app may stop any moment
+                if (this.hiddenSince) {
+                    this.modifyTimeout = null;
+                    void this.triggerSmartSync("hide");
+                    return;
+                }
+                this.modifyTimeout = window.setTimeout(() => {
+                    this.modifyTimeout = null;
                     void this.triggerSmartSync("modify");
                 }, this.currentTriggers.onModifyDelaySec * 1000);
             }),
@@ -253,6 +310,13 @@ export class TriggerManager {
             }),
         );
 
+        // PC app closing: the last edits go out first (bounded wait)
+        this.deps.registerEvent(
+            app.workspace.on("quit", (tasks) => {
+                tasks.add(() => this.onQuit());
+            }),
+        );
+
         // Layout change trigger (switching files/tabs)
         this.deps.registerEvent(
             app.workspace.on("layout-change", () => {
@@ -274,6 +338,10 @@ export class TriggerManager {
     }
 
     destroy(): void {
+        if (this.modifyTimeout) {
+            window.clearTimeout(this.modifyTimeout);
+            this.modifyTimeout = null;
+        }
         if (this.autoSyncInterval) {
             window.clearInterval(this.autoSyncInterval);
             this.autoSyncInterval = null;

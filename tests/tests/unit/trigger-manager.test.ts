@@ -15,7 +15,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { TriggerManager, RESUME_MIN_HIDDEN_MS, HIDDEN_INTERVAL_MS } from "../../../src/services/trigger-manager";
+import { TriggerManager, RESUME_MIN_HIDDEN_MS, HIDDEN_INTERVAL_MS, QUIT_FLUSH_MAX_MS } from "../../../src/services/trigger-manager";
 import { DEFAULT_SETTINGS, SETTINGS_LIMITS } from "../../../src/constants";
 import { TFile, TFolder } from "../../../tests/__mocks__/obsidian";
 
@@ -1467,6 +1467,99 @@ describe("TriggerManager", () => {
 
             await expect((tm as any).triggerSmartSync("layout-change")).resolves.toBeUndefined();
             expect(syncManager.requestSmartSync).toHaveBeenCalledWith("layout-sync");
+        });
+    });
+
+    describe("waiting changes go out when the app is hidden or closed", () => {
+        const flush = async () => {
+            await new Promise((r) => process.nextTick(r));
+            await new Promise((r) => process.nextTick(r));
+        };
+        const make = (onModifyDelaySec = 5) => {
+            const m = createMockDeps({
+                triggerConfigStrategy: "unified",
+                unifiedTriggers: { ...DEFAULT_SETTINGS.unifiedTriggers, onModifyDelaySec },
+            });
+            const tm = new TriggerManager(m.deps);
+            tm.setReady(true);
+            tm.registerTriggers();
+            return { tm, ...m };
+        };
+
+        it("sends at once on hide when changes wait, and the edit delay no longer fires", async () => {
+            const { tm, syncManager, eventHandlers } = make();
+            const file = new TFile();
+            file.path = "note.md";
+            await eventHandlers.modify[0](file);
+            syncManager.pendingChangeCount = 1;
+            tm.onVisibilityChange(true, 1000);
+            await flush();
+            expect(syncManager.requestSmartSync).toHaveBeenCalledTimes(1);
+            expect(syncManager.requestSmartSync).toHaveBeenCalledWith("modify-sync");
+            vi.advanceTimersByTime(10_000);
+            await flush();
+            expect(syncManager.requestSmartSync).toHaveBeenCalledTimes(1);
+        });
+
+        it("sends nothing on hide when nothing waits", async () => {
+            const { tm, syncManager } = make();
+            tm.onVisibilityChange(true, 1000);
+            await flush();
+            expect(syncManager.requestSmartSync).not.toHaveBeenCalled();
+        });
+
+        it("sends nothing on hide when the edit trigger is off", async () => {
+            const { tm, syncManager } = make(SETTINGS_LIMITS.onModifyDelay.disabled);
+            syncManager.pendingChangeCount = 3;
+            tm.onVisibilityChange(true, 1000);
+            await flush();
+            expect(syncManager.requestSmartSync).not.toHaveBeenCalled();
+        });
+
+        it("an edit saved while hidden goes out at once, not after the delay", async () => {
+            const { tm, syncManager, eventHandlers } = make();
+            tm.onVisibilityChange(true, 1000);
+            const file = new TFile();
+            file.path = "note.md";
+            await eventHandlers.modify[0](file);
+            await flush();
+            expect(syncManager.requestSmartSync).toHaveBeenCalledWith("modify-sync");
+        });
+
+        it("PC closing waits for the waiting changes, bounded", async () => {
+            const { tm, syncManager, eventHandlers } = make();
+            syncManager.pendingChangeCount = 1;
+            let finish!: () => void;
+            syncManager.requestSmartSync.mockImplementation(() => new Promise<void>((r) => (finish = r)));
+            const added: Array<() => Promise<unknown>> = [];
+            eventHandlers.quit[0]({ add: (cb: () => Promise<unknown>) => added.push(cb) });
+            expect(added).toHaveLength(1);
+            let done = false;
+            const p = added[0]().then(() => (done = true));
+            await flush();
+            expect(syncManager.requestSmartSync).toHaveBeenCalledWith("modify-sync");
+            expect(done).toBe(false);
+            finish();
+            await p;
+            expect(done).toBe(true);
+        });
+
+        it("PC closing gives up after the time limit", async () => {
+            const { tm, syncManager } = make();
+            syncManager.pendingChangeCount = 1;
+            syncManager.requestSmartSync.mockImplementation(() => new Promise<void>(() => {}));
+            let done = false;
+            const p = tm.onQuit().then(() => (done = true));
+            await flush();
+            vi.advanceTimersByTime(QUIT_FLUSH_MAX_MS);
+            await p;
+            expect(done).toBe(true);
+        });
+
+        it("PC closing with nothing waiting sends nothing", async () => {
+            const { tm, syncManager } = make();
+            await tm.onQuit();
+            expect(syncManager.requestSmartSync).not.toHaveBeenCalled();
         });
     });
 });
