@@ -533,7 +533,7 @@
     "settingMassDeleteFilesDetail": "上書きの件数はノートと添付ファイルが対象で、.obsidian フォルダは対象外です。",
     "settingMassDeletePercentDetail": "対象 5 件以上の場合に適用します。",
     "settingRemoteTrashDetail": "無効時は即時削除します。",
-    "settingAutoKeepRevisionsDetail": "対象は Markdown ファイルです（添付ファイルの対象化は下記で設定）。",
+    "settingAutoKeepRevisionsDetail": "対象は Markdown ファイルです（添付ファイルの対象化は下記で設定）。1 ファイルの保持版が上限に接近した場合、自動保持した旧版を間引きします（直近 30 日は日単位、1 年以内は週単位、以前は月単位）。手動で保持した版は対象外です。",
     "settingAutoSyncIntervalDetail": "アプリの再表示時・ネットワーク復帰時にも即時に同期します。アプリの非表示中は、PC では 5 分間隔に抑制し、モバイルでは停止します（未送信の変更がある場合を除く）。データ損失防止のため、編集操作中は同期を保留します。",
     "settingDesktopExclusionPatternsDetail": "クラウド上のファイルは維持し、モバイルでは通常どおり同期します。PC 上の既存ファイルは維持し、PC 上で削除してもクラウド上のファイルは削除しません。全 PC で共通の設定です。",
     "settingMobileExclusionPatternsDetail": "クラウド上のファイルは維持し、PC では通常どおり同期します。モバイル上の既存ファイルは維持し、モバイル上で削除してもクラウド上のファイルは削除しません。全モバイル端末で共通の設定です。",

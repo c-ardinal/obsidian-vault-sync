@@ -533,7 +533,7 @@
     "settingMassDeleteFilesDetail": "覆盖仅计算笔记和附件，不包括 .obsidian 文件夹。",
     "settingMassDeletePercentDetail": "从 5 个文件起适用。",
     "settingRemoteTrashDetail": "关闭：文件立即删除。",
-    "settingAutoKeepRevisionsDetail": "仅限 Markdown 笔记，除非在下方加入附件。",
+    "settingAutoKeepRevisionsDetail": "仅限 Markdown 笔记，除非在下方加入附件。单个文件的保留版本接近上限时，会精简自动保留的旧版本（最近 30 天按天、一年内按周、更早按月）。手动保留的版本不受影响。",
     "settingAutoSyncIntervalDetail": "应用回到前台或网络恢复时也会立即同步。应用隐藏时，PC 上最多每 5 分钟同步一次，移动端则不同步（有本地变更等待时除外）。为防止数据丢失，正在编辑时会跳过同步。",
     "settingDesktopExclusionPatternsDetail": "它们保留在云端，并继续在移动设备上同步。PC 上已有的文件会保留，在 PC 上删除它们也不会删除云端的文件。所有 PC 共用此设置。",
     "settingMobileExclusionPatternsDetail": "它们保留在云端，并继续在 PC 上同步。移动设备上已有的文件会保留，在移动设备上删除它们也不会删除云端的文件。所有移动设备共用此设置。",

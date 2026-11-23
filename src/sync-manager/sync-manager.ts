@@ -87,6 +87,7 @@ import {
     deleteRevision as _deleteRevision,
     restoreRevision as _restoreRevision,
 } from "./history";
+import { forgetAutoKept } from "./revision-retention";
 import {
     linesToChars3 as _linesToChars3,
     perform3WayMerge as _perform3WayMerge,
@@ -871,6 +872,8 @@ export class SyncManager {
         revisionId: string,
         keepForever: boolean,
     ): Promise<void> {
+        // Set by hand: the user's from now on, never thinned
+        await forgetAutoKept(this as unknown as SyncContext, revisionId);
         return _setRevisionKeepForever(
             this as unknown as SyncContext,
             path,
