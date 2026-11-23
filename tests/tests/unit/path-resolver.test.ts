@@ -21,10 +21,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { DrivePathResolver } from "../../../src/cloud-adapters/google-drive/path-resolver";
 
 function createMockHttp() {
-    return {
+    const http = {
         fetchWithAuth: vi.fn(),
         escapeQueryValue: (v: string) => v.replace(/\\/g, "\\\\").replace(/'/g, "\\'"),
+        // A create that succeeds at once (retries: create-retry.test.ts)
+        createItem: async (url: string, _parent: string | undefined, build: (p: Record<string, string>) => RequestInit) =>
+            (await http.fetchWithAuth(url, build({ vsCreate: "m" }))).json(),
     };
+    return http;
 }
 
 function jsonResponse(data: any, status = 200): Response {

@@ -50,6 +50,7 @@ interface DriveUploadMetadata {
     name: string;
     modifiedTime?: string;
     parents?: string[];
+    appProperties?: Record<string, string>;
 }
 
 /** Every resumable upload chunk but the last must be a multiple of this (Drive API rule) */
@@ -327,40 +328,43 @@ export class GoogleDriveAdapter implements OAuthCloudAdapter {
             if (existing) activeFileId = existing.id;
         }
 
-        let url =
-            "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,md5Checksum,size";
-        let method = "POST";
+        const boundary = "-------314159265358979323846";
+        const body = (meta: DriveUploadMetadata): Uint8Array<ArrayBuffer> => {
+            const header = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${boundary}\r\nContent-Type: application/octet-stream\r\n\r\n`;
+            const footer = `\r\n--${boundary}--`;
+            const encoder = new TextEncoder();
+            const headerArray = encoder.encode(header);
+            const footerArray = encoder.encode(footer);
+            const bodyArray = new Uint8Array(
+                headerArray.byteLength + content.byteLength + footerArray.byteLength,
+            );
+            bodyArray.set(headerArray, 0);
+            bodyArray.set(new Uint8Array(content), headerArray.byteLength);
+            bodyArray.set(footerArray, headerArray.byteLength + content.byteLength);
+            return bodyArray;
+        };
+        const init = (meta: DriveUploadMetadata): RequestInit => ({
+            method: activeFileId ? "PATCH" : "POST",
+            headers: { "Content-Type": `multipart/related; boundary=${boundary}` },
+            body: body(meta),
+        });
 
+        let data: DriveFile;
         if (activeFileId) {
-            url = `https://www.googleapis.com/upload/drive/v3/files/${activeFileId}?uploadType=multipart&fields=id,md5Checksum,size`;
-            method = "PATCH";
+            const response = await this.http.fetchWithAuth(
+                `https://www.googleapis.com/upload/drive/v3/files/${activeFileId}?uploadType=multipart&fields=id,md5Checksum,size`,
+                init(metadata),
+            );
+            data = (await response.json()) as DriveFile;
         } else {
             const parentId = await this.pathResolver.resolveParentId(path, true);
             metadata.parents = [parentId];
+            data = await this.http.createItem<DriveFile>(
+                "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,md5Checksum,size",
+                parentId,
+                (appProperties) => init({ ...metadata, appProperties }),
+            );
         }
-
-        const boundary = "-------314159265358979323846";
-        const header = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: application/octet-stream\r\n\r\n`;
-        const footer = `\r\n--${boundary}--`;
-
-        const encoder = new TextEncoder();
-        const headerArray = encoder.encode(header);
-        const footerArray = encoder.encode(footer);
-
-        const bodyArray = new Uint8Array(
-            headerArray.byteLength + content.byteLength + footerArray.byteLength,
-        );
-        bodyArray.set(headerArray, 0);
-        bodyArray.set(new Uint8Array(content), headerArray.byteLength);
-        bodyArray.set(footerArray, headerArray.byteLength + content.byteLength);
-
-        const response = await this.http.fetchWithAuth(url, {
-            method: method,
-            headers: { "Content-Type": `multipart/related; boundary=${boundary}` },
-            body: bodyArray,
-        });
-
-        const data = (await response.json()) as DriveFile;
         const result: CloudFile = {
             id: data.id,
             path: path,
@@ -599,15 +603,17 @@ export class GoogleDriveAdapter implements OAuthCloudAdapter {
             (newParentPath ? newParentPath + "/" : "") + "__dummy__",
             true,
         );
-        const response = await this.http.fetchWithAuth(
-            `https://www.googleapis.com/drive/v3/files/${fileId}/copy?fields=id,name,mimeType,modifiedTime,size,md5Checksum`,
-            {
+        const fields = "id,name,mimeType,modifiedTime,size,md5Checksum";
+        const data = await this.http.createItem<DriveFile>(
+            `https://www.googleapis.com/drive/v3/files/${fileId}/copy?fields=${fields}`,
+            parentId,
+            (appProperties) => ({
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name: newName, parents: [parentId] }),
-            },
+                body: JSON.stringify({ name: newName, parents: [parentId], appProperties }),
+            }),
+            fields,
         );
-        const data = (await response.json()) as DriveFile;
         const path = newParentPath ? `${newParentPath}/${newName}` : newName;
         return {
             id: data.id,
