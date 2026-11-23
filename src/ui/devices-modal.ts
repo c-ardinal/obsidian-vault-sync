@@ -1,4 +1,5 @@
 import { App, DropdownComponent, Modal, Notice, Setting, TFile } from "obsidian";
+import { formatDateTime } from "./format-time";
 import { t } from "../i18n";
 import { mergeActivity, type ActivityOp, type DeviceActivity, type DeviceRecord } from "../sync-manager/device-registry";
 
@@ -24,12 +25,7 @@ const OP_LABELS: Record<ActivityOp, string> = {
 
 const fill = (text: string, key: string, value: string | number) => text.replace(`{${key}}`, String(value));
 
-function formatTime(ms: number): string {
-    if (ms <= 0) return "-";
-    const d = new Date(ms);
-    const p = (n: number) => String(n).padStart(2, "0");
-    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
-}
+const formatTime = formatDateTime;
 
 /** The devices that sync this vault, and the changes each of them made */
 export class DevicesModal extends Modal {

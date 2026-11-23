@@ -276,7 +276,10 @@ export class ExclusionPatternModal extends Modal {
             }
 
             // Delete button
-            const deleteBtn = item.createDiv({ cls: "vault-sync-exclusion-delete" });
+            const deleteBtn = item.createEl("button", {
+                cls: "clickable-icon vault-sync-exclusion-delete",
+                attr: { "aria-label": t("settingExclusionModalDelete") },
+            });
             setIcon(deleteBtn, "x");
             const idx = i;
             deleteBtn.addEventListener("click", () => {

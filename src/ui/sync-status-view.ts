@@ -7,7 +7,7 @@
  *
  * Everything is driven by SyncProgressTracker snapshots.
  */
-import { Platform, moment } from "obsidian";
+import { Platform, moment, setIcon } from "obsidian";
 import type VaultSync from "../main";
 import type { SyncManager } from "../sync-manager";
 import { t } from "../i18n";
@@ -328,6 +328,11 @@ export class SyncStatusView {
                 this.closeDetails();
                 this.plugin.openDiagnostics(title);
             },
+            onResolveConflicts: () => {
+                this.closeDetails();
+                this.plugin.openConflictResolver();
+            },
+            onMoreMenu: (evt) => this.plugin.showToolsMenu(evt, () => this.closeDetails()),
         });
     }
 }
@@ -360,6 +365,10 @@ export interface SyncPanelOptions {
     onOpenSettings?: () => void;
     /** After a failed sync: report it, with a suggested issue title */
     onReport?: (title: string) => void;
+    /** Makes the conflict count a link to the conflict resolver */
+    onResolveConflicts?: () => void;
+    /** A "more" button listing the plugin's other screens */
+    onMoreMenu?: (evt: MouseEvent) => void;
 }
 
 /** The sync status panel: used by the popover, the phone sheet and the transfer status screen. */
@@ -446,7 +455,21 @@ export function renderSyncPanel(el: HTMLElement, s: SyncProgressSnapshot, o: Syn
         dir(t("statusPush"), s.push);
         const conflicts = s.active ? s.conflicts : (s.last?.conflicts ?? 0);
         if (conflicts > 0) {
-            kv.createSpan({ cls: "vault-sync-status-warn", text: t("statusConflicts") });
+            if (o.onResolveConflicts) {
+                const resolve = o.onResolveConflicts;
+                const link = kv.createEl("a", {
+                    cls: "vault-sync-status-warn vault-sync-status-link",
+                    text: t("statusConflicts"),
+                    href: "#",
+                    attr: { "aria-label": t("statusResolveConflicts") },
+                });
+                link.addEventListener("click", (e) => {
+                    e.preventDefault();
+                    resolve();
+                });
+            } else {
+                kv.createSpan({ cls: "vault-sync-status-warn", text: t("statusConflicts") });
+            }
             kv.createDiv();
             kv.createSpan({ cls: "vault-sync-status-num vault-sync-status-warn", text: String(conflicts) });
         }
@@ -490,6 +513,15 @@ export function renderSyncPanel(el: HTMLElement, s: SyncProgressSnapshot, o: Syn
     foot.createSpan({ cls: "vault-sync-status-muted", text: note });
 
     const btns = foot.createDiv({ cls: "vault-sync-status-btns" });
+    if (o.onMoreMenu) {
+        const more = o.onMoreMenu;
+        const moreBtn = btns.createEl("button", {
+            cls: "clickable-icon vault-sync-status-more",
+            attr: { "aria-label": t("statusMoreTools") },
+        });
+        setIcon(moreBtn, "more-horizontal");
+        moreBtn.addEventListener("click", (e) => more(e));
+    }
     if (!s.active && state === "error" && o.onReport) {
         // A failure the user cannot fix by signing in or going online: offer a report
         const report = o.onReport;

@@ -208,7 +208,7 @@ const MATRIX: MatrixEntry[] = [
         },
     },
     {
-        // 🔍️ 同期: ローカルファイルを走査中...
+        // 🔍️ 同期: 本端末のファイルを走査中...
         key: "noticeScanningLocalFiles",
         scenarios: {
             initialSync: { v: "Show", s: "Show" },
@@ -265,7 +265,7 @@ const MATRIX: MatrixEntry[] = [
         },
     },
     {
-        // 📤 同期: アップロード中 {file}
+        // 📤 同期: 送信中 {file}
         key: "noticeFilePushed",
         scenarios: {
             initialSync: { v: "Show", s: "Show" },
@@ -281,7 +281,7 @@ const MATRIX: MatrixEntry[] = [
         },
     },
     {
-        // ✅ 同期: アップロード完了 (x files)
+        // ✅ 同期: 送信完了（x 件）
         key: "noticePushCompleted",
         scenarios: {
             initialSync: { v: "Show", s: "Show" },
@@ -310,7 +310,7 @@ const MATRIX: MatrixEntry[] = [
         },
     },
     {
-        // 📝 同期: アップロード結果を検証中...
+        // 📝 同期: 送信結果を検証中...
         key: "noticeInitialSyncConfirmation",
         scenarios: {
             initialSync: { v: "Show", s: "Show" },
@@ -424,7 +424,7 @@ const MATRIX: MatrixEntry[] = [
         },
     },
     {
-        // ⚠️ 競合: ローカル版を保護し、リモート版を反映しました: {file}
+        // ⚠️ 競合: 本端末の版を保護し、クラウドの版を反映しました: {file}
         key: "noticeConflictSaved",
         scenarios: {
             pushConflict: { v: "Show", s: "Show" },
@@ -432,7 +432,7 @@ const MATRIX: MatrixEntry[] = [
         },
     },
     {
-        // ⚠️ 競合: リモート版を保護し、ローカル版を反映しました: {file}
+        // ⚠️ 競合: クラウドの版を保護し、本端末の版を反映しました: {file}
         key: "noticeConflictRemoteSaved",
         scenarios: {
             pushConflict: { v: "Show", s: "Show" },
@@ -639,19 +639,19 @@ interface FormatSpec {
  */
 const FORMAT_SPECS: FormatSpec[] = [
     { key: "noticeSyncing", specJa: "⚡ [同期] 処理開始..." },
-    { key: "noticeScanningLocalFiles", specJa: "🔍️ [同期] ローカルファイルを走査中..." },
+    { key: "noticeScanningLocalFiles", specJa: "🔍️ [同期] 本端末のファイルを走査中..." },
     {
         key: "noticeWaitingForRemoteRegistration",
-        specJa: "⌛️ [同期] リモート側の反映完了を待機中...",
+        specJa: "⌛️ [同期] クラウド側の反映完了を待機中...",
     },
-    { key: "noticeFilePulled", specJa: "📥 [同期] ダウンロード中: {file}" },
-    { key: "noticePullCompleted", specJa: "✅ [同期] ダウンロード完了 ({0} files)" },
-    { key: "noticeFilePushed", specJa: "📤 [同期] アップロード中: {file}" },
-    { key: "noticePushCompleted", specJa: "✅ [同期] アップロード完了 ({0} files)" },
+    { key: "noticeFilePulled", specJa: "📥 [同期] 受信中: {file}" },
+    { key: "noticePullCompleted", specJa: "✅ [同期] 受信完了（{0} 件）" },
+    { key: "noticeFilePushed", specJa: "📤 [同期] 送信中: {file}" },
+    { key: "noticePushCompleted", specJa: "✅ [同期] 送信完了（{0} 件）" },
     { key: "noticeVaultUpToDate", specJa: "✅ [同期] 全ファイルが最新状態です" },
     {
         key: "noticeInitialSyncConfirmation",
-        specJa: "📝 [同期] アップロード結果を検証中...",
+        specJa: "📝 [同期] 送信結果を検証中...",
     },
     { key: "noticeSyncConfirmed", specJa: "✅ [同期] 成功: {file}" },
     { key: "noticeFileTrashed", specJa: "🗑️ [同期] 削除: {file}" },
@@ -660,27 +660,27 @@ const FORMAT_SPECS: FormatSpec[] = [
     { key: "noticeMergeSuccess", specJa: "✅ [競合] 自動解決されました: {file}" },
     {
         key: "noticeConflictSaved",
-        specJa: "⚠️ [競合] ローカル版を保護し、リモート版を反映しました: {file}",
+        specJa: "⚠️ [競合] 本端末の版を保護し、クラウドの版を反映しました: {file}",
     },
     {
         key: "noticeConflictRemoteSaved",
-        specJa: "⚠️ [競合] リモート版を保護し、ローカル版を反映しました: {file}",
+        specJa: "⚠️ [競合] クラウドの版を保護し、本端末の版を反映しました: {file}",
     },
     {
         key: "noticeCheckOtherDevice",
-        specJa: "⚠️ [競合] マージに失敗した可能性があります。詳細は他デバイスを確認してください",
+        specJa: "⚠️ [競合] マージに失敗した可能性があります。詳細は他端末で確認してください。",
     },
     {
         key: "noticeMergeLockLost",
-        specJa: "⚠️ [競合] マージロックが失効しました。ローカルに保存済み、次回同期でプッシュします。: {file}",
+        specJa: "⚠️ [競合] マージロックが失効しました。本端末に保存済みのため、次回の同期で送信します。: {file}",
     },
     {
         key: "noticeWaitOtherDeviceMerge",
-        specJa: "⌛️ [競合] 他デバイスが解決するのを待機しています...: {0}",
+        specJa: "⌛️ [競合] 他端末による解決を待機中...: {0}",
     },
     {
         key: "noticeRemoteMergeSynced",
-        specJa: "✅ [競合] 他デバイスの解決結果を反映しました: {file}",
+        specJa: "✅ [競合] 他端末の解決結果を反映しました: {file}",
     },
     // ═══ Auth Notifications ═══
     { key: "noticeAuthSuccess", specJa: "✅ [認証] 成功！" },
@@ -693,10 +693,10 @@ const FORMAT_SPECS: FormatSpec[] = [
     },
     { key: "noticeFileRestored", specJa: "💾 [履歴] ファイルを復元しました" },
     { key: "noticeHistoryRestoreAs", specJa: "💾 [履歴] 別名で復元しました: {0}" },
-    { key: "noticeRevisionDeleted", specJa: "🗑️ [履歴] リビジョンを削除しました" },
+    { key: "noticeRevisionDeleted", specJa: "🗑️ [履歴] 版を削除しました" },
     {
         key: "noticeAddonRequired",
-        specJa: "⚠️ このVaultでは、このデバイスに未導入のアドオンが使用されています。設定 → アドオン から導入してください。同期を一時停止しています。",
+        specJa: "⚠️ このVaultでは、本端末に未導入のアドオンを使用中です。設定 → アドオン から導入してください。同期を一時停止しています。",
     },
     {
         key: "noticeEngineVerifyFailed",

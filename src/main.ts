@@ -1,5 +1,5 @@
 import { deviceScopePatterns } from "./sync-manager/file-utils";
-import { Notice, Plugin, TFile, TFolder, setIcon, Platform, apiVersion } from "obsidian";
+import { Menu, Notice, Plugin, TFile, TFolder, setIcon, Platform, apiVersion } from "obsidian";
 import { createCloudAdapter, DEFAULT_CLOUD_PROVIDER } from "./cloud-adapters";
 import { MassChangeGuard } from "./sync-manager/mass-change-guard";
 import { ConflictResolveModal, openConflictResolver } from "./ui/conflict-resolve-modal";
@@ -89,6 +89,7 @@ export default class VaultSync extends Plugin {
     public i18n = t;
 
     private syncRibbonIconEl: HTMLElement | null = null;
+    private transferRibbonEl: HTMLElement | null = null;
     private manualSyncInProgress = false;
     private mobileSyncFabEl: HTMLElement | null = null;
     private syncStatusView: SyncStatusView | null = null;
@@ -633,7 +634,8 @@ export default class VaultSync extends Plugin {
             callback: () => this.openAddonInstallModal(),
         });
 
-        this.addRibbonIcon("arrow-up-down", t("labelTransferStatus"), () => {
+        // Only while the status display is off: otherwise its panel opens this screen
+        this.transferRibbonEl = this.addRibbonIcon("arrow-up-down", t("labelTransferStatus"), () => {
             new TransferStatusModal(this.app, this.syncManager, this.transferModalActions()).open();
         });
 
@@ -826,6 +828,7 @@ export default class VaultSync extends Plugin {
 
     /** Show or hide the sync status display to match the setting. */
     refreshSyncStatusView(): void {
+        this.transferRibbonEl?.toggle(!this.settings.showSyncStatus);
         if (this.settings.showSyncStatus) {
             this.mobileSyncFabEl?.remove();
             this.mobileSyncFabEl = null;
@@ -860,7 +863,45 @@ export default class VaultSync extends Plugin {
             onSyncNow: () => void this.runManualSync(),
             onOpenSettings: () => this.openSettingsTab(),
             onReport: (title) => this.openDiagnostics(title),
+            onResolveConflicts: () => this.openConflictResolver(),
         };
+    }
+
+    /** Pick a conflict copy to resolve (or say there is none). */
+    openConflictResolver(): void {
+        openConflictResolver(this.app);
+    }
+
+    /**
+     * The plugin's screens in one menu (from the sync status panel), so that
+     * they can be found without the command palette or the settings.
+     */
+    showToolsMenu(evt: MouseEvent, beforeOpen?: () => void): void {
+        const menu = new Menu();
+        const add = (title: string, icon: string, run: () => void) =>
+            menu.addItem((item) =>
+                item
+                    .setTitle(title)
+                    .setIcon(icon)
+                    .onClick(() => {
+                        beforeOpen?.();
+                        run();
+                    }),
+            );
+        add(t("labelTransferStatusCommand"), "arrow-up-down", () =>
+            new TransferStatusModal(this.app, this.syncManager, this.transferModalActions()).open(),
+        );
+        add(t("labelResolveConflictCommand"), "git-merge", () => this.openConflictResolver());
+        menu.addSeparator();
+        add(t("labelRemoteTrashCommand"), "trash-2", () => this.openRemoteTrash());
+        if (this.syncManager.supportsHistory) {
+            add(t("labelPointInTimeCommand"), "history", () => this.openPointInTime(""));
+        }
+        add(t("labelDevicesCommand"), "monitor-smartphone", () => this.openDevices());
+        menu.addSeparator();
+        add(t("labelDiagnosticsCommand"), "stethoscope", () => this.openDiagnostics());
+        add(t("statusOpenSettings"), "settings", () => this.openSettingsTab());
+        menu.showAtMouseEvent(evt);
     }
 
     /** Open this plugin's settings tab. */

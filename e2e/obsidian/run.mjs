@@ -635,6 +635,26 @@ async function checkSyncStatus(page, lang, { mobile = false } = {}) {
     await openPanel();
     await shot(page, lang, `${tag}-scr-status-panel-synced`);
     await panelChecks("synced");
+    // The conflict count opens the resolver; "more" lists the plugin's other screens.
+    const panelParts = await page.evaluate(
+        (sel) => ({
+            conflictLink: !!document.querySelector(`${sel} a.vault-sync-status-link`),
+            more: !!document.querySelector(`${sel} .vault-sync-status-more`),
+        }),
+        panelSel,
+    );
+    check(lang, `${tag}: status panel conflict count is a link`, panelParts.conflictLink);
+    check(lang, `${tag}: status panel has a "more" button`, panelParts.more);
+    if (panelParts.more) {
+        await page.click(`${panelSel} .vault-sync-status-more`);
+        await page.waitForSelector(".menu", { timeout: 3000 }).catch(() => {});
+        const menuItems = await page.$$eval(".menu .menu-item-title", (els) => els.map((e) => e.textContent.trim()));
+        check(lang, `${tag}: "more" menu lists the screens`, menuItems.length >= 6, menuItems.join(" | "));
+        await shot(page, lang, `${tag}-scr-status-more-menu`);
+        await page.keyboard.press("Escape");
+        await sleep(200);
+        if (!(await page.$(panelSel))) await openPanel();
+    }
     await closePanel();
 
     // 4. Failed and offline.
@@ -795,7 +815,7 @@ async function checkScopeAndMassChange(main, lang, { mobile = false } = {}) {
     const page = await openSettings(main);
     if (page !== main) await page.setViewportSize(mobile ? MOBILE : DESKTOP).catch(() => {});
     const names = await navNames(page);
-    const idx = names.findIndex((n) => /^(Sync Scope|同期範囲|同步范围|동기화 범위)$/.test(n));
+    const idx = names.findIndex((n) => /^(Sync [Ss]cope|同期範囲|同步范围|동기화 범위)$/.test(n));
     check(lang, `${tag}: sync scope page listed`, idx >= 0, names.join(" | "));
     if (idx >= 0) {
         await (await page.$$(".vault-sync-settings-nav-item"))[idx].click();
@@ -836,6 +856,72 @@ async function checkScopeAndMassChange(main, lang, { mobile = false } = {}) {
         p.settings.desktopMaxFileSizeMB = -1;
         p.settings.mobileMaxFileSizeMB = -1;
     }, PLUGIN_ID);
+}
+
+/**
+ * Data protection page (restore tools first) and the number fields: a value out
+ * of range is moved to the nearest limit when the field is committed.
+ */
+async function checkProtectionAndNumbers(main, lang, { mobile = false } = {}) {
+    const tag = mobile ? "mobile" : "desktop";
+    const page = await openSettings(main);
+    if (page !== main) await page.setViewportSize(mobile ? MOBILE : DESKTOP).catch(() => {});
+    let names = await navNames(page);
+    check(
+        lang,
+        `${tag}: root no longer has a mixed "performance" page`,
+        !names.some((n) => /^(Performance|パフォーマンス)$/.test(n)),
+        names.join(" | "),
+    );
+    const prot = names.findIndex((n) =>
+        /^(Data protection and restore|データ保護・復元|数据保护与恢复|데이터 보호·복원)$/.test(n),
+    );
+    check(lang, `${tag}: data protection page listed`, prot >= 0, names.join(" | "));
+    if (prot >= 0) {
+        await (await page.$$(".vault-sync-settings-nav-item"))[prot].click();
+        await page.waitForSelector(".vault-sync-settings-back", { timeout: 5000 });
+        const firstRows = await page.$$eval(".vault-sync-settings-page .setting-item", (els) =>
+            els.slice(0, 3).map((e) => !!e.querySelector("button")),
+        );
+        check(
+            lang,
+            `${tag}: restore tools come first`,
+            firstRows.length === 3 && firstRows.every(Boolean),
+            JSON.stringify(firstRows),
+        );
+        await shot(page, lang, `${tag}-settings-protection`);
+        await page.click(".vault-sync-settings-back");
+        await sleep(300);
+    }
+    names = await navNames(page);
+    const tr = names.findIndex((n) => /^(Transfers|転送|传输|전송)$/.test(n));
+    check(lang, `${tag}: transfer page listed`, tr >= 0, names.join(" | "));
+    if (tr >= 0) {
+        await (await page.$$(".vault-sync-settings-nav-item"))[tr].click();
+        await page.waitForSelector(".vault-sync-settings-back", { timeout: 5000 });
+        const input = page.locator(".vault-sync-settings-page .vault-sync-number-setting input").first();
+        await input.fill("50");
+        await input.press("Enter");
+        await sleep(300);
+        // The settings may be their own window: read the field there, the value in the app
+        const r = await page.evaluate(() => {
+            const el = document.querySelector(".vault-sync-settings-page .vault-sync-number-setting input");
+            const hint = document.querySelector(".vault-sync-settings-page .vault-sync-number-hint");
+            return { shown: el?.value, flagged: hint?.classList.contains("is-error") };
+        });
+        r.saved = await main.evaluate((id) => window.app.plugins.plugins[id].settings.concurrency, PLUGIN_ID);
+        check(
+            lang,
+            `${tag}: out-of-range number is clamped, shown and flagged`,
+            r.saved === 10 && r.shown === "10" && r.flagged,
+            JSON.stringify(r),
+        );
+        await shot(page, lang, `${tag}-settings-number-clamped`);
+        await input.fill("5");
+        await input.press("Enter");
+        await sleep(200);
+    }
+    await closeSettings(main);
 }
 
 async function checkScreens(page, lang, { mobile = false } = {}) {
@@ -1488,6 +1574,10 @@ async function runLang(lang) {
         await checkDisplaySettings(page, lang).catch((e) =>
             check(lang, "desktop: display settings run completed", false, e.stack || String(e)),
         );
+        await checkProtectionAndNumbers(page, lang).catch(async (e) => {
+            check(lang, "desktop: protection and numbers run completed", false, e.stack || String(e));
+            await closeModals(page);
+        });
         await checkScopeAndMassChange(page, lang).catch(async (e) => {
             check(lang, "desktop: scope and mass change run completed", false, e.stack || String(e));
             await closeModals(page);
@@ -1518,6 +1608,10 @@ async function runLang(lang) {
             await checkDisplaySettings(page, lang, { mobile: true }).catch((e) =>
                 check(lang, "mobile: display settings run completed", false, e.stack || String(e)),
             );
+            await checkProtectionAndNumbers(page, lang, { mobile: true }).catch(async (e) => {
+                check(lang, "mobile: protection and numbers run completed", false, e.stack || String(e));
+                await closeModals(page);
+            });
             await checkScopeAndMassChange(page, lang, { mobile: true }).catch(async (e) => {
                 check(lang, "mobile: scope and mass change run completed", false, e.stack || String(e));
                 await closeModals(page);

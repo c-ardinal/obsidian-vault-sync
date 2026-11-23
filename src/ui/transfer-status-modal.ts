@@ -32,6 +32,7 @@ export interface TransferModalActions {
     onSyncNow: () => void;
     onOpenSettings: () => void;
     onReport?: (title: string) => void;
+    onResolveConflicts?: () => void;
 }
 
 export class TransferStatusModal extends Modal {
@@ -116,6 +117,12 @@ export class TransferStatusModal extends Modal {
                 ? (title) => {
                       this.close();
                       actions.onReport?.(title);
+                  }
+                : undefined,
+            onResolveConflicts: actions?.onResolveConflicts
+                ? () => {
+                      this.close();
+                      actions.onResolveConflicts?.();
                   }
                 : undefined,
         });
