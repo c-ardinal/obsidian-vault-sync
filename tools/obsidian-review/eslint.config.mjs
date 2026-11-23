@@ -15,6 +15,7 @@ export default [
             "doc/**",
             "tests/**",
             "tools/**",
+            "formal/**",
             "**/*.test.ts",
             "*.config.*",
             "*.mjs",

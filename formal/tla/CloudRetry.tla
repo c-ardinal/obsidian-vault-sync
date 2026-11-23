@@ -22,14 +22,14 @@ VARIABLES
     server,     \* items named p in the folder: [by: "me" | "other", n: attempt]
     phase,      \* "idle" | "sent" | "lookup" | "done" | "failed"
     attempts,
-    result,     \* the item the client records as its upload, or "none"
+    result,     \* the item the client records as its upload ([by |-> "none"] before)
     otherDone
 
 vars == <<server, phase, attempts, result, otherDone>>
 
 Init ==
     /\ server = {} /\ phase = "idle" /\ attempts = 0
-    /\ result = "none" /\ otherDone = FALSE
+    /\ result = [by |-> "none", n |-> 0] /\ otherDone = FALSE
 
 Send ==
     /\ phase = "idle"
