@@ -1365,7 +1365,7 @@ async function checkScreens(page, lang, { mobile = false } = {}) {
         await sleep(3300);
         await setVisibility("visible");
         await sleep(200);
-        const afterResume = await page.evaluate(() => window.__syncCalls.length);
+        const afterResume = await page.evaluate(() => window.__syncCalls.filter((t) => t !== "modify-sync").length);
         await page.evaluate(() => window.dispatchEvent(new Event("online")));
         await sleep(200);
         const calls = await page.evaluate((id) => {
@@ -1375,8 +1375,11 @@ async function checkScreens(page, lang, { mobile = false } = {}) {
             pl.triggerManager.setupAutoSyncInterval();
             return window.__syncCalls;
         }, PLUGIN_ID);
+        // A hide with waiting changes sends them at once ("modify-sync"); resume and online are the rest.
+        const others = calls.filter((t) => t !== "modify-sync");
         check(lang, `${tag}: back to the front starts a sync`, afterResume === 1, JSON.stringify(calls));
-        check(lang, `${tag}: network back starts a sync`, calls.length === 2, JSON.stringify(calls));
+        check(lang, `${tag}: network back starts a sync`, others.length === 2, JSON.stringify(calls));
+        check(lang, `${tag}: going to the background sends waiting changes at most once`, calls.filter((t) => t === "modify-sync").length <= 1, JSON.stringify(calls));
     }
 
     // File context menu entry, then the real history modal without an account.
@@ -1644,8 +1647,8 @@ async function checkNewFeatures(page, lang, { mobile = false } = {}) {
 
     // Cloud storage line on the data protection page
     await plugin(`
-        const a = p.syncManager.adapter;
-        a.getStorageQuota = async () => ({ usage: 13.8 * 1024 ** 3, limit: 15 * 1024 ** 3, usageInTrash: 320 * 1024 ** 2 });
+        const ad = p.syncManager.adapter;
+        ad.getStorageQuota = async () => ({ usage: 13.8 * 1024 ** 3, limit: 15 * 1024 ** 3, usageInTrash: 320 * 1024 ** 2 });
         return p.syncManager.loadStorageSummary(true);`);
     const sp = await openSettings(page);
     if (sp !== page) await sp.setViewportSize(mobile ? MOBILE : DESKTOP).catch(() => {});

@@ -86,8 +86,11 @@ function mergeObjects(
     return out;
 }
 
-const isPrimitiveList = (a: Json[]) =>
-    a.every((x) => typeof x === "string" || typeof x === "number") && new Set(a).size === a.length;
+/**
+ * A list of distinct names (plugin ids, tags, aliases). Numbers are left out on
+ * purpose: [x, y] and similar tuples must not grow into [x, y, z].
+ */
+const isNameList = (a: Json[]) => a.every((x) => typeof x === "string") && new Set(a).size === a.length;
 
 const idOf = (x: Json): string | null =>
     isObject(x) && typeof x.id === "string" && x.id.length > 0 ? x.id : null;
@@ -136,7 +139,7 @@ function mergeSlot(base: Slot, local: Slot, remote: Slot): Slot {
         if (isIdList(b) && isIdList(local) && isIdList(remote) && (local.length > 0 || remote.length > 0)) {
             return mergeIdLists(b, local, remote);
         }
-        if (isPrimitiveList(b) && isPrimitiveList(local) && isPrimitiveList(remote)) {
+        if (isNameList(b) && isNameList(local) && isNameList(remote)) {
             return mergePrimitiveLists(b, local, remote);
         }
     }

@@ -264,6 +264,8 @@ export class BackgroundTransferQueue {
                     this.deferredBy = reason;
                     this.callbacks.onQueueChange?.(this.getPendingTransfers());
                 }
+                // A sync may have paused the queue while the battery was being read
+                if (this.isPaused || ctx.e2eeLocked) break;
                 if (reason) {
                     await ctx.log(`[Background Transfer] Waiting (${reason}): ${this.queue.filter((q) => q.status === "pending").length} large file(s).`, "info");
                     break;

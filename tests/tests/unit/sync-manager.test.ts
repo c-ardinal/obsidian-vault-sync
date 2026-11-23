@@ -53,6 +53,8 @@ const DEFAULT_SETTINGS: SyncManagerSettings = {
     syncWorkspace: false,
     hasCompletedFirstSync: false,
     e2eeEnabled: false,
+    deferLargeOnCellular: false,
+    deferLargeOnLowBattery: false,
 };
 
 function createSyncManager(

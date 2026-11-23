@@ -165,4 +165,28 @@ describe("file-size limit of one kind of device", () => {
         expect(a.read("docs/big.md")).toBe(BIG("v1"));
         expect((await run(b.sm.listCloudOnlyFiles())).map((f) => f.path)).toEqual(["docs/big.md"]);
     });
+
+    it("on demand: a file made at that path during the download is kept, not overwritten", async () => {
+        const { make, sync } = setup();
+        const a = make("A");
+        await a.init();
+        await a.userCreate("big.md", BIG("cloud"));
+        await sync(a);
+        const b = make("B", LIMIT_MB);
+        await b.init();
+        await sync(b, true);
+
+        const list = b.sm.listCloudOnlyFiles();
+        expect(await drive(list, 600_000)).toBe("ok");
+        const adapter = b.sm.adapter;
+        const real = adapter.downloadFile.bind(adapter);
+        adapter.downloadFile = async (id: string) => {
+            const data = await real(id);
+            await b.userCreate("big.md", "typed here meanwhile");
+            return data;
+        };
+        const fetch = b.sm.fetchCloudOnlyFile((await list)[0]);
+        expect(await drive(fetch, 600_000)).toBe("ok");
+        expect(b.read("big.md")).toBe("typed here meanwhile");
+    });
 });

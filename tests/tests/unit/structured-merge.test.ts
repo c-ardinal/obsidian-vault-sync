@@ -94,6 +94,10 @@ describe("structured merge", () => {
             expect(JSON.parse(out)).toEqual(["y", "p", "q"]);
         });
 
+        it("number lists are not sets: a coordinate changed two ways is a conflict", () => {
+            expect(mergeJsonText('{"position":[0,1]}', '{"position":[2,1]}', '{"position":[3,1]}')).toBeNull();
+        });
+
         it("cannot read a side: no result (never a broken file)", () => {
             expect(mergeJsonText("{}", "{", "{}")).toBeNull();
         });

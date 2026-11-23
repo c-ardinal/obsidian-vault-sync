@@ -38,6 +38,8 @@ export const SIM_SETTINGS: SyncManagerSettings = {
     syncWorkspace: false,
     hasCompletedFirstSync: false,
     e2eeEnabled: false,
+    deferLargeOnCellular: false,
+    deferLargeOnLowBattery: false,
 };
 
 /** Paths that are plugin/Obsidian internals, not user content */

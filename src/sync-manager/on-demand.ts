@@ -80,6 +80,11 @@ export function matchLinkedFiles(files: CloudOnlyFile[], links: string[]): Cloud
 export async function fetchCloudOnlyFile(ctx: SyncContext, file: CloudOnlyFile): Promise<void> {
     if (await ctx.vault.exists(file.path)) return;
     const content = await ctx.adapter.downloadFile(file.fileId);
+    // A file made at this path while downloading wins; never overwrite it
+    if (await ctx.vault.exists(file.path)) {
+        await ctx.log(`[On demand] ${file.path} appeared locally during the download; kept the local file.`, "warn");
+        return;
+    }
     await ensureLocalFolder(ctx, file.path);
     await ctx.vault.writeBinary(file.path, content);
     await ctx.log(`[On demand] Fetched ${file.path} (${content.byteLength} bytes); not synced on this device.`, "info");
