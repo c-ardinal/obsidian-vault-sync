@@ -81,7 +81,7 @@ export function linksOf(app: App, note: TFile): string[] {
 export async function fetchLinkedCloudOnly(app: App, sm: SyncManager, note: TFile): Promise<void> {
     const files = await loadList(sm);
     if (!files) return;
-    const linked = matchLinkedFiles(files, linksOf(app, note));
+    const linked = matchLinkedFiles(files, linksOf(app, note), note.path);
     if (linked.length === 0) {
         new Notice(t("cloudOnlyNoneLinked"));
         return;

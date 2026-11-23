@@ -24,6 +24,13 @@ describe("files a note links to", () => {
         expect(matchLinkedFiles(files, ["missing.png", ""])).toEqual([]);
     });
 
+    it("resolves links relative to the note, and URL-encoded Markdown paths", () => {
+        expect(matchLinkedFiles(files, ["../att/scan.pdf"], "notes/day.md").map((f) => f.fileId)).toEqual(["1"]);
+        expect(matchLinkedFiles(files, ["./other.md"], "notes/day.md").map((f) => f.fileId)).toEqual(["3"]);
+        expect(matchLinkedFiles([{ path: "att/my scan.pdf", size: 1, fileId: "9" }], ["att/my%20scan.pdf"]).map((f) => f.fileId)).toEqual(["9"]);
+        expect(matchLinkedFiles(files, ["../../att/scan.pdf"], "notes/day.md")).toEqual([]);
+    });
+
     it("does not match a different file that only ends the same", () => {
         expect(matchLinkedFiles(files, ["can.pdf"])).toEqual([]);
     });

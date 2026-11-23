@@ -60,22 +60,53 @@ export async function listCloudOnlyFiles(ctx: SyncContext): Promise<CloudOnlyFil
     return out.sort((a, b) => a.path.localeCompare(b.path));
 }
 
+/** "a/./b/../c" → "a/c"; null when the path climbs above the vault */
+function normalizePath(path: string): string | null {
+    const out: string[] = [];
+    for (const part of path.split("/")) {
+        if (part === "" || part === ".") continue;
+        if (part === "..") {
+            if (out.length === 0) return null;
+            out.pop();
+        } else out.push(part);
+    }
+    return out.join("/");
+}
+
+function decodeLink(link: string): string {
+    try {
+        return decodeURIComponent(link);
+    } catch {
+        return link;
+    }
+}
+
 /**
  * Of the cloud-only files, the ones `links` point to (a note's embeds and links,
- * as written: full path, path without extension, or file name only)
+ * as written: full path, path without extension, file name only, or relative to
+ * the note at `sourcePath`, Markdown links URL-encoded or not)
  */
-export function matchLinkedFiles(files: CloudOnlyFile[], links: string[]): CloudOnlyFile[] {
-    const wanted = links.map((l) => l.split("#")[0].split("|")[0].trim()).filter((l) => l.length > 0);
+export function matchLinkedFiles(files: CloudOnlyFile[], links: string[], sourcePath = ""): CloudOnlyFile[] {
+    const dir = sourcePath.includes("/") ? sourcePath.slice(0, sourcePath.lastIndexOf("/")) : "";
+    const wanted = new Set<string>();
+    for (const raw of links) {
+        const link = decodeLink(raw.split("#")[0].split("|")[0].trim());
+        if (link.length === 0) continue;
+        wanted.add(link.replace(/^\/+/, ""));
+        if (link.startsWith("./") || link.startsWith("../")) {
+            const rel = normalizePath(dir ? `${dir}/${link}` : link);
+            if (rel) wanted.add(rel);
+        }
+    }
     const hit = (f: CloudOnlyFile, link: string) => {
         const noExt = f.path.replace(/\.[^/.]+$/, "");
         return (
             f.path === link ||
             noExt === link ||
-            f.path.endsWith("/" + link) ||
-            noExt.endsWith("/" + link)
+            (!link.startsWith(".") && (f.path.endsWith("/" + link) || noExt.endsWith("/" + link)))
         );
     };
-    return files.filter((f) => wanted.some((l) => hit(f, l)));
+    return files.filter((f) => [...wanted].some((l) => hit(f, l)));
 }
 
 /** Download one cloud-only file to its place in the vault */
