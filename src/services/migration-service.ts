@@ -30,6 +30,13 @@ export class MigrationService {
     private syncedHashes = new Map<string, string | undefined>();
     /** Paths with local edits not yet pushed when the conversion started */
     private dirtyAtStart = new Set<string>();
+    /**
+     * Plaintext hash of every file as this device last synced it. A file counts
+     * as untouched here only when its converted copy is still that version: an
+     * edit made after the conversion started, but before the file was read,
+     * is in the converted copy and must not be replaced by another device's.
+     */
+    private syncedPlainHashes = new Map<string, string | undefined>();
     public isMigrating = false;
     public currentProgress: MigrationProgress | null = null;
 
@@ -80,6 +87,9 @@ export class MigrationService {
         await this.lockService.createMigrationLock(this.ctx.deviceId);
         this.syncedHashes = new Map(Object.entries(this.ctx.index).map(([p, e]) => [p, e.hash]));
         this.dirtyAtStart = new Set(this.ctx.dirtyPaths?.keys() ?? []);
+        this.syncedPlainHashes = new Map(
+            Object.entries(this.ctx.localIndex).map(([p, e]) => [p, e.plainHash]),
+        );
 
         this.ctx.syncState = "MIGRATING";
         this.isMigrating = true;
@@ -230,11 +240,16 @@ export class MigrationService {
                 ? await hashContent(await this.ctx.vault.readBinary(f.path))
                 : null;
             if (localNow === remotePlain) continue;
-            // Untouched here: the converted copy (if any) is the last synced version
+            // Untouched here: the converted copy is the version this device last
+            // synced, and the local file is still that version
+            const syncedPlain = this.syncedPlainHashes.get(f.path);
             const untouched =
                 localNow === null
                     ? !converted
-                    : !this.dirtyAtStart.has(f.path) && converted?.plainHash === localNow;
+                    : !this.dirtyAtStart.has(f.path) &&
+                      syncedPlain !== undefined &&
+                      converted?.plainHash === syncedPlain &&
+                      localNow === syncedPlain;
 
             let target = f.path;
             let existingFileId: string | undefined = converted?.fileId;

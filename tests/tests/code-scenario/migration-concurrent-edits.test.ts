@@ -226,6 +226,19 @@ describe("Vault conversion while another device keeps syncing", () => {
         expect([...t.local.keys()].some((p) => p.startsWith("a (Conflict ") && dec(t.local.get(p)!) === "edit from B")).toBe(true);
     });
 
+    it("keeps an edit made here after the conversion started but before the file was read", async () => {
+        const t = await setup({ "a.md": "v1" });
+        const temp = await t.svc.startMigration("pw");
+        t.local.set("a.md", enc("edit on A while queued"));
+        t.drive.write(VAULT, "a.md", "edit from B", t.idOf("a.md"));
+        await t.svc.runMigration(temp, () => {});
+        await t.svc.finalizeMigration(temp);
+        expect(t.localText("a.md")).toBe("edit on A while queued");
+        const converted = await t.converted();
+        expect(converted["a.md"]).toBe("edit on A while queued");
+        expect(Object.entries(converted).filter(([p]) => p.startsWith("a (Conflict ")).map(([, v]) => v)).toEqual(["edit from B"]);
+    });
+
     it("does not upload unchanged files again", async () => {
         const t = await setup({ "a.md": "v1", "b.md": "b1" });
         await t.run();
