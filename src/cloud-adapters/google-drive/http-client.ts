@@ -10,6 +10,26 @@ export interface FetchExtras {
      * sends only the rest.
      */
     retryNetworkErrors?: boolean;
+    /**
+     * The request creates an item (see createItem): a 5xx or a lost answer may
+     * come after Drive carried it out, so it is not simply sent again here.
+     */
+    createsItem?: boolean;
+}
+
+/** appProperties key of the marker a created item carries (see createItem) */
+export const CREATE_MARKER_KEY = "vsCreate";
+
+/** A failure after which Drive may or may not have carried out the request */
+function outcomeUnknown(e: unknown): boolean {
+    if (e instanceof TypeError) return true; // network error: the answer was lost
+    return e instanceof CloudError && e.status !== undefined && e.status >= 500;
+}
+
+function randomMarker(): string {
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 /**
@@ -189,7 +209,7 @@ export class GoogleDriveHttpClient {
             // Handle 429 (Too Many Requests), 403 rate limits and 5xx (Server Errors) with Exponential Backoff
             if (
                 (response.status === 429 ||
-                    response.status >= 500 ||
+                    (response.status >= 500 && !extra.createsItem) ||
                     (await this.isRateLimit403(response))) &&
                 retryCount < MAX_RETRIES
             ) {
@@ -243,7 +263,7 @@ export class GoogleDriveHttpClient {
         } catch (e) {
             // Handle network timeouts / offline status
             const isNetworkError = GoogleDriveHttpClient.isNetworkError(e);
-            if (isNetworkError && retryCount < 3 && extra.retryNetworkErrors !== false) {
+            if (isNetworkError && retryCount < 3 && extra.retryNetworkErrors !== false && !extra.createsItem) {
                 if (!window.navigator.onLine) {
                     await this.log(
                         "Network offline during fetch. Waiting for connection...",
@@ -263,6 +283,49 @@ export class GoogleDriveHttpClient {
                 throw new TypeError(/network error/i.test(msg) ? msg : `Network error: ${msg}`);
             }
             throw e;
+        }
+    }
+
+    /**
+     * Send a request that creates a Drive item (a new file or folder). Drive may
+     * carry it out and still answer 5xx, or the answer may be lost on the way
+     * back: sending it again then leaves two items of the same name. So the item
+     * carries a random marker (appProperties); after such a failure the marker
+     * is looked up, and the request is sent again only when no item has it.
+     * Looking up the name instead would take an item another device created
+     * meanwhile for this one (formal/tla/CloudRetry.tla).
+     */
+    async createItem<T extends { id: string }>(
+        url: string,
+        parentId: string | undefined,
+        build: (appProperties: Record<string, string>) => RequestInit,
+        fields = "id,md5Checksum,size",
+    ): Promise<T> {
+        const marker = randomMarker();
+        const init = build({ [CREATE_MARKER_KEY]: marker });
+        const MAX_RETRIES = 3;
+        for (let attempt = 0; ; attempt++) {
+            try {
+                const response = await this.fetchWithAuth(url, init, 0, { createsItem: true });
+                return (await response.json()) as T;
+            } catch (e) {
+                if (!outcomeUnknown(e) || attempt >= MAX_RETRIES) throw e;
+                if (!window.navigator.onLine) await this.waitForOnline();
+                const backoffDelay = Math.pow(2, attempt) * 1000 + Math.random() * 500;
+                await this.log(
+                    `Create request failed (${String(e)}). Checking whether it was carried out in ${Math.round(backoffDelay)}ms...`,
+                    "warn",
+                );
+                await new Promise((resolve) => setTimeout(resolve, backoffDelay));
+                const query =
+                    `appProperties has { key='${CREATE_MARKER_KEY}' and value='${marker}' } and trashed = false` +
+                    (parentId ? ` and '${this.escapeQueryValue(parentId)}' in parents` : "");
+                const found = await this.fetchWithAuth(
+                    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(${fields})`,
+                );
+                const files = ((await found.json()) as { files?: T[] }).files ?? [];
+                if (files.length > 0) return files[0];
+            }
         }
     }
 
