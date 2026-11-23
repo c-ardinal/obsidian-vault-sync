@@ -21,6 +21,15 @@ export class GoogleAuthService {
     refreshToken: string | null = null;
     tokenExpiresAt: number = 0; // epoch ms
     private refreshPromise: Promise<void> | null = null;
+    /**
+     * Bumped whenever the signed-in session ends or changes (sign-out, a new
+     * sign-in, other tokens set). A refresh started under an older generation
+     * drops its result: a refresh still in flight at sign-out used to put the
+     * access token back (the plugin showed as signed in again), and one in
+     * flight across a new sign-in mixed the old account's access token with the
+     * new refresh token and saved the pair.
+     */
+    private generation = 0;
     private codeVerifier: string | null = null;
     private currentAuthState: string | null = null;
 
@@ -112,6 +121,8 @@ export class GoogleAuthService {
     }
 
     setTokens(accessToken: string | null, refreshToken: string | null, tokenExpiresAt?: number) {
+        // Same refresh token (e.g. credentials saved again): the session is the same
+        if (refreshToken !== this.refreshToken) this.generation++;
         this.accessToken = accessToken;
         this.refreshToken = refreshToken;
         if (tokenExpiresAt !== undefined) this.tokenExpiresAt = tokenExpiresAt;
@@ -213,6 +224,7 @@ export class GoogleAuthService {
         const data = await this.safeJsonParse(response, "token exchange");
         if (data.error) throw new Error(data.error_description || data.error);
 
+        this.generation++;
         this.accessToken = data.access_token;
         this.refreshToken = data.refresh_token;
         if (data.expires_in) this.tokenExpiresAt = Date.now() + data.expires_in * 1000;
@@ -234,6 +246,7 @@ export class GoogleAuthService {
      */
     async logout(): Promise<void> {
         const token = this.refreshToken || this.accessToken;
+        this.generation++;
         this.accessToken = null;
         this.refreshToken = null;
         this.tokenExpiresAt = 0;
@@ -267,22 +280,28 @@ export class GoogleAuthService {
 
     refreshTokens(): Promise<void> {
         if (this.refreshPromise) return this.refreshPromise;
-        this.refreshPromise = (async () => {
-            try {
-                const proxyBase = this.getProxyBaseUrl();
-                if (proxyBase) {
-                    await this.refreshTokensViaProxy(proxyBase);
-                } else {
-                    await this.refreshTokensDirect();
-                }
-            } finally {
-                this.refreshPromise = null;
-            }
-        })();
-        return this.refreshPromise;
+        const generation = this.generation;
+        const proxyBase = this.getProxyBaseUrl();
+        const promise: Promise<void> = (
+            proxyBase
+                ? this.refreshTokensViaProxy(proxyBase, generation)
+                : this.refreshTokensDirect(generation)
+        ).finally(() => {
+            // A refresh started after sign-out owns the slot now; leave it
+            if (this.refreshPromise === promise) this.refreshPromise = null;
+        });
+        this.refreshPromise = promise;
+        return promise;
     }
 
-    private async refreshTokensViaProxy(proxyBase: string) {
+    /** True when the session this refresh was started for has ended (sign-out or another sign-in). */
+    private async superseded(generation: number): Promise<boolean> {
+        if (generation === this.generation) return false;
+        await this.log("Token refresh result dropped: signed out or signed in again meanwhile.", "system");
+        return true;
+    }
+
+    private async refreshTokensViaProxy(proxyBase: string, generation: number) {
         await this.log(
             `Refreshing tokens via proxy... RT present: ${!!this.refreshToken}`,
             "system",
@@ -313,6 +332,8 @@ export class GoogleAuthService {
             // should trigger credential clearing.
             throw new Error("Token refresh failed: proxy unreachable");
         }
+
+        if (await this.superseded(generation)) return;
 
         let data: TokenResponse;
         try {
@@ -347,7 +368,7 @@ export class GoogleAuthService {
         if (this.onTokenRefresh) void this.onTokenRefresh();
     }
 
-    private async refreshTokensDirect() {
+    private async refreshTokensDirect(generation: number) {
         await this.log(
             `Refreshing tokens... ClientID present: ${!!this.clientId}, Secret present: ${!!this.clientSecret}, RT present: ${!!this.refreshToken}`,
             "system",
@@ -379,6 +400,7 @@ export class GoogleAuthService {
         }
 
         const data = await this.safeJsonParse(response, "direct refresh");
+        if (await this.superseded(generation)) return;
 
         if (!response.ok) {
             const err = data.error_description || data.error || JSON.stringify(data);

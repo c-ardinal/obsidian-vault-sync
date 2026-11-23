@@ -14,6 +14,8 @@ function legacyVaultLockPath(): string | null {
     return LEGACY_PLUGIN_DIR ? LEGACY_PLUGIN_DIR + VAULT_LOCK_SUBPATH : null;
 }
 export const MIGRATION_LOCK_FILENAME = "migration.lock";
+/** A migration lock older than this is a leftover of an abandoned conversion. */
+export const MIGRATION_LOCK_STALE_MS = 24 * 3600 * 1000;
 
 /**
  * Service for managing the vault-lock.vault and migration locks.

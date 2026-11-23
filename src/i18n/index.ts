@@ -436,6 +436,7 @@ export const en: Record<string, string> = {
         "This package does not match the approved release. Download the latest release again. If it still fails, update Vault-Sync.",
     addonErrorWrite: "The add-on could not be saved. Check storage space and try again.",
     noticeAddonRequired: "⚠️ Vault-Sync: This vault uses an add-on that is not installed on this device. Install it from Settings → Add-ons. Sync paused.",
+    noticeVaultConverting: "⚠️ Vault-Sync: Another device is setting up an add-on for this vault. Sync is paused until it finishes.",
 
     // Transfer Status
     labelTransferStatus: "Transfer status (Vault-Sync)",

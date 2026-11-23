@@ -673,6 +673,42 @@ describe("SyncManager - Sync Operations", () => {
         expect(notifySpy).not.toHaveBeenCalled();
     });
 
+    it("does not push while another device converts the vault (migration.lock)", async () => {
+        const sm = device.syncManager as any;
+        sm.vaultLockService.checkForLockFile = vi.fn().mockResolvedValue(false);
+        sm.vaultLockService.getMigrationLock = vi
+            .fn()
+            .mockResolvedValue({ deviceId: "other-device", timestamp: Date.now() - 60_000 });
+        const notifySpy = vi.spyOn(sm, "notify");
+        device.editFile("note.md", "edited during the conversion");
+        const uploadSpy = vi.spyOn(cloud, "uploadFile");
+
+        await sm.requestSmartSync("timer-sync", false);
+        await sm.requestSmartSync("timer-sync", false);
+        expect(uploadSpy).not.toHaveBeenCalled();
+        // Told once for automatic syncs, every time for a sync the user asked for
+        expect(notifySpy.mock.calls.filter((c) => c[0] === "noticeVaultConverting")).toHaveLength(1);
+        await sm.requestSmartSync("manual-sync", false);
+        expect(notifySpy.mock.calls.filter((c) => c[0] === "noticeVaultConverting")).toHaveLength(2);
+        expect(uploadSpy).not.toHaveBeenCalled();
+    });
+
+    it("syncs as usual when the migration lock is its own or older than a day", async () => {
+        const sm = device.syncManager as any;
+        sm.vaultLockService.checkForLockFile = vi.fn().mockResolvedValue(false);
+        const gate = sm.otherDeviceConvertingVault.bind(sm);
+        sm.vaultLockService.getMigrationLock = vi
+            .fn()
+            .mockResolvedValue({ deviceId: sm.deviceId, timestamp: Date.now() });
+        expect(await gate("timer-sync")).toBe(false);
+        sm.vaultLockService.getMigrationLock = vi
+            .fn()
+            .mockResolvedValue({ deviceId: "other-device", timestamp: Date.now() - 25 * 3600_000 });
+        expect(await gate("timer-sync")).toBe(false);
+        sm.vaultLockService.getMigrationLock = vi.fn().mockResolvedValue(null);
+        expect(await gate("timer-sync")).toBe(false);
+    });
+
     it("should skip sync when E2EE is locked and trigger is user action", async () => {
         const sm = device.syncManager as any;
         sm.settings.e2eeEnabled = true;

@@ -267,6 +267,7 @@
     "addonErrorHash": "このパッケージは承認済みのリリースと一致しません。最新リリースを再ダウンロードしてください。再度失敗した際はVault-Syncを更新してください。",
     "addonErrorWrite": "アドオンを保存できませんでした。ストレージの残量を確認して再試行してください。",
     "noticeAddonRequired": "⚠️ Vault-Sync: このVaultでは、本端末に未導入のアドオンを使用中です。設定 → アドオン から導入してください。同期を一時停止しています。",
+    "noticeVaultConverting": "⚠️ Vault-Sync: 別の端末で、このVaultのアドオン設定を実行中です。完了まで同期を一時停止します。",
     "settingLogout": "ログアウト",
     "settingLogoutDesc": "本端末でGoogle Driveからログアウトし、認証を失効させます。ファイルは削除しません。",
     "settingLogoutConfirm": "本端末でGoogle Driveからログアウトしますか？\n再ログインまで同期は停止します。ファイルは削除しません。",
