@@ -3,7 +3,13 @@ import type VaultSync from "../main";
 import { OBSIDIAN_SCOPE_KEYS, type ObsidianScopeKey, type VaultSyncSettings } from "../types/settings";
 import { t } from "../i18n";
 import { matchWildcard } from "../utils/wildcard";
-import { PLUGIN_DIR, obsidianScopeOn } from "../sync-manager/file-utils";
+import {
+    OBSIDIAN_CORE_CONFIG_FILES,
+    OBSIDIAN_WORKSPACE_FILES,
+    PLUGIN_DIR,
+    obsidianScopeOn,
+} from "../sync-manager/file-utils";
+import { configDir, configPath } from "../utils/config-dir";
 
 interface ToggleExclusion {
     settingKey: keyof VaultSyncSettings;
@@ -11,34 +17,27 @@ interface ToggleExclusion {
     patterns: string[];
 }
 
-/** Built when shown: PLUGIN_DIR is known only once the plugin has loaded. */
+/** Built when shown: PLUGIN_DIR and the config folder are known only once the plugin has loaded. */
 const toggleExclusions = (): ToggleExclusion[] => [
     {
         settingKey: "syncCoreConfig",
         label: "settingSyncCoreConfig",
-        patterns: [
-            ".obsidian/app.json",
-            ".obsidian/appearance.json",
-            ".obsidian/hotkeys.json",
-            ".obsidian/core-plugins.json",
-            ".obsidian/community-plugins.json",
-            ".obsidian/graph.json",
-        ],
+        patterns: OBSIDIAN_CORE_CONFIG_FILES.map(configPath),
     },
     {
         settingKey: "syncCommunityPlugins",
         label: "settingSyncCommunityPlugins",
-        patterns: [".obsidian/plugins/**"],
+        patterns: [configPath("plugins/**")],
     },
     {
         settingKey: "syncAppearance",
         label: "settingSyncAppearance",
-        patterns: [".obsidian/themes/**", ".obsidian/snippets/**"],
+        patterns: [configPath("themes/**"), configPath("snippets/**")],
     },
     {
         settingKey: "syncWorkspace",
         label: "settingSyncWorkspace",
-        patterns: [".obsidian/workspace.json", ".obsidian/workspace-mobile.json"],
+        patterns: OBSIDIAN_WORKSPACE_FILES.map(configPath),
     },
     {
         settingKey: "syncImagesAndMedia",
@@ -176,8 +175,8 @@ export class ExclusionPatternModal extends Modal {
             }
         }
 
-        // .obsidian directory files via adapter (async)
-        await this.listRecursive(".obsidian", paths, folders);
+        // Config folder files via adapter (async)
+        await this.listRecursive(configDir(), paths, folders);
 
         this.allPaths = Array.from(paths).sort();
         this.allFolders = Array.from(folders).sort();

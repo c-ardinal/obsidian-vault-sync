@@ -16,6 +16,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { GoogleDriveAdapter } from "../../../src/cloud-adapters/google-drive";
+import { windowStub } from "../../setup-window";
 
 type Outcome = "ok" | "applied-503" | "applied-lost" | "rejected-503";
 interface Item { id: string; name: string; by: "me" | "other"; marker?: string; md5: string }
@@ -77,7 +78,7 @@ function createAdapter(): GoogleDriveAdapter {
 
 describe("Create requests are not carried out twice", () => {
     beforeEach(() => {
-        vi.stubGlobal("window", { navigator: { onLine: true }, addEventListener: vi.fn(), removeEventListener: vi.fn() });
+        vi.stubGlobal("window", windowStub({ navigator: { onLine: true }, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
         // Back-off waits run at once (the 90 s request timeout is left alone)
         const realSetTimeout = globalThis.setTimeout;
         vi.stubGlobal("setTimeout", ((fn: () => void, ms?: number) =>

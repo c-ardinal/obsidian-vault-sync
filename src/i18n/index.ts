@@ -5,6 +5,7 @@ import { getLanguage } from "obsidian";
 import ja from "./lang/ja.json";
 import ko from "./lang/ko.json";
 import zh from "./lang/zh.json";
+import { configDir } from "../utils/config-dir";
 
 /** Obsidian language codes: "zh" is Simplified Chinese */
 const languages: Record<string, Record<string, string>> = { ja, zh, ko };
@@ -226,7 +227,7 @@ export const en: Record<string, string> = {
 
     settingSyncScopeSection: "Sync scope",
     settingSyncAppearance: "Sync appearance settings",
-    settingSyncAppearanceDesc: "Sync .obsidian/themes and .obsidian/snippets.",
+    settingSyncAppearanceDesc: "Sync {configDir}/themes and {configDir}/snippets.",
     settingSyncCommunityPlugins: "Sync community plugins",
     settingSyncCoreConfig: "Sync core configuration",
     settingSyncCoreConfigDesc: "Sync app.json, hotkeys.json, and core-plugins.json.",
@@ -577,10 +578,10 @@ export const en: Record<string, string> = {
     historyDeleteConfirm: "Delete this version ({0})?\n\nAutomatic merging of later conflicts may not work correctly.\nThis cannot be undone.",
     historyRestoreConfirm: "Restore this version ({0})?\n\nThe current content of the file on this device is replaced.",
     settingSyncCommunityPluginsDesc: "Sync installed plugins.\n(Caution: Vault-Sync itself is always synced)",
-    settingSyncDotfilesDesc: "Sync files starting with '.' (e.g. .git, .trash).\n.obsidian is always synced.",
+    settingSyncDotfilesDesc: "Sync files starting with '.' (e.g. .git, .trash).\n{configDir} is always synced.",
     settingLargeFileThresholdDesc: "Files larger than this are transferred in the background, outside the sync cycle.\nSet to 0 to disable (all files sync inline).",
     settingBgTransferIntervalDesc: "Delay between consecutive background transfers.\nSet to 0 for no throttling (fastest).",
-    settingMassDeleteFilesDetail: "Overwrites count notes and attachments, not the .obsidian folder.",
+    settingMassDeleteFilesDetail: "Overwrites count notes and attachments, not the {configDir} folder.",
     settingMassDeletePercentDetail: "Applies from 5 files.",
     settingRemoteTrashDetail: "Off: files are deleted at once.",
     settingAutoKeepRevisionsDetail:
@@ -702,5 +703,7 @@ export function hasAddonStrings(): boolean {
 }
 
 export function t(key: string): string {
-    return activeDict[key] || addonActive[key] || en[key] || addonEn[key] || key;
+    const text = activeDict[key] || addonActive[key] || en[key] || addonEn[key] || key;
+    // {configDir} names the vault's config folder, which is not always ".obsidian"
+    return text.includes("{configDir}") ? text.split("{configDir}").join(configDir()) : text;
 }

@@ -1,4 +1,5 @@
 import { PlanDecision, summarizePlan, type PlanGuard, type PlanSummary, type PlannedChange, type SyncPlan } from "./sync-plan";
+import { inConfigDir } from "../utils/config-dir";
 
 export interface MassChangeThresholds {
     /** Ask at this many deleted (or overwritten) files or more; -1 (or less than 1) = off */
@@ -20,11 +21,11 @@ export function deletedFileCount(summary: PlanSummary): number {
 
 /**
  * Overwrites that count toward the confirmation: notes and attachments. Settings
- * under .obsidian are left out: updating a few plugins rewrites dozens of their
+ * in the config folder are left out: updating a few plugins rewrites dozens of their
  * files, and asking each time would teach the user to click through.
  */
 export function isCountedOverwrite(c: PlannedChange): boolean {
-    return c.action === "overwrite-remote" && !c.path.startsWith(".obsidian/");
+    return c.action === "overwrite-remote" && !inConfigDir(c.path);
 }
 
 /** Files of the user's vault content a plan overwrites on the cloud */

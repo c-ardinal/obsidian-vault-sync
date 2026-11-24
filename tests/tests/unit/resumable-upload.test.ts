@@ -11,6 +11,7 @@ import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { createHash } from "crypto";
 import { GoogleDriveAdapter } from "../../../src/cloud-adapters/google-drive/index";
 import { GoogleDriveHttpClient } from "../../../src/cloud-adapters/google-drive/http-client";
+import { windowStub } from "../../setup-window";
 
 const SESSION = "https://upload.example.test/session/1";
 
@@ -106,7 +107,7 @@ function payload(size: number): ArrayBuffer {
 
 describe("Resumable upload (fake Drive server)", () => {
     beforeEach(() => {
-        vi.stubGlobal("window", { navigator: { onLine: true }, addEventListener() {}, removeEventListener() {} });
+        vi.stubGlobal("window", windowStub({ navigator: { onLine: true }, addEventListener() {}, removeEventListener() {} }));
         vi.spyOn(GoogleDriveAdapter, "RESUMABLE_CHUNK_BYTES", "get").mockReturnValue(256 * 1024);
         vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     });
@@ -215,7 +216,7 @@ describe("GoogleDriveHttpClient network failures", () => {
     }
 
     beforeEach(() => {
-        vi.stubGlobal("window", { navigator: { onLine: true }, addEventListener() {}, removeEventListener() {} });
+        vi.stubGlobal("window", windowStub({ navigator: { onLine: true }, addEventListener() {}, removeEventListener() {} }));
         vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     });
     afterEach(() => {

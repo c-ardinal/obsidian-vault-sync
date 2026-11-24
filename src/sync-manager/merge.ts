@@ -38,6 +38,7 @@ import { storesTransformedContent } from "./content-identity";
 import { CtxState } from "./context-state";
 import { checkLateUploadForOverwrite, isMergeableText } from "./overwrite-recovery";
 import { isPullMergeable } from "./strategies/structured-merge";
+import { inConfigDir } from "../utils/config-dir";
 
 /**
  * A local file this device never synced that may simply be replaced by the
@@ -46,7 +47,7 @@ import { isPullMergeable } from "./strategies/structured-merge";
  * user's own data and must not be overwritten silently.
  */
 function isDisposableUntrackedLocal(path: string, content: ArrayBuffer): boolean {
-    if (path.startsWith(".obsidian/")) return true;
+    if (inConfigDir(path)) return true;
     if (content.byteLength > 64) return false;
     const text = new TextDecoder().decode(content).replace(/^\uFEFF/, "").trim();
     return text === "" || text === "{}" || text === "[]";

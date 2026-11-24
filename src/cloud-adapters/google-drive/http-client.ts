@@ -106,7 +106,7 @@ export class GoogleDriveHttpClient {
         let timedOut = false;
         const timer =
             controller && !init.signal
-                ? setTimeout(() => {
+                ? window.setTimeout(() => {
                       timedOut = true;
                       controller.abort();
                   }, GoogleDriveHttpClient.timeoutFor(init))
@@ -117,7 +117,7 @@ export class GoogleDriveHttpClient {
             if (timedOut) throw new TypeError("Network error: request timed out");
             throw e;
         } finally {
-            if (timer) clearTimeout(timer);
+            if (timer) window.clearTimeout(timer);
             this.releaseSlot();
         }
     }
@@ -224,7 +224,7 @@ export class GoogleDriveHttpClient {
                     `API Error ${response.status}. Retrying in ${Math.round(backoffDelay)}ms (Attempt ${retryCount + 1}/${MAX_RETRIES})...`,
                     "warn",
                 );
-                await new Promise((resolve) => setTimeout(resolve, backoffDelay));
+                await new Promise((resolve) => window.setTimeout(resolve, backoffDelay));
                 return this.fetchWithAuth(url, options, retryCount + 1, extra);
             }
 
@@ -274,7 +274,7 @@ export class GoogleDriveHttpClient {
 
                 const backoffDelay = Math.pow(2, retryCount) * 2000;
                 await this.log(`Network error. Retrying in ${backoffDelay}ms...`, "warn");
-                await new Promise((resolve) => setTimeout(resolve, backoffDelay));
+                await new Promise((resolve) => window.setTimeout(resolve, backoffDelay));
                 return this.fetchWithAuth(url, options, retryCount + 1, extra);
             }
             if (isNetworkError) {
@@ -316,7 +316,7 @@ export class GoogleDriveHttpClient {
                     `Create request failed (${String(e)}). Checking whether it was carried out in ${Math.round(backoffDelay)}ms...`,
                     "warn",
                 );
-                await new Promise((resolve) => setTimeout(resolve, backoffDelay));
+                await new Promise((resolve) => window.setTimeout(resolve, backoffDelay));
                 const query =
                     `appProperties has { key='${CREATE_MARKER_KEY}' and value='${marker}' } and trashed = false` +
                     (parentId ? ` and '${this.escapeQueryValue(parentId)}' in parents` : "");
@@ -335,8 +335,8 @@ export class GoogleDriveHttpClient {
             const cleanup = () => {
                 window.removeEventListener("online", done);
                 window.removeEventListener("focus", done);
-                clearInterval(interval);
-                clearTimeout(timeout);
+                window.clearInterval(interval);
+                window.clearTimeout(timeout);
             };
             const done = () => {
                 cleanup();
@@ -344,10 +344,10 @@ export class GoogleDriveHttpClient {
             };
             window.addEventListener("online", done);
             window.addEventListener("focus", done);
-            const interval = setInterval(() => {
+            const interval = window.setInterval(() => {
                 if (window.navigator.onLine) done();
             }, 5000);
-            const timeout = setTimeout(() => {
+            const timeout = window.setTimeout(() => {
                 void this.log("waitForOnline timed out after 60s — resuming retry loop", "warn");
                 done();
             }, GoogleDriveHttpClient.ONLINE_TIMEOUT_MS);

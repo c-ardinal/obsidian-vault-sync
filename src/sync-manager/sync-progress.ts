@@ -96,7 +96,7 @@ export class SyncProgressTracker {
     /** (time, cumulative bytes done) samples for the throughput window */
     private samples: Array<{ t: number; bytes: number }> = [];
     private last: SyncCycleResult | null = null;
-    private emitTimer: ReturnType<typeof setTimeout> | null = null;
+    private emitTimer: number | null = null;
 
     constructor(private now: () => number = () => Date.now()) {}
 
@@ -232,7 +232,7 @@ export class SyncProgressTracker {
     }
 
     dispose(): void {
-        if (this.emitTimer !== null) clearTimeout(this.emitTimer);
+        if (this.emitTimer !== null) window.clearTimeout(this.emitTimer);
         this.emitTimer = null;
         this.listeners.clear();
     }
@@ -293,13 +293,13 @@ export class SyncProgressTracker {
 
     private emit(immediate = false): void {
         if (immediate) {
-            if (this.emitTimer !== null) clearTimeout(this.emitTimer);
+            if (this.emitTimer !== null) window.clearTimeout(this.emitTimer);
             this.emitTimer = null;
             this.flush();
             return;
         }
         if (this.emitTimer !== null) return;
-        this.emitTimer = setTimeout(() => {
+        this.emitTimer = window.setTimeout(() => {
             this.emitTimer = null;
             this.flush();
         }, EMIT_INTERVAL_MS);

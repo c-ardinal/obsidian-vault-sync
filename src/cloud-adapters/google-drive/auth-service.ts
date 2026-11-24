@@ -208,20 +208,16 @@ export class GoogleAuthService {
             redirect_uri: this.getRedirectUri(),
         });
 
-        let response: Response;
+        let text: string;
         try {
-            response = await fetch("https://oauth2.googleapis.com/token", {
-                method: "POST",
-                headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                body: body.toString(),
-            });
+            text = (await this.postTokenEndpoint(body)).text;
         } catch {
             throw new Error(
                 `Authentication failed: could not reach Google servers. Check your network connection.`,
             );
         }
 
-        const data = await this.safeJsonParse(response, "token exchange");
+        const data = this.safeJsonParse(text, "token exchange");
         if (data.error) throw new Error(data.error_description || data.error);
 
         this.generation++;
@@ -269,8 +265,22 @@ export class GoogleAuthService {
     }
 
     /** Parse JSON safely. Throws a clear error on malformed responses (CDN/WAF HTML pages, truncated body). */
-    private async safeJsonParse(response: Response, context: string): Promise<TokenResponse> {
-        const text = await response.text();
+    /**
+     * POST to Google's token endpoint. requestUrl (not fetch) so that HTTP errors
+     * come back as a status instead of an exception, like the proxy refresh.
+     */
+    private async postTokenEndpoint(body: URLSearchParams): Promise<{ status: number; text: string }> {
+        const res = await requestUrl({
+            url: "https://oauth2.googleapis.com/token",
+            method: "POST",
+            contentType: "application/x-www-form-urlencoded",
+            body: body.toString(),
+            throw: false,
+        });
+        return { status: res.status, text: res.text };
+    }
+
+    private safeJsonParse(text: string, context: string): TokenResponse {
         try {
             return JSON.parse(text) as TokenResponse;
         } catch {
@@ -381,13 +391,9 @@ export class GoogleAuthService {
             grant_type: "refresh_token",
         });
 
-        let response: Response;
+        let response: { status: number; text: string };
         try {
-            response = await fetch("https://oauth2.googleapis.com/token", {
-                method: "POST",
-                headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                body: body.toString(),
-            });
+            response = await this.postTokenEndpoint(body);
         } catch (e) {
             await this.log(
                 `Direct refresh network error: ${e instanceof Error ? e.message : String(e)}`,
@@ -399,10 +405,10 @@ export class GoogleAuthService {
             throw new Error("Token refresh failed: Google OAuth unreachable");
         }
 
-        const data = await this.safeJsonParse(response, "direct refresh");
+        const data = this.safeJsonParse(response.text, "direct refresh");
         if (await this.superseded(generation)) return;
 
-        if (!response.ok) {
+        if (response.status < 200 || response.status >= 300) {
             const err = data.error_description || data.error || JSON.stringify(data);
             console.error(`Vault-Sync: Refresh failed (${response.status}): ${err}`);
             if (data.error === "invalid_grant" || data.error === "unauthorized_client") {

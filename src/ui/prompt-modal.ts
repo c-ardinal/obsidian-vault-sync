@@ -59,7 +59,7 @@ export class PromptModal extends Modal {
             }
         });
 
-        setTimeout(() => {
+        window.setTimeout(() => {
             textComp!.inputEl.focus();
             textComp!.inputEl.select();
             void this.validate(this.defaultValue);
