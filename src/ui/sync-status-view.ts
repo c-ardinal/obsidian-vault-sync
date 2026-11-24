@@ -7,7 +7,8 @@
  *
  * Everything is driven by SyncProgressTracker snapshots.
  */
-import { Platform, moment, setIcon } from "obsidian";
+import { Platform, setIcon } from "obsidian";
+import { formatMoment } from "./format-time";
 import type VaultSync from "../main";
 import type { SyncManager } from "../sync-manager";
 import { t } from "../i18n";
@@ -46,7 +47,7 @@ export function formatDuration(sec: number): string {
 
 export function formatClock(ms: number): string {
     // Obsidian sets moment's locale to the app language.
-    return moment(ms).format("LT");
+    return formatMoment(ms, "LT");
 }
 
 export function formatAgo(ms: number): string {
