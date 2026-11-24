@@ -489,7 +489,7 @@ export class GoogleDriveAdapter implements OAuthCloudAdapter {
                 return this.resumableResult((await uploadResponse.json()) as DriveFile, path, mtime, totalSize);
             } catch (e) {
                 if (!(e instanceof TypeError) || attempt >= GoogleDriveAdapter.MAX_CHUNK_RESUMES) throw e;
-                await new Promise((r) => setTimeout(r, Math.min(30_000, 1000 * 2 ** attempt)));
+                await new Promise((r) => window.setTimeout(r, Math.min(30_000, 1000 * 2 ** attempt)));
                 const status = await this.queryResumableStatus(sessionUri, totalSize, path, mtime);
                 if (status.done) return status.done;
                 const inChunk = status.received - offset;

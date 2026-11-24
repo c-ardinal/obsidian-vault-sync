@@ -87,7 +87,7 @@ export class HistoryModal extends Modal {
             // Load history and local content in parallel for speed, with timeout
             const HISTORY_TIMEOUT_MS = 15_000;
             const timeout = new Promise<never>((_, reject) =>
-                setTimeout(() => reject(new Error("Timeout (15s)")), HISTORY_TIMEOUT_MS),
+                window.setTimeout(() => reject(new Error("Timeout (15s)")), HISTORY_TIMEOUT_MS),
             );
             const [revisions, localContent] = await Promise.race([
                 Promise.all([
@@ -745,7 +745,7 @@ export class HistoryModal extends Modal {
 
             // Auto-highlight first diff
             if (this.diffBlocks.length > 0) {
-                setTimeout(() => this.jumpToDiff(0), 50);
+                window.setTimeout(() => this.jumpToDiff(0), 50);
             }
         } catch (e) {
             container.empty();

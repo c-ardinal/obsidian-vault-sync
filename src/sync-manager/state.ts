@@ -349,7 +349,7 @@ export async function acquireMergeLock(
                 `[Communication] Lock contention for ${path} (attempt ${attempt + 1}/${LOCK_MAX_ATTEMPTS}). Retrying in ${Math.round(jitter)}ms...`,
                 "warn",
             );
-            await new Promise((r) => setTimeout(r, jitter));
+            await new Promise((r) => window.setTimeout(r, jitter));
         } else {
             return { acquired: false, holder: r.holder, expiresIn: r.expiresIn };
         }

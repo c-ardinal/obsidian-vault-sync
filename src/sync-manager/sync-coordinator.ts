@@ -424,7 +424,7 @@ export async function executeFullScan(ctx: SyncContext): Promise<void> {
             ctx.progress?.scanProgress(ctx.fullScanProgress.currentIndex, remoteFiles.length);
 
             // Yield to allow interrupt check
-            await new Promise((resolve) => setTimeout(resolve, 0));
+            await new Promise((resolve) => window.setTimeout(resolve, 0));
         }
 
         await ctx.log("=== BACKGROUND FULL SCAN COMPLETED ===", "info");

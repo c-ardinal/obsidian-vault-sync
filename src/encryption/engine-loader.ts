@@ -30,6 +30,27 @@ async function computeSHA256(content: string): Promise<string> {
     return toHex(new Uint8Array(hashBuffer));
 }
 
+type CommonJsFactory = (
+    module: unknown,
+    exports: unknown,
+    require: (name: string) => unknown,
+) => void;
+
+/**
+ * Turns a CommonJS script into a function of (module, exports, require) by
+ * importing it as an ES module from a data: URL. The source is the add-on file
+ * whose SHA-256 the caller has already checked against the approved hash.
+ * A data: URL rather than a blob: URL because both Obsidian and Node (tests)
+ * can import it.
+ */
+async function importCommonJsModule(source: string): Promise<CommonJsFactory> {
+    const wrapped = `export default function (module, exports, require) {\n${source}\n}\n`;
+    const url = `data:text/javascript;charset=utf-8,${encodeURIComponent(wrapped)}`;
+    // eslint-disable-next-line no-unsanitized/method -- the module is the add-on file the caller verified against APPROVED_ENGINE_HASH
+    const mod = (await import(url)) as { default: CommonJsFactory };
+    return mod.default;
+}
+
 /**
  * Loads the external E2EE engine if available in the plugin directory.
  * Validates the engine hash and interface before loading.
@@ -108,13 +129,10 @@ export async function evaluateEngine(
             console.warn(`Vault-Sync: Engine SHA-256: ${actualHash}`);
         }
 
-        // Dynamic execution of the engine script as CommonJS
+        // Run the engine script (CommonJS) as a module: wrapped in an ES module
+        // whose default export takes module / exports / require.
         const engineModule: { exports: { default?: unknown } } = { exports: {} };
-        const execute = new Function("module", "exports", "require", content) as (
-            module: unknown,
-            exports: unknown,
-            require: (name: string) => unknown,
-        ) => void;
+        const execute = await importCommonJsModule(content);
 
         const customRequire = (name: string): unknown => {
             if (name === "obsidian") return obsidianModule;

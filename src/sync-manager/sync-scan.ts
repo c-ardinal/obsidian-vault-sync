@@ -13,6 +13,7 @@ import { entryIdentityHash, localIdentityHash } from "./content-identity";
 import type { FileUtilsCtx } from "./file-utils";
 import type { StateCtx } from "./state";
 import type { SyncHelpersCtx } from "./sync-helpers";
+import { configDir, inConfigDir } from "../utils/config-dir";
 
 /** What this module reads from the sync context */
 export type ScanCtx = Pick<
@@ -56,12 +57,12 @@ export async function recheckEventsDuringSync(ctx: ScanCtx): Promise<void> {
 }
 
 /**
- * Scan .obsidian directory for changes
- * Vault events don't fire for .obsidian files, so we need to scan manually
+ * Scan the config folder (Vault#configDir) for changes
+ * Vault events don't fire for files there, so we need to scan manually
  */
 export async function scanObsidianChanges(ctx: ScanCtx): Promise<void> {
     try {
-        const obsidianFiles = await listFilesRecursive(ctx, ".obsidian");
+        const obsidianFiles = await listFilesRecursive(ctx, configDir());
 
         for (const filePath of obsidianFiles) {
             if (shouldIgnore(ctx, filePath)) continue;
@@ -117,7 +118,7 @@ export async function scanObsidianChanges(ctx: ScanCtx): Promise<void> {
 
         const currentObsidianFiles = new Set(obsidianFiles);
         for (const path of Object.keys(ctx.localIndex)) {
-            if (!path.startsWith(".obsidian/")) continue;
+            if (!inConfigDir(path)) continue;
             if (path === ctx.pluginDataPath) continue;
             if (isManagedSeparately(path)) continue;
             if (isDeviceExcluded(ctx, path)) continue;
@@ -164,7 +165,7 @@ export async function scanVaultChanges(ctx: ScanCtx): Promise<void> {
 
             currentPaths.add(file.path);
 
-            if (file.path.startsWith(".obsidian/")) continue;
+            if (inConfigDir(file.path)) continue;
 
             const indexEntry = ctx.localIndex[file.path];
 
@@ -211,7 +212,7 @@ export async function scanVaultChanges(ctx: ScanCtx): Promise<void> {
         }
 
         for (const path of Object.keys(ctx.localIndex)) {
-            if (path.startsWith(".obsidian/")) continue;
+            if (inConfigDir(path)) continue;
             if (path === ctx.pluginDataPath) continue;
             if (isManagedSeparately(path)) continue;
             if (isDeviceExcluded(ctx, path)) continue;

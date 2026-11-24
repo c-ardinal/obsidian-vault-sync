@@ -741,7 +741,7 @@ describe("Online/Offline detection", () => {
         // If window exists, the listener should be registered
         const queue = new BackgroundTransferQueue();
         const addEventSpy =
-            typeof window !== "undefined" ? vi.spyOn(window, "addEventListener") : null;
+            typeof window?.addEventListener === "function" ? vi.spyOn(window, "addEventListener") : null;
 
         // Create a minimal mock context
         const cloud = new MockCloudAdapter();
@@ -762,7 +762,7 @@ describe("Online/Offline detection", () => {
 
     it("should remove online listener on destroy when window is available", () => {
         const removeEventSpy =
-            typeof window !== "undefined" ? vi.spyOn(window, "removeEventListener") : null;
+            typeof window?.removeEventListener === "function" ? vi.spyOn(window, "removeEventListener") : null;
 
         const cloud = new MockCloudAdapter();
         const device = new DeviceSimulator("TestDevice", cloud);

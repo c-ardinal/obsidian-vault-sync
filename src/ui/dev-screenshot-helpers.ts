@@ -14,6 +14,7 @@ import { TransferPriority } from "../sync-manager/transfer-types";
 import { HistoryModal } from "./history-modal";
 import { TransferStatusModal } from "./transfer-status-modal";
 import { PromptModal } from "./prompt-modal";
+import { configPath } from "../utils/config-dir";
 
 // ---------------------------------------------------------------------------
 // Mock Data: History Modal
@@ -242,7 +243,7 @@ const DEMO_TRANSFER_HISTORY: TransferRecord[] = [
     {
         id: "tr_h4",
         direction: "pull",
-        path: ".obsidian/plugins/vault-sync/data.json",
+        path: configPath("plugins/vault-sync/data.json"),
         size: 1200,
         status: "completed",
         startedAt: now - 1000 * 60 * 30,
@@ -418,7 +419,7 @@ export function showDemoNotifications(syncManager: SyncManager): void {
     ];
 
     for (const { text, delayMs } of messages) {
-        setTimeout(() => new Notice(text, 8000), delayMs);
+        window.setTimeout(() => new Notice(text, 8000), delayMs);
     }
 }
 
@@ -450,7 +451,7 @@ export function startDemoSyncAnimation(
         }
     }
 
-    setTimeout(() => {
+    window.setTimeout(() => {
         for (const t of targets) {
             t.el.removeClass("vault-sync-spinning");
             if (t.el.classList.contains("vault-sync-mobile-fab")) {

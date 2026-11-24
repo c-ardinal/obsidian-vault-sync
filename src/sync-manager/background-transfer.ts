@@ -7,7 +7,7 @@ import type { SyncContext } from "./context";
 import { hashContent } from "./file-utils";
 import { pullFileSafely } from "./merge";
 import { reconcileVanishedAfterUpload } from "./sync-push";
-import { saveIndex, saveLocalIndex, takeUnsyncedRename } from "./state";
+import { saveIndex, takeUnsyncedRename } from "./state";
 import { compress } from "./file-utils";
 import {
     buildRemoteIndexPayload,
@@ -324,7 +324,7 @@ export class BackgroundTransferQueue {
                             `[Background Transfer] Retry ${next.retryCount}/${TRANSFER_MAX_RETRIES} for ${next.path} in ${delay}ms`,
                             "warn",
                         );
-                        await new Promise((r) => setTimeout(r, delay));
+                        await new Promise((r) => window.setTimeout(r, delay));
                     }
                 }
 
@@ -334,7 +334,7 @@ export class BackgroundTransferQueue {
                 // Throttle: wait between consecutive background transfers
                 const throttleMs = (ctx.settings.bgTransferIntervalSec ?? 0) * 1000;
                 if (throttleMs > 0 && this.queue.some((q) => q.status === "pending")) {
-                    await new Promise((r) => setTimeout(r, throttleMs));
+                    await new Promise((r) => window.setTimeout(r, throttleMs));
                 }
             }
         } finally {

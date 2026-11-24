@@ -52,6 +52,7 @@ import {
     noteDeletionMark,
 } from "./sync-helpers";
 import { storesTransformedContent } from "./content-identity";
+import { inConfigDir } from "../utils/config-dir";
 
 
 /** Walk directory tree of missing files to infer deleted folders */
@@ -926,7 +927,7 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
             } else {
                 if (ctx.localIndex[path]) {
                     if (
-                        path.startsWith(".obsidian/") ||
+                        inConfigDir(path) ||
                         !ctx.localIndex[path].fileId ||
                         confirmMissingForDeletion(ctx, path)
                     ) {

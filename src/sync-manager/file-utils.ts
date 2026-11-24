@@ -1,6 +1,7 @@
 import { Platform } from "obsidian";
 import type { ObsidianScope, ObsidianScopeKey } from "../types/settings";
 import { normalizePath, basename } from "../utils/path";
+import { configDir, inConfigDir, setConfigDir } from "../utils/config-dir";
 import { matchWildcard } from "../utils/wildcard";
 import { contentFingerprint } from "./content-fingerprint";
 import { REMOTE_DEVICE_DIR, REMOTE_FILES } from "./remote-layout";
@@ -22,9 +23,9 @@ export const LEGACY_PLUGIN_ID = "obsidian-vault-sync";
 /**
  * This plugin's folder, vault-relative with a trailing slash. main.ts sets it from
  * the manifest (the plugin ID and the vault's config folder) before anything syncs;
- * the default is only used by tests.
+ * tests set it in their setup file.
  */
-export let PLUGIN_DIR = `.obsidian/plugins/${LEGACY_PLUGIN_ID}/`;
+export let PLUGIN_DIR = "";
 
 /**
  * The folder of the plugin under its old ID when it differs from PLUGIN_DIR, else null.
@@ -33,9 +34,10 @@ export let PLUGIN_DIR = `.obsidian/plugins/${LEGACY_PLUGIN_ID}/`;
  */
 export let LEGACY_PLUGIN_DIR: string | null = null;
 
-export function setPluginDir(pluginDir: string, configDir: string): void {
+export function setPluginDir(pluginDir: string, vaultConfigDir: string): void {
+    setConfigDir(vaultConfigDir);
     PLUGIN_DIR = normalizePath(pluginDir) + "/";
-    const legacy = normalizePath(`${configDir}/plugins/${LEGACY_PLUGIN_ID}`) + "/";
+    const legacy = normalizePath(`${vaultConfigDir}/plugins/${LEGACY_PLUGIN_ID}`) + "/";
     LEGACY_PLUGIN_DIR = legacy === PLUGIN_DIR ? null : legacy;
 }
 
@@ -62,6 +64,16 @@ export const SYSTEM_IGNORES = [
 export const OBSIDIAN_SYSTEM_IGNORES = ["cache/", "indexedDB/", "backups/", ".trash/"];
 
 export const OBSIDIAN_WORKSPACE_FILES = ["workspace.json", "workspace-mobile.json"];
+
+/** Obsidian's own settings files at the top of the config folder (the "core config" category) */
+export const OBSIDIAN_CORE_CONFIG_FILES = [
+    "app.json",
+    "appearance.json",
+    "hotkeys.json",
+    "core-plugins.json",
+    "community-plugins.json",
+    "graph.json",
+];
 
 // === File Operations ===
 
@@ -112,7 +124,7 @@ export async function getLocalFiles(ctx: FileUtilsCtx) {
 
     const obsidianFiles: { path: string; mtime: number; size: number; name: string }[] = [];
     try {
-        const files = await listFilesRecursive(ctx, ".obsidian");
+        const files = await listFilesRecursive(ctx, configDir());
         for (const path of files) {
             const stat = await ctx.vault.stat(path);
             if (stat) {
@@ -125,7 +137,7 @@ export async function getLocalFiles(ctx: FileUtilsCtx) {
             }
         }
     } catch (e) {
-        await ctx.log(`  Failed to list .obsidian: ${String(e)}`, "warn");
+        await ctx.log(`  Failed to list ${configDir()}: ${String(e)}`, "warn");
     }
 
     return [...standardFiles, ...obsidianFiles];
@@ -242,7 +254,7 @@ export function isAlwaysForbiddenOnRemote(path: string): boolean {
     }
 
     // 3. Obsidian system transient files (cache/, indexedDB/, backups/, .trash/)
-    if (normalizedPath.startsWith(".obsidian/")) {
+    if (inConfigDir(normalizedPath, true)) {
         if (
             OBSIDIAN_SYSTEM_IGNORES.some((e) => {
                 const ne = e.toLowerCase();
@@ -338,7 +350,8 @@ export function shouldNotBeOnRemote(ctx: FileUtilsCtx, path: string): boolean {
     }
 
     // 4. Obsidian特定の除外
-    if (normalizedPath.startsWith(".obsidian/")) {
+    if (inConfigDir(normalizedPath, true)) {
+        const cfg = configDir().toLowerCase();
         if (
             OBSIDIAN_SYSTEM_IGNORES.some((e) => {
                 const ne = e.toLowerCase();
@@ -364,29 +377,21 @@ export function shouldNotBeOnRemote(ctx: FileUtilsCtx, path: string): boolean {
 
         if (!obsidianScopeOn(ctx.settings, "syncAppearance")) {
             if (
-                normalizedPath.startsWith(".obsidian/themes/") ||
-                normalizedPath.startsWith(".obsidian/snippets/")
+                normalizedPath.startsWith(`${cfg}/themes/`) ||
+                normalizedPath.startsWith(`${cfg}/snippets/`)
             ) {
                 return true;
             }
         }
 
         if (!obsidianScopeOn(ctx.settings, "syncCommunityPlugins")) {
-            if (normalizedPath.startsWith(".obsidian/plugins/")) {
+            if (normalizedPath.startsWith(`${cfg}/plugins/`)) {
                 return true;
             }
         }
 
         if (!obsidianScopeOn(ctx.settings, "syncCoreConfig")) {
-            const coreFiles = [
-                ".obsidian/app.json",
-                ".obsidian/appearance.json",
-                ".obsidian/hotkeys.json",
-                ".obsidian/core-plugins.json",
-                ".obsidian/community-plugins.json",
-                ".obsidian/graph.json",
-            ];
-            if (coreFiles.includes(normalizedPath)) {
+            if (OBSIDIAN_CORE_CONFIG_FILES.some((f) => normalizedPath === `${cfg}/${f}`)) {
                 return true;
             }
         }
@@ -426,8 +431,7 @@ export function shouldNotBeOnRemote(ctx: FileUtilsCtx, path: string): boolean {
     if (!ctx.settings.syncDotfiles) {
         if (
             normalizedPath.startsWith(".") &&
-            normalizedPath !== ".obsidian" &&
-            !normalizedPath.startsWith(".obsidian/")
+            !inConfigDir(normalizedPath, true)
         )
             return true;
     }

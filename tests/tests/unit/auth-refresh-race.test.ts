@@ -16,24 +16,20 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { webcrypto } from "node:crypto";
 import { requestUrl } from "obsidian";
 import { GoogleAuthService } from "../../../src/cloud-adapters/google-drive/auth-service";
+import { windowStub } from "../../setup-window";
 
-(globalThis as any).window = {
+(globalThis as any).window = windowStub({
     crypto: { getRandomValues: (a: Uint8Array) => webcrypto.getRandomValues(a as any), subtle: webcrypto.subtle },
     localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
     navigator: { onLine: true },
     open: vi.fn(),
-};
-const mockFetch = vi.fn();
-(globalThis as any).fetch = mockFetch;
+});
 
 function deferred<T>() {
     let resolve!: (v: T) => void;
     const promise = new Promise<T>((r) => (resolve = r));
     return { promise, resolve };
 }
-
-const jsonResponse = (status: number, body: unknown) =>
-    ({ ok: status >= 200 && status < 300, status, text: async () => JSON.stringify(body) }) as unknown as Response;
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
@@ -53,11 +49,6 @@ describe.each(["client-credentials", "default"] as const)("token refresh races (
             pending.push(d);
             return d.promise;
         };
-        mockFetch.mockImplementation(async (url: string) => {
-            if (String(url).includes("revoke")) return jsonResponse(200, {});
-            const { status, body } = await next();
-            return jsonResponse(status, body);
-        });
         (requestUrl as any).mockReset().mockImplementation(async (req: { url: string }) => {
             if (req.url.includes("revoke")) return { status: 200, text: "{}" };
             const { status, body } = await next();
