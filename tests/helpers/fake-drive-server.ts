@@ -255,6 +255,10 @@ export class FakeDriveServer {
             }
         }
 
+        if (p === "/drive/v3/about") {
+            return this.json({ storageQuota: { limit: String(15 * 1024 ** 3), usage: "0", usageInDriveTrash: "0" } });
+        }
+
         // --- Change feed ---
         if (p === "/drive/v3/changes/startPageToken") {
             return this.json({ startPageToken: String(this.changeLog.length) });
@@ -311,6 +315,10 @@ export class FakeDriveServer {
             return this.json({ files });
         }
         m = /^\/drive\/v3\/files\/([\w-]+)$/.exec(p);
+        // "root" names My Drive, which has no parents
+        if (m?.[1] === "root" && method === "GET" && !this.items.has("root")) {
+            return this.json({ id: "root", name: "My Drive", mimeType: "application/vnd.google-apps.folder" });
+        }
         if (m) {
             const item = this.items.get(m[1]);
             if (!item) return this.error(404, `File not found: ${m[1]}.`);

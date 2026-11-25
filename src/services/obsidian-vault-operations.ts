@@ -42,8 +42,17 @@ export class ObsidianVaultOperations implements IVaultOperations {
         return this.app.vault.adapter.mkdir(path);
     }
 
-    rmdir(path: string, recursive: boolean): Promise<void> {
-        return this.app.vault.adapter.rmdir(path, recursive);
+    async rmdir(path: string, recursive: boolean): Promise<void> {
+        try {
+            await this.app.vault.adapter.rmdir(path, recursive);
+        } catch (e) {
+            // The desktop adapter refuses any folder without "recursive" (EISDIR),
+            // even an empty one: remove it that way only while it is still empty
+            if (recursive) throw e;
+            const { files, folders } = await this.app.vault.adapter.list(path);
+            if (files.length > 0 || folders.length > 0) throw e;
+            await this.app.vault.adapter.rmdir(path, true);
+        }
     }
 
     rename(oldPath: string, newPath: string): Promise<void> {

@@ -649,6 +649,9 @@ export async function saveIndex(ctx: StateCtx): Promise<void> {
     }
 
     await ctx.vault.write(ctx.pluginDataPath, data);
+    // A readable index exists now: the next sync is no longer this device's first
+    // (left set, every later sync of the session showed the first-sync screen again)
+    ctx.indexLoadFailed = false;
 
     const rawPath = ctx.pluginDataPath.replace(".json", "_raw.json");
     try {

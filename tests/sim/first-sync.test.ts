@@ -81,6 +81,16 @@ describe("first sync of a device with notes", () => {
         expect(a.read("local-only.md")).toBe("only here");
     });
 
+    it("asks only once: the next sync of the same session is an ordinary one", async () => {
+        const { b, sync } = await setup();
+        const seen = guard(b, "merge");
+        await sync(b);
+        await b.userCreate("new.md", "new");
+        await sync(b);
+        await sync(b, "timer-sync");
+        expect(seen).toHaveLength(1);
+    });
+
     it("start from the cloud: this device's differing and own notes are set aside, never uploaded", async () => {
         const { a, b, sync } = await setup();
         guard(b, "cloud");
