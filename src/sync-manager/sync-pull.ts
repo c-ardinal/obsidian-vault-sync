@@ -1607,10 +1607,11 @@ async function notesMovedWithFolders(
         // Remembered only when nothing had to move: when this page fails later (a
         // listing of another folder, a rename) it is fetched again, and a folder
         // remembered with its moves still to be made would then be passed over.
-        // Seen with notes to move, the path remembered for it no longer holds (renamed
-        // back to that path later, its notes have to move again).
+        // Notes had to move: the paths remembered for this folder and for the folders
+        // below it no longer hold (moved back to such a path later, the notes have to
+        // move again). All are forgotten; each costs one listing when seen again.
         if (out.length === before) seen.set(folder.id, folder.path);
-        else seen.delete(folder.id);
+        else seen.clear();
     }
     if (out.length > 0) {
         await ctx.log(`[Changes API] ${out.length} note(s) moved with their folder`, "debug");
