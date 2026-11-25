@@ -1819,10 +1819,7 @@ async function runLang(lang) {
         await shot(page, lang, "error").catch(() => {});
     } finally {
         await browser.close().catch(() => {});
-        proc.kill("SIGTERM");
-        await sleep(500);
-        if (!proc.killed) proc.kill("SIGKILL");
-        rmSync(root, { recursive: true, force: true });
+        await stopAndRemove(proc, root);
     }
 }
 
@@ -1895,6 +1892,28 @@ async function startFakeDrive() {
         return r.status === 204 ? null : r.json();
     };
     return { drive, origin, api, close: () => new Promise((r) => server.close(r)), dir };
+}
+
+/**
+ * Stops Obsidian and removes its temporary folders. Waits for the process to be
+ * gone first: one still writing its log made the removal fail (ENOTEMPTY) and
+ * with it the whole run. A folder that cannot be removed is only reported.
+ */
+async function stopAndRemove(proc, ...dirs) {
+    const gone = new Promise((r) => (proc.exitCode !== null || proc.signalCode !== null ? r() : proc.once("exit", r)));
+    proc.kill("SIGTERM");
+    await Promise.race([gone, sleep(3000)]);
+    if (proc.exitCode === null && proc.signalCode === null) {
+        proc.kill("SIGKILL");
+        await Promise.race([gone, sleep(3000)]);
+    }
+    for (const dir of dirs) {
+        try {
+            rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+        } catch (e) {
+            console.warn(`Could not remove ${dir}: ${e}`);
+        }
+    }
 }
 
 function withTimeout(ms, what, p) {
@@ -2084,12 +2103,8 @@ async function checkRealSync() {
         await shot(page, lang, "real-sync-error").catch(() => {});
     } finally {
         await browser.close().catch(() => {});
-        proc.kill("SIGTERM");
-        await sleep(500);
-        if (!proc.killed) proc.kill("SIGKILL");
         await fake.close();
-        rmSync(root, { recursive: true, force: true });
-        rmSync(fake.dir, { recursive: true, force: true });
+        await stopAndRemove(proc, root, fake.dir);
     }
 }
 
