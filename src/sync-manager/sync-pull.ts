@@ -1595,7 +1595,7 @@ async function notesMovedWithFolders(
         // of the folder already known under the new name (its own change came first)
         // does not mean the others moved too: the folder is listed all the same.
         const inside: CloudFile[] = await ctx.adapter.listFiles(folder.id);
-        seen.set(folder.id, folder.path);
+        const before = out.length;
         for (const f of inside) {
             if (f.kind === "folder" || listed.has(f.id)) continue;
             const was = localIdToPath.get(f.id);
@@ -1604,6 +1604,10 @@ async function notesMovedWithFolders(
             listed.add(f.id);
             out.push({ fileId: f.id, file: { ...f, path, kind: "file" } });
         }
+        // Remembered only when nothing had to move: when this page fails later (a
+        // listing of another folder, a rename) it is fetched again, and a folder
+        // remembered with its moves still to be made would then be passed over.
+        if (out.length === before) seen.set(folder.id, folder.path);
     }
     if (out.length > 0) {
         await ctx.log(`[Changes API] ${out.length} note(s) moved with their folder`, "debug");

@@ -226,6 +226,36 @@ describe("folders between devices on Drive", () => {
         expect(files(a)).toEqual(expected);
     });
 
+    it("follows two folder renames of one page when listing the second folder failed", async () => {
+        const { make, sync, syncAll, cloudFiles, files, renameOnDrive } = await setup();
+        const a = await make("A");
+        let failAfter = Infinity;
+        const b = await make("B", (ad) => {
+            const listFiles = ad.listFiles.bind(ad);
+            ad.listFiles = async (folderId?: string) => {
+                if (folderId && --failAfter < 0) throw new Error("network down");
+                return listFiles(folderId);
+            };
+        });
+        await a.userCreate("Alpha/one.md", "one\n");
+        await a.userCreate("Beta/two.md", "two\n");
+        await syncAll([a, b]);
+        await renameOnDrive("Alpha", "Alpha2");
+        await renameOnDrive("Beta", "Beta2");
+        // The first folder of the page is listed, the next listing fails
+        failAfter = 1;
+        await vi.advanceTimersByTimeAsync(50);
+        await drive(b.startSync("manual-sync", false), 600_000);
+        expect(failAfter).toBeLessThan(0);
+        failAfter = Infinity;
+        await sync(b);
+        const expected = { "Alpha2/one.md": "one\n", "Beta2/two.md": "two\n" };
+        expect(files(b)).toEqual(expected);
+        await syncAll([b, a]);
+        expect(cloudFiles()).toEqual(Object.keys(expected));
+        expect(files(a)).toEqual(expected);
+    });
+
     it("keeps an edit made on another device while the folder was renamed", async () => {
         const { make, sync, syncAll, cloudFiles, files } = await setup();
         const a = await make("A");
