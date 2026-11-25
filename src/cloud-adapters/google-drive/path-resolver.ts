@@ -499,6 +499,20 @@ export class DrivePathResolver {
     }
 
     /** Clear folder and resolve caches. Called at start of listFiles for fresh state. */
+    /**
+     * A folder was renamed, moved or deleted (maybe by another device): every path
+     * cached from it, in either direction, may be stale. Resolving a changed note
+     * through a stale folder entry reported it under the folder's old name.
+     */
+    forgetPaths(): void {
+        this.folderCache.clear();
+        this.resolveCache.clear();
+        this.folderSteps.clear();
+        this.idToPathCache.clear();
+        this.resolvePathCache.clear();
+        this.outsideFolderIds.clear();
+    }
+
     clearFolderCaches(): void {
         this.vaultRootId = null;
         this.initPromise = null;

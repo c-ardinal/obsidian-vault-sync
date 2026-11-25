@@ -40,6 +40,28 @@ export class FakeDriveServer {
     /** Every request seen, as "METHOD path" (for debugging failed contract cases) */
     readonly requests: string[] = [];
 
+    /**
+     * The vault as Drive holds it: path (relative to the vault folder) -> item.
+     * Folders end in "/". Several items of one path (duplicates) get " #2", " #3"...
+     */
+    vaultItems(vaultName = "ContractVault"): Map<string, { folder: boolean; content?: Uint8Array }> {
+        const all = [...this.items.values()];
+        const vault = all.find((i) => i.name === vaultName && i.mimeType === FOLDER);
+        const out = new Map<string, { folder: boolean; content?: Uint8Array }>();
+        if (!vault) return out;
+        const walk = (parentId: string, prefix: string) => {
+            for (const it of all.filter((x) => x.parents.includes(parentId))) {
+                const folder = it.mimeType === FOLDER;
+                let key = prefix + it.name + (folder ? "/" : "");
+                for (let n = 2; out.has(key); n++) key = `${prefix}${it.name} #${n}${folder ? "/" : ""}`;
+                out.set(key, { folder, content: it.content });
+                if (folder) walk(it.id, prefix + it.name + "/");
+            }
+        };
+        walk(vault.id, "");
+        return out;
+    }
+
     /** A fetch() replacement: (url, init) -> Response */
     readonly fetch = async (url: string, init: RequestInit = {}): Promise<Response> => {
         const method = (init.method || "GET").toUpperCase();

@@ -171,6 +171,33 @@ export const SCENARIOS: Scenario[] = [
     },
 ];
 
+/**
+ * The same runs with every device on the real Google Drive adapter against a
+ * Drive-like server: folders are items with ids (a folder rename is one change,
+ * two creates of a missing folder make two folders), creates go through the
+ * create marker and reserved ids, uploads through the real request code.
+ */
+for (const name of ["clean-network", "flaky-network", "chaos", "large-files", "e2ee", "restart"]) {
+    const base = SCENARIOS.find((s) => s.name === name)!;
+    SCENARIOS.push({ ...base, name: `drive-${name}`, driveServer: true });
+}
+// Folders renamed and deleted while the devices keep editing, on Drive (where a
+// folder is an item with an id) and on the path-keyed store (moved note by note)
+for (const driveServer of [true, false]) {
+    SCENARIOS.push({
+        ...DEFAULT_CONFIG,
+        name: driveServer ? "drive-folders" : "folders",
+        profile: "disjoint",
+        devices: 3,
+        actions: 50,
+        binaryRate: 0.2,
+        deletes: true,
+        folderRenames: true,
+        driveServer,
+        network: { minLatencyMs: 5, maxLatencyMs: 800, failureRate: 0.02, lostResponseRate: 0.2 },
+    });
+}
+
 const envInt = (k: string, d: number) => (process.env[k] ? parseInt(process.env[k]!, 10) : d);
 const SEED_COUNT = envInt("SIM_SEEDS", 10);
 const SEED_BASE = envInt("SIM_SEED_BASE", 1);

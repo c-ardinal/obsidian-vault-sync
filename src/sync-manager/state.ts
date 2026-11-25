@@ -1277,6 +1277,15 @@ export function markFolderRenamed(
             );
         }
     }
+    // Notes made in the folder and not synced yet: only marked, not indexed. Left
+    // under the old name, the push found nothing there and dropped them for good.
+    for (const [oldPath, at] of Array.from(ctx.dirtyPaths)) {
+        if (!oldPath.startsWith(oldPrefix) || ctx.index[oldPath]) continue;
+        const newPath = newPrefix + oldPath.slice(oldPrefix.length);
+        ctx.dirtyPaths.delete(oldPath);
+        if (!shouldIgnore(ctx, newPath)) ctx.dirtyPaths.set(newPath, at);
+        void ctx.log(`[Dirty] Marked (folder move, not synced yet): ${oldPath} -> ${newPath}`, "debug");
+    }
     persistMove(ctx);
 }
 

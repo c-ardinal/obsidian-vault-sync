@@ -673,6 +673,11 @@ export class GoogleDriveAdapter implements OAuthCloudAdapter {
             `https://www.googleapis.com/drive/v3/changes?pageToken=${pageToken}&pageSize=1000&fields=${fields}`,
         );
         const data = (await response.json()) as DriveChangeList;
+        // A folder in this page was renamed, moved or deleted: paths cached from it
+        // are stale for every item below it (their own changes are not listed)
+        if ((data.changes || []).some((c) => c.file?.mimeType === "application/vnd.google-apps.folder")) {
+            this.pathResolver.forgetPaths();
+        }
 
         return {
             nextPageToken: data.nextPageToken,

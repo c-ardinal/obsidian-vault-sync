@@ -19,6 +19,13 @@
  * - a folder deleted on one device: its notes are gone everywhere
  * - no empty old folder stays behind on the other device or comes back in the
  *   cloud after a folder rename or delete
+ * - a note edited on another device after a rename it already knows the folder of
+ *   arrives under the new folder name (cached folder paths are not used stale)
+ * - a folder deleted on one device while another device added a note to it: the
+ *   new note is kept everywhere (Drive removes a folder with all it holds)
+ * - a note pulled into a folder renamed here but not pushed yet moves with it
+ * - a note made in a folder and the folder renamed before any sync: uploaded
+ *   under the new name (it was dropped)
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { SimDevice } from "./sim-device";
@@ -44,7 +51,8 @@ async function setup() {
             rng: devRng,
             maxEventDelayMs: 0,
             clockSkewMs: 0,
-            log: () => {},
+            // SIMLOG=1 prints every device log line (for a failing case)
+            log: (d: string, m: string) => process.env.SIMLOG && console.log(`[${d}] ${m}`),
             cloudView: () => adapter as unknown as CloudAdapter,
         });
         await dev.init();
@@ -165,6 +173,85 @@ describe("folders between devices on Drive", () => {
         expect(cloudFiles()).toEqual(["Keep.md"]);
         expect(files(a)).toEqual({ "Keep.md": "keep" });
         expect(files(b)).toEqual({ "Keep.md": "keep" });
+    });
+
+    it("takes a note edited after its folder was renamed elsewhere to the new name", async () => {
+        const { make, sync, syncAll, cloudFiles, files } = await setup();
+        const a = await make("A");
+        const b = await make("B");
+        await a.userCreate("Projects/one.md", "one\n");
+        await sync(a);
+        await sync(b);
+        // B resolves the folder's path once (and keeps it)
+        await b.userEdit("Projects/one.md", "one\nB\n");
+        await sync(b);
+        await sync(a);
+        expect(await a.userRenameFolder("Projects", "Work")).toBe(true);
+        await sync(a);
+        // The rename and a later edit of the note reach B in one page of changes
+        await a.userEdit("Work/one.md", "one\nB\nA\n");
+        await sync(a);
+        await syncAll([a, b]);
+
+        const expected = { "Work/one.md": "one\nB\nA\n" };
+        expect(cloudFiles()).toEqual(Object.keys(expected));
+        expect(files(a)).toEqual(expected);
+        expect(files(b)).toEqual(expected);
+    });
+
+    it("keeps a note another device added to a folder deleted here", async () => {
+        const { make, sync, syncAll, cloudFiles, files } = await setup();
+        const a = await make("A");
+        const b = await make("B");
+        await a.userCreate("Old/one.md", "one");
+        await sync(a);
+        await sync(b);
+        await a.ops.rmdir("Old", true);
+        await b.userCreate("Old/new.md", "new on B");
+        await sync(b);
+        await syncAll([a, b]);
+
+        const expected = { "Old/new.md": "new on B" };
+        expect(cloudFiles()).toEqual(Object.keys(expected));
+        expect(files(a)).toEqual(expected);
+        expect(files(b)).toEqual(expected);
+    });
+
+    it("moves a note pulled into a folder renamed here with the folder", async () => {
+        const { make, sync, syncAll, cloudFiles, files } = await setup();
+        const a = await make("A");
+        const b = await make("B");
+        await a.userCreate("Projects/one.md", "one");
+        await sync(a);
+        await sync(b);
+        expect(await a.userRenameFolder("Projects", "Work")).toBe(true);
+        await b.userCreate("Projects/two.md", "two");
+        await sync(b);
+        await syncAll([a, b]);
+
+        const expected = { "Work/one.md": "one", "Work/two.md": "two" };
+        expect(cloudFiles()).toEqual(Object.keys(expected));
+        expect(files(a)).toEqual(expected);
+        expect(files(b)).toEqual(expected);
+    });
+
+    it("uploads a new note whose folder was renamed before it was synced", async () => {
+        const { make, sync, cloudFiles, files } = await setup();
+        const a = await make("A");
+        const b = await make("B");
+        await a.userCreate("Keep.md", "keep");
+        await sync(a);
+        await sync(b);
+        await a.userCreate("Draft/new.md", "new");
+        expect(await a.userRenameFolder("Draft", "Final")).toBe(true);
+        // Without a full vault scan (that one would find the note anyway)
+        await sync(a);
+        await sync(b);
+
+        const expected = { "Final/new.md": "new", "Keep.md": "keep" };
+        expect(cloudFiles()).toEqual(Object.keys(expected));
+        expect(files(a)).toEqual(expected);
+        expect(files(b)).toEqual(expected);
     });
 
     it("leaves no empty old folder behind after a folder rename or delete", async () => {
