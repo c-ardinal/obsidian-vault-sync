@@ -43,7 +43,7 @@ It currently supports the cloud storage below. Obsidian 1.11.4 or later is requi
     - Exclusions, a file size limit and the `.obsidian` categories can also be set separately for PCs and mobile devices.
 - **Data Protection and Restore**:
     - Files deleted from the cloud are kept for a set number of days and can be restored. The vault or a folder can be restored to a past time.
-    - A sync that would delete or overwrite many files asks for confirmation first.
+    - A sync that would delete many files, or overwrite many files on the cloud, asks for confirmation first.
 - **Sync Status and Diagnostics**:
     - Shows the devices that sync the vault and the changes each one sent, checks that this device matches the cloud, and gathers diagnostic info for a support request.
 - **Secure Authentication & Storage**:
