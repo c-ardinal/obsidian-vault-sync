@@ -126,7 +126,7 @@ jobs:
               run: node formal/run.mjs
 
     browser:
-        name: Drive transport in Chromium
+        name: Browser engines (Chromium, WebKit)
         runs-on: ubuntu-latest
 
         steps:
@@ -141,10 +141,21 @@ jobs:
             - name: Install dependencies
               run: npm ci
 
-            - name: Install Chromium
-              run: npx playwright-core install --with-deps chromium
+            - name: Install Chromium and WebKit
+              run: npx playwright-core install --with-deps chromium webkit
 
-            # The shipped Drive adapter over XMLHttpRequest in a real browser engine,
-            # cross-origin like googleapis.com from the Obsidian app
+            - name: Download the approved add-on engine
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  repo=c-ardinal/obsidian-vault-sync-e2ee-engine
+                  tag=$(gh release list --repo "$repo" -L 1 --json tagName -q '.[0].tagName')
+                  gh release download "$tag" --repo "$repo" --pattern 'vault-sync-e2ee-engine.zip' -D .addon-pkg
+                  unzip -o -j .addon-pkg/vault-sync-e2ee-engine.zip '*e2ee-engine.js' -d .addon-pkg
+                  echo "ADDON_ENGINE_JS=$PWD/.addon-pkg/e2ee-engine.js" >> "$GITHUB_ENV"
+
+            # The shipped Drive adapter over XMLHttpRequest, and the add-on loader, in
+            # Chromium (desktop, Android) and WebKit (iPhone, iPad), cross-origin like
+            # googleapis.com from the Obsidian app
             - name: Run browser tests
               run: npx vitest run --config vitest.browser.config.ts

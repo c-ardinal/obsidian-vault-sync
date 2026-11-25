@@ -60,20 +60,32 @@ async function setup() {
     };
     /** The vault as Drive has it: user paths, folders end in "/" (duplicates listed twice) */
     const cloud = (): string[] => {
-        const items = [...(server as unknown as { items: Map<string, { id: string; name: string; parents: string[]; mimeType: string }> }).items.values()];
+        const items = [
+            ...(
+                server as unknown as {
+                    items: Map<string, { id: string; name: string; parents: string[]; mimeType: string }>;
+                }
+            ).items.values(),
+        ];
         const pathOf = (it: (typeof items)[number]): string => {
             const parent = items.find((x) => x.id === it.parents[0]);
             return parent ? `${pathOf(parent)}/${it.name}` : it.name;
         };
         return items
-            .map((it) => pathOf(it).replace(/^ContractRoot\/ContractVault\/?/, "") + (it.mimeType.endsWith("folder") ? "/" : ""))
+            .map(
+                (it) =>
+                    pathOf(it).replace(/^ContractRoot\/ContractVault\/?/, "") +
+                    (it.mimeType.endsWith("folder") ? "/" : ""),
+            )
             .filter((p) => p && p !== "/" && !p.startsWith(".obsidian") && !p.startsWith("ContractRoot"))
             .sort();
     };
     const cloudFiles = () => cloud().filter((p) => !p.endsWith("/"));
     const files = (d: SimDevice) => d.userFiles();
     const folders = (d: SimDevice): string[] =>
-        [...(d.vaultAdapter as unknown as { folders: Set<string> }).folders].filter((f) => !f.startsWith(".obsidian")).sort();
+        [...(d.vaultAdapter as unknown as { folders: Set<string> }).folders]
+            .filter((f) => !f.startsWith(".obsidian"))
+            .sort();
     return { make, sync, syncAll, cloud, cloudFiles, files, folders };
 }
 

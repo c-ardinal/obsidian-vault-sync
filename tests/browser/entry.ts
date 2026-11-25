@@ -1,12 +1,13 @@
 /**
- * Browser bundle for drive-over-xhr.test.ts: the real Drive adapter, its HTTP
- * client and the XMLHttpRequest transport, as the plugin ships them. Only the
+ * Browser bundle for the tests in this folder: the real Drive adapter, its HTTP
+ * client, the XMLHttpRequest transport and the add-on loader, as the plugin ships them. Only the
  * host is rewritten, so requests for Google go to the local test server (on
  * another origin, so the browser applies CORS like it does for googleapis.com).
  */
 import { GoogleDriveAdapter } from "../../src/cloud-adapters/google-drive/index";
 import { GoogleDriveHttpClient } from "../../src/cloud-adapters/google-drive/http-client";
 import { xhrRequest } from "../../src/cloud-adapters/google-drive/xhr-request";
+import { evaluateEngine } from "../../src/encryption/engine-loader";
 
 declare global {
     interface Window {
@@ -14,6 +15,7 @@ declare global {
             makeAdapter: (apiOrigin: string) => GoogleDriveAdapter;
             GoogleDriveHttpClient: typeof GoogleDriveHttpClient;
             xhrRequest: typeof xhrRequest;
+            evaluateEngine: typeof evaluateEngine;
         };
     }
 }
@@ -32,4 +34,5 @@ window.driveTest = {
     },
     GoogleDriveHttpClient,
     xhrRequest,
+    evaluateEngine,
 };

@@ -11,12 +11,13 @@ interface DriveItem {
     modifiedTime: string;
     content?: Uint8Array;
     md5Checksum?: string;
+    appProperties?: Record<string, string>;
     revisions: { id: string; modifiedTime: string; content: Uint8Array; md5Checksum: string; keepForever: boolean }[];
 }
 
 interface UploadSession {
     fileId?: string;
-    metadata: { name?: string; parents?: string[]; modifiedTime?: string };
+    metadata: { name?: string; parents?: string[]; modifiedTime?: string; appProperties?: Record<string, string> };
     total: number;
     received: Uint8Array[];
     receivedBytes: number;
@@ -74,9 +75,7 @@ export class FakeDriveServer {
             parents: item.parents,
             modifiedTime: item.modifiedTime,
             trashed: false,
-            ...(item.content
-                ? { size: String(item.content.byteLength), md5Checksum: item.md5Checksum }
-                : {}),
+            ...(item.content ? { size: String(item.content.byteLength), md5Checksum: item.md5Checksum } : {}),
         };
     }
 
@@ -94,7 +93,13 @@ export class FakeDriveServer {
         this.record(item.id);
     }
 
-    private createItem(meta: { name?: string; mimeType?: string; parents?: string[]; modifiedTime?: string }): DriveItem {
+    private createItem(meta: {
+        name?: string;
+        mimeType?: string;
+        parents?: string[];
+        modifiedTime?: string;
+        appProperties?: Record<string, string>;
+    }): DriveItem {
         const item: DriveItem = {
             id: this.newId(),
             name: meta.name || "untitled",
@@ -102,6 +107,7 @@ export class FakeDriveServer {
             parents: meta.parents || ["root"],
             modifiedTime: meta.modifiedTime || new Date().toISOString(),
             revisions: [],
+            ...(meta.appProperties ? { appProperties: { ...meta.appProperties } } : {}),
         };
         this.items.set(item.id, item);
         return item;
@@ -117,7 +123,12 @@ export class FakeDriveServer {
 
     /** Evaluate the subset of Drive's query language the adapter uses */
     private matches(item: DriveItem, q: string): boolean {
-        const clauses = q.split(/\s+and\s+(?=(?:[^']*'[^']*')*[^']*$)/);
+        // "appProperties has { key='k' and value='v' }" holds an "and" of its own
+        const q1 = q.replace(
+            /appProperties has \{ key=('(?:[^'\\]|\\.)*') and value=('(?:[^'\\]|\\.)*') \}/g,
+            "appProperty $1 = $2",
+        );
+        const clauses = q1.split(/\s+and\s+(?=(?:[^']*'[^']*')*[^']*$)/);
         const unquote = (s: string) => s.slice(1, -1).replace(/\\'/g, "'").replace(/\\\\/g, "\\");
         for (const raw of clauses) {
             const c = raw.trim();
@@ -128,6 +139,8 @@ export class FakeDriveServer {
                 if (!item.parents.includes(unquote(m[1]))) return false;
             } else if ((m = /^mimeType = ('(?:[^'\\]|\\.)*')$/.exec(c))) {
                 if (item.mimeType !== unquote(m[1])) return false;
+            } else if ((m = /^appProperty ('(?:[^'\\]|\\.)*') = ('(?:[^'\\]|\\.)*')$/.exec(c))) {
+                if (item.appProperties?.[unquote(m[1])] !== unquote(m[2])) return false;
             } else if (c === "trashed = false") {
                 // deleted items are gone from the store, nothing is trashed
             } else {
@@ -151,7 +164,10 @@ export class FakeDriveServer {
     }
 
     /** Split a multipart/related upload into its JSON metadata and its bytes */
-    private parseMultipart(body: Uint8Array, contentType: string): { meta: Record<string, unknown>; bytes: Uint8Array } {
+    private parseMultipart(
+        body: Uint8Array,
+        contentType: string,
+    ): { meta: Record<string, unknown>; bytes: Uint8Array } {
         const boundary = /boundary=([^;]+)/.exec(contentType)?.[1];
         if (!boundary) throw new Error("FakeDriveServer: multipart without boundary");
         const find = (needle: string, from: number) => {
@@ -299,7 +315,8 @@ export class FakeDriveServer {
             s.receivedBytes += fresh.byteLength;
         }
         if (s.receivedBytes < s.total) {
-            const headers: Record<string, string> = s.receivedBytes > 0 ? { Range: `bytes=0-${s.receivedBytes - 1}` } : {};
+            const headers: Record<string, string> =
+                s.receivedBytes > 0 ? { Range: `bytes=0-${s.receivedBytes - 1}` } : {};
             return new Response(null, { status: 308, headers });
         }
         const all = new Uint8Array(s.total);
