@@ -139,14 +139,16 @@ async function executeFolderDeletions(
     ctx: SyncContext,
     planned: PlannedFolderDeletion[],
     decision: PlanDecision,
-): Promise<{ folderDeletedCount: number }> {
+): Promise<{ folderDeletedCount: number; declined: string[] }> {
     let folderDeletedCount = 0;
+    /** Folders not removed as a whole: their deleted notes go one by one in this push */
+    const declined: string[] = [];
 
     // Only what was planned and reviewed (a folder deleted while this push ran waits for the next one)
     const folders = planned
         .map((f) => f.path)
         .filter((p) => ctx.deletedFolders.has(p) && decision.allows("delete-remote", p));
-    if (folders.length === 0) return { folderDeletedCount };
+    if (folders.length === 0) return { folderDeletedCount, declined };
 
     ctx.startActivity();
     await ctx.log(
@@ -164,6 +166,7 @@ async function executeFolderDeletions(
                     // added them, or a pull brought them here since): removing it would
                     // take them too. Its deleted notes go one by one (still marked).
                     ctx.deletedFolders.delete(folderPath);
+                    declined.push(folderPath);
                     await ctx.log(
                         `[Smart Push] Folder ${folderPath} holds notes not deleted here: deleting its notes one by one`,
                         "info",
@@ -230,7 +233,7 @@ async function executeFolderDeletions(
         }
     }
 
-    return { folderDeletedCount };
+    return { folderDeletedCount, declined };
 }
 
 /**
@@ -1045,12 +1048,17 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
     ];
     const decision = await reviewPlan(ctx, { step: "push", changes: planned });
 
-    ({ folderDeletedCount } = await executeFolderDeletions(ctx, plannedFolders, decision));
+    let declinedFolders: string[];
+    ({ folderDeletedCount, declined: declinedFolders } = await executeFolderDeletions(ctx, plannedFolders, decision));
 
-    // A folder whose removal failed: handle its contents one by one, as when
-    // folder deletions ran before the per-file loop (the folder is retried next sync).
+    // A folder whose removal failed (retried next sync) or was declined because it
+    // holds notes not deleted here: handle its contents one by one, as when folder
+    // deletions ran before the per-file loop. Left to a later push, a declined folder
+    // absent here was planned as a whole again each time, and its notes never went.
     const failedFolders = plannedFolders.filter(
-        (f) => decision.allows("delete-remote", f.path) && ctx.deletedFolders.has(f.path),
+        (f) =>
+            decision.allows("delete-remote", f.path) &&
+            (ctx.deletedFolders.has(f.path) || declinedFolders.includes(f.path)),
     );
     if (failedFolders.length > 0) {
         const inside = Array.from(ctx.dirtyPaths.keys()).filter((p) =>

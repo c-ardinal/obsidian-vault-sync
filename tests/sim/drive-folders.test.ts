@@ -42,9 +42,10 @@ async function setup() {
     const rng = new Rng(31);
     vi.spyOn(Math, "random").mockImplementation(() => rng.next());
     const server = new FakeDriveServer();
-    const make = async (name: string) => {
+    const make = async (name: string, tamper?: (adapter: CloudAdapter) => void) => {
         const devRng = rng.fork(name.charCodeAt(0));
         const { adapter } = driveAdapterOnFakeServer(server);
+        tamper?.(adapter as unknown as CloudAdapter);
         const dev: SimDevice = new SimDevice({
             name,
             fs: "linux",
@@ -96,7 +97,20 @@ async function setup() {
         [...(d.vaultAdapter as unknown as { folders: Set<string> }).folders]
             .filter((f) => !f.startsWith(".obsidian"))
             .sort();
-    return { make, sync, syncAll, cloud, cloudFiles, files, folders };
+    /** A folder renamed by a client that touches nothing else (Drive reports the folder only) */
+    const renameOnDrive = async (name: string, to: string) => {
+        const api = (method: string, path: string, body?: unknown) =>
+            server.fetch(`https://www.googleapis.com${path}`, {
+                method,
+                headers: { "Content-Type": "application/json" },
+                body: body === undefined ? undefined : new TextEncoder().encode(JSON.stringify(body)),
+            });
+        const q = encodeURIComponent(`name = '${name}' and trashed = false`);
+        const found = (await (await api("GET", `/drive/v3/files?q=${q}&fields=files(id)`)).json()) as { files: { id: string }[] };
+        expect(found.files).toHaveLength(1);
+        expect((await api("PATCH", `/drive/v3/files/${found.files[0].id}`, { name: to })).status).toBe(200);
+    };
+    return { make, sync, syncAll, cloud, cloudFiles, files, folders, renameOnDrive };
 }
 
 describe("folders between devices on Drive", () => {
@@ -138,6 +152,78 @@ describe("folders between devices on Drive", () => {
         expect(files(a)).toEqual(expected);
         expect(files(b)).toEqual(expected);
         expect(folders(b)).toEqual(["Work", "Work/sub"]);
+    });
+
+    it("moves every note of a renamed folder when one of them arrived under the new name before", async () => {
+        const { make, sync, syncAll, cloudFiles, files, renameOnDrive } = await setup();
+        const a = await make("A");
+        // B's first look at the page shows the notes only; the folder's change follows
+        let hideFolders = false;
+        const b = await make("B", (ad) => {
+            const getChanges = ad.getChanges!.bind(ad);
+            ad.getChanges = async (token: string) => {
+                const page = await getChanges(token);
+                if (!hideFolders) return page;
+                return {
+                    changes: page.changes.filter((c) => c.file?.kind !== "folder"),
+                    newStartPageToken: token,
+                };
+            };
+        });
+        await a.userCreate("Projects/one.md", "one\n");
+        await a.userCreate("Projects/two.md", "two\n");
+        await sync(a);
+        await syncAll([a, b]);
+        await a.userEdit("Projects/one.md", "one\nedited\n");
+        await sync(a);
+        await renameOnDrive("Projects", "Work");
+        hideFolders = true;
+        await sync(b);
+        hideFolders = false;
+        await sync(b);
+        // Without waiting for a full scan
+        expect(files(b)).toEqual({ "Work/one.md": "one\nedited\n", "Work/two.md": "two\n" });
+        await syncAll([b, a]);
+
+        const expected = { "Work/one.md": "one\nedited\n", "Work/two.md": "two\n" };
+        expect(cloudFiles()).toEqual(Object.keys(expected));
+        expect(files(b)).toEqual(expected);
+        expect(files(a)).toEqual(expected);
+    });
+
+    it("follows a folder rename on a later sync when listing the folder failed", async () => {
+        const { make, sync, syncAll, cloudFiles, files, renameOnDrive } = await setup();
+        const a = await make("A");
+        let failListing = false;
+        let failed = 0;
+        const b = await make("B", (ad) => {
+            const listFiles = ad.listFiles.bind(ad);
+            ad.listFiles = async (folderId?: string) => {
+                if (failListing && folderId) {
+                    failed++;
+                    throw new Error("network down");
+                }
+                return listFiles(folderId);
+            };
+        });
+        await a.userCreate("Projects/one.md", "one\n");
+        await sync(a);
+        await syncAll([a, b]);
+        await renameOnDrive("Projects", "Work");
+        failListing = true;
+        await vi.advanceTimersByTimeAsync(50);
+        await drive(b.startSync("manual-sync", false), 600_000);
+        failListing = false;
+        expect(failed).toBeGreaterThan(0);
+        await sync(b);
+        // Without waiting for a full scan
+        expect(files(b)).toEqual({ "Work/one.md": "one\n" });
+        await syncAll([b, a]);
+
+        const expected = { "Work/one.md": "one\n" };
+        expect(cloudFiles()).toEqual(Object.keys(expected));
+        expect(files(b)).toEqual(expected);
+        expect(files(a)).toEqual(expected);
     });
 
     it("keeps an edit made on another device while the folder was renamed", async () => {
@@ -215,6 +301,30 @@ describe("folders between devices on Drive", () => {
         expect(cloudFiles()).toEqual(Object.keys(expected));
         expect(files(a)).toEqual(expected);
         expect(files(b)).toEqual(expected);
+    });
+
+    it("deletes this device's notes one by one when the folder holds a note over its size limit", async () => {
+        const { make, sync, syncAll, cloudFiles, files } = await setup();
+        const a = await make("A");
+        const b = await make("B");
+        (a.ctx.settings as { desktopMaxFileSizeMB: number }).desktopMaxFileSizeMB = 1;
+        await a.userCreate("Old/one.md", "one");
+        await a.userCreate("Old/two.md", "two");
+        await sync(a);
+        await sync(b);
+        const big = "x".repeat(1024 * 1024 + 10);
+        await b.userCreate("Old/big.md", big);
+        await sync(b);
+        await a.ops.rmdir("Old", true);
+        await sync(a);
+        // Already after this one sync (not left for a later one)
+        expect(cloudFiles()).toEqual(["Old/big.md"]);
+        await syncAll([a, b]);
+
+        // A's deleted notes are gone; the note A never had stays
+        expect(cloudFiles()).toEqual(["Old/big.md"]);
+        expect(files(a)).toEqual({});
+        expect(files(b)).toEqual({ "Old/big.md": big });
     });
 
     it("moves a note pulled into a folder renamed here with the folder", async () => {

@@ -150,10 +150,22 @@ jobs:
                   GH_TOKEN: ${{ github.token }}
               run: |
                   repo=c-ardinal/obsidian-vault-sync-e2ee-engine
-                  tag=$(gh release list --repo "$repo" -L 1 --json tagName -q '.[0].tagName')
-                  gh release download "$tag" --repo "$repo" --pattern 'vault-sync-e2ee-engine.zip' -D .addon-pkg
-                  unzip -o -j .addon-pkg/vault-sync-e2ee-engine.zip '*e2ee-engine.js' -d .addon-pkg
-                  echo "ADDON_ENGINE_JS=$PWD/.addon-pkg/e2ee-engine.js" >> "$GITHUB_ENV"
+                  # The release this checkout approves (its engine hash is pinned in
+                  # approved-addons.ts), not simply the newest one
+                  approved=$(awk '/files: \{/,/\}/' src/addons/approved-addons.ts | sed -n 's/.*"e2ee-engine.js": "\([0-9a-f]*\)".*/\1/p')
+                  test -n "$approved"
+                  for tag in $(gh release list --repo "$repo" -L 10 --json tagName -q '.[].tagName'); do
+                      rm -rf .addon-pkg
+                      gh release download "$tag" --repo "$repo" --pattern 'vault-sync-e2ee-engine.zip' -D .addon-pkg || continue
+                      unzip -o -j .addon-pkg/vault-sync-e2ee-engine.zip '*e2ee-engine.js' -d .addon-pkg
+                      if [ "$(sha256sum .addon-pkg/e2ee-engine.js | cut -d' ' -f1)" = "$approved" ]; then
+                          echo "Approved engine: $tag"
+                          echo "ADDON_ENGINE_JS=$PWD/.addon-pkg/e2ee-engine.js" >> "$GITHUB_ENV"
+                          exit 0
+                      fi
+                  done
+                  echo "No release of $repo has the approved engine ($approved)" >&2
+                  exit 1
 
             # The shipped Drive adapter over XMLHttpRequest, and the add-on loader, in
             # Chromium (desktop, Android) and WebKit (iPhone, iPad), cross-origin like

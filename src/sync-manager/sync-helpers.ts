@@ -3,7 +3,7 @@ import type { SyncContext } from "./context";
 import { parseIndex, providerNameOf, serializeIndex, type DeletionMark, type DeletionMarks, type MergeOrigins } from "./remote-layout";
 import { noteIndexFormat } from "./state";
 import type { LocalFileIndex } from "./types";
-import { tryDecompress, hashContent, isDeviceExcluded } from "./file-utils";
+import { tryDecompress, hashContent, isDeviceExcluded, exceedsDeviceSizeLimit } from "./file-utils";
 import { storesTransformedContent } from "./content-identity";
 import { CtxFlag, CtxState } from "./context-state";
 import { capabilitiesOf } from "../types/adapter";
@@ -332,6 +332,8 @@ export function relistForOthersAdd(ctx: object, path: string, entry: LocalFileIn
 export function oweUnseenPull(ctx: SyncHelpersCtx & { dirtyPaths?: Map<string, number> }, path: string, entry: LocalFileIndex[string]): void {
     if (!entry.fileId || ctx.dirtyPaths?.has(path)) return;
     if (ctx.settings && isDeviceExcluded({ settings: ctx.settings }, path)) return; // left out here
+    // Over this device's size limit: left out here too (the retry fetched it regardless)
+    if (ctx.settings && exceedsDeviceSizeLimit({ settings: ctx.settings }, entry.size)) return;
     const pending = pendingPullsOf(ctx);
     if (pending.has(entry.fileId)) return;
     pending.set(entry.fileId, {
