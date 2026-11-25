@@ -43,7 +43,8 @@
                     Vault-Sync accesses your cloud storage account solely to synchronize your
                     Obsidian vault files. The Plugin requests only the minimum permissions required
                     for synchronization and cannot access files or folders that were not created by
-                    the Plugin itself.
+                    the Plugin itself. It also reads how much of your cloud storage is used (totals
+                    only), so that it can warn you before the account fills up.
                 </p>
 
                 <h2>Data We Collect</h2>
@@ -97,6 +98,28 @@
                         <strong>Sync metadata</strong> (file hashes, timestamps) is stored locally
                         and on your cloud storage to manage synchronization state.
                     </li>
+                    <li>
+                        <strong>Device records</strong>: to tell your devices apart, the Plugin
+                        creates a random device ID and a device name that you can change. For each
+                        device, the name, platform, last sync time and a list of recently changed
+                        file paths are stored on your cloud storage. They are shown only to you and
+                        are not used for tracking.
+                    </li>
+                    <li>
+                        <strong>Deleted files and past versions</strong> may be kept on your cloud
+                        storage for the period you set, so that they can be restored.
+                    </li>
+                    <li>
+                        <strong>Logs</strong>: errors and other important events are recorded in a
+                        log on your device, and detailed logs only when you turn detailed logging
+                        on. Logs are uploaded to your own cloud storage only when you turn on log
+                        syncing. Logs can contain file names.
+                    </li>
+                    <li>
+                        <strong>Network type and battery level</strong> are read on your device,
+                        where the device reports them, only to decide whether to hold large
+                        transfers. They are not sent to the developer or any third party.
+                    </li>
                 </ul>
 
                 <h2>Add-ons</h2>
@@ -126,6 +149,15 @@
                         >Privacy Policy</a
                     >. No vault data is sent to Cloudflare.
                 </p>
+                <h3>GitHub</h3>
+                <p>
+                    The Plugin opens GitHub in your browser only when you ask it to: to show an
+                    add-on's download page, or to report a problem from the diagnostics screen. A
+                    report opens the issue form filled with the diagnostic text shown on that screen
+                    (versions, settings without secrets, sync state and, unless you turn that option
+                    off, recent log lines that can contain file names). Nothing is posted until you
+                    submit the form, and a posted issue is public.
+                </p>
                 <h3>Google Drive</h3>
                 <p>
                     When using Google Drive as your sync provider, the Plugin uses the
@@ -145,11 +177,14 @@
 
                 <h2>Data Deletion</h2>
                 <p>
-                    You can revoke the Plugin's access to your cloud storage at any time through
-                    your cloud storage provider's account settings. Uninstalling the Plugin removes
-                    all locally stored data, including authentication credentials and sync metadata.
-                    Files previously synced to your cloud storage will remain there until you delete
-                    them manually.
+                    Logging out in the Plugin's settings revokes the Plugin's tokens and deletes
+                    them from your device. You can also revoke the Plugin's access to your cloud
+                    storage at any time through your cloud storage provider's account settings.
+                    Uninstalling the Plugin removes the data in the Plugin's own folder, including
+                    settings and sync metadata. Credentials held in Obsidian's SecretStorage are not
+                    removed by uninstalling, so log out before you uninstall. Files previously
+                    synced to your cloud storage, including kept deleted files and past versions,
+                    will remain there until you delete them manually.
                 </p>
 
                 <h2>Contact</h2>
@@ -163,7 +198,7 @@
                     >.
                 </p>
 
-                <p class="updated">Last updated: November 17, 2026</p>
+                <p class="updated">Last updated: November 26, 2026</p>
             </div>
 
             <!-- Japanese -->
@@ -180,7 +215,8 @@
                 <h2>アクセスするデータ</h2>
                 <p>
                     Vault-Syncは、ObsidianのVaultファイルを同期する目的でのみ、あなたのクラウドストレージにアクセスします。
-                    本プラグインは同期に必要な最小限の権限のみを要求し、本プラグインが作成したファイルおよびフォルダ以外にはアクセスできません。
+                    本プラグインは同期に必要な最小限の権限のみを要求し、本プラグインが作成したファイルおよびフォルダ以外にはアクセスできません。<br />
+                    また、容量逼迫の事前警告を目的として、クラウドストレージの使用量（合計値のみ）を取得します。
                 </p>
 
                 <h2>収集するデータ</h2>
@@ -223,6 +259,22 @@
                         <strong>同期メタデータ</strong
                         >（ファイルハッシュ、タイムスタンプ）は、同期状態を管理するためにクラウドストレージ上およびローカルに保存します。
                     </li>
+                    <li>
+                        <strong>端末記録</strong
+                        >：端末の識別を目的として、ランダムな端末IDと、変更可能な端末名を生成します。端末単位の名称、プラットフォーム、最終同期日時、直近の変更ファイルパス一覧を、クラウドストレージ上に保存します。これらはユーザー本人にのみ表示され、トラッキングには使用しません。
+                    </li>
+                    <li>
+                        <strong>削除ファイルと過去の版</strong
+                        >は、復元を可能にするため、設定した期間クラウドストレージ上に保管する可能性があります。
+                    </li>
+                    <li>
+                        <strong>ログ</strong
+                        >：エラー等の重要イベントはデバイス上のログに記録し、詳細ログは詳細ログ出力を有効化した際のみ記録します。ログの同期を有効化した際のみ、ログをユーザー自身のクラウドストレージへアップロードします。ログはファイル名を包含する可能性があります。
+                    </li>
+                    <li>
+                        <strong>ネットワーク種別と電池残量</strong
+                        >は、デバイスが提供する際のみ、大容量ファイル転送の延期判定を目的としてデバイス上で参照します。開発者および第三者へ送信することはありません。
+                    </li>
                 </ul>
 
                 <h2>アドオン</h2>
@@ -249,6 +301,12 @@
                         >プライバシーポリシー</a
                     >に準拠して処理する可能性があります。VaultデータがCloudflareに送信されることはありません。
                 </p>
+                <h3>GitHub</h3>
+                <p>
+                    本プラグインは、ユーザーが操作した際のみ、ブラウザでGitHubを表示します。対象は、アドオンのダウンロードページの表示と、診断情報画面からの不具合報告です。<br />
+                    不具合報告では、同画面に表示中の診断情報（バージョン、秘密情報を除外した設定、同期状態、および該当オプションを無効化しない限り、ファイル名を包含する可能性がある直近のログ）を記入済の状態で、Issue投稿画面を表示します。<br />
+                    ユーザーが投稿するまで情報は送信されません。投稿したIssueは一般公開されます。
+                </p>
                 <h3>Google Drive</h3>
                 <p>
                     Google
@@ -269,9 +327,11 @@
 
                 <h2>データの削除</h2>
                 <p>
-                    クラウドストレージプロバイダのアカウント設定から、随時本プラグインのアクセス権を無効化可能です。<br />
-                    本プラグインをアンインストールすると、認証情報や同期メタデータを包含する全ローカルデータが削除されます。<br />
-                    過去にクラウドストレージへ同期されたファイルは、手動で削除するまで残存します。<br />
+                    本プラグインの設定画面でログアウトすると、本プラグインのトークンを失効させ、デバイスから削除します。<br />
+                    クラウドストレージプロバイダのアカウント設定から、随時本プラグインのアクセス権を無効化することも可能です。<br />
+                    本プラグインをアンインストールすると、設定や同期メタデータを包含する、本プラグインのフォルダ内のデータが削除されます。<br />
+                    ObsidianのSecretStorageに保管された認証情報は、アンインストールでは削除されないため、アンインストール前にログアウトしてください。<br />
+                    過去にクラウドストレージへ同期されたファイル（保管中の削除ファイルと過去の版を包含）は、手動で削除するまで残存します。<br />
                 </p>
 
                 <h2>連絡先</h2>
@@ -284,7 +344,7 @@
                     >でIssueを作成してください。
                 </p>
 
-                <p class="updated">最終更新日: 2026年11月17日</p>
+                <p class="updated">最終更新日: 2026年11月26日</p>
             </div>
         </div>
 
