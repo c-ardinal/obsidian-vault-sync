@@ -256,6 +256,26 @@ describe("folders between devices on Drive", () => {
         expect(files(a)).toEqual(expected);
     });
 
+    it("follows a folder renamed and then renamed back to its first name", async () => {
+        const { make, sync, syncAll, cloudFiles, files, renameOnDrive } = await setup();
+        const a = await make("A");
+        const b = await make("B");
+        await a.userCreate("Projects/one.md", "one\n");
+        await sync(a);
+        // B sees the new folder (and lists it: nothing to move)
+        await syncAll([b, a]);
+        await renameOnDrive("Projects", "Work");
+        await sync(b);
+        expect(files(b)).toEqual({ "Work/one.md": "one\n" });
+        await renameOnDrive("Work", "Projects");
+        await sync(b);
+        const expected = { "Projects/one.md": "one\n" };
+        expect(files(b)).toEqual(expected);
+        await syncAll([b, a]);
+        expect(cloudFiles()).toEqual(Object.keys(expected));
+        expect(files(a)).toEqual(expected);
+    });
+
     it("keeps an edit made on another device while the folder was renamed", async () => {
         const { make, sync, syncAll, cloudFiles, files } = await setup();
         const a = await make("A");
