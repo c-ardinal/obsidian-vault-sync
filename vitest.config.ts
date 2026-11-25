@@ -8,7 +8,7 @@ export default defineConfig({
         // Multi-device simulation has its own config / CI job (vitest.sim.config.ts)
         exclude: ["**/node_modules/**", "tests/sim/**"],
         testTimeout: 30000,
-        setupFiles: ["tests/setup-window.ts", "tests/setup-config-dir.ts"],
+        setupFiles: ["tests/setup-window.ts", "tests/setup-config-dir.ts", "tests/setup-transport.ts"],
         coverage: {
             reporter: ["text", "lcov"],
             include: ["src/**/*.ts"],

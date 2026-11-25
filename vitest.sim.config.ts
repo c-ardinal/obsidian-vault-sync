@@ -11,7 +11,7 @@ export default defineConfig({
         environment: "node",
         include: ["tests/sim/**/*.test.ts"],
         testTimeout: 300_000,
-        setupFiles: ["tests/setup-window.ts", "tests/setup-config-dir.ts", "tests/sim/setup.ts"],
+        setupFiles: ["tests/setup-window.ts", "tests/setup-config-dir.ts", "tests/setup-transport.ts", "tests/sim/setup.ts"],
     },
     resolve: {
         alias: {
