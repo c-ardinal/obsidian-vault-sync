@@ -307,7 +307,7 @@ Obsidian の開発者ポリシーに準拠した開示:
     - Google Drive API（`www.googleapis.com`）: ユーザ自身の Google Drive 上で Vault のファイルをアップロード・ダウンロード・一覧取得する。
     - Google ログイン（`accounts.google.com`、`oauth2.googleapis.com`）: OAuth ログインとトークン更新。
     - Vault-Sync 認証プロキシ（`obsidian-vault-sync.pages.dev`、Cloudflare Pages）: デフォルトのログイン方法で OAuth ログインを完了させる。Vault のデータは経由しない。独自の Client ID / Secret（方法C）や独自のプロキシ（方法B）を使用すれば、本プロキシ自体も経由しない。詳細は[プライバシーポリシー](https://obsidian-vault-sync.pages.dev/privacy/)を参照。
-    - GitHub（`github.com`）: アドオン導入時の「ダウンロードページへ移動」、または診断情報画面の「GitHub で報告」を押下した際のみ、ブラウザで表示する。後者は同画面に表示中の診断情報を Issue 投稿画面に記入済の状態で表示するが、ユーザが投稿するまで送信されない。プラグイン自体がコードをダウンロードすることはない。
+    - GitHub（`github.com`）: アドオン導入時の「ダウンロードページへ移動」、または診断情報画面の「GitHub で報告」を押下した際のみ、ブラウザで表示する。後者は同画面に表示中の診断情報を Issue 投稿画面に記入済の状態で表示するため、表示時点で診断情報はリンクの一部として GitHub に送信される。Issue として公開されるのは、ユーザが投稿した時点。プラグイン自体がコードをダウンロードすることはない。
 - **テレメトリ・広告・課金なし**: 利用状況の収集や広告表示は実施しない。無料のオープンソース（MIT）。
 
 ---

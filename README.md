@@ -307,7 +307,7 @@ As required by Obsidian's developer policies:
     - Google Drive API (`www.googleapis.com`): uploads, downloads and lists the files of your vault in your own Google Drive.
     - Google sign-in (`accounts.google.com`, `oauth2.googleapis.com`): OAuth login and token refresh.
     - Vault-Sync authentication proxy (`obsidian-vault-sync.pages.dev`, Cloudflare Pages): completes the OAuth login when the default login method is used. It never sees your vault data. You can avoid it with your own Client ID / Secret (Method C) or your own proxy (Method B). See the [Privacy Policy](https://obsidian-vault-sync.pages.dev/privacy/).
-    - GitHub (`github.com`): opened in your browser only when you tap "Open download page" while installing an add-on, or "Report on GitHub" on the diagnostics screen. The latter fills the issue form with the diagnostic text shown on that screen, and nothing is posted until you submit it. The plugin itself never downloads code.
+    - GitHub (`github.com`): opened in your browser only when you tap "Open download page" while installing an add-on, or "Report on GitHub" on the diagnostics screen. The latter fills the issue form with the diagnostic text shown on that screen, so that text is sent to GitHub in the link when the form opens. It becomes a public issue only when you submit it. The plugin itself never downloads code.
 - **No telemetry, no ads, no payments**: The plugin collects no usage data and shows no ads. It is free and open source (MIT).
 
 ---
