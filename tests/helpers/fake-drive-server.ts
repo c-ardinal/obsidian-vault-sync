@@ -20,6 +20,8 @@ interface UploadSession {
     total: number;
     received: Uint8Array[];
     receivedBytes: number;
+    /** Set once every byte arrived: Drive answers later status queries with the file */
+    doneId?: string;
 }
 
 /**
@@ -278,13 +280,23 @@ export class FakeDriveServer {
     private async putChunk(sid: string, init: RequestInit): Promise<Response> {
         const s = this.sessions.get(sid);
         if (!s) return this.error(404, "Upload session not found");
+        if (s.doneId) {
+            const done = this.items.get(s.doneId);
+            return done ? this.json(this.meta(done)) : this.error(404, "File not found");
+        }
         const range = this.header(init, "Content-Range") || "";
         if (!/^bytes \*\//.test(range)) {
             const start = Number(/^bytes (\d+)-/.exec(range)?.[1]);
-            if (start !== s.receivedBytes) return this.error(400, `Unexpected offset ${start}`);
             const chunk = await this.bodyBytes(init);
-            s.received.push(chunk.slice());
-            s.receivedBytes += chunk.byteLength;
+            // A chunk sent again (its answer was lost; browsers also resend a request
+            // on their own when a reused connection drops): the bytes Drive already
+            // has are skipped. A gap is an error.
+            if (start > s.receivedBytes || start + chunk.byteLength < s.receivedBytes) {
+                return this.error(400, `Unexpected offset ${start}`);
+            }
+            const fresh = chunk.slice(s.receivedBytes - start);
+            s.received.push(fresh);
+            s.receivedBytes += fresh.byteLength;
         }
         if (s.receivedBytes < s.total) {
             const headers: Record<string, string> = s.receivedBytes > 0 ? { Range: `bytes=0-${s.receivedBytes - 1}` } : {};
@@ -296,9 +308,10 @@ export class FakeDriveServer {
             all.set(c, pos);
             pos += c.byteLength;
         }
-        this.sessions.delete(sid);
         const item = s.fileId ? this.items.get(s.fileId) : this.createItem(s.metadata);
         if (!item) return this.error(404, "File not found");
+        s.doneId = item.id;
+        s.received = [];
         if (s.fileId && s.metadata.name) item.name = s.metadata.name;
         this.writeContent(item, all, s.metadata.modifiedTime);
         return this.json(this.meta(item));

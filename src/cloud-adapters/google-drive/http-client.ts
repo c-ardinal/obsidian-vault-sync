@@ -57,6 +57,12 @@ export class GoogleDriveHttpClient {
     static readonly REQUEST_TIMEOUT_MS = 90_000;
     /** Extra time per byte sent: an upload over a slow link must not time out */
     static readonly MIN_UPLOAD_BYTES_PER_SEC = 16 * 1024;
+    /**
+     * Time allowed without a byte of the answer once its headers arrived. An answer
+     * whose body stopped coming (seen in Chromium: headers and a few KB, then a dead
+     * connection) otherwise never ended, and the sync waited on it forever.
+     */
+    static readonly BODY_IDLE_MS = 60_000;
 
     private inFlight = 0;
     private waiters: Array<() => void> = [];
@@ -100,20 +106,27 @@ export class GoogleDriveHttpClient {
     /**
      * One request bounded by MAX_IN_FLIGHT (the slot is NOT held during retry
      * back-off) and by a time limit until the response headers arrive (see
-     * REQUEST_TIMEOUT_MS). The slot and the time limit end when the headers
-     * arrive; the body may take longer.
+     * REQUEST_TIMEOUT_MS). The slot and that limit end when the headers arrive;
+     * the body may take longer, but not BODY_IDLE_MS without a byte.
      */
     private async limitedFetch(url: string, init: RequestInit): Promise<Response> {
         await this.acquireSlot();
-        const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+        const controller =
+            typeof AbortController !== "undefined" && !init.signal ? new AbortController() : null;
         let timedOut = false;
-        let timer: number | null =
-            controller && !init.signal
-                ? window.setTimeout(() => {
-                      timedOut = true;
-                      controller.abort();
-                  }, GoogleDriveHttpClient.timeoutFor(init))
-                : null;
+        const abortNow = () => {
+            timedOut = true;
+            controller?.abort();
+        };
+        let timer: number | null = controller
+            ? window.setTimeout(abortNow, GoogleDriveHttpClient.timeoutFor(init))
+            : null;
+        let idle: number | null = null;
+        const watchBody = () => {
+            if (!controller) return;
+            if (idle !== null) window.clearTimeout(idle);
+            idle = window.setTimeout(abortNow, GoogleDriveHttpClient.BODY_IDLE_MS);
+        };
         let slotHeld = true;
         const endWait = () => {
             if (timer !== null) window.clearTimeout(timer);
@@ -124,14 +137,24 @@ export class GoogleDriveHttpClient {
         try {
             return await GoogleDriveHttpClient.transport(
                 url,
-                controller && !init.signal ? { ...init, signal: controller.signal } : init,
-                { onHeaders: endWait },
+                controller ? { ...init, signal: controller.signal } : init,
+                {
+                    onHeaders: () => {
+                        endWait();
+                        watchBody();
+                    },
+                    onProgress: () => {
+                        if (idle !== null) watchBody();
+                    },
+                },
             );
         } catch (e) {
             if (timedOut) throw new TypeError("Network error: request timed out");
             throw e;
         } finally {
             endWait();
+            if (idle !== null) window.clearTimeout(idle);
+            idle = null;
         }
     }
 

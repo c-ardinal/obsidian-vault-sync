@@ -264,6 +264,36 @@ describe("GoogleDriveHttpClient network failures", () => {
         expect(fetchMock).toHaveBeenCalledTimes(4); // first try + 3 retries
     });
 
+    it("aborts an answer whose body stops coming after the headers, then retries", async () => {
+        const original = GoogleDriveHttpClient.transport;
+        let calls = 0;
+        GoogleDriveHttpClient.transport = (_url, init, options) => {
+            calls++;
+            if (calls > 1) return Promise.resolve(new Response("ok", { status: 200 }));
+            return new Promise<Response>((_, reject) => {
+                init.signal?.addEventListener("abort", () =>
+                    reject(new DOMException("The operation was aborted.", "AbortError")),
+                );
+                options.onHeaders?.();
+                // Some bytes keep coming for a while (each restarts the idle limit) ...
+                for (let i = 1; i <= 3; i++) {
+                    setTimeout(() => options.onProgress?.(), i * (GoogleDriveHttpClient.BODY_IDLE_MS - 1_000));
+                }
+                // ... then nothing more
+            });
+        };
+        try {
+            const p = makeClient().fetchWithAuth("https://example.test/stall");
+            await vi.advanceTimersByTimeAsync(3 * GoogleDriveHttpClient.BODY_IDLE_MS);
+            expect(calls).toBe(1); // still receiving: not cut off
+            await vi.advanceTimersByTimeAsync(2 * GoogleDriveHttpClient.BODY_IDLE_MS);
+            await expect(p).resolves.toBeInstanceOf(Response);
+            expect(calls).toBe(2);
+        } finally {
+            GoogleDriveHttpClient.transport = original;
+        }
+    });
+
     it("gives uploads extra time in proportion to their size", () => {
         const base = GoogleDriveHttpClient.timeoutFor({});
         const tenMb = GoogleDriveHttpClient.timeoutFor({ body: new Uint8Array(10 * 1024 * 1024) });
