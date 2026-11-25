@@ -127,7 +127,8 @@ jobs:
 
     browser:
         name: Browser engines (Chromium, WebKit)
-        runs-on: ubuntu-latest
+        # Playwright 1.56 has no browsers for ubuntu-latest (26.04) yet
+        runs-on: ubuntu-24.04
 
         steps:
             - uses: actions/checkout@v4
