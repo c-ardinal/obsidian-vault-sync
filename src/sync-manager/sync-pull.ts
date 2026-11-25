@@ -1,4 +1,4 @@
-import { capabilitiesOf, type CloudChanges } from "../types/adapter";
+import { capabilitiesOf, type CloudChanges, type CloudFile } from "../types/adapter";
 import { isQuietCycle, takePeekedChanges } from "./change-peek";
 import { removeRemote } from "./remote-deletion";
 import { PlanDecision, reviewPlan } from "./sync-plan";
@@ -15,6 +15,8 @@ import {
     isDeviceExcluded,
     exceedsDeviceSizeLimit,
     matchesDeviceScope,
+    noteVacatedFolder,
+    removeVacatedFolders,
 } from "./file-utils";
 import {
     loadCommunication,
@@ -178,6 +180,7 @@ async function detectPullChanges(
                             );
                             await renameLocal(ctx, oldPath, newPath);
                             await followFolderSpelling(ctx, oldPath, newPath);
+                            noteVacatedFolder(ctx, oldPath);
                             moveAttemptedUploads(ctx, oldPath, newPath);
 
                             if (ctx.index[oldPath]) {
@@ -439,6 +442,7 @@ async function applyRemoteDeletion(ctx: SyncContext, path: string, decision: Pla
     }
     if (file) {
         await ctx.vault.trashFile(file, true);
+        noteVacatedFolder(ctx, path);
     }
     delete ctx.index[path];
     delete ctx.localIndex[path];
@@ -709,6 +713,14 @@ function buildForbiddenRemoteCleanupTasks(
  * Smart Pull - O(1) check for remote changes using sync-index.json hash
  */
 export async function smartPull(ctx: SyncContext): Promise<boolean> {
+    try {
+        return await pullChanges(ctx);
+    } finally {
+        await removeVacatedFolders(ctx);
+    }
+}
+
+async function pullChanges(ctx: SyncContext): Promise<boolean> {
     await ctx.log("[Smart Pull] Checking for remote changes...", "debug");
 
     // Nothing new in the change feed and nothing waiting here: the merge locks
@@ -1545,6 +1557,50 @@ async function pullFilesMissingFromIndex(
     return count;
 }
 
+/**
+ * The notes inside folders that this page reports renamed or moved. On Drive a
+ * folder rename is one change: the notes keep their parent folder and are not
+ * listed, so they stayed here under the old folder name. A folder holding no note
+ * known under its new name is listed once (a new folder usually holds none known
+ * either, its notes come with their own changes); each note found there under
+ * another name here is taken as a change of its own (a rename).
+ */
+async function notesMovedWithFolders(
+    ctx: SyncContext,
+    changes: ReadonlyArray<{ fileId: string; removed?: boolean; file?: ChangedFile & { kind: string } }>,
+    localIdToPath: ReadonlyMap<string, string>,
+): Promise<Array<{ fileId: string; file: ChangedFile & { kind: string } }>> {
+    const listed = new Set(changes.map((c) => c.fileId));
+    const known = Object.keys(ctx.index);
+    const out: Array<{ fileId: string; file: ChangedFile & { kind: string } }> = [];
+    for (const change of changes) {
+        const folder = change.file;
+        if (change.removed || folder?.kind !== "folder" || !folder.path) continue;
+        if (shouldIgnore(ctx, folder.path)) continue;
+        const prefix = folder.path + "/";
+        if (known.some((p) => p.startsWith(prefix))) continue;
+        let inside: CloudFile[];
+        try {
+            inside = await ctx.adapter.listFiles(folder.id);
+        } catch (e) {
+            await ctx.log(`[Changes API] Could not list folder ${folder.path}: ${String(e)}`, "warn");
+            continue;
+        }
+        for (const f of inside) {
+            if (f.kind === "folder" || listed.has(f.id)) continue;
+            const was = localIdToPath.get(f.id);
+            const path = prefix + f.path;
+            if (!was || was === path) continue;
+            listed.add(f.id);
+            out.push({ fileId: f.id, file: { ...f, path, kind: "file" } });
+        }
+    }
+    if (out.length > 0) {
+        await ctx.log(`[Changes API] ${out.length} note(s) moved with their folder`, "debug");
+    }
+    return out;
+}
+
 /** Process one page of Changes API results */
 async function processChangePage(
     ctx: SyncContext,
@@ -1573,6 +1629,7 @@ async function processChangePage(
     for (const [p, entry] of Object.entries(ctx.index)) {
         if (entry.fileId) localIdToPath.set(entry.fileId, p);
     }
+    changes = [...changes, ...(await notesMovedWithFolders(ctx, changes, localIdToPath))];
 
     // Files this batch moves to a different name. A rename onto a name that one of
     // them still holds here is not a collision: that file is about to leave the name.
@@ -1836,6 +1893,7 @@ async function processChangePage(
 
                                 await renameLocal(ctx, oldPath, newPath);
                                 await followFolderSpelling(ctx, oldPath, newPath);
+                                noteVacatedFolder(ctx, oldPath);
                                 moveAttemptedUploads(ctx, oldPath, newPath);
                                 ctx.logger.markActionTaken();
 

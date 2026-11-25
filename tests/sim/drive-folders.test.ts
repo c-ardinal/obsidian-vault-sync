@@ -14,9 +14,11 @@
  * - a folder renamed on one device: every device ends with the notes under the
  *   new name, contents intact, nothing left under the old name
  * - a note edited on another device while its folder was renamed keeps the edit
+ * - a folder renamed on one device stays one folder on Drive (the notes moved with
+ *   it do not make a second folder of the new name)
  * - a folder deleted on one device: its notes are gone everywhere
- * - known issue (it.fails): empty old folders stay behind on the other device and
- *   come back in the cloud after a folder rename or delete
+ * - no empty old folder stays behind on the other device or comes back in the
+ *   cloud after a folder rename or delete
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { SimDevice } from "./sim-device";
@@ -112,7 +114,7 @@ describe("folders between devices on Drive", () => {
     });
 
     it("follows a folder rename on every device, contents intact", async () => {
-        const { make, sync, syncAll, cloudFiles, files } = await setup();
+        const { make, sync, syncAll, cloud, files, folders } = await setup();
         const a = await make("A");
         const b = await make("B");
         await a.userCreate("Projects/one.md", "one");
@@ -124,9 +126,10 @@ describe("folders between devices on Drive", () => {
         await syncAll([a, b]);
 
         const expected = { "Work/one.md": "one", "Work/sub/two.md": "two" };
-        expect(cloudFiles()).toEqual(Object.keys(expected));
+        expect(cloud()).toEqual(["Work/", "Work/one.md", "Work/sub/", "Work/sub/two.md"]);
         expect(files(a)).toEqual(expected);
         expect(files(b)).toEqual(expected);
+        expect(folders(b)).toEqual(["Work", "Work/sub"]);
     });
 
     it("keeps an edit made on another device while the folder was renamed", async () => {
@@ -164,11 +167,7 @@ describe("folders between devices on Drive", () => {
         expect(files(b)).toEqual({ "Keep.md": "keep" });
     });
 
-    // Known issue: the other device keeps the old folders (empty) and its next push
-    // creates them in the cloud again, so a renamed or deleted folder comes back
-    // empty there and on devices set up later. Passes (and must be turned into a
-    // normal test) once fixed.
-    it.fails("leaves no empty old folder behind after a folder rename or delete", async () => {
+    it("leaves no empty old folder behind after a folder rename or delete", async () => {
         const { make, sync, syncAll, cloud, folders } = await setup();
         const a = await make("A");
         const b = await make("B");

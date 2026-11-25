@@ -362,7 +362,7 @@ export class GoogleDriveAdapter implements OAuthCloudAdapter {
             data = await this.http.createItem<DriveFile>(
                 "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,md5Checksum,size",
                 parentId,
-                (appProperties) => init({ ...metadata, appProperties }),
+                (extra) => init({ ...metadata, ...extra }),
             );
         }
         const result: CloudFile = {
@@ -607,10 +607,10 @@ export class GoogleDriveAdapter implements OAuthCloudAdapter {
         const data = await this.http.createItem<DriveFile>(
             `https://www.googleapis.com/drive/v3/files/${fileId}/copy?fields=${fields}`,
             parentId,
-            (appProperties) => ({
+            (extra) => ({
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name: newName, parents: [parentId], appProperties }),
+                body: JSON.stringify({ name: newName, parents: [parentId], ...extra }),
             }),
             fields,
         );

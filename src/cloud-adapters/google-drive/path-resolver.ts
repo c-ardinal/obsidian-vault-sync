@@ -426,10 +426,10 @@ export class DrivePathResolver {
         const data = await this.http.createItem<{ id: string }>(
             "https://www.googleapis.com/drive/v3/files",
             parentId,
-            (appProperties) => ({
+            (extra) => ({
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ ...metadata, appProperties }),
+                body: JSON.stringify({ ...metadata, ...extra }),
             }),
             "id",
         );

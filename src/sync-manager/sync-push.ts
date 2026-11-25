@@ -948,8 +948,15 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
             }
         }
     };
+    // Folder moves first, one at a time and outer folder first: a note moved with its
+    // folder must find the folder under its new name. Run alongside, it looked for the
+    // new folder before the move and created a second folder of that name on Drive.
+    const folderMoves = dirtyPathsSnapshot
+        .filter((p) => ctx.pendingFolderMoves.has(p) && !underPlannedFolder(p))
+        .sort((a, b) => a.length - b.length);
+    for (const path of folderMoves) await processDirtyPath(path);
     for (const path of dirtyPathsSnapshot) {
-        if (underPlannedFolder(path)) continue;
+        if (underPlannedFolder(path) || folderMoves.includes(path)) continue;
         dirtyPathTasks.push(() => processDirtyPath(path));
     }
     if (dirtyPathTasks.length > 0) {

@@ -16,7 +16,8 @@
  * - without Access-Control-Expose-Headers the session URI cannot be read: the
  *   upload fails with a clear error instead of hanging (what to look for on Drive)
  * - a connection reset is a TypeError, retried, and the upload lands once
- * - a create whose answer is lost lands once (WebKit; Chromium: known issue)
+ * - a create whose answer is lost lands once (WebKit: found by its marker;
+ *   Chromium resends it by itself: refused by its reserved id, read by that id)
  * - no answer before the time limit: aborted and reported as a time-out
  * - a chunk whose connection drops is resumed from the bytes Drive confirmed
  * - a body that stops after the headers and a few KB: aborted after BODY_IDLE_MS
@@ -283,13 +284,12 @@ for (const engine of BROWSER_ENGINES) {
             expect(seen.filter((s) => s.startsWith("POST /upload/drive/v3/files")).length).toBe(2);
         });
 
-        // Known issue in Chromium (desktop, Android): when a reused connection drops
-        // after Drive took a create, Chromium sends the same request again on its own
-        // and the page sees only the second answer, so the marker look-up never runs
-        // and Drive ends with two copies. WebKit reports the error; the look-up finds
-        // the first copy.
-        (engine === "chromium" ? it.fails : it)(
-            "a create whose answer is lost lands once (found again by its marker)",
+        // Chromium (desktop, Android) sends the create again by itself when a reused
+        // connection drops after Drive took it, and the page sees only the second
+        // answer: the reserved id makes Drive refuse that one (409), the item is read
+        // by its id. WebKit reports the error; the marker look-up finds the item.
+        it(
+            "a create whose answer is lost lands once",
             async () => {
                 fault = { kind: "reset-after-body", match: /^POST \/upload\/drive\/v3\/files/, times: 1 };
                 const r = await page.evaluate(async () => {

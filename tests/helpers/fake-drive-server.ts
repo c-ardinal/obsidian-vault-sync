@@ -93,7 +93,16 @@ export class FakeDriveServer {
         this.record(item.id);
     }
 
+    /** Like Drive: an id reserved with generateIds can be given once; again it is refused (409) */
+    private idTaken(meta: { id?: unknown }): Response | null {
+        if (typeof meta.id === "string" && this.items.has(meta.id)) {
+            return this.error(409, `A file already exists with the provided ID.`);
+        }
+        return null;
+    }
+
     private createItem(meta: {
+        id?: string;
         name?: string;
         mimeType?: string;
         parents?: string[];
@@ -101,7 +110,7 @@ export class FakeDriveServer {
         appProperties?: Record<string, string>;
     }): DriveItem {
         const item: DriveItem = {
-            id: this.newId(),
+            id: typeof meta.id === "string" ? meta.id : this.newId(),
             name: meta.name || "untitled",
             mimeType: meta.mimeType || "application/octet-stream",
             parents: meta.parents || ["root"],
@@ -204,6 +213,8 @@ export class FakeDriveServer {
                     await this.bodyBytes(init),
                     this.header(init, "Content-Type") || "",
                 );
+                const taken = fileId ? null : this.idTaken(meta);
+                if (taken) return taken;
                 const item = fileId ? this.items.get(fileId)! : this.createItem(meta);
                 if (fileId && typeof meta.name === "string") item.name = meta.name;
                 this.writeContent(item, bytes, meta.modifiedTime as string | undefined);
@@ -238,10 +249,16 @@ export class FakeDriveServer {
             const src = this.items.get(m[1]);
             if (!src) return this.error(404, `File not found: ${m[1]}.`);
             const meta = JSON.parse(new TextDecoder().decode(await this.bodyBytes(init))) as {
+                id?: string;
                 name?: string;
                 parents?: string[];
+                appProperties?: Record<string, string>;
             };
+            const taken = this.idTaken(meta);
+            if (taken) return taken;
             const item = this.createItem({
+                id: meta.id,
+                appProperties: meta.appProperties,
                 name: meta.name ?? src.name,
                 mimeType: src.mimeType,
                 parents: meta.parents ?? src.parents,
@@ -251,10 +268,18 @@ export class FakeDriveServer {
             return this.json(this.meta(item));
         }
 
+        // --- Reserved ids ---
+        if (p === "/drive/v3/files/generateIds") {
+            const count = Number(qs.get("count") || "10");
+            return this.json({ ids: Array.from({ length: count }, () => this.newId("gen")) });
+        }
+
         // --- Files ---
         if (p === "/drive/v3/files") {
             if (method === "POST") {
                 const meta = JSON.parse(new TextDecoder().decode(await this.bodyBytes(init)));
+                const taken = this.idTaken(meta);
+                if (taken) return taken;
                 const item = this.createItem(meta);
                 this.record(item.id);
                 return this.json({ id: item.id });

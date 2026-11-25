@@ -7,7 +7,7 @@ import { toHex } from "../utils/format";
 import { normalizePath, dirname } from "../utils/path";
 import type { SyncContext } from "./context";
 import type { CommunicationData, LocalFileIndex, MergeLockEntry } from "./types";
-import { holdsDeviceExcluded, isDeviceExcluded, shouldIgnore } from "./file-utils";
+import { ensureLocalFolder, holdsDeviceExcluded, isDeviceExcluded, shouldIgnore, takeOwnFolderEvent } from "./file-utils";
 import {
     LOCK_MAX_ATTEMPTS,
     LOCK_TTL_MS,
@@ -820,6 +820,8 @@ export function indexKeyFor(ctx: StateCtx, path: string): string {
 export function markDirty(ctx: StateCtx, path: string): void {
     path = indexKeyFor(ctx, normalizePath(path));
     if (shouldIgnore(ctx, path)) return;
+    // A folder the pull made to place a note (see ensureLocalFolder)
+    if (takeOwnFolderEvent(ctx, "create", path)) return;
     // An edit reported under a name the sync has just moved the note away from (its
     // rename event not here yet): the edit went with the note. Checked at the push
     // (unchanged content is skipped); left unmarked, the moved note kept the edit
@@ -960,6 +962,8 @@ export function markDeleted(ctx: StateCtx, path: string): void {
 
 export function markFolderDeleted(ctx: StateCtx, folderPath: string): void {
     if (shouldIgnore(ctx, folderPath)) return;
+    // An empty folder the pull removed (see removeVacatedFolders)
+    if (takeOwnFolderEvent(ctx, "delete", folderPath)) return;
     if (holdsDeviceExcluded(ctx, folderPath, Object.keys(ctx.index))) {
         void ctx.log(`[Dirty] Folder ${folderPath} holds files this device leaves out: its files are deleted one by one`, "debug");
     } else {
@@ -991,6 +995,7 @@ export async function renameLocal(ctx: StateCtx, from: string, to: string): Prom
     const key = `${from}\u0000${to}`;
     m.set(key, (m.get(key) ?? 0) + 1);
     try {
+        await ensureLocalFolder(ctx, to);
         await ctx.vault.rename(from, to);
     } catch (e) {
         takeOwnRename(ctx, from, to);

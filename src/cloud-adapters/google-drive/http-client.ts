@@ -334,19 +334,37 @@ export class GoogleDriveHttpClient {
      * is looked up, and the request is sent again only when no item has it.
      * Looking up the name instead would take an item another device created
      * meanwhile for this one (formal/tla/CloudRetry.tla).
+     *
+     * The item also gets an id reserved beforehand (files.generateIds). Chromium
+     * (desktop, Android) sends a request again by itself when a reused connection
+     * drops after Drive took it, and the page sees only the second answer: no
+     * failure, so no look-up. With the id given, that second create is refused
+     * (409) instead of making a second item, and the first one is read by its id.
      */
     async createItem<T extends { id: string }>(
         url: string,
         parentId: string | undefined,
-        build: (appProperties: Record<string, string>) => RequestInit,
+        build: (extra: { appProperties: Record<string, string>; id?: string }) => RequestInit,
         fields = "id,md5Checksum,size",
     ): Promise<T> {
         const marker = randomMarker();
-        const init = build({ [CREATE_MARKER_KEY]: marker });
+        const id = await this.reservedFileId();
+        const init = build({ appProperties: { [CREATE_MARKER_KEY]: marker }, ...(id ? { id } : {}) });
         const MAX_RETRIES = 3;
         for (let attempt = 0; ; attempt++) {
             try {
-                const response = await this.fetchWithAuth(url, init, 0, { createsItem: true });
+                const response = await this.fetchWithAuth(url, init, 0, {
+                    createsItem: true,
+                    ...(id ? { okStatuses: [409] } : {}),
+                });
+                if (id && response.status === 409) {
+                    // Already made by this very request (sent twice): read it by its id
+                    await this.log(`Create request was carried out already: using item ${id}`, "debug");
+                    const existing = await this.fetchWithAuth(
+                        `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}?fields=${fields}`,
+                    );
+                    return (await existing.json()) as T;
+                }
                 return (await response.json()) as T;
             } catch (e) {
                 if (!outcomeUnknown(e) || attempt >= MAX_RETRIES) throw e;
@@ -367,6 +385,32 @@ export class GoogleDriveHttpClient {
                 if (files.length > 0) return files[0];
             }
         }
+    }
+
+    /** Ids reserved on Drive for items this client creates (see createItem) */
+    private fileIds: string[] = [];
+    private fileIdsRequest: Promise<void> | null = null;
+    static readonly FILE_ID_BATCH = 50;
+
+    /** A reserved id for a new item; none (the item gets one from Drive) when reserving failed */
+    private async reservedFileId(): Promise<string | undefined> {
+        if (this.fileIds.length === 0) {
+            this.fileIdsRequest ??= this.fetchWithAuth(
+                `https://www.googleapis.com/drive/v3/files/generateIds?count=${GoogleDriveHttpClient.FILE_ID_BATCH}&space=drive&type=files&fields=ids`,
+            )
+                .then(async (r) => {
+                    const ids = ((await r.json()) as { ids?: unknown }).ids;
+                    if (Array.isArray(ids)) {
+                        this.fileIds.push(...ids.filter((x): x is string => typeof x === "string" && x.length > 0));
+                    }
+                })
+                .catch((e) => this.log(`Could not reserve ids for new items: ${String(e)}`, "debug"))
+                .finally(() => {
+                    this.fileIdsRequest = null;
+                });
+            await this.fileIdsRequest;
+        }
+        return this.fileIds.shift();
     }
 
     async waitForOnline(): Promise<void> {

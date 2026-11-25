@@ -1,11 +1,12 @@
 import { Platform } from "obsidian";
 import type { ObsidianScope, ObsidianScopeKey } from "../types/settings";
-import { normalizePath, basename } from "../utils/path";
+import { normalizePath, basename, dirname } from "../utils/path";
 import { configDir, inConfigDir, setConfigDir } from "../utils/config-dir";
 import { matchWildcard } from "../utils/wildcard";
 import { contentFingerprint } from "./content-fingerprint";
 import { REMOTE_DEVICE_DIR, REMOTE_FILES } from "./remote-layout";
 import type { SyncContext } from "./context";
+import { CtxState } from "./context-state";
 
 /** What this module reads from the sync context */
 export type FileUtilsCtx = Pick<
@@ -77,6 +78,88 @@ export const OBSIDIAN_CORE_CONFIG_FILES = [
 
 // === File Operations ===
 
+/**
+ * Folders the sync created or removed here itself (to place a pulled note, or after
+ * the last note left a folder by a pull). The vault reports them as user changes;
+ * taken as such, the push made the folder in the cloud again (an old folder name
+ * came back after a rename on another device) or removed it there.
+ */
+const ownFolderEvents = new CtxState<Map<string, number>>(
+    "ownFolderEvents",
+    "Folders the sync created or removed itself, so their vault events are ignored",
+);
+
+function noteOwnFolderEvent(ctx: object, kind: "create" | "delete", path: string): void {
+    let m = ownFolderEvents.get(ctx);
+    if (!m) ownFolderEvents.set(ctx, (m = new Map<string, number>()));
+    const key = `${kind}\u0000${path}`;
+    m.set(key, (m.get(key) ?? 0) + 1);
+}
+
+/** True (once) when the vault event for this folder is the echo of the sync's own change */
+export function takeOwnFolderEvent(ctx: object, kind: "create" | "delete", path: string): boolean {
+    const m = ownFolderEvents.get(ctx);
+    const key = `${kind}\u0000${path}`;
+    const n = m?.get(key);
+    if (!n) return false;
+    if (n > 1) m!.set(key, n - 1);
+    else m!.delete(key);
+    return true;
+}
+
+/**
+ * Folders a pull took notes out of (deleted or moved on another device). On Drive a
+ * folder renamed or deleted elsewhere arrives as changes to its notes only, so the
+ * folder itself stayed here, empty.
+ */
+const vacatedFolders = new CtxState<Set<string>>(
+    "vacatedFolders",
+    "Folders a pull took notes out of, removed when left empty",
+);
+
+export function noteVacatedFolder(ctx: object, filePath: string): void {
+    const dir = dirname(normalizePath(filePath));
+    if (!dir) return;
+    let s = vacatedFolders.get(ctx);
+    if (!s) vacatedFolders.set(ctx, (s = new Set<string>()));
+    s.add(dir);
+}
+
+/** Remove the folders a pull left empty (and parents it left empty that way) */
+export async function removeVacatedFolders(ctx: FileUtilsCtx): Promise<void> {
+    const pending = vacatedFolders.get(ctx);
+    if (!pending || pending.size === 0) return;
+    vacatedFolders.set(ctx, new Set<string>());
+    const queue = [...pending].sort((a, b) => b.length - a.length);
+    const seen = new Set<string>();
+    while (queue.length > 0) {
+        const folder = queue.shift()!;
+        if (!folder || seen.has(folder)) continue;
+        seen.add(folder);
+        if (shouldIgnore(ctx, folder)) continue;
+        try {
+            if (!(await ctx.vault.exists(folder))) continue;
+            const { files, folders } = await ctx.vault.list(folder);
+            if (files.length > 0 || folders.length > 0) continue;
+            noteOwnFolderEvent(ctx, "delete", folder);
+            try {
+                await ctx.vault.rmdir(folder, false);
+            } catch (e) {
+                takeOwnFolderEvent(ctx, "delete", folder);
+                throw e;
+            }
+            await ctx.log(`[Smart Pull] Removed empty folder: ${folder}`, "debug");
+            const parent = dirname(folder);
+            if (parent) {
+                queue.push(parent);
+                queue.sort((a, b) => b.length - a.length);
+            }
+        } catch (e) {
+            await ctx.log(`[Smart Pull] Could not remove empty folder ${folder}: ${String(e)}`, "debug");
+        }
+    }
+}
+
 export async function ensureLocalFolder(ctx: FileUtilsCtx, filePath: string) {
     filePath = normalizePath(filePath);
     const parts = filePath.split("/");
@@ -89,9 +172,11 @@ export async function ensureLocalFolder(ctx: FileUtilsCtx, filePath: string) {
     for (const part of parts.slice(0, -1)) {
         currentPath += (currentPath ? "/" : "") + part;
         if (!(await ctx.vault.exists(currentPath))) {
+            noteOwnFolderEvent(ctx, "create", currentPath);
             try {
                 await ctx.vault.createFolder(currentPath);
             } catch (e) {
+                takeOwnFolderEvent(ctx, "create", currentPath);
                 console.debug("Vault-Sync: Race condition in mkdir ignored", e);
             }
         }
