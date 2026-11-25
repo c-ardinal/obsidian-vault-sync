@@ -1,5 +1,6 @@
 import type { GoogleAuthService } from "./auth-service";
 import { CloudError, kindFromHttpStatus } from "../cloud-error";
+import { xhrRequest, type XhrRequestOptions } from "./xhr-request";
 
 export interface FetchExtras {
     /** Non-2xx statuses that are a normal answer for this request (e.g. 308 Resume Incomplete) */
@@ -97,30 +98,46 @@ export class GoogleDriveHttpClient {
     }
 
     /**
-     * fetch() bounded by MAX_IN_FLIGHT (the slot is NOT held during retry back-off)
-     * and by a time limit until the response arrives (see REQUEST_TIMEOUT_MS).
+     * One request bounded by MAX_IN_FLIGHT (the slot is NOT held during retry
+     * back-off) and by a time limit until the response headers arrive (see
+     * REQUEST_TIMEOUT_MS). The slot and the time limit end when the headers
+     * arrive; the body may take longer.
      */
     private async limitedFetch(url: string, init: RequestInit): Promise<Response> {
         await this.acquireSlot();
         const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
         let timedOut = false;
-        const timer =
+        let timer: number | null =
             controller && !init.signal
                 ? window.setTimeout(() => {
                       timedOut = true;
                       controller.abort();
                   }, GoogleDriveHttpClient.timeoutFor(init))
                 : null;
+        let slotHeld = true;
+        const endWait = () => {
+            if (timer !== null) window.clearTimeout(timer);
+            timer = null;
+            if (slotHeld) this.releaseSlot();
+            slotHeld = false;
+        };
         try {
-            return await fetch(url, controller && !init.signal ? { ...init, signal: controller.signal } : init);
+            return await GoogleDriveHttpClient.transport(
+                url,
+                controller && !init.signal ? { ...init, signal: controller.signal } : init,
+                { onHeaders: endWait },
+            );
         } catch (e) {
             if (timedOut) throw new TypeError("Network error: request timed out");
             throw e;
         } finally {
-            if (timer) window.clearTimeout(timer);
-            this.releaseSlot();
+            endWait();
         }
     }
+
+    /** How requests go out; tests replace it */
+    static transport: (url: string, init: RequestInit, options: XhrRequestOptions) => Promise<Response> =
+        xhrRequest;
 
     /**
      * fetch() rejects with a TypeError for every network-level failure, but the
