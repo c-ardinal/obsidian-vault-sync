@@ -228,7 +228,9 @@ describe("GoogleDriveAdapter", () => {
         it("should POST for new file (no existingFileId)", async () => {
             // First call: getFileMetadata lookup returns null
             mockFetch.mockResolvedValueOnce(jsonResponse({ files: [] }));
-            // Second call: actual upload
+            // Second call: ids reserved for new items
+            mockFetch.mockResolvedValueOnce(jsonResponse({ ids: ["new-id", "next-id"] }));
+            // Third call: actual upload
             mockFetch.mockResolvedValueOnce(jsonResponse({
                 id: "new-id",
                 md5Checksum: "newhash",
@@ -239,8 +241,11 @@ describe("GoogleDriveAdapter", () => {
             const result = await adapter.uploadFile("notes/new.md", content, Date.now());
 
             expect(result.id).toBe("new-id");
-            const uploadCall = mockFetch.mock.calls[1];
+            expect(mockFetch.mock.calls[1][0]).toContain("/files/generateIds");
+            const uploadCall = mockFetch.mock.calls[2];
             expect(uploadCall[1].method).toBe("POST");
+            // The new item is created under the reserved id (a create sent twice is refused)
+            expect(new TextDecoder().decode(uploadCall[1].body as Uint8Array)).toContain('"id":"new-id"');
         });
     });
 

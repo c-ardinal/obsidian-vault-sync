@@ -14,6 +14,8 @@
  *   E2E_LANGS      comma separated UI languages (default: en,ja)
  *   ADDON_ZIP      optional add-on package (.zip): shows the install review screen, then
  *                  installs it and checks the add-on's own settings page and commands
+ *   E2E_SYNC       "0" skips the real sync check (sync against a Drive-like local
+ *                  server: edits, folder renames both ways, deletes); "only" runs just it
  *
  * Needs a display; in CI it runs under xvfb-run. Exit code 1 on any failed check.
  */
@@ -1817,10 +1819,292 @@ async function runLang(lang) {
         await shot(page, lang, "error").catch(() => {});
     } finally {
         await browser.close().catch(() => {});
-        proc.kill("SIGTERM");
+        await stopAndRemove(proc, root);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Real sync inside Obsidian, against a Drive-like server
+// ---------------------------------------------------------------------------
+
+/**
+ * FakeDriveServer (tests/helpers) behind a local HTTP server that answers like
+ * googleapis.com across origins (CORS, Location and Range exposed). The plugin's
+ * own Drive transport is pointed at it; everything else (vault events, the
+ * Obsidian vault API, the sync engine, the Drive adapter) is what ships.
+ */
+async function startFakeDrive() {
+    const { build } = await import("esbuild");
+    const out = await build({
+        entryPoints: ["tests/helpers/fake-drive-server.ts"],
+        bundle: true,
+        format: "esm",
+        platform: "node",
+        write: false,
+        alias: { obsidian: "./tests/browser/obsidian-stub.ts" },
+        logLevel: "silent",
+    });
+    const dir = mkdtempSync(join(tmpdir(), "fake-drive-"));
+    const file = join(dir, "fake-drive-server.mjs");
+    writeFileSync(file, out.outputFiles[0].text);
+    const { FakeDriveServer } = await import(file);
+    const drive = new FakeDriveServer();
+    const http = await import("node:http");
+    const server = http.createServer(async (req, res) => {
+        const cors = {
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE",
+            "Access-Control-Allow-Headers": "Authorization, Content-Type, Content-Range, X-Upload-Content-Type, X-Upload-Content-Length",
+            "Access-Control-Expose-Headers": "Location, Range",
+        };
+        try {
+            if (req.method === "OPTIONS") return void res.writeHead(204, cors).end();
+            const m = /^\/__host\/([^/]+)(\/.*)$/.exec(req.url ?? "");
+            if (!m) return void res.writeHead(404, cors).end();
+            const chunks = [];
+            for await (const c of req) chunks.push(c);
+            const body = Buffer.concat(chunks);
+            const headers = new Headers();
+            for (const [k, v] of Object.entries(req.headers)) if (typeof v === "string") headers.set(k, v);
+            if (process.env.E2E_TRACE) console.log(`[drive] ${req.method} ${m[2].slice(0, 160)}`);
+            const answer = await drive.fetch(`https://${m[1]}${m[2]}`, {
+                method: req.method,
+                headers,
+                body: body.byteLength ? new Uint8Array(body) : undefined,
+            });
+            const outHeaders = { ...cors };
+            answer.headers.forEach((v, k) => (outHeaders[k] = v));
+            res.writeHead(answer.status, outHeaders).end(Buffer.from(await answer.arrayBuffer()));
+        } catch (e) {
+            if (!res.headersSent) res.writeHead(500, cors);
+            res.end(String(e));
+        }
+    });
+    await new Promise((r) => server.listen(0, "127.0.0.1", r));
+    const origin = `http://127.0.0.1:${server.address().port}`;
+    /** Another device's request, straight to the server */
+    const api = async (method, path, body) => {
+        const r = await drive.fetch(`https://www.googleapis.com${path}`, {
+            method,
+            headers: { "Content-Type": "application/json" },
+            body: body === undefined ? undefined : new TextEncoder().encode(JSON.stringify(body)),
+        });
+        return r.status === 204 ? null : r.json();
+    };
+    return { drive, origin, api, close: () => new Promise((r) => server.close(r)), dir };
+}
+
+/**
+ * Stops Obsidian and removes its temporary folders. Waits for the process to be
+ * gone first: one still writing its log made the removal fail (ENOTEMPTY) and
+ * with it the whole run. A folder that cannot be removed is only reported.
+ */
+async function stopAndRemove(proc, ...dirs) {
+    const gone = new Promise((r) => (proc.exitCode !== null || proc.signalCode !== null ? r() : proc.once("exit", r)));
+    proc.kill("SIGTERM");
+    await Promise.race([gone, sleep(3000)]);
+    if (proc.exitCode === null && proc.signalCode === null) {
+        proc.kill("SIGKILL");
+        await Promise.race([gone, sleep(3000)]);
+    }
+    for (const dir of dirs) {
+        try {
+            rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+        } catch (e) {
+            console.warn(`Could not remove ${dir}: ${e}`);
+        }
+    }
+}
+
+function withTimeout(ms, what, p) {
+    let timer;
+    return Promise.race([
+        p.finally(() => clearTimeout(timer)),
+        new Promise((_, reject) => (timer = setTimeout(() => reject(new Error(`${what} did not finish in ${ms} ms`)), ms))),
+    ]);
+}
+
+async function checkRealSync() {
+    const lang = "sync";
+    const step = (m) => process.env.E2E_TRACE && console.log(`[sync] ${m}`);
+    const fake = await startFakeDrive();
+    step(`fake Drive at ${fake.origin}`);
+    const root = mkdtempSync(join(tmpdir(), "obsidian-e2e-sync-"));
+    const { proc, browser, page } = await launch(root);
+    page.on("pageerror", (e) => consoleErrors.push({ lang, kind: "pageerror", text: String(e.stack || e) }));
+    page.on("console", (m) => {
+        if (m.type() === "error") consoleErrors.push({ lang, kind: "console", text: m.text() });
+        if (process.env.E2E_TRACE && m.text().includes("Vault-Sync")) console.log(`[page] ${m.text().slice(0, 300)}`);
+    });
+    try {
+        await page.setViewportSize(DESKTOP);
+        await prepare(page, "en");
+        const vaultName = await page.evaluate(() => window.app.vault.getName());
+        // Signed in (tokens only) and the Drive requests sent to the local server
+        await page.evaluate(
+            ({ id, origin, trace }) => {
+                const p = window.app.plugins.plugins[id];
+                const ad = p.syncManager.adapter;
+                const C = ad.http.constructor;
+                const send = C.transport;
+                C.transport = (url, init, o) => {
+                    const u = new URL(url);
+                    return send(`${origin}/__host/${u.host}${u.pathname}${u.search}`, init, o);
+                };
+                if (trace) {
+                    const f = ad.http.fetchWithAuth.bind(ad.http);
+                    ad.http.fetchWithAuth = async (url, ...rest) => {
+                        const tag = String(url).replace("https://www.googleapis.com", "").slice(0, 90);
+                        console.log(`Vault-Sync trace > ${tag}`);
+                        try {
+                            const r = await f(url, ...rest);
+                            console.log(`Vault-Sync trace < ${r.status} ${tag}`);
+                            return r;
+                        } catch (e) {
+                            console.log(`Vault-Sync trace ! ${tag} ${e}`);
+                            throw e;
+                        }
+                    };
+                }
+                ad.auth.accessToken = "fake-access-token";
+                ad.auth.refreshToken = "fake-refresh-token";
+                ad.auth.tokenExpiresAt = Date.now() + 3600 * 1000;
+                window.__syncErrors = [];
+            },
+            { id: PLUGIN_ID, origin: fake.origin, trace: !!process.env.E2E_TRACE },
+        );
+        const sync = (trigger = "manual-sync") =>
+            withTimeout(60000, `sync (${trigger})`, page.evaluate(
+                async ({ id, trigger }) => {
+                    const p = window.app.plugins.plugins[id];
+                    await p.syncManager.requestSmartSync(trigger, trigger === "initial-sync");
+                    for (let i = 0; i < 100 && p.syncManager.isSyncing?.(); i++) await new Promise((r) => setTimeout(r, 100));
+                },
+                { id: PLUGIN_ID, trigger },
+            )).catch(async (e) => {
+                if (process.env.E2E_TRACE) {
+                    await page.screenshot({ path: join(tmpdir(), "e2e-sync-hang.png") }).catch(() => {});
+                    console.log(`[sync] modal text: ${await page.evaluate(() => [...document.querySelectorAll(".modal")].map((m) => m.textContent).join(" | ")).catch(() => "?")}`);
+                }
+                throw e;
+            });
+        const vault = () =>
+            page.evaluate(async () => {
+                const out = {};
+                for (const f of window.app.vault.getFiles()) out[f.path] = await window.app.vault.read(f);
+                const folders = window.app.vault
+                    .getAllLoadedFiles()
+                    .filter((f) => f.children && f.path !== "/")
+                    .map((f) => f.path)
+                    .sort();
+                return { files: out, folders };
+            });
+        const cloud = () => {
+            const out = {};
+            for (const [p, it] of fake.drive.vaultItems(vaultName)) {
+                if (p.startsWith(".obsidian")) continue;
+                out[p] = it.folder ? "/" : Buffer.from(it.content ?? []).toString("utf8");
+            }
+            return out;
+        };
+        const settle = () => sleep(1500); // vault events of the sync's own writes
+
+        step('1. First sync');
+        // 1. First sync uploads the vault, one folder per folder
+        await page.evaluate(async () => {
+            await window.app.vault.createFolder("Notes");
+            await window.app.vault.create("Notes/a.md", "a1\n");
+            await window.app.vault.create("Notes/c.md", "c1\n");
+        });
         await sleep(500);
-        if (!proc.killed) proc.kill("SIGKILL");
-        rmSync(root, { recursive: true, force: true });
+        await sync("initial-sync");
+        await settle();
+        await sync();
+        let c = cloud();
+        check(
+            lang,
+            "first sync uploads the vault to Drive",
+            c["Welcome.md"] === "# E2E vault\n" && c["Notes/a.md"] === "a1\n" && c["Notes/c.md"] === "c1\n" && c["Notes/"] === "/" && !c["Notes #2/"],
+            JSON.stringify(c),
+        );
+
+        step('2. An edit');
+        // 2. An edit in Obsidian reaches Drive (vault modify event)
+        await page.evaluate(async () => {
+            await window.app.vault.modify(window.app.vault.getAbstractFileByPath("Notes/a.md"), "a1\na2\n");
+        });
+        await sleep(500);
+        await sync();
+        check(lang, "an edit in Obsidian reaches Drive", cloud()["Notes/a.md"] === "a1\na2\n", JSON.stringify(cloud()));
+
+        step('3. Another device');
+        // 3. Another device renames the folder and adds a note to it
+        const notes = (await fake.api("GET", `/drive/v3/files?q=${encodeURIComponent("name = 'Notes' and trashed = false")}&fields=files(id)`)).files[0];
+        await fake.api("PATCH", `/drive/v3/files/${notes.id}`, { name: "Archive" });
+        const boundary = "e2e";
+        const mp = `--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify({ name: "b.md", parents: [notes.id] })}\r\n--${boundary}\r\nContent-Type: text/markdown\r\n\r\nb from another device\n\r\n--${boundary}--`;
+        await fake.drive.fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", {
+            method: "POST",
+            headers: { "Content-Type": `multipart/related; boundary=${boundary}` },
+            body: new TextEncoder().encode(mp),
+        });
+        await sync();
+        await settle();
+        await sync();
+        let v = await vault();
+        check(
+            lang,
+            "a folder renamed on another device is followed in Obsidian",
+            v.files["Archive/a.md"] === "a1\na2\n" && v.files["Archive/c.md"] === "c1\n" && v.files["Archive/b.md"] === "b from another device\n" && !v.folders.includes("Notes"),
+            JSON.stringify(v),
+        );
+        check(lang, "the folder is not made again on Drive under its old name", !("Notes/" in cloud()), JSON.stringify(cloud()));
+
+        step('4. A folder renamed');
+        // 4. A folder renamed in Obsidian: one folder on Drive, notes inside
+        await page.evaluate(async () => {
+            await window.app.fileManager.renameFile(window.app.vault.getAbstractFileByPath("Archive"), "Work");
+        });
+        await sleep(800);
+        await sync();
+        await settle();
+        await sync();
+        c = cloud();
+        check(
+            lang,
+            "a folder renamed in Obsidian is one folder on Drive with its notes",
+            c["Work/"] === "/" && c["Work/a.md"] === "a1\na2\n" && c["Work/b.md"] && c["Work/c.md"] && !c["Archive/"] && !c["Work #2/"],
+            JSON.stringify(c),
+        );
+
+        step('5. A note deleted');
+        // 5. A note deleted in Obsidian is deleted on Drive
+        await page.evaluate(async () => {
+            await window.app.vault.delete(window.app.vault.getAbstractFileByPath("Work/c.md"));
+        });
+        await sleep(500);
+        await sync();
+        check(lang, "a note deleted in Obsidian is deleted on Drive", !("Work/c.md" in cloud()) && "Work/a.md" in cloud(), JSON.stringify(cloud()));
+
+        step('6. Nothing changed');
+        // 6. Nothing changed: a sync changes nothing on Drive
+        const before = fake.drive.requests.filter((r) => !r.startsWith("GET")).length;
+        await sync();
+        const writes = fake.drive.requests.filter((r) => !r.startsWith("GET")).slice(before);
+        check(
+            lang,
+            "an idle sync writes nothing to Drive except its own status",
+            writes.every((r) => /upload\/drive\/v3\/files\/[^/]+$|\/files\/[^/]+$/.test(r)) && writes.length <= 4,
+            writes.join(", "),
+        );
+        await shot(page, lang, "real-sync-done");
+    } catch (e) {
+        check(lang, "real sync run completed", false, e.stack || String(e));
+        await shot(page, lang, "real-sync-error").catch(() => {});
+    } finally {
+        await browser.close().catch(() => {});
+        await fake.close();
+        await stopAndRemove(proc, root, fake.dir);
     }
 }
 
@@ -1856,7 +2140,8 @@ async function main() {
     if (!OBSIDIAN_BIN)
         throw new Error("Set OBSIDIAN_BIN (run e2e/obsidian/setup-obsidian.mjs first).");
     rmSync(OUT_DIR, { recursive: true, force: true });
-    for (const lang of LANGS) await runLang(lang);
+    if (process.env.E2E_SYNC !== "0") await checkRealSync();
+    if (process.env.E2E_SYNC !== "only") for (const lang of LANGS) await runLang(lang);
     const pluginErrors = consoleErrors.filter((e) => e.kind === "pageerror");
     check(
         "all",

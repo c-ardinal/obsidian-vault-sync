@@ -19,6 +19,7 @@ import {
     deviceMaxFileBytes,
     exceedsDeviceSizeLimit,
     hashContent,
+    noteVacatedFolder,
 } from "./file-utils";
 import { loadCommunication, saveIndex, saveLocalIndex, releaseLockAfterPush, findForeignLock, renameLocal, confirmMissingForDeletion, clearDeleteIntent, hasDeleteIntent, noteDeleteIntent, takeUnsyncedRename, peekUnsyncedRename, takeReplacedNote } from "./state";
 import { pullFileSafely } from "./merge";
@@ -111,19 +112,43 @@ function planFolderDeletions(ctx: SyncContext): PlannedFolderDeletion[] {
     }));
 }
 
+/**
+ * Whether everything in the cloud folder is a note deleted here. Drive removes a
+ * folder with all it holds, including notes another device put there after this
+ * device deleted the folder (they were lost, on every device). Unknown when the
+ * folder cannot be listed: then it is not removed as a whole.
+ */
+async function removesOnlyDeletedNotes(ctx: SyncContext, folderPath: string, folderId: string): Promise<boolean> {
+    let inside: CloudFile[];
+    try {
+        inside = await ctx.adapter.listFiles(folderId);
+    } catch (e) {
+        await ctx.log(`[Smart Push] Could not list folder ${folderPath}: ${String(e)}`, "warn");
+        return false;
+    }
+    const prefix = folderPath + "/";
+    const deletedHere = new Set<string>();
+    for (const [p, e] of Object.entries(ctx.index)) {
+        if (p.startsWith(prefix) && e.fileId && !(await ctx.vault.exists(p))) deletedHere.add(e.fileId);
+    }
+    return inside.every((f) => f.kind === "folder" || deletedHere.has(f.id));
+}
+
 /** Delete folders from remote (deepest first). Folders the guard held are left for a later sync. */
 async function executeFolderDeletions(
     ctx: SyncContext,
     planned: PlannedFolderDeletion[],
     decision: PlanDecision,
-): Promise<{ folderDeletedCount: number }> {
+): Promise<{ folderDeletedCount: number; declined: string[] }> {
     let folderDeletedCount = 0;
+    /** Folders not removed as a whole: their deleted notes go one by one in this push */
+    const declined: string[] = [];
 
     // Only what was planned and reviewed (a folder deleted while this push ran waits for the next one)
     const folders = planned
         .map((f) => f.path)
         .filter((p) => ctx.deletedFolders.has(p) && decision.allows("delete-remote", p));
-    if (folders.length === 0) return { folderDeletedCount };
+    if (folders.length === 0) return { folderDeletedCount, declined };
 
     ctx.startActivity();
     await ctx.log(
@@ -136,6 +161,18 @@ async function executeFolderDeletions(
         try {
             const meta = await ctx.adapter.getFileMetadata(folderPath);
             if (meta && meta.id) {
+                if (meta.kind === "folder" && !(await removesOnlyDeletedNotes(ctx, folderPath, meta.id))) {
+                    // The folder holds notes this device did not delete (another device
+                    // added them, or a pull brought them here since): removing it would
+                    // take them too. Its deleted notes go one by one (still marked).
+                    ctx.deletedFolders.delete(folderPath);
+                    declined.push(folderPath);
+                    await ctx.log(
+                        `[Smart Push] Folder ${folderPath} holds notes not deleted here: deleting its notes one by one`,
+                        "info",
+                    );
+                    continue;
+                }
                 if (meta.kind === "folder") {
                     await removeRemote(
                         ctx,
@@ -196,7 +233,7 @@ async function executeFolderDeletions(
         }
     }
 
-    return { folderDeletedCount };
+    return { folderDeletedCount, declined };
 }
 
 /**
@@ -465,6 +502,15 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
     }
 
     await inferDeletedFolders(ctx);
+    // A folder deleted here that exists again (a pull brought notes into it, or the
+    // user made it again): not a folder deletion any more. Its deleted notes are
+    // still marked and go one by one.
+    for (const folder of Array.from(ctx.deletedFolders)) {
+        if (await ctx.vault.exists(folder)) {
+            ctx.deletedFolders.delete(folder);
+            await ctx.log(`[Smart Push] Folder ${folder} exists again: deleting its notes one by one`, "debug");
+        }
+    }
 
     // Folder deletions are planned here but run only after the whole push was
     // planned and reviewed. Their contents are left out of the per-file loop:
@@ -620,6 +666,30 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                                 }
                                             }
                                         }
+                                    }
+
+                                    // Notes a pull put under the old name after the rename here
+                                    // were in the cloud folder just moved: they moved with it
+                                    for (const p of Object.keys(ctx.index)) {
+                                        if (!p.startsWith(oldPrefix)) continue;
+                                        const to = path + p.slice(oldPath.length);
+                                        if (ctx.index[to] || !(await ctx.vault.exists(p)) || (await ctx.vault.exists(to))) {
+                                            continue;
+                                        }
+                                        await renameLocal(ctx, p, to);
+                                        ctx.index[to] = ctx.index[p];
+                                        delete ctx.index[p];
+                                        if (ctx.localIndex[p]) {
+                                            ctx.localIndex[to] = ctx.localIndex[p];
+                                            delete ctx.localIndex[p];
+                                        }
+                                        const dirtyAt = ctx.dirtyPaths.get(p);
+                                        if (dirtyAt !== undefined) {
+                                            ctx.dirtyPaths.delete(p);
+                                            ctx.dirtyPaths.set(to, dirtyAt);
+                                        }
+                                        noteVacatedFolder(ctx, p);
+                                        await ctx.log(`[Smart Push] Moved with its folder: ${p} -> ${to}`, "debug");
                                     }
 
                                     ctx.pendingFolderMoves.delete(path);
@@ -948,8 +1018,15 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
             }
         }
     };
+    // Folder moves first, one at a time and outer folder first: a note moved with its
+    // folder must find the folder under its new name. Run alongside, it looked for the
+    // new folder before the move and created a second folder of that name on Drive.
+    const folderMoves = dirtyPathsSnapshot
+        .filter((p) => ctx.pendingFolderMoves.has(p) && !underPlannedFolder(p))
+        .sort((a, b) => a.length - b.length);
+    for (const path of folderMoves) await processDirtyPath(path);
     for (const path of dirtyPathsSnapshot) {
-        if (underPlannedFolder(path)) continue;
+        if (underPlannedFolder(path) || folderMoves.includes(path)) continue;
         dirtyPathTasks.push(() => processDirtyPath(path));
     }
     if (dirtyPathTasks.length > 0) {
@@ -971,12 +1048,17 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
     ];
     const decision = await reviewPlan(ctx, { step: "push", changes: planned });
 
-    ({ folderDeletedCount } = await executeFolderDeletions(ctx, plannedFolders, decision));
+    let declinedFolders: string[];
+    ({ folderDeletedCount, declined: declinedFolders } = await executeFolderDeletions(ctx, plannedFolders, decision));
 
-    // A folder whose removal failed: handle its contents one by one, as when
-    // folder deletions ran before the per-file loop (the folder is retried next sync).
+    // A folder whose removal failed (retried next sync) or was declined because it
+    // holds notes not deleted here: handle its contents one by one, as when folder
+    // deletions ran before the per-file loop. Left to a later push, a declined folder
+    // absent here was planned as a whole again each time, and its notes never went.
     const failedFolders = plannedFolders.filter(
-        (f) => decision.allows("delete-remote", f.path) && ctx.deletedFolders.has(f.path),
+        (f) =>
+            decision.allows("delete-remote", f.path) &&
+            (ctx.deletedFolders.has(f.path) || declinedFolders.includes(f.path)),
     );
     if (failedFolders.length > 0) {
         const inside = Array.from(ctx.dirtyPaths.keys()).filter((p) =>

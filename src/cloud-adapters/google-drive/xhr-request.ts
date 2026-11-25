@@ -13,6 +13,8 @@ const NULL_BODY_STATUSES = new Set([101, 103, 204, 205, 304]);
 export interface XhrRequestOptions {
     /** Called once when the response headers have arrived (before the body) */
     onHeaders?: () => void;
+    /** Called whenever more of the response body has arrived */
+    onProgress?: () => void;
 }
 
 function parseHeaders(raw: string): Headers {
@@ -59,6 +61,7 @@ export function xhrRequest(
                 options.onHeaders?.();
             }
         };
+        xhr.onprogress = () => options.onProgress?.();
         xhr.onload = () => {
             done();
             const status = xhr.status;

@@ -70,12 +70,19 @@ export interface SimConfig {
     settings?: Partial<SyncManagerSettings>;
     /** Run every device with end-to-end encryption (random IV per upload) */
     e2ee?: boolean;
+    /**
+     * Devices run the real Google Drive adapter against a Drive-like server (folders
+     * as items with ids, a folder rename is one change) instead of the path-keyed store
+     */
+    driveServer?: boolean;
     /** The cloud reports a non-MD5 content hash (OneDrive / Dropbox style) */
     foreignHash?: boolean;
     /** Per-device setting overrides (device i gets entry i % length), applied over `settings` */
     deviceSettings?: Partial<SyncManagerSettings>[];
     /** Disjoint profile: devices also delete notes and whole folders */
     deletes?: boolean;
+    /** Devices also rename whole folders (notes inside keep their content) */
+    folderRenames?: boolean;
     /** Users change settings during the run */
     settingChanges?: SettingChangeConfig;
     /** "Ask before deleting many files" is on; the user sometimes holds the deletions */
@@ -122,7 +129,8 @@ export type Action =
     | { t: number; dev: string; kind: "offline" | "online" }
     | { t: number; dev: string; kind: "restart" }
     | { t: number; dev: string; kind: "setting"; key: keyof SyncManagerSettings; value: unknown }
-    | { t: number; dev: string; kind: "deleteFolder"; folder: string };
+    | { t: number; dev: string; kind: "deleteFolder"; folder: string }
+    | { t: number; dev: string; kind: "renameFolder"; from: string; to: string };
 
 const EPOCH = Date.UTC(2026, 0, 1, 0, 0, 0);
 
@@ -177,6 +185,7 @@ export function generatePlan(cfg: SimConfig): Action[] {
             weights.delete = 1;
             weights.deleteFolder = 0.25;
         }
+        if (cfg.folderRenames) weights.renameFolder = 0.5;
         const kind = rng.weighted<string>(weights);
 
         switch (kind) {
@@ -224,6 +233,18 @@ export function generatePlan(cfg: SimConfig): Action[] {
             case "editBinary":
                 plan.push({ t, dev, kind: "editBinary", pick: rng.next(), version: i });
                 break;
+            case "renameFolder": {
+                // Back and forth between two names, so notes created later land in
+                // both the old and the new folder name
+                const pair = rng.pick([
+                    ["notes/sub", "notes/moved"],
+                    ["archive", "Archive 2"],
+                    ["assets", "media/assets"],
+                ]);
+                const [from, to] = rng.chance(0.5) ? pair : [pair[1], pair[0]];
+                plan.push({ t, dev, kind: "renameFolder", from, to });
+                break;
+            }
             case "rename": {
                 const to =
                     cfg.profile === "disjoint"
@@ -364,7 +385,7 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
     const engineRng = new Rng(cfg.seed).fork(2);
     const randomSpy = vi.spyOn(Math, "random").mockImplementation(() => engineRng.next());
 
-    const cloud = new SimCloud();
+    const cloud = new SimCloud({ drive: cfg.driveServer });
     if (cfg.foreignHash) cloud.store.useForeignHash();
     cloud.onCall = (c) => {
         if (c.outcome !== "ok" || MUTATING_METHODS.has(c.method)) {
@@ -672,6 +693,27 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
                 }
                 await dev.ops.rmdir(a.folder, true);
                 log(a.dev, `USER delete folder ${a.folder} (${inside.length} files)`);
+                break;
+            }
+            case "renameFolder": {
+                const inside = Object.entries(dev.userFiles()).filter(([p]) => p.startsWith(a.from + "/"));
+                if (!inside.length) {
+                    applied = false;
+                    break;
+                }
+                applied = await dev.userRenameFolder(a.from, a.to);
+                if (applied) {
+                    for (const [p, c] of inside) {
+                        const bin = binaryMarker(c);
+                        const ids = [...fidsIn(c), ...(bin ? [bin.fid] : [])];
+                        const to = a.to + p.slice(a.from.length);
+                        if (ignoredOn(dev, p) || ignoredOn(dev, to)) ids.forEach((f) => everIgnored.add(f));
+                        if ([...devices.values()].some((d) => ignoredOn(d, to)))
+                            ids.forEach((f) => movedPastSomeScope.add(f));
+                        ids.forEach((f) => (movedTo.get(f) ?? movedTo.set(f, new Set()).get(f)!).add(to));
+                    }
+                }
+                log(a.dev, `USER rename folder ${a.from} -> ${a.to} (${inside.length} files)${applied ? "" : " [skipped]"}`);
                 break;
             }
             case "rename": {

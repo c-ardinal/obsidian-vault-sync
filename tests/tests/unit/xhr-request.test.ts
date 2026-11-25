@@ -7,6 +7,7 @@
  * - a network failure rejects with a TypeError, like fetch()
  * - an abort signal (before or during the request) rejects with an AbortError
  * - onHeaders runs once when the headers arrive, before the body
+ * - onProgress runs for each part of the body that arrives
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { xhrRequest } from "../../../src/cloud-adapters/google-drive/xhr-request";
@@ -157,5 +158,16 @@ describe("xhrRequest", () => {
         await p;
         expect(calledBeforeBody).toBe(true);
         expect(onHeaders).toHaveBeenCalledTimes(1);
+    });
+
+    it("calls onProgress for each part of the body", async () => {
+        const onProgress = vi.fn();
+        const p = xhrRequest("https://example.test/a", {}, { onProgress });
+        const xhr = FakeXhr.last! as unknown as { onprogress: (() => void) | null };
+        xhr.onprogress?.();
+        xhr.onprogress?.();
+        FakeXhr.last!.answer(200, "x");
+        await p;
+        expect(onProgress).toHaveBeenCalledTimes(2);
     });
 });

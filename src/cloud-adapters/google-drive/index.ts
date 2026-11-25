@@ -362,7 +362,7 @@ export class GoogleDriveAdapter implements OAuthCloudAdapter {
             data = await this.http.createItem<DriveFile>(
                 "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,md5Checksum,size",
                 parentId,
-                (appProperties) => init({ ...metadata, appProperties }),
+                (extra) => init({ ...metadata, ...extra }),
             );
         }
         const result: CloudFile = {
@@ -607,10 +607,10 @@ export class GoogleDriveAdapter implements OAuthCloudAdapter {
         const data = await this.http.createItem<DriveFile>(
             `https://www.googleapis.com/drive/v3/files/${fileId}/copy?fields=${fields}`,
             parentId,
-            (appProperties) => ({
+            (extra) => ({
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name: newName, parents: [parentId], appProperties }),
+                body: JSON.stringify({ name: newName, parents: [parentId], ...extra }),
             }),
             fields,
         );
@@ -673,6 +673,11 @@ export class GoogleDriveAdapter implements OAuthCloudAdapter {
             `https://www.googleapis.com/drive/v3/changes?pageToken=${pageToken}&pageSize=1000&fields=${fields}`,
         );
         const data = (await response.json()) as DriveChangeList;
+        // A folder in this page was renamed, moved or deleted: paths cached from it
+        // are stale for every item below it (their own changes are not listed)
+        if ((data.changes || []).some((c) => c.file?.mimeType === "application/vnd.google-apps.folder")) {
+            this.pathResolver.forgetPaths();
+        }
 
         return {
             nextPageToken: data.nextPageToken,

@@ -27,6 +27,12 @@ export class DrivePathResolver {
     private folderCache: Map<string, string> = new Map();
     private initPromise: Promise<string> | null = null;
     private resolveCache: Map<string, Promise<string>> = new Map();
+    /**
+     * Folder look-ups (and creations) under way, by folder path. Two uploads into a
+     * new folder each looked it up, found nothing and created it: Drive then had two
+     * folders of that name, and one of them stayed behind empty after a rename.
+     */
+    private folderSteps: Map<string, Promise<string>> = new Map();
     private idToPathCache: Map<string, string> = new Map();
     private resolvePathCache: Map<string, string> = new Map();
     private outsideFolderIds: Set<string> = new Set();
@@ -284,22 +290,7 @@ export class DrivePathResolver {
                     continue;
                 }
 
-                const query = `name = '${this.http.escapeQueryValue(
-                    part,
-                )}' and '${currentParentId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
-                const response = await this.http.fetchWithAuth(
-                    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}`,
-                );
-                const data = (await response.json()) as DriveFileList;
-
-                if (data.files && data.files.length > 0) {
-                    currentParentId = data.files[0].id;
-                } else if (create) {
-                    currentParentId = await this.createFolder(part, currentParentId);
-                } else {
-                    throw new CloudError(`Folder not found: ${pathAccumulator}`, "not-found");
-                }
-                this.folderCache.set(pathAccumulator, currentParentId);
+                currentParentId = await this.folderStep(pathAccumulator, part, currentParentId, create);
 
                 // If this is a sub-path, we can cache its resolution as well
                 if (pathAccumulator !== folderPath && !this.resolveCache.has(pathAccumulator)) {
@@ -386,6 +377,45 @@ export class DrivePathResolver {
         return fullPath;
     }
 
+    /**
+     * The id of the folder `name` in `parentId` (the folder at `folderPath`), created
+     * when missing and `create` is set. One look-up per folder path at a time: a
+     * second caller waits for the first one's answer instead of creating it again.
+     */
+    private folderStep(folderPath: string, name: string, parentId: string, create: boolean): Promise<string> {
+        const running = this.folderSteps.get(folderPath);
+        if (running) {
+            // A look-up without create that failed must not fail a caller that creates
+            return create ? running.catch(() => this.folderStep(folderPath, name, parentId, true)) : running;
+        }
+        const step = (async () => {
+            const query = `name = '${this.http.escapeQueryValue(
+                name,
+            )}' and '${parentId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+            const response = await this.http.fetchWithAuth(
+                `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name)`,
+            );
+            const data = (await response.json()) as DriveFileList;
+            let id: string;
+            if (data.files && data.files.length > 0) {
+                id = data.files[0].id;
+            } else if (create) {
+                id = await this.createFolder(name, parentId);
+                console.debug(`Vault-Sync: Created new folder: ${folderPath} (id=${id})`);
+            } else {
+                throw new CloudError(`Folder not found: ${folderPath}`, "not-found");
+            }
+            this.folderCache.set(folderPath, id);
+            return id;
+        })();
+        this.folderSteps.set(folderPath, step);
+        const forget = () => {
+            if (this.folderSteps.get(folderPath) === step) this.folderSteps.delete(folderPath);
+        };
+        step.then(forget, forget);
+        return step;
+    }
+
     async createFolder(name: string, parentId?: string): Promise<string> {
         const metadata: { name: string; mimeType: string; parents?: string[] } = {
             name: name,
@@ -396,10 +426,10 @@ export class DrivePathResolver {
         const data = await this.http.createItem<{ id: string }>(
             "https://www.googleapis.com/drive/v3/files",
             parentId,
-            (appProperties) => ({
+            (extra) => ({
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ ...metadata, appProperties }),
+                body: JSON.stringify({ ...metadata, ...extra }),
             }),
             "id",
         );
@@ -452,30 +482,7 @@ export class DrivePathResolver {
                             if (this.folderCache.has(pathAccumulator)) {
                                 currentParentId = this.folderCache.get(pathAccumulator)!;
                             } else {
-                                // Double check on remote to avoid duplicates
-                                const query = `name = '${this.http.escapeQueryValue(
-                                    part,
-                                )}' and '${currentParentId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
-                                const response = await this.http.fetchWithAuth(
-                                    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name)`,
-                                );
-                                const data = (await response.json()) as DriveFileList;
-
-                                if (data.files && data.files.length > 0) {
-                                    currentParentId = data.files[0].id;
-                                    console.debug(
-                                        `Vault-Sync: Found existing folder: ${pathAccumulator} (id=${currentParentId})`,
-                                    );
-                                } else {
-                                    currentParentId = await this.createFolder(
-                                        part,
-                                        currentParentId,
-                                    );
-                                    console.debug(
-                                        `Vault-Sync: Created new folder: ${pathAccumulator} (id=${currentParentId})`,
-                                    );
-                                }
-                                this.folderCache.set(pathAccumulator, currentParentId);
+                                currentParentId = await this.folderStep(pathAccumulator, part, currentParentId, true);
                                 // Also populate resolveCache for intermediate paths
                                 if (!this.resolveCache.has(pathAccumulator)) {
                                     this.resolveCache.set(
@@ -492,11 +499,26 @@ export class DrivePathResolver {
     }
 
     /** Clear folder and resolve caches. Called at start of listFiles for fresh state. */
+    /**
+     * A folder was renamed, moved or deleted (maybe by another device): every path
+     * cached from it, in either direction, may be stale. Resolving a changed note
+     * through a stale folder entry reported it under the folder's old name.
+     */
+    forgetPaths(): void {
+        this.folderCache.clear();
+        this.resolveCache.clear();
+        this.folderSteps.clear();
+        this.idToPathCache.clear();
+        this.resolvePathCache.clear();
+        this.outsideFolderIds.clear();
+    }
+
     clearFolderCaches(): void {
         this.vaultRootId = null;
         this.initPromise = null;
         this.folderCache.clear();
         this.resolveCache.clear();
+        this.folderSteps.clear();
     }
 
     /** Get folder ID by name, optionally within a parent. */

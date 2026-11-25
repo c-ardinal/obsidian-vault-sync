@@ -124,3 +124,51 @@ jobs:
             # still break the named property (see formal/README.md)
             - name: Check the models
               run: node formal/run.mjs
+
+    browser:
+        name: Browser engines (Chromium, WebKit)
+        # Playwright 1.56 has no browsers for ubuntu-latest (26.04) yet
+        runs-on: ubuntu-24.04
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Use Node.js 20.x
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 20.x
+                  cache: "npm"
+
+            - name: Install dependencies
+              run: npm ci
+
+            - name: Install Chromium and WebKit
+              run: npx playwright-core install --with-deps chromium webkit
+
+            - name: Download the approved add-on engine
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  repo=c-ardinal/obsidian-vault-sync-e2ee-engine
+                  # The release this checkout approves (its engine hash is pinned in
+                  # approved-addons.ts), not simply the newest one
+                  approved=$(awk '/files: \{/,/\}/' src/addons/approved-addons.ts | sed -n 's/.*"e2ee-engine.js": "\([0-9a-f]*\)".*/\1/p')
+                  test -n "$approved"
+                  for tag in $(gh release list --repo "$repo" -L 10 --json tagName -q '.[].tagName'); do
+                      rm -rf .addon-pkg
+                      gh release download "$tag" --repo "$repo" --pattern 'vault-sync-e2ee-engine.zip' -D .addon-pkg || continue
+                      unzip -o -j .addon-pkg/vault-sync-e2ee-engine.zip '*e2ee-engine.js' -d .addon-pkg
+                      if [ "$(sha256sum .addon-pkg/e2ee-engine.js | cut -d' ' -f1)" = "$approved" ]; then
+                          echo "Approved engine: $tag"
+                          echo "ADDON_ENGINE_JS=$PWD/.addon-pkg/e2ee-engine.js" >> "$GITHUB_ENV"
+                          exit 0
+                      fi
+                  done
+                  echo "No release of $repo has the approved engine ($approved)" >&2
+                  exit 1
+
+            # The shipped Drive adapter over XMLHttpRequest, and the add-on loader, in
+            # Chromium (desktop, Android) and WebKit (iPhone, iPad), cross-origin like
+            # googleapis.com from the Obsidian app
+            - name: Run browser tests
+              run: npx vitest run --config vitest.browser.config.ts

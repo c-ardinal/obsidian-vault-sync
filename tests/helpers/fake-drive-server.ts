@@ -11,15 +11,18 @@ interface DriveItem {
     modifiedTime: string;
     content?: Uint8Array;
     md5Checksum?: string;
+    appProperties?: Record<string, string>;
     revisions: { id: string; modifiedTime: string; content: Uint8Array; md5Checksum: string; keepForever: boolean }[];
 }
 
 interface UploadSession {
     fileId?: string;
-    metadata: { name?: string; parents?: string[]; modifiedTime?: string };
+    metadata: { name?: string; parents?: string[]; modifiedTime?: string; appProperties?: Record<string, string> };
     total: number;
     received: Uint8Array[];
     receivedBytes: number;
+    /** Set once every byte arrived: Drive answers later status queries with the file */
+    doneId?: string;
 }
 
 /**
@@ -36,6 +39,28 @@ export class FakeDriveServer {
     changesPageSize = 1000;
     /** Every request seen, as "METHOD path" (for debugging failed contract cases) */
     readonly requests: string[] = [];
+
+    /**
+     * The vault as Drive holds it: path (relative to the vault folder) -> item.
+     * Folders end in "/". Several items of one path (duplicates) get " #2", " #3"...
+     */
+    vaultItems(vaultName = "ContractVault"): Map<string, { folder: boolean; content?: Uint8Array }> {
+        const all = [...this.items.values()];
+        const vault = all.find((i) => i.name === vaultName && i.mimeType === FOLDER);
+        const out = new Map<string, { folder: boolean; content?: Uint8Array }>();
+        if (!vault) return out;
+        const walk = (parentId: string, prefix: string) => {
+            for (const it of all.filter((x) => x.parents.includes(parentId))) {
+                const folder = it.mimeType === FOLDER;
+                let key = prefix + it.name + (folder ? "/" : "");
+                for (let n = 2; out.has(key); n++) key = `${prefix}${it.name} #${n}${folder ? "/" : ""}`;
+                out.set(key, { folder, content: it.content });
+                if (folder) walk(it.id, prefix + it.name + "/");
+            }
+        };
+        walk(vault.id, "");
+        return out;
+    }
 
     /** A fetch() replacement: (url, init) -> Response */
     readonly fetch = async (url: string, init: RequestInit = {}): Promise<Response> => {
@@ -72,9 +97,7 @@ export class FakeDriveServer {
             parents: item.parents,
             modifiedTime: item.modifiedTime,
             trashed: false,
-            ...(item.content
-                ? { size: String(item.content.byteLength), md5Checksum: item.md5Checksum }
-                : {}),
+            ...(item.content ? { size: String(item.content.byteLength), md5Checksum: item.md5Checksum } : {}),
         };
     }
 
@@ -92,14 +115,30 @@ export class FakeDriveServer {
         this.record(item.id);
     }
 
-    private createItem(meta: { name?: string; mimeType?: string; parents?: string[]; modifiedTime?: string }): DriveItem {
+    /** Like Drive: an id reserved with generateIds can be given once; again it is refused (409) */
+    private idTaken(meta: { id?: unknown }): Response | null {
+        if (typeof meta.id === "string" && this.items.has(meta.id)) {
+            return this.error(409, `A file already exists with the provided ID.`);
+        }
+        return null;
+    }
+
+    private createItem(meta: {
+        id?: string;
+        name?: string;
+        mimeType?: string;
+        parents?: string[];
+        modifiedTime?: string;
+        appProperties?: Record<string, string>;
+    }): DriveItem {
         const item: DriveItem = {
-            id: this.newId(),
+            id: typeof meta.id === "string" ? meta.id : this.newId(),
             name: meta.name || "untitled",
             mimeType: meta.mimeType || "application/octet-stream",
             parents: meta.parents || ["root"],
             modifiedTime: meta.modifiedTime || new Date().toISOString(),
             revisions: [],
+            ...(meta.appProperties ? { appProperties: { ...meta.appProperties } } : {}),
         };
         this.items.set(item.id, item);
         return item;
@@ -115,7 +154,12 @@ export class FakeDriveServer {
 
     /** Evaluate the subset of Drive's query language the adapter uses */
     private matches(item: DriveItem, q: string): boolean {
-        const clauses = q.split(/\s+and\s+(?=(?:[^']*'[^']*')*[^']*$)/);
+        // "appProperties has { key='k' and value='v' }" holds an "and" of its own
+        const q1 = q.replace(
+            /appProperties has \{ key=('(?:[^'\\]|\\.)*') and value=('(?:[^'\\]|\\.)*') \}/g,
+            "appProperty $1 = $2",
+        );
+        const clauses = q1.split(/\s+and\s+(?=(?:[^']*'[^']*')*[^']*$)/);
         const unquote = (s: string) => s.slice(1, -1).replace(/\\'/g, "'").replace(/\\\\/g, "\\");
         for (const raw of clauses) {
             const c = raw.trim();
@@ -126,6 +170,8 @@ export class FakeDriveServer {
                 if (!item.parents.includes(unquote(m[1]))) return false;
             } else if ((m = /^mimeType = ('(?:[^'\\]|\\.)*')$/.exec(c))) {
                 if (item.mimeType !== unquote(m[1])) return false;
+            } else if ((m = /^appProperty ('(?:[^'\\]|\\.)*') = ('(?:[^'\\]|\\.)*')$/.exec(c))) {
+                if (item.appProperties?.[unquote(m[1])] !== unquote(m[2])) return false;
             } else if (c === "trashed = false") {
                 // deleted items are gone from the store, nothing is trashed
             } else {
@@ -149,7 +195,10 @@ export class FakeDriveServer {
     }
 
     /** Split a multipart/related upload into its JSON metadata and its bytes */
-    private parseMultipart(body: Uint8Array, contentType: string): { meta: Record<string, unknown>; bytes: Uint8Array } {
+    private parseMultipart(
+        body: Uint8Array,
+        contentType: string,
+    ): { meta: Record<string, unknown>; bytes: Uint8Array } {
         const boundary = /boundary=([^;]+)/.exec(contentType)?.[1];
         if (!boundary) throw new Error("FakeDriveServer: multipart without boundary");
         const find = (needle: string, from: number) => {
@@ -186,6 +235,8 @@ export class FakeDriveServer {
                     await this.bodyBytes(init),
                     this.header(init, "Content-Type") || "",
                 );
+                const taken = fileId ? null : this.idTaken(meta);
+                if (taken) return taken;
                 const item = fileId ? this.items.get(fileId)! : this.createItem(meta);
                 if (fileId && typeof meta.name === "string") item.name = meta.name;
                 this.writeContent(item, bytes, meta.modifiedTime as string | undefined);
@@ -204,6 +255,10 @@ export class FakeDriveServer {
             }
         }
 
+        if (p === "/drive/v3/about") {
+            return this.json({ storageQuota: { limit: String(15 * 1024 ** 3), usage: "0", usageInDriveTrash: "0" } });
+        }
+
         // --- Change feed ---
         if (p === "/drive/v3/changes/startPageToken") {
             return this.json({ startPageToken: String(this.changeLog.length) });
@@ -220,10 +275,16 @@ export class FakeDriveServer {
             const src = this.items.get(m[1]);
             if (!src) return this.error(404, `File not found: ${m[1]}.`);
             const meta = JSON.parse(new TextDecoder().decode(await this.bodyBytes(init))) as {
+                id?: string;
                 name?: string;
                 parents?: string[];
+                appProperties?: Record<string, string>;
             };
+            const taken = this.idTaken(meta);
+            if (taken) return taken;
             const item = this.createItem({
+                id: meta.id,
+                appProperties: meta.appProperties,
                 name: meta.name ?? src.name,
                 mimeType: src.mimeType,
                 parents: meta.parents ?? src.parents,
@@ -233,10 +294,18 @@ export class FakeDriveServer {
             return this.json(this.meta(item));
         }
 
+        // --- Reserved ids ---
+        if (p === "/drive/v3/files/generateIds") {
+            const count = Number(qs.get("count") || "10");
+            return this.json({ ids: Array.from({ length: count }, () => this.newId("gen")) });
+        }
+
         // --- Files ---
         if (p === "/drive/v3/files") {
             if (method === "POST") {
                 const meta = JSON.parse(new TextDecoder().decode(await this.bodyBytes(init)));
+                const taken = this.idTaken(meta);
+                if (taken) return taken;
                 const item = this.createItem(meta);
                 this.record(item.id);
                 return this.json({ id: item.id });
@@ -246,6 +315,10 @@ export class FakeDriveServer {
             return this.json({ files });
         }
         m = /^\/drive\/v3\/files\/([\w-]+)$/.exec(p);
+        // "root" names My Drive, which has no parents
+        if (m?.[1] === "root" && method === "GET" && !this.items.has("root")) {
+            return this.json({ id: "root", name: "My Drive", mimeType: "application/vnd.google-apps.folder" });
+        }
         if (m) {
             const item = this.items.get(m[1]);
             if (!item) return this.error(404, `File not found: ${m[1]}.`);
@@ -278,16 +351,27 @@ export class FakeDriveServer {
     private async putChunk(sid: string, init: RequestInit): Promise<Response> {
         const s = this.sessions.get(sid);
         if (!s) return this.error(404, "Upload session not found");
+        if (s.doneId) {
+            const done = this.items.get(s.doneId);
+            return done ? this.json(this.meta(done)) : this.error(404, "File not found");
+        }
         const range = this.header(init, "Content-Range") || "";
         if (!/^bytes \*\//.test(range)) {
             const start = Number(/^bytes (\d+)-/.exec(range)?.[1]);
-            if (start !== s.receivedBytes) return this.error(400, `Unexpected offset ${start}`);
             const chunk = await this.bodyBytes(init);
-            s.received.push(chunk.slice());
-            s.receivedBytes += chunk.byteLength;
+            // A chunk sent again (its answer was lost; browsers also resend a request
+            // on their own when a reused connection drops): the bytes Drive already
+            // has are skipped. A gap is an error.
+            if (start > s.receivedBytes || start + chunk.byteLength < s.receivedBytes) {
+                return this.error(400, `Unexpected offset ${start}`);
+            }
+            const fresh = chunk.slice(s.receivedBytes - start);
+            s.received.push(fresh);
+            s.receivedBytes += fresh.byteLength;
         }
         if (s.receivedBytes < s.total) {
-            const headers: Record<string, string> = s.receivedBytes > 0 ? { Range: `bytes=0-${s.receivedBytes - 1}` } : {};
+            const headers: Record<string, string> =
+                s.receivedBytes > 0 ? { Range: `bytes=0-${s.receivedBytes - 1}` } : {};
             return new Response(null, { status: 308, headers });
         }
         const all = new Uint8Array(s.total);
@@ -296,9 +380,10 @@ export class FakeDriveServer {
             all.set(c, pos);
             pos += c.byteLength;
         }
-        this.sessions.delete(sid);
         const item = s.fileId ? this.items.get(s.fileId) : this.createItem(s.metadata);
         if (!item) return this.error(404, "File not found");
+        s.doneId = item.id;
+        s.received = [];
         if (s.fileId && s.metadata.name) item.name = s.metadata.name;
         this.writeContent(item, all, s.metadata.modifiedTime);
         return this.json(this.meta(item));
