@@ -201,6 +201,12 @@ export class GoogleDriveAdapter implements OAuthCloudAdapter {
         return this.pathResolver.getFolderIdByName(name, parentId);
     }
 
+    /**
+     * The same account under another vault folder. The clone shares this
+     * adapter's sign-in and request queue: a token refresh, a new sign-in or a
+     * changed sign-in method on either one holds for both. A clone with its own
+     * copy of the tokens kept using the old session after signing in again.
+     */
     cloneWithNewVaultName(newVaultName: string): CloudAdapter {
         const cloned = new GoogleDriveAdapter(
             this.auth.clientId,
@@ -208,13 +214,12 @@ export class GoogleDriveAdapter implements OAuthCloudAdapter {
             newVaultName,
             this.rootFolder,
         );
-        const tokens = this.auth.getTokens();
-        cloned.auth.setTokens(tokens.accessToken, tokens.refreshToken, tokens.tokenExpiresAt);
-        // Same sign-in method: the clone refreshes its token the way this adapter does
-        const { method, proxyUrl } = this.auth.getAuthConfig();
-        cloned.auth.setAuthConfig(method, proxyUrl);
+        cloned.auth = this.auth;
+        cloned.http = this.http;
+        cloned.pathResolver = new DrivePathResolver(this.http, newVaultName, this.rootFolder);
         if (this.logger) {
-            cloned.setLogger(this.logger);
+            cloned.logger = this.logger;
+            cloned.pathResolver.setLogger(this.logger);
         }
         return cloned;
     }

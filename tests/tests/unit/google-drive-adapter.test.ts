@@ -432,6 +432,13 @@ describe("GoogleDriveAdapter", () => {
             });
         });
 
+        it("follows a new sign-in on the source adapter", () => {
+            const cloned = adapter.cloneWithNewVaultName("NewVault") as GoogleDriveAdapter;
+            adapter.auth.setTokens("access-2", "refresh-2", Date.now() + 3600 * 1000);
+            expect(cloned.auth.getTokens().accessToken).toBe("access-2");
+            expect(cloned.auth.getTokens().refreshToken).toBe("refresh-2");
+        });
+
         it("keeps client credentials mode", () => {
             adapter.setAuthConfig("client-credentials");
             const cloned = adapter.cloneWithNewVaultName("NewVault") as GoogleDriveAdapter;
