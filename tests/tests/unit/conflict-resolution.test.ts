@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
     buildConflictChunks,
+    ConflictNoteChangedError,
     composeConflictResult,
     decodeText,
     findConflictCopies,
@@ -103,6 +104,33 @@ describe("resolveConflictCopy", () => {
         files.set(copy, enc("mine"));
         expect(await resolveConflictCopy(v, copy, enc("merged"))).toBe("n.md");
         expect(dec(files.get("n.md")!)).toBe("merged");
+        expect(trashed).toEqual([copy]);
+    });
+
+    it("does not overwrite a note that changed since it was compared", async () => {
+        const { v, files, trashed } = vault();
+        files.set("n.md", enc("cloud, edited by a sync meanwhile"));
+        files.set(copy, enc("mine"));
+        await expect(resolveConflictCopy(v, copy, enc("merged"), enc("cloud"))).rejects.toBeInstanceOf(
+            ConflictNoteChangedError,
+        );
+        expect(dec(files.get("n.md")!)).toBe("cloud, edited by a sync meanwhile");
+        expect(trashed).toEqual([]);
+
+        // Missing when compared, there now
+        await expect(resolveConflictCopy(v, copy, enc("merged"), null)).rejects.toBeInstanceOf(ConflictNoteChangedError);
+        // Unchanged: written
+        await resolveConflictCopy(v, copy, enc("merged"), enc("cloud, edited by a sync meanwhile"));
+        expect(dec(files.get("n.md")!)).toBe("merged");
+        expect(trashed).toEqual([copy]);
+    });
+
+    it("keeps the current note without checking it when no result is given", async () => {
+        const { v, files, trashed } = vault();
+        files.set("n.md", enc("newer"));
+        files.set(copy, enc("mine"));
+        await resolveConflictCopy(v, copy, null, enc("cloud"));
+        expect(dec(files.get("n.md")!)).toBe("newer");
         expect(trashed).toEqual([copy]);
     });
 

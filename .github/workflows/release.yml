@@ -76,6 +76,8 @@ jobs:
               with:
                   tag_name: ${{ env.VERSION }}
                   name: Release ${{ env.VERSION }}
+                  # Every release is published as a pre-release until the plugin leaves beta.
+                  prerelease: true
                   files: |
                       cardinal-vault-sync_${{ env.VERSION }}.zip
                       dist/cardinal-vault-sync/main.js

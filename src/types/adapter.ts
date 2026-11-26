@@ -181,6 +181,9 @@ export interface CloudAdapter {
     ): Promise<void>;
     fileExistsById(fileId: string): Promise<boolean>;
 
+    /** When a file was created on the cloud, Unix ms (optional; undefined: not known) */
+    getFileCreatedTime?(fileId: string): Promise<number | undefined>;
+
     /** Account storage: used / total bytes (optional; one cheap request) */
     getStorageQuota?(): Promise<StorageQuota>;
 

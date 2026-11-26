@@ -553,6 +553,7 @@ async function settleWaitingDeletions(ctx: SyncContext): Promise<boolean> {
         return false; // try again next sync
     }
     let changed = false;
+    const settled: string[] = [];
     for (const [path, entry] of waiting) {
         if (ctx.index[path] !== entry) continue;
         // Back in the cloud (restored from its trash): nothing was deleted
@@ -565,8 +566,16 @@ async function settleWaitingDeletions(ctx: SyncContext): Promise<boolean> {
         if (verdict === "wait") continue;
         changed = true;
         if (verdict === "kept") continue;
+        settled.push(path);
+    }
+    // Reviewed like any other pull deletion: many at once ask before files are trashed
+    const decision = await reviewPlan(ctx, {
+        step: "pull",
+        changes: settled.map((path) => ({ action: "delete-local", path, kind: "file" })),
+    });
+    for (const path of settled) {
         try {
-            if (await applyRemoteDeletion(ctx, path, PlanDecision.approveAll())) {
+            if (await applyRemoteDeletion(ctx, path, decision)) {
                 ctx.logger.markActionTaken();
                 await ctx.log(`[Smart Pull] Deleted: ${path}`, "info");
                 await ctx.notify("noticeFileTrashed", basename(path));

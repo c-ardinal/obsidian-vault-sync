@@ -45,7 +45,12 @@ function baseOf(adapter: CloudAdapter): CloudAdapter {
     return adapter.getBaseAdapter?.() ?? adapter;
 }
 
-const trashAdapters = new WeakMap<CloudAdapter, CloudAdapter>();
+const trashAdapters = new WeakMap<CloudAdapter, { trash: CloudAdapter; root: string | undefined }>();
+
+/** The cloud folder an adapter's vault folder is in, where it has one */
+function rootOf(adapter: CloudAdapter): string | undefined {
+    return (adapter as { rootFolder?: string }).rootFolder;
+}
 
 /**
  * An adapter rooted at the trash folder of `adapter`'s vault (same sign-in).
@@ -55,10 +60,12 @@ const trashAdapters = new WeakMap<CloudAdapter, CloudAdapter>();
 export function trashAdapterOf(adapter: CloudAdapter): CloudAdapter | null {
     const base = baseOf(adapter);
     if (!base.copyFile) return null;
-    let trash = trashAdapters.get(base);
-    if (!trash || trash.vaultName !== trashRootName(base.vaultName)) {
+    // A clone is rooted where the adapter was when cloned: make a new one when that changes
+    const cached = trashAdapters.get(base);
+    let trash = cached?.trash;
+    if (!trash || trash.vaultName !== trashRootName(base.vaultName) || cached?.root !== rootOf(base)) {
         trash = base.cloneWithNewVaultName(trashRootName(base.vaultName));
-        trashAdapters.set(base, trash);
+        trashAdapters.set(base, { trash, root: rootOf(base) });
     }
     return trash === base || !trash.copyFile ? null : trash;
 }

@@ -199,6 +199,30 @@ describe("pull: a held deletion keeps the local file", () => {
         expect(b.getIndex(PATH)).toBeUndefined();
     });
 
+    it("reviews a deletion that waited for its mark before applying it", async () => {
+        // Our upload was deleted elsewhere; the wait for the deleting device's mark ran out
+        const ctx = b.getContext();
+        Object.assign(ctx.index[PATH], {
+            lastAction: "push",
+            ancestorHash: "0".repeat(32),
+            remoteDeletionSeenAt: Date.now() - 60 * 60 * 1000,
+        });
+        await cloud.deleteFile(fileId);
+        ctx.startPageToken = await cloud.getStartPageToken(); // not in the change feed any more
+        const guard = { review: vi.fn(async (plan: SyncPlan) => PlanDecision.holdAll(plan)) };
+        ctx.planGuard = guard;
+
+        await pullViaChangesAPI(ctx);
+
+        expect(guard.review).toHaveBeenCalledWith({
+            step: "pull",
+            changes: [{ action: "delete-local", path: PATH, kind: "file" }],
+        });
+        expect(b.getLocalContent(PATH)).toBe("v1\n");
+        expect(b.getDirtyPaths().has(PATH)).toBe(true);
+        expect(b.getIndex(PATH)).toBeUndefined();
+    });
+
     it("applies the deletion with the default guard", async () => {
         await cloud.deleteFile(fileId);
         await b.smartPull();
