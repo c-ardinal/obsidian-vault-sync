@@ -706,7 +706,7 @@ const FORMAT_SPECS: FormatSpec[] = [
     },
     {
         key: "noticeAddonUpdateRequired",
-        specJa: "⚠️ Vault-Sync: 導入済みのアドオンは、本バージョンのVault-Syncに非対応の旧版です。最新パッケージをダウンロードし、設定 → アドオン から導入してください。同期を一時停止しています。",
+        specJa: "⚠️ Vault-Sync: 導入済みのアドオンは、本バージョンのVault-Syncに非対応の旧バージョンです。最新パッケージをダウンロードし、設定 → アドオン から導入してください。同期を一時停止しています。",
     },
 ];
 

@@ -122,8 +122,8 @@ describe("i18n", () => {
         const ja = (await import("../../../src/i18n/lang/ja.json")).default as Record<string, string>;
         // 本端末/端末, クラウド, バージョン, トリガー, フォルダ, 送信/受信 (a web download stays ダウンロード)
         const banned = /デバイス|リモート|リビジョン|ローカル|プッシュ|トリガ(?!ー)|フォルダー|アップロード|files\)/;
-        // A file's version is バージョン. 版 stays only as a suffix naming an edition.
-        const edition = /旧版|クラウド版|本端末版|(Android|PC|iOS) 版/g;
+        // An older, newer or kept version is バージョン. 版 stays only as a suffix for where a copy is or which platform.
+        const edition = /クラウド版|本端末版|(Android|PC|iOS) 版/g;
         for (const [key, text] of Object.entries(ja)) {
             expect(banned.test(text), `${key}: ${text}`).toBe(false);
             expect(text.replace(edition, "").includes("版"), `${key}: ${text}`).toBe(false);
