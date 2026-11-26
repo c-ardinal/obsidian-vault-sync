@@ -366,17 +366,20 @@ async function uploadRemoteIndex(ctx: SyncContext): Promise<void> {
 
         // Upload raw index backup (best effort, uncompressed)
         const rawPath = ctx.pluginDataPath.replace(".json", "_raw.json");
-        try {
-            if (await ctx.vault.exists(rawPath)) {
-                await ctx.adapter.uploadFile(rawPath, indexContent, Date.now());
-                await ctx.log(`[Smart Push] Raw index backup uploaded.`, "debug");
+        const uploadRaw = async () => {
+            try {
+                if (await ctx.vault.exists(rawPath)) {
+                    await ctx.adapter.uploadFile(rawPath, indexContent, Date.now());
+                    await ctx.log(`[Smart Push] Raw index backup uploaded.`, "debug");
+                }
+            } catch (rawErr) {
+                await ctx.log(`[Smart Push] Failed to upload raw index: ${String(rawErr)}`, "debug");
             }
-        } catch (rawErr) {
-            await ctx.log(`[Smart Push] Failed to upload raw index: ${String(rawErr)}`, "debug");
-        }
+        };
 
         clearIndexUploadOwed(ctx);
-        await checkIndexOverwrite(ctx, uploadedIndex);
+        // The backup and the check are independent of each other: side by side
+        await Promise.all([uploadRaw(), checkIndexOverwrite(ctx, uploadedIndex)]);
         await saveIndex(ctx);
         await ctx.log(`[Smart Push] Index uploaded. Hash: ${uploadedIndex.hash}`, "info");
     } catch (e) {

@@ -1139,9 +1139,16 @@ export async function pullViaChangesAPI(
             await ctx.notify("noticeWaitingForRemoteRegistration", `(Page ${pageCount++})...`);
         }
 
-        // communication.json / remote index are only needed for file changes
+        // communication.json / remote index are only needed for changes of the vault's
+        // files. The plugin's own cloud files (index backup, device records, merge locks)
+        // are skipped below: a page holding only those, e.g. this device's record
+        // written after its last sync, costs no extra read.
         const hasFileChanges = changes.changes.some(
-            (c) => !c.removed && c.file?.kind === "file" && c.file.path !== ctx.pluginDataPath,
+            (c) =>
+                !c.removed &&
+                c.file?.kind === "file" &&
+                c.file.path !== ctx.pluginDataPath &&
+                !isManagedSeparately(c.file.path),
         );
         // Deletion marks for removed files whose current version is our upload
         const removesOurUpload = changes.changes.some(
