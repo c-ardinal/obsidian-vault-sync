@@ -146,17 +146,44 @@ export interface ConflictVault {
     trash(path: string): Promise<void>;
 }
 
+/** The note is not what the comparison was made from any more (a sync updated it meanwhile) */
+export class ConflictNoteChangedError extends Error {
+    constructor(path: string) {
+        super(`The note changed since it was compared: ${path}`);
+        this.name = "ConflictNoteChangedError";
+    }
+}
+
+function sameBytes(a: ArrayBuffer, b: ArrayBuffer): boolean {
+    if (a.byteLength !== b.byteLength) return false;
+    const x = new Uint8Array(a);
+    const y = new Uint8Array(b);
+    for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return false;
+    return true;
+}
+
 /**
  * Finish a conflict: write `result` to the note (null = keep the note as it is)
  * and move the copy to the trash. Returns the note's path.
+ *
+ * `compared` is the note the result was made from (null = it was missing).
+ * When given, a note that changed since is not overwritten: nothing is written
+ * or trashed and ConflictNoteChangedError is thrown.
  */
 export async function resolveConflictCopy(
     vault: ConflictVault,
     copyPath: string,
     result: ArrayBuffer | null,
+    compared?: ArrayBuffer | null,
 ): Promise<string> {
     const parsed = parseConflictCopyPath(copyPath);
     if (!parsed) throw new Error(`Not a conflict copy: ${copyPath}`);
+    if (result && compared !== undefined) {
+        const now = (await vault.exists(parsed.originalPath)) ? await vault.readBinary(parsed.originalPath) : null;
+        if (now === null ? compared !== null : compared === null || !sameBytes(now, compared)) {
+            throw new ConflictNoteChangedError(parsed.originalPath);
+        }
+    }
     if (result) await vault.writeNote(parsed.originalPath, result);
     await vault.trash(copyPath);
     return parsed.originalPath;

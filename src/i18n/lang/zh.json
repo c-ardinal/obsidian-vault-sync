@@ -86,6 +86,7 @@
     "conflictResolveKeepRemote": "保留云端版本",
     "conflictResolveSave": "保存结果",
     "conflictResolveDone": "冲突已解决：{path}",
+    "conflictResolveNoteChanged": "此界面打开期间笔记已更新。已刷新比较内容，请确认后重新选择。",
     "conflictResolveFailed": "无法解决冲突。请重试；如仍失败，请查看诊断信息。",
     "conflictResolveNone": "没有需要解决的冲突。",
     "conflictResolvePick": "选择要解决的冲突",

@@ -3,6 +3,7 @@ import { t } from "../i18n";
 import {
     buildConflictChunks,
     composeConflictResult,
+    ConflictNoteChangedError,
     decodeText,
     findConflictCopies,
     parseConflictCopyPath,
@@ -54,6 +55,8 @@ export class ConflictResolveModal extends Modal {
     private choices: ChunkChoice[] = [];
     private resultEl: HTMLTextAreaElement | null = null;
     private localData: ArrayBuffer | null = null;
+    /** The note as compared (null: it was missing) */
+    private noteData: ArrayBuffer | null = null;
     private readonly vault: ConflictVault;
 
     constructor(
@@ -86,8 +89,10 @@ export class ConflictResolveModal extends Modal {
             this.localData = await this.vault.readBinary(this.copyPath);
             local = decodeText(this.localData);
             if (await this.vault.exists(parsed.originalPath)) {
-                remote = decodeText(await this.vault.readBinary(parsed.originalPath));
+                this.noteData = await this.vault.readBinary(parsed.originalPath);
+                remote = decodeText(this.noteData);
             } else {
+                this.noteData = null;
                 remoteMissing = true;
             }
         } catch (e) {
@@ -205,10 +210,17 @@ export class ConflictResolveModal extends Modal {
 
     private async finish(result: ArrayBuffer | null): Promise<void> {
         try {
-            const path = await resolveConflictCopy(this.vault, this.copyPath, result);
+            const path = await resolveConflictCopy(this.vault, this.copyPath, result, this.noteData);
             new Notice(t("conflictResolveDone").replace("{path}", path));
             this.close();
         } catch (e) {
+            if (e instanceof ConflictNoteChangedError) {
+                // A sync updated the note meanwhile: compare again instead of overwriting it
+                new Notice(t("conflictResolveNoteChanged"));
+                this.contentEl.empty();
+                await this.load();
+                return;
+            }
             new Notice(`${t("conflictResolveFailed")}\n${String(e)}`);
         }
     }

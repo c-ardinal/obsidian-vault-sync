@@ -417,6 +417,7 @@
     "conflictResolveKeepRemote": "クラウド上のファイルを採用",
     "conflictResolveSave": "結果を保存",
     "conflictResolveDone": "競合を解決しました：{path}",
+    "conflictResolveNoteChanged": "画面表示中にノートが更新されました。比較内容を更新したため、確認後に再度選択してください。",
     "conflictResolveFailed": "競合を解決できませんでした。再度実行し、解決しない場合は診断情報を確認してください。",
     "conflictResolveNone": "未解決の競合はありません。",
     "conflictResolvePick": "解決対象の競合を選択",

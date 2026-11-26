@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { MockCloudAdapter } from "../../helpers/mock-cloud-adapter";
 import {
     TrashRemoteDeletion,
@@ -136,5 +136,19 @@ describe("remote trash when a copy cannot be made", () => {
             strategy.remove(cloud, { id: g.id, path: "b.md", kind: "file" }, "user-file"),
         ).rejects.toThrow("offline");
         expect(await cloud.fileExistsById(g.id)).toBe(true);
+    });
+
+    it("makes a new trash adapter when the cloud root folder changes", () => {
+        const cloud = new MockCloudAdapter();
+        cloud.cloneRoots = true;
+        const rooted = cloud as unknown as { rootFolder: string };
+        const clone = vi.spyOn(cloud, "cloneWithNewVaultName");
+        rooted.rootFolder = "RootA";
+        trashAdapterOf(cloud);
+        trashAdapterOf(cloud);
+        expect(clone).toHaveBeenCalledTimes(1);
+        rooted.rootFolder = "RootB";
+        expect(trashAdapterOf(cloud)).not.toBeNull();
+        expect(clone).toHaveBeenCalledTimes(2);
     });
 });

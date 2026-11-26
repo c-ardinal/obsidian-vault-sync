@@ -102,6 +102,8 @@ export const en: Record<string, string> = {
     conflictResolveKeepRemote: "Keep the cloud version",
     conflictResolveSave: "Save result",
     conflictResolveDone: "Conflict resolved: {path}",
+    conflictResolveNoteChanged:
+        "The note was updated while this screen was open. The comparison was refreshed; check it and choose again.",
     conflictResolveFailed: "Could not resolve the conflict. Try again; if it keeps failing, check the diagnostics.",
     conflictResolveNone: "There are no conflicts to resolve.",
     conflictResolvePick: "Choose a conflict to resolve",
