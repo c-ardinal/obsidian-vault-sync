@@ -53,7 +53,7 @@ export class DrivePathResolver {
     }
 
     private async log(msg: string, level: string = "debug") {
-        console.debug(`Vault-Sync: [${level.toUpperCase()}] ${msg}`);
+        console.debug(`Vault Syncer: [${level.toUpperCase()}] ${msg}`);
         if (this.logger) this.logger(msg, level);
     }
 
@@ -401,7 +401,7 @@ export class DrivePathResolver {
                 id = data.files[0].id;
             } else if (create) {
                 id = await this.createFolder(name, parentId);
-                console.debug(`Vault-Sync: Created new folder: ${folderPath} (id=${id})`);
+                console.debug(`Vault Syncer: Created new folder: ${folderPath} (id=${id})`);
             } else {
                 throw new CloudError(`Folder not found: ${folderPath}`, "not-found");
             }

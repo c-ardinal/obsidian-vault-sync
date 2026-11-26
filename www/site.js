@@ -1,4 +1,4 @@
-/* Vault-Sync - shared page behaviour.
+/* Vault Syncer -shared page behaviour.
  * Loaded in <head> without defer so the `pagereveal` listener is in place
  * before the first render of a cross-document view transition. */
 (function () {

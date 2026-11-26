@@ -1,11 +1,11 @@
 /**
- * Add-ons Vault-Sync is willing to install.
+ * Add-ons Vault Syncer is willing to install.
  *
  * An add-on is distributed separately as a zip package (see addon-package.ts).
- * Vault-Sync never downloads it: the user downloads the package and picks it.
+ * Vault Syncer never downloads it: the user downloads the package and picks it.
  * Every file in the package is pinned by SHA-256 here, so a package is only
  * accepted if it is byte-for-byte the reviewed release. Updating an add-on
- * (code, version or terms) therefore needs a matching Vault-Sync release:
+ * (code, version or terms) therefore needs a matching Vault Syncer release:
  * copy the hashes printed by the add-on's `npm run build`.
  *
  * Display text for an add-on (name, description, terms) lives inside its
@@ -14,7 +14,7 @@
 export interface ApprovedAddon {
     /** Must equal `id` in the package's addon.json. */
     id: string;
-    /** How Vault-Sync activates the entry file. */
+    /** How Vault Syncer activates the entry file. */
     kind: "crypto-engine";
     /** Where the entry file is saved, relative to the plugin folder. */
     installAs: string;

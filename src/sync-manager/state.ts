@@ -657,7 +657,7 @@ export async function saveIndex(ctx: StateCtx): Promise<void> {
     try {
         await ctx.vault.write(rawPath, data);
     } catch (e) {
-        console.error("Vault-Sync: Failed to save raw index backup", e);
+        console.error("Vault Syncer: Failed to save raw index backup", e);
     }
 
     // Never deferred: the index (and its Changes API token) was just written, and a
@@ -717,7 +717,7 @@ async function writeJournal(ctx: StateCtx): Promise<void> {
         await ctx.vault.write(localIndexJournalPath(ctx), JSON.stringify({ seq: j.seq, entries: changed }));
         j.journalDirty = n > 0;
     } catch (e) {
-        console.error("Vault-Sync: Failed to write local index journal", e);
+        console.error("Vault Syncer: Failed to write local index journal", e);
     }
 }
 
@@ -768,7 +768,7 @@ export async function saveLocalIndex(ctx: StateCtx, immediate = false): Promise<
         await ctx.vault.write(ctx.localIndexPath, data);
         rememberWritten(ctx);
     } catch (e) {
-        console.error("Vault-Sync: Failed to save local index", e);
+        console.error("Vault Syncer: Failed to save local index", e);
     }
 }
 
@@ -1209,7 +1209,7 @@ export function markRenamed(ctx: StateCtx, oldPath: string, newPath: string): vo
  * as a new note, so the note ended up twice in the cloud.
  */
 function persistMove(ctx: StateCtx): void {
-    void saveIndex(ctx).catch((e) => console.error("Vault-Sync: Failed to save index after a rename", e));
+    void saveIndex(ctx).catch((e) => console.error("Vault Syncer: Failed to save index after a rename", e));
 }
 
 export function markFolderRenamed(

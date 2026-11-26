@@ -459,7 +459,7 @@ describe("loadExternalCryptoEngine", () => {
         expect((result as any).externalModule).toBeUndefined();
         expect(consoleWarnSpy).toHaveBeenCalledWith(
             expect.stringContaining(
-                "Vault-Sync: Engine required 'missing-module' but no require available.",
+                "Vault Syncer: Engine required 'missing-module' but no require available.",
             ),
         );
 
@@ -523,7 +523,7 @@ module.exports = {
 
         expect(result).toBeNull();
         expect(consoleErrorSpy).toHaveBeenCalledWith(
-            expect.stringContaining("Vault-Sync: Engine execution failed"),
+            expect.stringContaining("Vault Syncer: Engine execution failed"),
             expect.any(Error),
         );
 
@@ -578,7 +578,7 @@ module.exports = {
 
         expect(result).toBeNull();
         expect(consoleErrorSpy).toHaveBeenCalledWith(
-            expect.stringContaining("Vault-Sync: Engine execution failed"),
+            expect.stringContaining("Vault Syncer: Engine execution failed"),
             expect.any(Error),
         );
 
@@ -600,7 +600,7 @@ module.exports = {
 
         expect(result).toBeNull();
         expect(consoleErrorSpy).toHaveBeenCalledWith(
-            expect.stringContaining("Vault-Sync: Engine execution failed"),
+            expect.stringContaining("Vault Syncer: Engine execution failed"),
             expect.any(Error),
         );
 
@@ -701,7 +701,7 @@ module.exports = {
         expect(onNotify).toHaveBeenCalledWith("noticeEngineVerifyFailed");
         // The error from onNotify is caught and logged by the catch block
         expect(consoleErrorSpy).toHaveBeenCalledWith(
-            expect.stringContaining("Vault-Sync: Engine execution failed"),
+            expect.stringContaining("Vault Syncer: Engine execution failed"),
             expect.any(Error),
         );
 

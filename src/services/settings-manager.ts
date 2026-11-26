@@ -20,11 +20,11 @@ interface SettingsManagerDeps {
 }
 
 /**
- * Manages loading and saving Vault-Sync settings from split JSON files
+ * Manages loading and saving Vault Syncer settings from split JSON files
  * (open-data.json / local-data.json), encryption secret initialization,
  * and credential loading from SecretStorage.
  *
- * Extracted from the main Vault-Sync plugin class to separate
+ * Extracted from the main Vault Syncer plugin class to separate
  * settings persistence from plugin lifecycle orchestration.
  */
 /**
@@ -61,7 +61,7 @@ export class SettingsManager {
                 ) as Partial<VaultSyncSettings>;
                 loadedSettings = { ...loadedSettings, ...openData };
             } catch (e) {
-                console.error("Vault-Sync: Failed to load open-data.json", e);
+                console.error("Vault Syncer: Failed to load open-data.json", e);
             }
         }
 
@@ -72,7 +72,7 @@ export class SettingsManager {
                 ) as Partial<VaultSyncSettings>;
                 loadedSettings = { ...loadedSettings, ...localData };
             } catch (e) {
-                console.error("Vault-Sync: Failed to load local-data.json", e);
+                console.error("Vault Syncer: Failed to load local-data.json", e);
             }
         }
 

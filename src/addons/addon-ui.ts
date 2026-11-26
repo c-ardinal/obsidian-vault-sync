@@ -1,13 +1,13 @@
 /**
- * What an add-on adds to Vault-Sync's own screens: settings pages of its own,
+ * What an add-on adds to Vault Syncer's own screens: settings pages of its own,
  * and actions that run from those pages and from the command palette.
  *
- * All display text comes from the add-on. Vault-Sync only draws the parts with
+ * All display text comes from the add-on. Vault Syncer only draws the parts with
  * Obsidian's standard components and routes clicks and commands back to the
  * add-on, so its own UI stays add-on neutral.
  *
  *   Settings › Add-ons
- *     ├ install / remove row          (Vault-Sync)
+ *     ├ install / remove row          (Vault Syncer)
  *     └ one row per add-on page  ───► add-on page (sections from getSections())
  *                                       ├ ordinary settings (toggle, text, ...)
  *                                       ├ "action" rows  ─► AddonAction.run()
@@ -76,7 +76,7 @@ export interface AddonAction {
     run(): void | Promise<void>;
 }
 
-/** A settings page of an add-on, listed on Vault-Sync's add-on page. */
+/** A settings page of an add-on, listed on Vault Syncer's add-on page. */
 export interface AddonPage {
     /** Unique within the add-on: lowercase letters, digits and "-". */
     id: string;
@@ -95,7 +95,7 @@ export interface AddonUiContributions {
     actions?: AddonAction[];
 }
 
-/** What Vault-Sync offers back to an add-on's UI code. */
+/** What Vault Syncer offers back to an add-on's UI code. */
 export interface AddonUiHost {
     /** Redraw the settings screen (after the add-on changed its state). */
     refresh(): void;
@@ -148,7 +148,7 @@ function isValidPage(p: unknown): p is AddonPage {
 export class AddonUiRegistry {
     private addons = new Map<string, RegisteredAddon>();
 
-    /** @param reservedActionIds ids an action may not take (Vault-Sync's own commands) */
+    /** @param reservedActionIds ids an action may not take (Vault Syncer's own commands) */
     constructor(private readonly reservedActionIds: ReadonlySet<string> = new Set()) {}
 
     /** Register (or replace) an add-on's parts. Returns the problems found, for the log. */
@@ -220,7 +220,7 @@ export class AddonUiRegistry {
         try {
             return action.isAvailable ? action.isAvailable() !== false : true;
         } catch (e) {
-            console.error(`Vault-Sync: add-on action "${action.id}" availability check failed`, e);
+            console.error(`Vault Syncer: add-on action "${action.id}" availability check failed`, e);
             return false;
         }
     }
@@ -233,7 +233,7 @@ export class AddonUiRegistry {
             await found.action.run();
             return true;
         } catch (e) {
-            console.error(`Vault-Sync: add-on action "${actionId}" failed`, e);
+            console.error(`Vault Syncer: add-on action "${actionId}" failed`, e);
             return false;
         }
     }
@@ -244,7 +244,7 @@ export class AddonUiRegistry {
             const sections = page.getSections();
             return Array.isArray(sections) ? sections.filter((s) => s && Array.isArray(s.items)) : [];
         } catch (e) {
-            console.error(`Vault-Sync: add-on page "${page.id}" failed to build`, e);
+            console.error(`Vault Syncer: add-on page "${page.id}" failed to build`, e);
             return [];
         }
     }

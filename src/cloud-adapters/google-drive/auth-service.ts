@@ -72,7 +72,7 @@ export class GoogleAuthService {
     }
 
     private async log(msg: string, level: string = "debug") {
-        console.debug(`Vault-Sync: [${level.toUpperCase()}] ${msg}`);
+        console.debug(`Vault Syncer: [${level.toUpperCase()}] ${msg}`);
         if (this.logger) this.logger(msg, level);
     }
 
@@ -354,7 +354,7 @@ export class GoogleAuthService {
 
         if (status < 200 || status >= 300) {
             const err = data.error_description || data.error || JSON.stringify(data);
-            console.error(`Vault-Sync: Proxy refresh failure (${status}): ${err}`);
+            console.error(`Vault Syncer: Proxy refresh failure (${status}): ${err}`);
             if (data.error === "invalid_grant" || data.error === "unauthorized_client") {
                 this.accessToken = null;
                 this.refreshToken = null;
@@ -410,7 +410,7 @@ export class GoogleAuthService {
 
         if (response.status < 200 || response.status >= 300) {
             const err = data.error_description || data.error || JSON.stringify(data);
-            console.error(`Vault-Sync: Refresh failed (${response.status}): ${err}`);
+            console.error(`Vault Syncer: Refresh failed (${response.status}): ${err}`);
             if (data.error === "invalid_grant" || data.error === "unauthorized_client") {
                 this.accessToken = null;
                 this.refreshToken = null;

@@ -21,11 +21,11 @@ const PACKAGE_ERROR_KEYS: Record<AddonPackageError, string> = {
 /**
  * Installs an add-on from a package (.zip) the user downloaded themselves:
  *   1. open the download page,
- *   2. pick the package; Vault-Sync verifies every file against its pinned hash,
+ *   2. pick the package; Vault Syncer verifies every file against its pinned hash,
  *   3. read the add-on's own terms of use (shipped in the package) and agree,
  *   4. install.
  *
- * Vault-Sync never downloads add-ons, and all add-on specific wording (name,
+ * Vault Syncer never downloads add-ons, and all add-on specific wording (name,
  * description, terms) comes from the package.
  */
 export class AddonInstallModal extends Modal {
@@ -116,7 +116,7 @@ export class AddonInstallModal extends Modal {
             this.setStatus("", false);
             await this.showTerms(result.pkg);
         } catch (e) {
-            console.error("Vault-Sync: reading add-on package failed", e);
+            console.error("Vault Syncer: reading add-on package failed", e);
             this.setStatus(t("addonErrorNotPackage"), true);
         }
     }

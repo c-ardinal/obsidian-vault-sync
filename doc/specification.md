@@ -1,4 +1,4 @@
-# Vault-Sync - 仕様書
+# Vault Syncer - 仕様書
 
 **Version**: 2.3
 **Last Updated**: 2026-02-19

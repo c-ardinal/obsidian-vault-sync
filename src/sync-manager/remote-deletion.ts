@@ -79,7 +79,7 @@ export class RemoteDeletionService {
                 listener(record);
             } catch (e) {
                 // A listener (log, UI) must never turn a done removal into a failure.
-                console.error("Vault-Sync: remote deletion listener failed", e);
+                console.error("Vault Syncer: remote deletion listener failed", e);
             }
         }
     }

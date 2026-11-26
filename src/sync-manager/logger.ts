@@ -130,7 +130,7 @@ export class SyncLogger {
 
         // Keep the developer console quiet by default (Obsidian plugin guidelines):
         // only errors and warnings use the visible console levels.
-        const line = `Vault-Sync: [${level.toUpperCase()}] ${message}`;
+        const line = `Vault Syncer: [${level.toUpperCase()}] ${message}`;
         if (level === "error") console.error(line);
         else if (level === "warn") console.warn(line);
         else console.debug(line);
@@ -176,7 +176,7 @@ export class SyncLogger {
         try {
             await this.options.onWrite(line, entry.timestamp);
         } catch (e) {
-            console.error("Vault-Sync: Failed to write log entry", e);
+            console.error("Vault Syncer: Failed to write log entry", e);
         }
     }
 }
