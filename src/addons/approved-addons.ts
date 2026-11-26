@@ -6,7 +6,8 @@
  * Every file in the package is pinned by SHA-256 here, so a package is only
  * accepted if it is byte-for-byte the reviewed release. Updating an add-on
  * (code, version or terms) therefore needs a matching Vault Syncer release:
- * copy the hashes printed by the add-on's `npm run build`.
+ * copy the hashes printed by the add-on's `npm run build`, and set `source`
+ * to the add-on commit that was built.
  *
  * Display text for an add-on (name, description, terms) lives inside its
  * package, not here.
@@ -20,6 +21,13 @@ export interface ApprovedAddon {
     installAs: string;
     /** Page where users download the package themselves. */
     downloadUrl: string;
+    /**
+     * Where the pinned files come from: the add-on's repository and the commit
+     * whose build gives exactly `files`. The automated checks build the package
+     * from it (e2e/prepare-approved-addon.mjs) instead of downloading a release,
+     * and fail when the build and `files` differ. Change it together with `files`.
+     */
+    source?: { repo: string; commit: string };
     /** SHA-256 (hex) of every file the package must contain, by file name. */
     files: Record<string, string>;
     /**
@@ -37,8 +45,13 @@ export const APPROVED_ADDONS: ApprovedAddon[] = [
         kind: "crypto-engine",
         installAs: "e2ee-engine.js",
         downloadUrl: "https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine/releases/latest",
+        source: {
+            repo: "c-ardinal/obsidian-vault-sync-e2ee-engine",
+            // 0.19.0
+            commit: "a4f0c1fc2be0f56e81387e7f97fd10124f1216d6",
+        },
         files: {
-            "addon.json": "bfc59e3b451dcedb5973d1f4c9ed437fdba0784637daf3448b83fa5201f5d706",
+            "addon.json": "5f9441aaa3dbf401ea67d5a71e2f655faa5cd499b7d2d4b842cf855629f6885c",
             "e2ee-engine.js": "9b0c2d618892f80921261b774f9fd88de0c26df9ed17ea82a4225d7429aca83d",
             "TERMS.md": "12b4525dd2a3dcde2758470c53f74cd8d65ff71c74ffd8a2351ee039191ecf14",
             "TERMS_ja.md": "ba7a50d0d9e4ee0c0a3696683c33dc8a4f316a39ba51909a87f20e1528114f36",
