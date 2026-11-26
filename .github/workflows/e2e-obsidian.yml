@@ -12,6 +12,7 @@ on:
             - "rollup.config.js"
             - "minify-css.mjs"
             - "e2e/obsidian/**"
+            - "e2e/prepare-approved-addon.mjs"
             - ".github/workflows/e2e-obsidian.yml"
             - "package-lock.json"
     workflow_dispatch:
@@ -61,15 +62,17 @@ jobs:
             - name: Download Obsidian
               run: echo "OBSIDIAN_BIN=$(node e2e/obsidian/setup-obsidian.mjs | tail -n 1)" >> "$GITHUB_ENV"
 
-            - name: Download add-on package (for the install review screen)
-              env:
-                  GH_TOKEN: ${{ github.token }}
-              run: |
-                  repo=c-ardinal/obsidian-vault-sync-e2ee-engine
-                  tag=$(gh release list --repo "$repo" -L 1 --json tagName -q '.[0].tagName' || true)
-                  if [ -n "$tag" ] && gh release download "$tag" --repo "$repo" --pattern 'vault-sync-e2ee-engine.zip' -D .addon-pkg; then
-                      echo "ADDON_ZIP=$PWD/.addon-pkg/vault-sync-e2ee-engine.zip" >> "$GITHUB_ENV"
-                  fi
+            # Built from the add-on commit pinned in approved-addons.ts, so the check
+            # does not depend on which add-on release is the latest
+            - name: Cache the approved add-on package
+              uses: actions/cache@v4
+              with:
+                  path: .addon-pkg
+                  key: addon-pkg-${{ hashFiles('src/addons/approved-addons.ts', 'e2e/prepare-approved-addon.mjs') }}
+
+            - name: Prepare the approved add-on package
+              timeout-minutes: 10
+              run: node e2e/prepare-approved-addon.mjs
 
             - name: Run UI check
               timeout-minutes: 15
