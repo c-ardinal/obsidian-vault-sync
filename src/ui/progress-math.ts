@@ -44,3 +44,20 @@ export function verifyEstimate(
     return { fraction, etaSec };
 }
 
+
+/** Longest file name the one-line display shows (longer ones end in an ellipsis) */
+export const TRANSFER_NAME_MAX = 24;
+
+/**
+ * The file the one-line display names while a sync transfers: an arrow for the
+ * direction and the file's name without its folder (a note also without ".md").
+ * Null when the cycle has not transferred anything yet.
+ */
+export function transferLabel(s: Pick<SyncProgressSnapshot, "recent">, max = TRANSFER_NAME_MAX): string | null {
+    if (!s.recent) return null;
+    let name = s.recent.path.split("/").pop() ?? s.recent.path;
+    if (name.toLowerCase().endsWith(".md") && name.length > 3) name = name.slice(0, -3);
+    const chars = Array.from(name);
+    if (chars.length > max) name = chars.slice(0, max - 1).join("") + "…";
+    return `${s.recent.direction === "push" ? "↑" : "↓"} ${name}`;
+}

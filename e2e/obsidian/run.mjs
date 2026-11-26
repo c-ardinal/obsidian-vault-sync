@@ -634,6 +634,8 @@ async function checkSyncStatus(page, lang, { mobile = false } = {}) {
     await sleep(mobile ? 700 : 300);
     const syncingText = await statusText();
     check(lang, `${tag}: status shows the count while syncing`, /12\/48/.test(syncingText), syncingText);
+    // The file whose transfer started last, so the line shows files going through
+    check(lang, `${tag}: status names the file in transfer`, /↓ 2026-11-13/.test(syncingText), syncingText);
     await shotStatus("syncing");
     await openPanel("syncing");
     await shot(page, lang, `${tag}-scr-status-panel-syncing`);
