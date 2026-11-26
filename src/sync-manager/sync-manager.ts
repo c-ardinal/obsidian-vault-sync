@@ -632,11 +632,8 @@ export class SyncManager {
      * vault-lock then appears). A lock older than a day is a leftover of an
      * abandoned conversion (the converting device overrides it after that too).
      */
-    private async otherDeviceConvertingVault(
-        trigger: SyncTrigger,
-        read: ReturnType<VaultLockService["getMigrationLock"]>,
-    ): Promise<boolean> {
-        const lock = await read;
+    private async otherDeviceConvertingVault(trigger: SyncTrigger): Promise<boolean> {
+        const lock = await this.vaultLockService.getMigrationLock();
         if (!lock || lock.deviceId === this.deviceId) return false;
         if (!(lock.timestamp > Date.now() - MIGRATION_LOCK_STALE_MS)) return false;
         const isUserAction = trigger === "manual-sync" || trigger === "full-scan";
@@ -669,12 +666,9 @@ export class SyncManager {
         // Auto-detect remote E2EE before first sync attempt
         if (!this.settings.e2eeEnabled && !(await this.lockCheckCanWait(trigger))) {
             try {
-                // Both locks are read side by side: one round trip of waiting, not two
-                const migrationLock = this.vaultLockService.getMigrationLock();
-                migrationLock.catch(() => {}); // reported where it is awaited below
                 const hasRemoteLock = await this.vaultLockService.checkForLockFile();
                 if (!hasRemoteLock) vaultLockClear.add(this);
-                if (!hasRemoteLock && (await this.otherDeviceConvertingVault(trigger, migrationLock))) return;
+                if (!hasRemoteLock && (await this.otherDeviceConvertingVault(trigger))) return;
                 if (hasRemoteLock) {
                     await this.log("Remote E2EE detected. Enabling E2EE locally.", "system");
                     this.settings.e2eeEnabled = true;

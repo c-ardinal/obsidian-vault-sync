@@ -168,9 +168,6 @@ export async function executeSmartSync(ctx: SyncContext, scanVault: boolean): Pr
 
         // Every transfer of the cycle is through; what follows confirms and tidies up.
         ctx.progress?.setPhase("finishing");
-        // Before the confirmation pull, which then reads past this write: left in the
-        // change feed, it made the next timer sync run its full checks for nothing.
-        await publishDeviceRecordIfDue(ctx);
         if (pushed) {
             await postPushPull(ctx);
         }
@@ -178,6 +175,7 @@ export async function executeSmartSync(ctx: SyncContext, scanVault: boolean): Pr
         await purgeTrashIfDue(ctx);
         await keepRevisionsIfDue(ctx);
         await checkStorageIfDue(ctx);
+        await publishDeviceRecordIfDue(ctx);
 
         if (!pulled && !pushed) {
             await ctx.notify("noticeVaultUpToDate");
