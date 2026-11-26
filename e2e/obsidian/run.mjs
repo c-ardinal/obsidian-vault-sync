@@ -507,13 +507,22 @@ async function checkSyncStatus(page, lang, { mobile = false } = {}) {
         check(lang, `${tag}: status bar item mounted`, present.item);
     }
 
-    const openPanel = async () => {
+    // The panel must keep one size through every state (it grew and shrank during a sync).
+    const panelSizes = [];
+    const openPanel = async (label) => {
         await page.evaluate(
             (id) => window.app.plugins.plugins[id].syncStatusView.openDetails(),
             PLUGIN_ID,
         );
         await page.waitForSelector(panelSel, { timeout: 3000 });
         await sleep(450); // bar transitions
+        if (label) {
+            const r = await page.evaluate((sel) => {
+                const b = document.querySelector(sel).getBoundingClientRect();
+                return `${Math.round(b.width)}x${Math.round(b.height)}`;
+            }, panelSel);
+            panelSizes.push(`${label}=${r}`);
+        }
     };
     const closePanel = () =>
         page.evaluate(
@@ -565,7 +574,7 @@ async function checkSyncStatus(page, lang, { mobile = false } = {}) {
     }
     check(lang, `${tag}: status shows "not signed in"`, /Not signed in|未ログイン|未登录|로그인 안 됨/.test(authText), authText);
     await shotStatus("auth");
-    await openPanel();
+    await openPanel("auth");
     await shot(page, lang, `${tag}-scr-status-panel-auth`);
     await panelChecks("auth");
     await closePanel();
@@ -598,6 +607,13 @@ async function checkSyncStatus(page, lang, { mobile = false } = {}) {
         p.syncManager.requestSmartSync = async () => {};
         p.syncManager.requestBackgroundScan = async () => {};
     `);
+    // A sync that has just started: nothing planned, no file yet.
+    await tracker(`tr.begin("manual-sync");`);
+    await openPanel("checking");
+    await shot(page, lang, `${tag}-scr-status-panel-checking`);
+    await panelChecks("checking");
+    await closePanel();
+    await tracker(`tr.finish("ok");`);
     await tracker(`
         tr.begin("manual-sync");
         const pulls = Array.from({ length: 30 }, (_, i) => ({ path: "Notes/Daily/2026-11-" + String(i + 1).padStart(2, "0") + ".md", size: 2400 + i * 37 }));
@@ -619,9 +635,25 @@ async function checkSyncStatus(page, lang, { mobile = false } = {}) {
     const syncingText = await statusText();
     check(lang, `${tag}: status shows the count while syncing`, /12\/48/.test(syncingText), syncingText);
     await shotStatus("syncing");
-    await openPanel();
+    await openPanel("syncing");
     await shot(page, lang, `${tag}-scr-status-panel-syncing`);
     await panelChecks("syncing");
+    await closePanel();
+
+    // Every file through, the cycle not over yet: the last step, no file line.
+    await tracker(`
+        for (const [dir, m] of Object.entries(tr.planned)) for (const path of m.keys()) tr.fileFinished(dir, path);
+        tr.setPhase("finishing");
+        tr.emit(true);
+    `);
+    await openPanel("finishing");
+    const lastStep = await page.evaluate(
+        (sel) => document.querySelector(`${sel} .vault-sync-status-step:last-child`)?.className ?? "",
+        panelSel,
+    );
+    check(lang, `${tag}: the last step is current after the uploads`, /is-current/.test(lastStep), lastStep);
+    await shot(page, lang, `${tag}-scr-status-panel-finishing`);
+    await panelChecks("finishing");
     await closePanel();
 
     // 3. Finished.
@@ -634,7 +666,7 @@ async function checkSyncStatus(page, lang, { mobile = false } = {}) {
     const doneText = await statusText();
     check(lang, `${tag}: status shows "synced"`, /Synced|同期済み|已同步|동기화됨/.test(doneText), doneText);
     await shotStatus("synced");
-    await openPanel();
+    await openPanel("synced");
     await shot(page, lang, `${tag}-scr-status-panel-synced`);
     await panelChecks("synced");
     // The conflict count opens the resolver; "more" lists the plugin's other screens.
@@ -670,7 +702,7 @@ async function checkSyncStatus(page, lang, { mobile = false } = {}) {
         );
         await sleep(300);
         await shotStatus(outcome);
-        await openPanel();
+        await openPanel(outcome);
         await shot(page, lang, `${tag}-scr-status-panel-${outcome}`);
         await panelChecks(outcome);
         await closePanel();
@@ -680,10 +712,16 @@ async function checkSyncStatus(page, lang, { mobile = false } = {}) {
     await tracker(`tr.begin("full-scan", "scanning"); tr.scanProgress(120, 480);`);
     await sleep(mobile ? 700 : 300);
     await shotStatus("scanning");
-    await openPanel();
+    await openPanel("scanning");
     await shot(page, lang, `${tag}-scr-status-panel-scanning`);
     await panelChecks("scanning");
     await closePanel();
+    check(
+        lang,
+        `${tag}: status panel has one size in every state`,
+        new Set(panelSizes.map((s) => s.split("=")[1])).size === 1,
+        panelSizes.join(" "),
+    );
     await tracker(`
         tr.finish("ok");
         delete p.isAdapterAuthenticated;
@@ -750,7 +788,39 @@ async function checkTransfers(page, lang, tag) {
         () => document.querySelectorAll(".vault-sync-xfer-batch.is-open .vault-sync-xfer-row").length,
     );
     check(lang, `${tag}: transfer history batch opens`, opened >= 2, `${opened} rows`);
-    await page.evaluate(() => document.querySelector(".mod-history")?.scrollIntoView());
+    // Closing a batch hides its rows again.
+    const visibleRows = () =>
+        page.evaluate(
+            () =>
+                [...document.querySelectorAll(".mod-history .vault-sync-xfer-row")].filter(
+                    (r) => r.getBoundingClientRect().height > 0,
+                ).length,
+        );
+    const rowsOpen = await visibleRows();
+    await page.locator(".vault-sync-xfer-batch.is-open .vault-sync-xfer-batch-head").first().click();
+    await sleep(300);
+    const rowsClosed = await visibleRows();
+    check(lang, `${tag}: transfer history batch closes`, rowsClosed < rowsOpen, `${rowsOpen} -> ${rowsClosed} rows`);
+    await page.locator(".vault-sync-xfer-batch:not(.is-open) .vault-sync-xfer-batch-head").first().click();
+    await sleep(200);
+    // Only the history scrolls: status and queue stay where they are.
+    const scroll = await page.evaluate(() => {
+        const m = document.querySelector(".mod-transfer-status-modal");
+        const top = (sel) => Math.round(m.querySelector(sel).getBoundingClientRect().top);
+        const before = [top(".vault-sync-xfer-summary"), top(".mod-queue"), top(".mod-history .vault-sync-xfer-section-head")];
+        const outer = m.querySelector(".vault-sync-transfer-container");
+        const body = m.querySelector(".vault-sync-xfer-history-body");
+        outer.scrollTop = 500;
+        body.scrollTop = 500;
+        const after = [top(".vault-sync-xfer-summary"), top(".mod-queue"), top(".mod-history .vault-sync-xfer-section-head")];
+        return { before, after, outer: outer.scrollTop, body: body.scrollTop, room: body.scrollHeight - body.clientHeight };
+    });
+    check(
+        lang,
+        `${tag}: transfer screen scrolls only the history`,
+        scroll.outer === 0 && scroll.before.join() === scroll.after.join() && (scroll.room <= 0 || scroll.body > 0),
+        JSON.stringify(scroll),
+    );
     await sleep(300);
     await shot(page, lang, `${tag}-scr-transfers-history`);
 }
@@ -1608,9 +1678,41 @@ async function checkNewFeatures(page, lang, { mobile = false } = {}) {
     await shotModal(page, lang, tag, "scr-verify-signed-out", "sync check (signed out)");
     await escape(page);
 
-    // Sync check with a report
+    // Sync check while it runs: bar, count and time left
     await plugin(`
         p.syncManager.__verify = p.syncManager.verifySync;
+        p.isAdapterAuthenticated = () => true;
+        p.syncManager.verifySync = (onProgress) => new Promise((resolve) => {
+            onProgress({ stage: "listing" });
+            const total = 1840, bytesTotal = 92_000_000;
+            const step = (done) => onProgress({ stage: "comparing", done, total, bytesDone: bytesTotal * done / total, bytesTotal });
+            setTimeout(() => step(0), 300);
+            setTimeout(() => step(772), 2600);
+            window.__verifyEnd = () => resolve({ checkedAt: Date.now(), matching: total, pending: 0, differences: [] });
+        });`);
+    await cmd(page, "verify-sync");
+    await modalOpen(page, ".vault-sync-verify-modal");
+    await sleep(150);
+    const listing = await page.$eval(".vault-sync-verify-progress", (e) => e.textContent);
+    await sleep(2900);
+    const running = await page.evaluate(() => ({
+        text: document.querySelector(".vault-sync-verify-progress")?.textContent ?? "",
+        bar: document.querySelector(".vault-sync-verify-bar .vault-sync-status-bar-fill")?.style.width ?? "",
+    }));
+    check(
+        lang,
+        `${tag}: sync check shows a bar, the count and the time left`,
+        listing.length > 0 && running.bar === "42%" && /772 \/ 1840/.test(running.text) && /\d/.test(running.text.split("1840")[1] ?? ""),
+        `${listing} | ${JSON.stringify(running)}`,
+    );
+    await shotModal(page, lang, tag, "scr-verify-running", "sync check (running)");
+    await page.evaluate(() => window.__verifyEnd());
+    await sleep(300);
+    await escape(page);
+    await plugin(`delete p.isAdapterAuthenticated;`);
+
+    // Sync check with a report
+    await plugin(`
         p.syncManager.verifySync = async () => ({
             checkedAt: Date.now(), matching: 128, pending: 1,
             differences: [

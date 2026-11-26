@@ -1113,12 +1113,39 @@
     padding: 0;
 }
 
+/* Status and queue stay in place at a fixed size; only the history below them scrolls */
 .vault-sync-transfer-container {
     display: flex;
     flex-direction: column;
+    flex: 1 1 auto;
     gap: var(--size-4-6);
+    min-height: 0;
+    overflow: hidden;
+    padding: var(--size-4-4) var(--size-4-5) 0;
+}
+
+.vault-sync-transfer-container > .vault-sync-xfer-summary,
+.vault-sync-transfer-container > .mod-queue {
+    flex: 0 0 auto;
+}
+
+.vault-sync-xfer-queue-body {
+    height: 132px;
     overflow-y: auto;
-    padding: var(--size-4-4) var(--size-4-5) var(--size-4-6);
+}
+
+.vault-sync-transfer-container > .mod-history {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 0;
+    min-height: 0;
+}
+
+.vault-sync-xfer-history-body {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow-y: auto;
+    padding-bottom: var(--size-4-6);
 }
 
 .vault-sync-xfer-muted {
@@ -1319,6 +1346,10 @@
     padding: 0 0 6px 22px;
 }
 
+.vault-sync-xfer-batch:not(.is-open) > .vault-sync-xfer-list {
+    display: none;
+}
+
 /* Phone / tablet: full screen below the system status bar */
 .is-mobile .modal.mod-transfer-status-modal {
     width: 100vw;
@@ -1332,7 +1363,15 @@
 
 .is-mobile .vault-sync-transfer-container {
     gap: var(--size-4-4);
-    padding: var(--size-4-3) var(--size-4-3) calc(var(--size-4-4) + var(--safe-area-inset-bottom));
+    padding: var(--size-4-3) var(--size-4-3) 0;
+}
+
+.is-mobile .vault-sync-xfer-history-body {
+    padding-bottom: calc(var(--size-4-4) + var(--safe-area-inset-bottom));
+}
+
+.is-phone .vault-sync-xfer-queue-body {
+    height: 112px;
 }
 
 .is-phone .vault-sync-xfer-row {
@@ -1573,7 +1612,7 @@
     z-index: var(--layer-popover);
     width: min(360px, calc(100vw - 16px));
     max-height: calc(100vh - 80px);
-    overflow-y: auto;
+    overflow: hidden auto;
     padding: 14px 16px;
     background: var(--background-primary);
     border: 1px solid var(--background-modifier-border);
@@ -1581,17 +1620,25 @@
     box-shadow: var(--shadow-l);
 }
 
+/* Each row of the panel is one line in every state: nothing wraps, long text is cut */
 .vault-sync-status-head {
     display: flex;
-    flex-wrap: wrap;
     justify-content: space-between;
     align-items: baseline;
-    gap: 4px 12px;
+    gap: 12px;
+    white-space: nowrap;
 }
 
 .vault-sync-status-title {
+    flex: 0 0 auto;
     font-size: var(--font-ui-medium);
     font-weight: var(--font-semibold);
+}
+
+.vault-sync-status-sub {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 [data-state="error"] .vault-sync-status-title,
@@ -1633,17 +1680,24 @@
 }
 
 .vault-sync-status-step-bar {
-    height: 4px;
-    border-radius: 2px;
+    height: 6px;
+    border-radius: 3px;
     background: var(--background-modifier-border);
+    overflow: hidden;
+}
+
+/* Fills with the progress of its own step */
+.vault-sync-status-step-fill {
+    height: 100%;
+    width: 0;
+    background: var(--interactive-accent);
 }
 
 .vault-sync-status-step.is-done {
     color: var(--text-muted);
 }
 
-.vault-sync-status-step.is-done .vault-sync-status-step-bar {
-    background: var(--interactive-accent);
+.vault-sync-status-step.is-done .vault-sync-status-step-fill {
     opacity: 0.45;
 }
 
@@ -1652,26 +1706,23 @@
     font-weight: var(--font-semibold);
 }
 
-.vault-sync-status-step.is-current .vault-sync-status-step-bar {
-    background: var(--interactive-accent);
+/* A step without a measure: a mark at rest, moving where motion is welcome */
+.vault-sync-status-step-fill.is-indeterminate {
+    width: 40%;
+    opacity: 0.7;
 }
 
-.vault-sync-status-overall {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
+[data-state="error"] .vault-sync-status-step-fill {
+    background: var(--text-error);
 }
 
-.vault-sync-status-overall-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    gap: 8px;
-    font-variant-numeric: tabular-nums;
-}
-
-.vault-sync-status-overall-row b {
-    font-size: var(--font-ui-medium);
+@keyframes vault-sync-step-indeterminate {
+    from {
+        transform: translateX(-100%);
+    }
+    to {
+        transform: translateX(250%);
+    }
 }
 
 .vault-sync-status-bar,
@@ -1703,6 +1754,12 @@
     align-items: center;
     gap: 6px 10px;
     font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.vault-sync-status-kv > * {
+    font-size: var(--font-ui-smaller);
+    line-height: 1.4;
 }
 
 .vault-sync-status-num {
@@ -1713,26 +1770,43 @@
     color: var(--text-warning);
 }
 
+/* Detail box: always two lines (file in transfer, failure reason or idle note) */
 .vault-sync-status-now {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
+    --vs-now-line: 1.45em;
+    flex: 0 0 auto;
+    box-sizing: content-box;
+    height: calc(var(--vs-now-line) * 2);
     padding: 8px 10px;
     border-radius: var(--radius-s, 6px);
     background: var(--background-secondary);
+    font-size: var(--font-ui-small);
+    line-height: var(--vs-now-line);
+    overflow: hidden;
+}
+
+.vault-sync-status-now-line {
+    height: var(--vs-now-line);
+    font-size: inherit;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.vault-sync-status-now-text {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    overflow-wrap: anywhere;
 }
 
 .vault-sync-status-file {
     font-weight: var(--font-semibold);
-    overflow-wrap: anywhere;
 }
 
 .vault-sync-status-error {
-    padding: 8px 10px;
-    border-radius: var(--radius-s, 6px);
     background: rgba(var(--color-red-rgb), 0.1);
     color: var(--text-error);
-    overflow-wrap: anywhere;
 }
 
 [data-state="offline"] > .vault-sync-status-error {
@@ -1742,15 +1816,23 @@
 
 .vault-sync-status-foot {
     display: flex;
-    flex-wrap: wrap;
     justify-content: space-between;
     align-items: center;
     gap: 8px;
+    min-height: var(--input-height, 30px);
+}
+
+.vault-sync-status-note {
+    flex: 1 1 0;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .vault-sync-status-btns {
     display: flex;
-    flex-wrap: wrap;
+    flex: 0 0 auto;
     gap: 8px;
     margin-left: auto;
 }
@@ -1759,6 +1841,10 @@
     .vault-sync-status-bar-fill,
     .vault-sync-status-line-fill {
         transition: width 0.4s ease;
+    }
+
+    .vault-sync-status-step-fill.is-indeterminate {
+        animation: vault-sync-step-indeterminate 1.4s linear infinite;
     }
 }
 
@@ -2244,6 +2330,18 @@
 .vault-sync-suggest-note {
     color: var(--text-muted);
     font-size: var(--font-ui-smaller);
+}
+
+/* Sync check while it runs: a bar, then the count and the time left */
+.vault-sync-verify-progress {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--size-4-2);
+    min-height: 1.5em;
+    margin-top: var(--size-4-2);
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+    font-variant-numeric: tabular-nums;
 }
 
 /* Sync check: one folded list per kind of difference */

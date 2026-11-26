@@ -66,6 +66,18 @@ describe("SyncProgressTracker", () => {
         expect(tracker.snapshot().phase).toBe("pushing");
     });
 
+    it("the work after the uploads is a step of its own, kept by a late transfer", () => {
+        tracker.begin("manual-sync");
+        tracker.plan("push", [{ path: "a.md", size: 10 }]);
+        tracker.fileFinished("push", "a.md");
+        tracker.setPhase("finishing");
+        // The confirmation pull after an upload does not move the display back.
+        tracker.fileStarted("pull", "a.md", 10);
+        expect(tracker.snapshot().phase).toBe("finishing");
+        tracker.finish("ok");
+        expect(tracker.snapshot().phase).toBe("idle");
+    });
+
     it("ignores a second begin while a smart sync runs, but takes over from a full scan", () => {
         tracker.begin("manual-sync");
         tracker.plan("push", [{ path: "a.md" }]);

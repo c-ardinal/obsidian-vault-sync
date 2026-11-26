@@ -12,7 +12,8 @@ import { formatMoment } from "./format-time";
 import type VaultSync from "../main";
 import type { SyncManager } from "../sync-manager";
 import { t } from "../i18n";
-import type { SyncProgressSnapshot } from "../sync-manager/sync-progress";
+import type { SyncPhase, SyncProgressSnapshot } from "../sync-manager/sync-progress";
+import { stepFraction } from "./progress-math";
 import { TransferStatusModal } from "./transfer-status-modal";
 
 export type DisplayState = "syncing" | "scanning" | "synced" | "error" | "offline" | "auth" | "never";
@@ -372,7 +373,33 @@ export interface SyncPanelOptions {
     onMoreMenu?: (evt: MouseEvent) => void;
 }
 
-/** The sync status panel: used by the popover, the phone sheet and the transfer status screen. */
+/** One round of the moving mark of a step without a measure (matches the CSS animation) */
+const INDETERMINATE_MS = 1400;
+
+/** What the cycle is doing when no file is in transfer */
+function phaseText(s: SyncProgressSnapshot): string {
+    switch (s.phase) {
+        case "scanning":
+            return s.scan.total > 0
+                ? t("statusScanCount").replace("{0}", String(s.scan.done)).replace("{1}", String(s.scan.total))
+                : t("statusScanning");
+        case "pulling":
+            return t("statusDownloading");
+        case "pushing":
+            return t("statusUploading");
+        case "finishing":
+            return t("statusFinishing");
+        default:
+            return t("statusCheckingRemote");
+    }
+}
+
+/**
+ * The sync status panel: used by the popover, the phone sheet and the transfer status screen.
+ *
+ * Every state draws the same rows, each one line high (the detail box: two), so
+ * the panel keeps its size while a sync starts, moves between files and ends.
+ */
 export function renderSyncPanel(el: HTMLElement, s: SyncProgressSnapshot, o: SyncPanelOptions): void {
     const state = displayState(s, o.signedIn);
     const sm = o.syncManager;
@@ -390,121 +417,104 @@ export function renderSyncPanel(el: HTMLElement, s: SyncProgressSnapshot, o: Syn
             .replace("{0}", formatClock(s.last.finishedAt))
             .replace("{1}", formatDuration(s.last.durationMs / 1000));
     }
-    if (sub) head.createSpan({ cls: "vault-sync-status-sub", text: sub });
+    head.createSpan({ cls: "vault-sync-status-sub", text: sub });
 
-    // After a finished sync the steps and per-direction bars would all be full:
-    // only the overall bar stays, the rest carries no news.
-    const finished = !s.active && state === "synced";
-
-    // Steps: check -> (scan) -> download -> upload -> done
-    if (!finished) {
-        const steps = el.createDiv({ cls: "vault-sync-status-steps" });
-        const order: Array<{ id: string; label: string }> = [
-            { id: "checking", label: t("statusStepCheck") },
-            ...(s.phase === "scanning" || s.scan.total > 0 ? [{ id: "scanning", label: t("statusStepScan") }] : []),
-            { id: "pulling", label: t("statusStepPull") },
-            { id: "pushing", label: t("statusStepPush") },
-            { id: "done", label: t("statusStepDone") },
-        ];
-        const currentIdx = s.active ? order.findIndex((o) => o.id === s.phase) : -1;
-        order.forEach((o, i) => {
-            const step = steps.createDiv({ cls: "vault-sync-status-step" });
-            if (currentIdx >= 0 && i < currentIdx) step.addClass("is-done");
-            if (i === currentIdx) step.addClass("is-current");
-            step.createDiv({ cls: "vault-sync-status-step-bar" });
-            step.createSpan({ text: o.label });
-        });
-        steps.style.setProperty("--vs-steps", String(order.length));
-    }
-
-    // Overall bar
-    const total = s.pull.total + s.push.total;
-    // Failed cycles that never got to transfer anything show no bar.
-    const showOverall = s.active || total > 0 || state === "synced";
-    const overall = el.createDiv({ cls: "vault-sync-status-overall" });
-    const row = overall.createDiv({ cls: "vault-sync-status-overall-row" });
-    if (showOverall) {
-        row.createEl("b", { text: s.fraction === null && s.active ? "—" : `${percent(s)}%` });
-    }
-    const counts =
-        s.phase === "scanning" && total === 0
-            ? t("statusScanCount").replace("{0}", String(s.scan.done)).replace("{1}", String(s.scan.total))
-            : total > 0
-              ? `${t("statusFiles").replace("{0}", String(s.pull.done + s.push.done)).replace("{1}", String(total))}` +
-                (s.pull.bytesTotal + s.push.bytesTotal > 0
-                    ? ` · ${formatBytes(s.pull.bytesDone + s.push.bytesDone)} / ${formatBytes(s.pull.bytesTotal + s.push.bytesTotal)}`
-                    : "")
-              : s.active
-                ? t("statusCheckingRemote")
-                : "";
-    if (counts) row.createSpan({ cls: "vault-sync-status-muted", text: counts });
-    if (showOverall) {
-        const bar = overall.createDiv({ cls: "vault-sync-status-bar" });
-        bar.createDiv({ cls: "vault-sync-status-bar-fill" }).style.width = `${percent(s)}%`;
-    }
-    if (!showOverall && !counts) overall.remove();
-
-    // Per direction
-    if (total > 0 || s.conflicts > 0 || state === "synced") {
-        const kv = el.createDiv({ cls: "vault-sync-status-kv" });
-        const dir = (label: string, d: { done: number; total: number }) => {
-            kv.createSpan({ cls: "vault-sync-status-muted", text: label });
-            const mini = kv.createDiv({ cls: finished ? "" : "vault-sync-status-mini" });
-            if (!finished) {
-                mini.createDiv({ cls: "vault-sync-status-bar-fill" }).style.width =
-                    `${d.total > 0 ? Math.round((d.done / d.total) * 100) : 0}%`;
-            }
-            kv.createSpan({ cls: "vault-sync-status-num", text: `${d.done} / ${d.total}` });
-        };
-        dir(t("statusPull"), s.pull);
-        dir(t("statusPush"), s.push);
-        const conflicts = s.active ? s.conflicts : (s.last?.conflicts ?? 0);
-        if (conflicts > 0) {
-            if (o.onResolveConflicts) {
-                const resolve = o.onResolveConflicts;
-                const link = kv.createEl("a", {
-                    cls: "vault-sync-status-warn vault-sync-status-link",
-                    text: t("statusConflicts"),
-                    href: "#",
-                    attr: { "aria-label": t("statusResolveConflicts") },
-                });
-                link.addEventListener("click", (e) => {
-                    e.preventDefault();
-                    resolve();
-                });
-            } else {
-                kv.createSpan({ cls: "vault-sync-status-warn", text: t("statusConflicts") });
-            }
-            kv.createDiv();
-            kv.createSpan({ cls: "vault-sync-status-num vault-sync-status-warn", text: String(conflicts) });
+    // Steps: check -> (scan) -> download -> upload -> finish. Each bar fills with the
+    // progress of its own step, so the row is the overall progress as well.
+    const steps = el.createDiv({ cls: "vault-sync-status-steps" });
+    const order: Array<{ id: SyncPhase; label: string }> = [
+        { id: "checking", label: t("statusStepCheck") },
+        ...(s.phase === "scanning" || s.scan.total > 0
+            ? [{ id: "scanning" as const, label: t("statusStepScan") }]
+            : []),
+        { id: "pulling", label: t("statusStepPull") },
+        { id: "pushing", label: t("statusStepPush") },
+        { id: "finishing", label: t("statusStepFinish") },
+    ];
+    // After a successful sync every step is behind; after a failed one none is marked.
+    const currentIdx = s.active ? order.findIndex((o) => o.id === s.phase) : state === "synced" ? order.length : -1;
+    order.forEach((o, i) => {
+        const step = steps.createDiv({ cls: "vault-sync-status-step" });
+        if (i < currentIdx) step.addClass("is-done");
+        if (i === currentIdx) step.addClass("is-current");
+        const fill = step
+            .createDiv({ cls: "vault-sync-status-step-bar" })
+            .createDiv({ cls: "vault-sync-status-step-fill" });
+        const share = stepFraction(s, o.id, i < currentIdx, i === currentIdx);
+        if (share === null) {
+            // No measure for this step: a moving mark. The panel is redrawn often,
+            // so the animation is placed by the clock and does not restart.
+            fill.addClass("is-indeterminate");
+            fill.style.animationDelay = `-${Date.now() % INDETERMINATE_MS}ms`;
+        } else {
+            fill.style.width = `${Math.round(share * 100)}%`;
         }
-    }
+        step.createSpan({ text: o.label });
+    });
+    steps.style.setProperty("--vs-steps", String(order.length));
 
-    // Current file
-    if (s.active && s.current.length > 0) {
-        const cur = s.current[0];
-        const box = el.createDiv({ cls: "vault-sync-status-now" });
-        box.createSpan({
-            cls: "vault-sync-status-muted",
-            text: cur.direction === "pull" ? t("statusDownloading") : t("statusUploading"),
+    // Per direction, and conflicts
+    const kv = el.createDiv({ cls: "vault-sync-status-kv" });
+    const dir = (label: string, d: { done: number; total: number }) => {
+        kv.createSpan({ cls: "vault-sync-status-muted", text: label });
+        const mini = kv.createDiv({ cls: "vault-sync-status-mini" });
+        mini.createDiv({ cls: "vault-sync-status-bar-fill" }).style.width =
+            `${d.total > 0 ? Math.round((d.done / d.total) * 100) : 0}%`;
+        kv.createSpan({ cls: "vault-sync-status-num", text: `${d.done} / ${d.total}` });
+    };
+    dir(t("statusPull"), s.pull);
+    dir(t("statusPush"), s.push);
+    const conflicts = s.active ? s.conflicts : (s.last?.conflicts ?? 0);
+    if (conflicts > 0 && o.onResolveConflicts) {
+        const resolve = o.onResolveConflicts;
+        const link = kv.createEl("a", {
+            cls: "vault-sync-status-warn vault-sync-status-link",
+            text: t("statusConflicts"),
+            href: "#",
+            attr: { "aria-label": t("statusResolveConflicts") },
         });
-        box.createSpan({ cls: "vault-sync-status-file", text: cur.path });
-        const meta: string[] = [];
-        if (cur.size > 0) meta.push(formatBytes(cur.size));
-        if (s.bytesPerSec) meta.push(`${formatBytes(s.bytesPerSec)}/s`);
-        if (s.current.length > 1) meta.push(t("statusParallel").replace("{0}", String(s.current.length)));
-        if (meta.length) box.createSpan({ cls: "vault-sync-status-muted", text: meta.join(" · ") });
+        link.addEventListener("click", (e) => {
+            e.preventDefault();
+            resolve();
+        });
+    } else {
+        kv.createSpan({
+            cls: conflicts > 0 ? "vault-sync-status-warn" : "vault-sync-status-muted",
+            text: t("statusConflicts"),
+        });
     }
+    kv.createDiv();
+    kv.createSpan({
+        cls: `vault-sync-status-num ${conflicts > 0 ? "vault-sync-status-warn" : "vault-sync-status-muted"}`,
+        text: String(conflicts),
+    });
 
-    // Failure detail
-    if (!s.active && (state === "error" || state === "offline" || state === "auth")) {
+    // Detail box, two lines in every state: the file in transfer, the reason of a failure, or the idle note
+    const box = el.createDiv({ cls: "vault-sync-status-now" });
+    const failed = !s.active && (state === "error" || state === "offline" || state === "auth");
+    if (failed) {
         const msg =
             state === "auth"
                 ? t("statusAuthHint")
                 : state === "offline"
                   ? t("statusOfflineHint")
                   : (s.last?.message ?? t("statusFailedHint"));
-        el.createDiv({ cls: "vault-sync-status-error", text: msg });
+        box.addClass("vault-sync-status-error");
+        box.createDiv({ cls: "vault-sync-status-now-text", text: msg, attr: { title: msg } });
+    } else if (s.active && s.current.length > 0) {
+        const cur = s.current[0];
+        const meta: string[] = [cur.direction === "pull" ? t("statusDownloading") : t("statusUploading")];
+        if (cur.size > 0) meta.push(formatBytes(cur.size));
+        if (s.bytesPerSec) meta.push(`${formatBytes(s.bytesPerSec)}/s`);
+        if (s.current.length > 1) meta.push(t("statusParallel").replace("{0}", String(s.current.length)));
+        box.createDiv({ cls: "vault-sync-status-now-line vault-sync-status-muted", text: meta.join(" · ") });
+        box.createDiv({ cls: "vault-sync-status-now-line vault-sync-status-file", text: cur.path, attr: { title: cur.path } });
+    } else {
+        box.createDiv({
+            cls: "vault-sync-status-now-line vault-sync-status-muted",
+            text: s.active ? phaseText(s) : t("statusNoTransfer"),
+        });
+        box.createDiv({ cls: "vault-sync-status-now-line" });
     }
 
     // Footer: time left / pending, actions
@@ -515,7 +525,7 @@ export function renderSyncPanel(el: HTMLElement, s: SyncProgressSnapshot, o: Syn
         note = t("statusPending").replace("{0}", String(sm.pendingChangeCount));
     const background = sm.getActiveTransfers().filter((x) => !x.id.startsWith("inline-")).length;
     if (background > 0) note += `${note ? " · " : ""}${t("statusBackground").replace("{0}", String(background))}`;
-    foot.createSpan({ cls: "vault-sync-status-muted", text: note });
+    foot.createSpan({ cls: "vault-sync-status-muted vault-sync-status-note", text: note, attr: { title: note } });
 
     const btns = foot.createDiv({ cls: "vault-sync-status-btns" });
     if (o.onMoreMenu) {
@@ -537,20 +547,19 @@ export function renderSyncPanel(el: HTMLElement, s: SyncProgressSnapshot, o: Syn
         const open = o.onOpenTransfers;
         btns.createEl("button", { text: t("statusTransferDetails") }).addEventListener("click", () => open());
     }
-    if (!s.active) {
-        if (state === "auth" && o.onOpenSettings) {
-            const open = o.onOpenSettings;
-            btns.createEl("button", { cls: "mod-cta", text: t("statusOpenSettings") }).addEventListener(
-                "click",
-                () => open(),
-            );
-        } else if (state !== "auth" && o.onSyncNow) {
-            const run = o.onSyncNow;
-            btns.createEl("button", {
-                cls: "mod-cta",
-                text: state === "error" || state === "offline" ? t("statusRetry") : t("statusSyncNow"),
-            }).addEventListener("click", () => run());
-        }
+    if (!s.active && state === "auth" && o.onOpenSettings) {
+        const open = o.onOpenSettings;
+        btns.createEl("button", { cls: "mod-cta", text: t("statusOpenSettings") }).addEventListener("click", () =>
+            open(),
+        );
+    } else if (state !== "auth" && o.onSyncNow) {
+        // Stays in place (disabled) while a sync runs, so the other buttons do not move.
+        const run = o.onSyncNow;
+        const btn = btns.createEl("button", {
+            cls: "mod-cta",
+            text: state === "error" || state === "offline" ? t("statusRetry") : t("statusSyncNow"),
+        });
+        btn.disabled = s.active;
+        btn.addEventListener("click", () => run());
     }
-    if (!note && btns.childElementCount === 0) foot.remove();
 }

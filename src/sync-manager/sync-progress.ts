@@ -7,7 +7,8 @@
  * be unit-tested with an injected clock.
  */
 
-export type SyncPhase = "idle" | "checking" | "scanning" | "pulling" | "pushing";
+/** "finishing": the work after the last upload (confirming the result, housekeeping) */
+export type SyncPhase = "idle" | "checking" | "scanning" | "pulling" | "pushing" | "finishing";
 export type SyncOutcome = "ok" | "error" | "offline" | "auth";
 export type TransferDirection = "pull" | "push";
 
@@ -60,6 +61,7 @@ const PHASE_ORDER: Record<SyncPhase, number> = {
     scanning: 2,
     pulling: 3,
     pushing: 4,
+    finishing: 5,
 };
 
 /** Throughput is measured over this window */
@@ -133,7 +135,7 @@ export class SyncProgressTracker {
         this.emit(true);
     }
 
-    /** Phases only move forward within a cycle (the post-push confirmation pull stays "pushing"). */
+    /** Phases only move forward within a cycle (the confirmation pull after an upload stays "finishing"). */
     setPhase(phase: SyncPhase): void {
         if (!this.active) return;
         if (PHASE_ORDER[phase] <= PHASE_ORDER[this.phase]) return;

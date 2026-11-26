@@ -946,7 +946,7 @@ export default class VaultSync extends Plugin {
     /** Read-only check: this device against the cloud */
     openSyncVerify(): void {
         new SyncVerifyModal(this.app, {
-            run: () => this.syncManager.verifySync(),
+            run: (onProgress) => this.syncManager.verifySync(onProgress),
             isSyncing: () => this.syncManager.isSyncing(),
             isSignedIn: () => this.syncManager.isSignedIn,
             syncNow: () => void this.requestManualSync(),
