@@ -696,7 +696,43 @@ function rememberWritten(ctx: StateCtx): void {
     j.written = new Map(Object.entries(ctx.localIndex));
 }
 
-async function writeJournal(ctx: StateCtx): Promise<void> {
+/** A journal write on its way to the disk, and the one waiting behind it */
+interface JournalWrites {
+    running: Promise<void> | null;
+    queued: Promise<void> | null;
+}
+const journalWrites = new CtxState<JournalWrites>("journalWrites", "Journal write in progress and the one waiting behind it");
+
+/**
+ * Write the journal, sharing the write among callers that come while another
+ * write is still on its way to the disk. Transfers run several at a time and
+ * each one journals its entry: every one of them used to write the file anew,
+ * one write after another for the same few entries. Now those that wait share
+ * the next write. It starts after the running one ends and reads the index
+ * then, so it holds every waiting caller's change, and each caller still
+ * returns only once its change is on the disk.
+ */
+function writeJournal(ctx: StateCtx): Promise<void> {
+    let q = journalWrites.get(ctx);
+    if (!q) journalWrites.set(ctx, (q = { running: null, queued: null }));
+    const w = q;
+    if (w.queued) return w.queued;
+    const start = (): Promise<void> => {
+        const p: Promise<void> = writeJournalNow(ctx).finally(() => {
+            if (w.running === p) w.running = null;
+        });
+        w.running = p;
+        return p;
+    };
+    if (!w.running) return start();
+    w.queued = w.running.then(() => {
+        w.queued = null;
+        return start();
+    });
+    return w.queued;
+}
+
+async function writeJournalNow(ctx: StateCtx): Promise<void> {
     const j = journalOf(ctx);
     const changed: Record<string, unknown> = {};
     let n = 0;

@@ -54,6 +54,8 @@ export interface PerfResult {
     problems: string[];
 }
 
+/** The note created alone in the "1 new note" phase */
+const SINGLE_NEW_NOTE = "notes/f0/single-new.md";
 const EPOCH = Date.UTC(2026, 0, 1, 0, 0, 0);
 const enc = (s: string) => new TextEncoder().encode(s).buffer as ArrayBuffer;
 
@@ -165,6 +167,20 @@ export async function runPerf(opts: PerfOptions = DEFAULT_PERF): Promise<PerfRes
         await measure("B: auto-merge + push", () => sync(B));
         await measure("A: pull merged", () => sync(A));
 
+        // ── One note at a time: what a day of writing looks like ──
+        // The fixed cost of a sync shows here (locks, index, device record), not in the bulk phases.
+        for (let k = 0; k < 2; k++) {
+            const p = paths[opts.edits + opts.merges];
+            await A.userEdit(p, setLine(A.read(p)!, "A", `single-${k}`));
+            await advance(1);
+            await measure(`A: push 1 edit #${k + 1}`, () => sync(A));
+            await measure(`B: pull 1 edit #${k + 1}`, () => sync(B));
+        }
+        await A.userCreate(SINGLE_NEW_NOTE, note(opts.notes));
+        await advance(1);
+        await measure("A: push 1 new note", () => sync(A));
+        await measure("B: pull 1 new note", () => sync(B));
+
         // ── Idle ──
         await measure("A: idle", () => sync(A));
         await measure("B: idle", () => sync(B));
@@ -187,7 +203,7 @@ export async function runPerf(opts: PerfOptions = DEFAULT_PERF): Promise<PerfRes
             for (const p of new Set([...Object.keys(files), ...Object.keys(cloudFiles)])) {
                 if (files[p] !== cloudFiles[p]) problems.push(`${label} differs from cloud at ${p}`);
             }
-            if (Object.keys(files).length !== opts.notes + opts.binaries)
+            if (Object.keys(files).length !== opts.notes + opts.binaries + 1)
                 problems.push(`${label} has ${Object.keys(files).length} files`);
         }
         for (const p of mergePaths) {

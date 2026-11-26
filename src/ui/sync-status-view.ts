@@ -13,7 +13,7 @@ import type VaultSync from "../main";
 import type { SyncManager } from "../sync-manager";
 import { t } from "../i18n";
 import type { SyncPhase, SyncProgressSnapshot } from "../sync-manager/sync-progress";
-import { stepFraction } from "./progress-math";
+import { stepFraction, transferLabel } from "./progress-math";
 import { TransferStatusModal } from "./transfer-status-modal";
 
 export type DisplayState = "syncing" | "scanning" | "synced" | "error" | "offline" | "auth" | "never";
@@ -75,6 +75,9 @@ export function shortText(s: SyncProgressSnapshot, state: DisplayState, withEta:
             const total = s.pull.total + s.push.total;
             if (total === 0) return t("statusSyncing");
             let text = `${t("statusSyncing")} ${s.pull.done + s.push.done}/${total}`;
+            // The file in transfer: the count alone does not show that files go through
+            const file = transferLabel(s);
+            if (file) text += ` · ${file}`;
             if (withEta && s.etaSec !== null) text += ` · ${t("statusAbout")}${formatDuration(s.etaSec)}`;
             return text;
         }

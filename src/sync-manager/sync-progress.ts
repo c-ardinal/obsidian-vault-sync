@@ -44,6 +44,12 @@ export interface SyncProgressSnapshot {
     conflicts: number;
     /** Files transferring right now (most recent first) */
     current: Array<{ path: string; direction: TransferDirection; size: number }>;
+    /**
+     * The file whose transfer started last in this cycle. Kept after it finished:
+     * a small file is through before the display is drawn again, and the one-line
+     * display names it all the same. Null before the cycle's first transfer.
+     */
+    recent: { path: string; direction: TransferDirection } | null;
     /** Bytes per second over the last few seconds; null until measurable */
     bytesPerSec: number | null;
     /** Estimated seconds left; null when unknown or not worth showing */
@@ -95,6 +101,7 @@ export class SyncProgressTracker {
     };
     private running = new Map<string, { path: string; direction: TransferDirection; size: number }>();
     private finished: Record<TransferDirection, Set<string>> = { pull: new Set(), push: new Set() };
+    private recent: { path: string; direction: TransferDirection } | null = null;
     /** (time, cumulative bytes done) samples for the throughput window */
     private samples: Array<{ t: number; bytes: number }> = [];
     private last: SyncCycleResult | null = null;
@@ -131,6 +138,7 @@ export class SyncProgressTracker {
         this.planned = { pull: new Map(), push: new Map() };
         this.finished = { pull: new Set(), push: new Set() };
         this.running.clear();
+        this.recent = null;
         this.samples = [{ t: this.startedAt, bytes: 0 }];
         this.emit(true);
     }
@@ -165,6 +173,7 @@ export class SyncProgressTracker {
         if (!this.planned[direction].has(path)) this.plan(direction, [{ path, size }]);
         const planned = this.planned[direction].get(path) ?? 0;
         this.running.set(`${direction}:${path}`, { path, direction, size: Math.max(planned, size) });
+        this.recent = { path, direction };
         this.setPhase(direction === "pull" ? "pulling" : "pushing");
         this.emit();
     }
@@ -226,6 +235,7 @@ export class SyncProgressTracker {
             scan: { ...this.scan },
             conflicts: this.conflicts,
             current: [...this.running.values()].reverse(),
+            recent: this.recent,
             bytesPerSec: this.active ? this.rate() : null,
             etaSec: this.active ? this.eta() : null,
             fraction: this.fraction(),
