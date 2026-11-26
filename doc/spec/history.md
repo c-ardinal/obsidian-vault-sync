@@ -43,7 +43,7 @@ interface FileRevision {
 | :------------- | :--------------- | :--------------------------------------------------------------------- |
 | 履歴一覧       | `revisions.list` | `fields=revisions(id,modifiedTime,keepForever,size,lastModifyingUser)` |
 | コンテンツ取得 | `revisions.get`  | `alt=media` でダウンロード                                             |
-| ロールバック   | `files.update`   | 過去コンテンツを現在バージョンとして新規アップロード（履歴に記録される）             |
+| ロールバック   | `files.update`   | 過去コンテンツを最新バージョンとして新規アップロード（履歴に記録される）             |
 
 ## 5. ロールバックと同期の統合
 

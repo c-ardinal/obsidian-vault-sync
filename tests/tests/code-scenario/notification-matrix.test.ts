@@ -426,7 +426,7 @@ const MATRIX: MatrixEntry[] = [
         },
     },
     {
-        // ⚠️ 競合: 本端末のバージョンを保護し、クラウドのバージョンを反映しました: {file}
+        // ⚠️ 競合: 本端末上のファイルを保護し、クラウド上のファイルを反映しました: {file}
         key: "noticeConflictSaved",
         scenarios: {
             pushConflict: { v: "Show", s: "Show" },
@@ -434,7 +434,7 @@ const MATRIX: MatrixEntry[] = [
         },
     },
     {
-        // ⚠️ 競合: クラウドのバージョンを保護し、本端末のバージョンを反映しました: {file}
+        // ⚠️ 競合: クラウド上のファイルを保護し、本端末上のファイルを反映しました: {file}
         key: "noticeConflictRemoteSaved",
         scenarios: {
             pushConflict: { v: "Show", s: "Show" },
@@ -662,11 +662,11 @@ const FORMAT_SPECS: FormatSpec[] = [
     { key: "noticeMergeSuccess", specJa: "Vault-Sync: 競合を自動解決しました: {file}" },
     {
         key: "noticeConflictSaved",
-        specJa: "⚠️ Vault-Sync: 本端末のバージョンを保護し、クラウドのバージョンを反映しました: {file}",
+        specJa: "⚠️ Vault-Sync: 本端末上のファイルを保護し、クラウド上のファイルを反映しました: {file}",
     },
     {
         key: "noticeConflictRemoteSaved",
-        specJa: "⚠️ Vault-Sync: クラウドのバージョンを保護し、本端末のバージョンを反映しました: {file}",
+        specJa: "⚠️ Vault-Sync: クラウド上のファイルを保護し、本端末上のファイルを反映しました: {file}",
     },
     {
         key: "noticeCheckOtherDevice",
