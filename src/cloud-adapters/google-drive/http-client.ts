@@ -195,7 +195,7 @@ export class GoogleDriveHttpClient {
     }
 
     private async log(msg: string, level: string = "debug") {
-        console.debug(`Vault-Sync: [${level.toUpperCase()}] ${msg}`);
+        console.debug(`Vault Syncer: [${level.toUpperCase()}] ${msg}`);
         if (this.auth.logger) this.auth.logger(msg, level);
     }
 
@@ -287,7 +287,7 @@ export class GoogleDriveHttpClient {
                 }
 
                 // SEC-007: Sanitize error messages (logging)
-                console.error(`Vault-Sync: API Error ${response.status}: ${errorMsg}`);
+                console.error(`Vault Syncer: API Error ${response.status}: ${errorMsg}`);
 
                 // Throw the actual error message so callers can handle specific cases.
                 // The HTTP status is kept on the error so callers can tell "not found /

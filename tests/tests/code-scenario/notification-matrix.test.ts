@@ -30,7 +30,7 @@ import { en } from "../../../src/i18n";
 import ja from "../../../src/i18n/lang/ja.json";
 const i18nDict = { en, ja: ja as Record<string, string> };
 /**
- * Keys whose text the installed add-on supplies (Vault-Sync's dictionaries hold
+ * Keys whose text the installed add-on supplies (Vault Syncer's dictionaries hold
  * no add-on specific wording). Their text is tested in the add-on's repository.
  */
 const ADDON_SUPPLIED_KEYS = new Set([
@@ -640,73 +640,73 @@ interface FormatSpec {
  * These define the EXACT user-visible text including filename placement.
  */
 const FORMAT_SPECS: FormatSpec[] = [
-    { key: "noticeSyncing", specJa: "Vault-Sync: 同期開始..." },
-    { key: "noticeScanningLocalFiles", specJa: "Vault-Sync: 本端末のファイルを走査中..." },
+    { key: "noticeSyncing", specJa: "Vault Syncer: 同期開始..." },
+    { key: "noticeScanningLocalFiles", specJa: "Vault Syncer: 本端末のファイルを走査中..." },
     {
         key: "noticeWaitingForRemoteRegistration",
-        specJa: "Vault-Sync: クラウド側の反映完了を待機中...",
+        specJa: "Vault Syncer: クラウド側の反映完了を待機中...",
     },
-    { key: "noticeFilePulled", specJa: "Vault-Sync: 受信中: {file}" },
-    { key: "noticePullCompleted", specJa: "Vault-Sync: 受信完了（{0} 件）" },
-    { key: "noticeFilePushed", specJa: "Vault-Sync: 送信中: {file}" },
-    { key: "noticePushCompleted", specJa: "Vault-Sync: 送信完了（{0} 件）" },
-    { key: "noticeVaultUpToDate", specJa: "Vault-Sync: 全ファイルが最新状態です" },
+    { key: "noticeFilePulled", specJa: "Vault Syncer: 受信中: {file}" },
+    { key: "noticePullCompleted", specJa: "Vault Syncer: 受信完了（{0} 件）" },
+    { key: "noticeFilePushed", specJa: "Vault Syncer: 送信中: {file}" },
+    { key: "noticePushCompleted", specJa: "Vault Syncer: 送信完了（{0} 件）" },
+    { key: "noticeVaultUpToDate", specJa: "Vault Syncer: 全ファイルが最新状態です" },
     {
         key: "noticeInitialSyncConfirmation",
-        specJa: "Vault-Sync: 送信結果を検証中...",
+        specJa: "Vault Syncer: 送信結果を検証中...",
     },
-    { key: "noticeSyncConfirmed", specJa: "Vault-Sync: 同期完了: {file}" },
-    { key: "noticeFileTrashed", specJa: "Vault-Sync: 削除: {file}" },
-    { key: "noticeFileRenamed", specJa: "Vault-Sync: リネーム: {file}" },
-    { key: "noticeMergingFile", specJa: "Vault-Sync: マージ中: {file}" },
-    { key: "noticeMergeSuccess", specJa: "Vault-Sync: 競合を自動解決しました: {file}" },
+    { key: "noticeSyncConfirmed", specJa: "Vault Syncer: 同期完了: {file}" },
+    { key: "noticeFileTrashed", specJa: "Vault Syncer: 削除: {file}" },
+    { key: "noticeFileRenamed", specJa: "Vault Syncer: リネーム: {file}" },
+    { key: "noticeMergingFile", specJa: "Vault Syncer: マージ中: {file}" },
+    { key: "noticeMergeSuccess", specJa: "Vault Syncer: 競合を自動解決しました: {file}" },
     {
         key: "noticeConflictSaved",
-        specJa: "⚠️ Vault-Sync: 本端末上のファイルを保護し、クラウド上のファイルを反映しました: {file}",
+        specJa: "⚠️ Vault Syncer: 本端末上のファイルを保護し、クラウド上のファイルを反映しました: {file}",
     },
     {
         key: "noticeConflictRemoteSaved",
-        specJa: "⚠️ Vault-Sync: クラウド上のファイルを保護し、本端末上のファイルを反映しました: {file}",
+        specJa: "⚠️ Vault Syncer: クラウド上のファイルを保護し、本端末上のファイルを反映しました: {file}",
     },
     {
         key: "noticeCheckOtherDevice",
-        specJa: "⚠️ Vault-Sync: マージに失敗した可能性があります。詳細は他端末で確認してください。",
+        specJa: "⚠️ Vault Syncer: マージに失敗した可能性があります。詳細は他端末で確認してください。",
     },
     {
         key: "noticeMergeLockLost",
-        specJa: "⚠️ Vault-Sync: マージロックが失効しました。本端末に保存済みのため、次回の同期で送信します。: {file}",
+        specJa: "⚠️ Vault Syncer: マージロックが失効しました。本端末に保存済みのため、次回の同期で送信します。: {file}",
     },
     {
         key: "noticeWaitOtherDeviceMerge",
-        specJa: "Vault-Sync: 他端末による解決を待機中...: {0}",
+        specJa: "Vault Syncer: 他端末による解決を待機中...: {0}",
     },
     {
         key: "noticeRemoteMergeSynced",
-        specJa: "Vault-Sync: 他端末の解決結果を反映しました: {file}",
+        specJa: "Vault Syncer: 他端末の解決結果を反映しました: {file}",
     },
     // ═══ Auth Notifications ═══
-    { key: "noticeAuthSuccess", specJa: "Vault-Sync: ログインしました" },
-    { key: "noticeAuthFailed", specJa: "❌ Vault-Sync: ログインに失敗しました。再度ログインしてください。" },
+    { key: "noticeAuthSuccess", specJa: "Vault Syncer: ログインしました" },
+    { key: "noticeAuthFailed", specJa: "❌ Vault Syncer: ログインに失敗しました。再度ログインしてください。" },
     // ═══ History Notifications ═══
-    { key: "noticeSavedKeepForever", specJa: "Vault-Sync: 無期限保護設定完了" },
+    { key: "noticeSavedKeepForever", specJa: "Vault Syncer: 無期限保護設定完了" },
     {
         key: "historyKeepForeverError",
         specJa: "❌ [履歴] クラウド側の仕様により、無期限保存設定を解除することはできません。",
     },
-    { key: "noticeFileRestored", specJa: "Vault-Sync: ファイルを復元しました" },
-    { key: "noticeHistoryRestoreAs", specJa: "Vault-Sync: 別名で復元しました: {0}" },
-    { key: "noticeRevisionDeleted", specJa: "Vault-Sync: バージョンを削除しました" },
+    { key: "noticeFileRestored", specJa: "Vault Syncer: ファイルを復元しました" },
+    { key: "noticeHistoryRestoreAs", specJa: "Vault Syncer: 別名で復元しました: {0}" },
+    { key: "noticeRevisionDeleted", specJa: "Vault Syncer: バージョンを削除しました" },
     {
         key: "noticeAddonRequired",
-        specJa: "⚠️ Vault-Sync: このVaultでは、本端末に未導入のアドオンを使用中です。設定 → アドオン から導入してください。同期を一時停止しています。",
+        specJa: "⚠️ Vault Syncer: このVaultでは、本端末に未導入のアドオンを使用中です。設定 → アドオン から導入してください。同期を一時停止しています。",
     },
     {
         key: "noticeEngineVerifyFailed",
-        specJa: "❌ Vault-Sync: アドオンの検証に失敗しました。承認済みリリースと不一致です。最新パッケージを再ダウンロードして再導入してください。",
+        specJa: "❌ Vault Syncer: アドオンの検証に失敗しました。承認済みリリースと不一致です。最新パッケージを再ダウンロードして再導入してください。",
     },
     {
         key: "noticeAddonUpdateRequired",
-        specJa: "⚠️ Vault-Sync: 導入済みのアドオンは、本バージョンのVault-Syncに非対応の旧バージョンです。最新パッケージをダウンロードし、設定 → アドオン から導入してください。同期を一時停止しています。",
+        specJa: "⚠️ Vault Syncer: 導入済みのアドオンは、本バージョンのVault Syncerに非対応の旧バージョンです。最新パッケージをダウンロードし、設定 → アドオン から導入してください。同期を一時停止しています。",
     },
 ];
 

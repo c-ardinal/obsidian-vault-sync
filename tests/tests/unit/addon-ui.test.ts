@@ -108,7 +108,7 @@ describe("AddonUiRegistry", () => {
 });
 
 describe("reserved command ids", () => {
-    it("BUILTIN_COMMAND_IDS lists every command Vault-Sync registers itself", async () => {
+    it("BUILTIN_COMMAND_IDS lists every command Vault Syncer registers itself", async () => {
         const { readFileSync } = await import("node:fs");
         const src = readFileSync(new URL("../../../src/main.ts", import.meta.url), "utf8");
         const registered = [...src.matchAll(/this\.addCommand\(\{\s*id: "([^"]+)"/g)].map((m) => m[1]);

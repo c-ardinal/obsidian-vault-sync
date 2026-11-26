@@ -37,7 +37,7 @@ interface HookableCommand {
  * Manages sync triggers: save hooks, modify debounce, interval timer,
  * layout-change events, and file create/delete/rename tracking.
  *
- * Extracted from the main Vault-Sync plugin class to separate
+ * Extracted from the main Vault Syncer plugin class to separate
  * trigger management from plugin lifecycle orchestration.
  */
 export class TriggerManager {

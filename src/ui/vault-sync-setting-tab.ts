@@ -894,7 +894,7 @@ export class VaultSyncSettingTab extends PluginSettingTab {
         }
     }
 
-    /** An add-on's own page: its sections, drawn like Vault-Sync's. Back goes to the add-on list. */
+    /** An add-on's own page: its sections, drawn like Vault Syncer's. Back goes to the add-on list. */
     private renderAddonPage(el: HTMLElement, addonId: string, page: AddonPage): void {
         const addon = this.plugin.addonUi.get(addonId)!;
         this.renderHeader(el, page.title, () => this.navigate("addons"));
@@ -929,7 +929,7 @@ export class VaultSyncSettingTab extends PluginSettingTab {
     }
 
     /**
-     * An add-on row as a Vault-Sync row. "action" becomes a button that runs the
+     * An add-on row as a Vault Syncer row. "action" becomes a button that runs the
      * action (hidden while it is unavailable), "page" a row that opens the page;
      * an unknown action or page is left out.
      */
@@ -997,7 +997,7 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                         }),
                 );
         } else if (names.length > 0) {
-            // Installed before, but this version of Vault-Sync no longer accepts it
+            // Installed before, but this version of Vault Syncer no longer accepts it
             new Setting(el)
                 .setName(t("addonStatusUpdateRequired"))
                 .setDesc(`${names.join(", ")}\n${t("addonStatusUpdateRequiredDesc")}`)

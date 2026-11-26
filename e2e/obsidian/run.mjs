@@ -967,7 +967,7 @@ async function checkProtectionAndNumbers(main, lang, { mobile = false } = {}) {
         await page.click(".vault-sync-settings-back");
         await sleep(300);
     }
-    // Obsidian's own settings search lists Vault-Sync rows (Obsidian 1.13+)
+    // Obsidian's own settings search lists Vault Syncer rows (Obsidian 1.13+)
     const defs = await main.evaluate((id) => {
         const tab = window.app.setting.pluginTabs.find((x) => x.id === id);
         return tab?.settingItems?.length ?? -1;
@@ -1179,7 +1179,7 @@ async function checkScreens(page, lang, { mobile = false } = {}) {
         .catch(() => {});
     await shotModal(page, lang, tag, "scr-diagnostics", "diagnostics modal");
     const diag = await page.$eval(".vault-sync-diagnostics-text", (e) => e.value);
-    check(lang, `${tag}: diagnostics text is built`, diag.includes("## Vault Sync diagnostics") && diag.includes("### Settings"), diag.slice(0, 80));
+    check(lang, `${tag}: diagnostics text is built`, diag.includes("## Vault Syncer diagnostics") && diag.includes("### Settings"), diag.slice(0, 80));
     check(lang, `${tag}: diagnostics hide private settings`, !/encryptionSecret|e2ee|clientSecret|token/i.test(diag.split("### Log")[0]), "");
     const diagClipped = await page.$$eval(".vault-sync-diagnostics-note, .vault-sync-diagnostics-modal .setting-item-description", (els) =>
         els.filter((e) => e.scrollHeight > e.clientHeight + 1).map((e) => e.textContent.slice(0, 30)),
@@ -1205,7 +1205,7 @@ async function checkScreens(page, lang, { mobile = false } = {}) {
     check(
         lang,
         `${tag}: report opens the new-issue page with the diagnostics`,
-        !!opened && opened.startsWith("https://github.com/c-ardinal/obsidian-vault-sync/issues/new?") && openedBody.includes("## Vault Sync diagnostics") && opened.length <= 7500,
+        !!opened && opened.startsWith("https://github.com/c-ardinal/obsidian-vault-sync/issues/new?") && openedBody.includes("## Vault Syncer diagnostics") && opened.length <= 7500,
         opened ? `length=${opened.length}` : "not opened",
     );
     await escape(page);
@@ -1412,7 +1412,7 @@ async function checkScreens(page, lang, { mobile = false } = {}) {
     }
     if (menuShown) {
         await shot(page, lang, `${tag}-scr-file-menu`);
-        const entry = page.locator(".menu .menu-item").filter({ hasText: "Vault-Sync" });
+        const entry = page.locator(".menu .menu-item").filter({ hasText: "Vault Syncer" });
         if (await entry.count()) {
             await entry.first().click();
             await modalOpen(page, ".mod-history-modal").catch(() => {});
@@ -1428,7 +1428,7 @@ async function checkScreens(page, lang, { mobile = false } = {}) {
     await page.evaluate(() => window.app.commands.executeCommandById("command-palette:open"));
     const input = await page.waitForSelector(".prompt-input", { timeout: 3000 }).catch(() => null);
     if (input) {
-        await input.fill("Vault-Sync");
+        await input.fill("Vault Syncer");
         await sleep(500);
         await shot(page, lang, `${tag}-scr-commands`);
         await page.keyboard.press("Escape");
@@ -1934,7 +1934,7 @@ async function checkRealSync() {
     page.on("pageerror", (e) => consoleErrors.push({ lang, kind: "pageerror", text: String(e.stack || e) }));
     page.on("console", (m) => {
         if (m.type() === "error") consoleErrors.push({ lang, kind: "console", text: m.text() });
-        if (process.env.E2E_TRACE && m.text().includes("Vault-Sync")) console.log(`[page] ${m.text().slice(0, 300)}`);
+        if (process.env.E2E_TRACE && m.text().includes("Vault Syncer")) console.log(`[page] ${m.text().slice(0, 300)}`);
     });
     try {
         await page.setViewportSize(DESKTOP);
@@ -1955,13 +1955,13 @@ async function checkRealSync() {
                     const f = ad.http.fetchWithAuth.bind(ad.http);
                     ad.http.fetchWithAuth = async (url, ...rest) => {
                         const tag = String(url).replace("https://www.googleapis.com", "").slice(0, 90);
-                        console.log(`Vault-Sync trace > ${tag}`);
+                        console.log(`Vault Syncer trace > ${tag}`);
                         try {
                             const r = await f(url, ...rest);
-                            console.log(`Vault-Sync trace < ${r.status} ${tag}`);
+                            console.log(`Vault Syncer trace < ${r.status} ${tag}`);
                             return r;
                         } catch (e) {
-                            console.log(`Vault-Sync trace ! ${tag} ${e}`);
+                            console.log(`Vault Syncer trace ! ${tag} ${e}`);
                             throw e;
                         }
                     };

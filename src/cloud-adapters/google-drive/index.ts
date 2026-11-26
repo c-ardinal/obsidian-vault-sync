@@ -757,7 +757,7 @@ export class GoogleDriveAdapter implements OAuthCloudAdapter {
 
         await this.pathResolver.ensureRootFolders();
         const rootId = folderId || this.pathResolver.vaultRootId;
-        console.debug(`Vault-Sync: listFiles starting with rootId: ${rootId}`);
+        console.debug(`Vault Syncer: listFiles starting with rootId: ${rootId}`);
         if (!rootId) throw new Error("Vault root not initialized");
 
         const files: CloudFile[] = [];
@@ -771,12 +771,12 @@ export class GoogleDriveAdapter implements OAuthCloudAdapter {
                     (pageToken ? `&pageToken=${pageToken}` : "");
 
                 console.debug(
-                    `Vault-Sync: listFiles querying folder ${currentFolderId}, prefix: "${currentPathPrefix}"`,
+                    `Vault Syncer: listFiles querying folder ${currentFolderId}, prefix: "${currentPathPrefix}"`,
                 );
                 const response = await this.http.fetchWithAuth(url);
                 const data = (await response.json()) as DriveFileList;
                 console.debug(
-                    `Vault-Sync: listFiles query returned ${data.files?.length || 0} items`,
+                    `Vault Syncer: listFiles query returned ${data.files?.length || 0} items`,
                 );
                 pageToken = data.nextPageToken;
 

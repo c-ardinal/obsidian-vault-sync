@@ -100,7 +100,7 @@ export async function readAddonPackage(
     if (!files) return { ok: false, reason: "not-zip" };
     for (const [name, expected] of Object.entries(addon.files)) {
         if (files[name] === undefined || (await sha256Hex(files[name])) !== expected) {
-            console.error(`Vault-Sync: add-on package file rejected: ${name}`);
+            console.error(`Vault Syncer: add-on package file rejected: ${name}`);
             return { ok: false, reason: "hash-mismatch" };
         }
     }

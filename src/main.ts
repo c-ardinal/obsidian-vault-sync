@@ -54,7 +54,7 @@ import { CredentialManager } from "./services/credential-manager";
 import { setPluginDir } from "./sync-manager/file-utils";
 import { isLegacyCopyEnabled, migrateLegacyPluginData } from "./services/legacy-plugin-migration";
 
-/** Command ids of Vault-Sync itself; an add-on action may not take them. */
+/** Command ids of Vault Syncer itself; an add-on action may not take them. */
 const BUILTIN_COMMAND_IDS: ReadonlySet<string> = new Set([
     "sync-vault",
     "force-full-scan",
@@ -310,7 +310,7 @@ export default class VaultSync extends Plugin {
             );
             if (migrated) new Notice(t("noticeLegacyDataMigrated"), 15000);
         } catch (e) {
-            console.error("Vault-Sync: Could not carry over data from the old plugin folder", e);
+            console.error("Vault Syncer: Could not carry over data from the old plugin folder", e);
         }
 
         this.vaultOps = new ObsidianVaultOperations(this.app);

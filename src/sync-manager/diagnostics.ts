@@ -81,7 +81,7 @@ export function logTail(text: string, max = MAX_LOG_LINES): string[] {
 /** The whole text */
 export function formatDiagnostics(s: DiagnosticsSnapshot, log: string[] | null, now = new Date()): string {
     const out: string[] = [];
-    out.push("## Vault Sync diagnostics", `Created: ${now.toISOString()}`, "");
+    out.push("## Vault Syncer diagnostics", `Created: ${now.toISOString()}`, "");
     out.push("### Environment");
     out.push(`Plugin: ${s.pluginVersion}`);
     out.push(`Obsidian: ${s.obsidianVersion}`);

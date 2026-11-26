@@ -105,7 +105,7 @@ describe("i18n", () => {
         }
     });
 
-    it("has no add-on specific wording in Vault-Sync's own dictionaries", async () => {
+    it("has no add-on specific wording in Vault Syncer's own dictionaries", async () => {
         const { en } = await import("../../../src/i18n/index");
         const ja = (await import("../../../src/i18n/lang/ja.json")).default as Record<string, string>;
         const zh = (await import("../../../src/i18n/lang/zh.json")).default as Record<string, string>;

@@ -177,7 +177,7 @@ export async function ensureLocalFolder(ctx: FileUtilsCtx, filePath: string) {
                 await ctx.vault.createFolder(currentPath);
             } catch (e) {
                 takeOwnFolderEvent(ctx, "create", currentPath);
-                console.debug("Vault-Sync: Race condition in mkdir ignored", e);
+                console.debug("Vault Syncer: Race condition in mkdir ignored", e);
             }
         }
     }

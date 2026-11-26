@@ -1,11 +1,11 @@
 /**
- * Add-ons Vault-Sync is willing to install.
+ * Add-ons Vault Syncer is willing to install.
  *
  * An add-on is distributed separately as a zip package (see addon-package.ts).
- * Vault-Sync never downloads it: the user downloads the package and picks it.
+ * Vault Syncer never downloads it: the user downloads the package and picks it.
  * Every file in the package is pinned by SHA-256 here, so a package is only
  * accepted if it is byte-for-byte the reviewed release. Updating an add-on
- * (code, version or terms) therefore needs a matching Vault-Sync release:
+ * (code, version or terms) therefore needs a matching Vault Syncer release:
  * copy the hashes printed by the add-on's `npm run build`.
  *
  * Display text for an add-on (name, description, terms) lives inside its
@@ -14,7 +14,7 @@
 export interface ApprovedAddon {
     /** Must equal `id` in the package's addon.json. */
     id: string;
-    /** How Vault-Sync activates the entry file. */
+    /** How Vault Syncer activates the entry file. */
     kind: "crypto-engine";
     /** Where the entry file is saved, relative to the plugin folder. */
     installAs: string;
@@ -38,12 +38,14 @@ export const APPROVED_ADDONS: ApprovedAddon[] = [
         installAs: "e2ee-engine.js",
         downloadUrl: "https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine/releases/latest",
         files: {
-            "addon.json": "267eccbd97d36464406dbb4c0798c1db4a8104cb5f163b470b109eef3ee60599",
-            "e2ee-engine.js": "115c3307aee64b9c903495dbc6187864c7ef7ff3d5565f5c8ba803bc0382f588",
-            "TERMS.md": "4b8eb81c12094b937a2899718d646f8e0bdd75e060ea391030d5e622fadfb48f",
-            "TERMS_ja.md": "23d6da4dca54e907ac85625a6d258ced178f04c513c9b9941ef0518d90edaf79",
+            "addon.json": "bfc59e3b451dcedb5973d1f4c9ed437fdba0784637daf3448b83fa5201f5d706",
+            "e2ee-engine.js": "9b0c2d618892f80921261b774f9fd88de0c26df9ed17ea82a4225d7429aca83d",
+            "TERMS.md": "12b4525dd2a3dcde2758470c53f74cd8d65ff71c74ffd8a2351ee039191ecf14",
+            "TERMS_ja.md": "ba7a50d0d9e4ee0c0a3696683c33dc8a4f316a39ba51909a87f20e1528114f36",
         },
         retiredEntryHashes: [
+            // 0.18.0
+            "115c3307aee64b9c903495dbc6187864c7ef7ff3d5565f5c8ba803bc0382f588",
             // 0.17.1
             "9874a1b6356ec367715b233868cf3f294bd9eb4168fba19a63ae7715022a461e",
             // 0.17.0

@@ -71,7 +71,7 @@ export async function loadExternalCryptoEngine(
     // Remove duplicates
     const uniquePaths = [...new Set(variations)];
     console.debug(
-        `Vault-Sync: Attempting to load E2EE engine. Candidates: ${JSON.stringify(uniquePaths)}`,
+        `Vault Syncer: Attempting to load E2EE engine. Candidates: ${JSON.stringify(uniquePaths)}`,
     );
 
     let content: string | null = null;
@@ -90,11 +90,11 @@ export async function loadExternalCryptoEngine(
     }
 
     if (!content) {
-        console.debug("Vault-Sync: E2EE engine file not found at any candidate paths.");
+        console.debug("Vault Syncer: E2EE engine file not found at any candidate paths.");
         return null;
     }
 
-    console.debug(`Vault-Sync: Loading engine from [${successfulPath}]...`);
+    console.debug(`Vault Syncer: Loading engine from [${successfulPath}]...`);
     return evaluateEngine(content, onNotify);
 }
 
@@ -112,7 +112,7 @@ export async function evaluateEngine(
             const actualHash = await computeSHA256(content);
             if (actualHash !== APPROVED_ENGINE_HASH) {
                 console.error(
-                    `Vault-Sync: E2EE engine hash mismatch! Expected: ${APPROVED_ENGINE_HASH}, Got: ${actualHash}`,
+                    `Vault Syncer: E2EE engine hash mismatch! Expected: ${APPROVED_ENGINE_HASH}, Got: ${actualHash}`,
                 );
                 if (onNotify) {
                     await onNotify(
@@ -125,8 +125,8 @@ export async function evaluateEngine(
             }
         } else {
             const actualHash = await computeSHA256(content);
-            console.warn("Vault-Sync: E2EE engine hash verification skipped (development mode)");
-            console.warn(`Vault-Sync: Engine SHA-256: ${actualHash}`);
+            console.warn("Vault Syncer: E2EE engine hash verification skipped (development mode)");
+            console.warn(`Vault Syncer: Engine SHA-256: ${actualHash}`);
         }
 
         // Run the engine script (CommonJS) as a module: wrapped in an ES module
@@ -139,7 +139,7 @@ export async function evaluateEngine(
             const globalRequire = (window as unknown as { require?: (name: string) => unknown })
                 .require;
             if (globalRequire) return globalRequire(name);
-            console.warn(`Vault-Sync: Engine required '${name}' but no require available.`);
+            console.warn(`Vault Syncer: Engine required '${name}' but no require available.`);
             return undefined;
         };
 
@@ -175,15 +175,15 @@ export async function evaluateEngine(
 
         if (missingMethods.length > 0) {
             console.error(
-                `Vault-Sync: E2EE engine missing required methods: ${missingMethods.join(", ")}`,
+                `Vault Syncer: E2EE engine missing required methods: ${missingMethods.join(", ")}`,
             );
             return null;
         }
 
-        console.debug("Vault-Sync: External E2EE engine fully verified.");
+        console.debug("Vault Syncer: External E2EE engine fully verified.");
         return engine as unknown as ICryptoEngine;
     } catch (e) {
-        console.error("Vault-Sync: Engine execution failed", e);
+        console.error("Vault Syncer: Engine execution failed", e);
         return null;
     }
 }
@@ -221,7 +221,7 @@ export async function installEngineFromContent(
         const actualHash = await computeSHA256(content);
         if (actualHash !== APPROVED_ENGINE_HASH) {
             console.error(
-                `Vault-Sync: Picked engine file hash mismatch. Expected: ${APPROVED_ENGINE_HASH}, Got: ${actualHash}`,
+                `Vault Syncer: Picked engine file hash mismatch. Expected: ${APPROVED_ENGINE_HASH}, Got: ${actualHash}`,
             );
             return { ok: false, reason: "hash-mismatch" };
         }
@@ -233,7 +233,7 @@ export async function installEngineFromContent(
     try {
         await vault.write(normalizePath(`${pluginPath}/${ENGINE_FILE_NAME}`), content);
     } catch (e) {
-        console.error("Vault-Sync: Failed to save the engine file", e);
+        console.error("Vault Syncer: Failed to save the engine file", e);
         return { ok: false, reason: "write-failed" };
     }
     return { ok: true, engine };
