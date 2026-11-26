@@ -1,5 +1,6 @@
+import { Platform } from "obsidian";
 import type { IVaultOperations } from "../types/vault-operations";
-import type { GoogleDriveAdapter } from "../cloud-adapters/google-drive";
+import type { OAuthCloudAdapter } from "../types/oauth-adapter";
 import { SecureStorage, type SecretStorage } from "./secure-storage";
 import { DEFAULT_SETTINGS } from "../constants";
 import {
@@ -9,22 +10,37 @@ import {
     type VaultSyncSettings,
 } from "../types/settings";
 import { toHex } from "../utils/format";
+import { mergeWithDefaults, migrateSettings } from "./settings-migration";
 
 interface SettingsManagerDeps {
     vaultOps: IVaultOperations;
     manifestDir: string;
-    adapter: GoogleDriveAdapter;
+    adapter: OAuthCloudAdapter;
     appSecretStorage: SecretStorage | null | undefined;
 }
 
 /**
- * Manages loading and saving Vault-Sync settings from split JSON files
+ * Manages loading and saving Vault Syncer settings from split JSON files
  * (open-data.json / local-data.json), encryption secret initialization,
  * and credential loading from SecretStorage.
  *
- * Extracted from the main Vault-Sync plugin class to separate
+ * Extracted from the main Vault Syncer plugin class to separate
  * settings persistence from plugin lifecycle orchestration.
  */
+/**
+ * A list saved per device by an early build (deviceExclusionPatterns in
+ * local-data.json) goes to the list of this kind of device, unless that list
+ * is already set. The old key is dropped (it would otherwise be synced).
+ */
+export function moveLegacyDeviceExclusion(settings: Record<string, unknown>, isMobile: boolean): void {
+    const legacy = settings.deviceExclusionPatterns;
+    delete settings.deviceExclusionPatterns;
+    if (typeof legacy !== "string" || !legacy.trim()) return;
+    const key = isMobile ? "mobileExclusionPatterns" : "desktopExclusionPatterns";
+    const current = settings[key];
+    if (typeof current !== "string" || !current.trim()) settings[key] = legacy;
+}
+
 export class SettingsManager {
     settings!: VaultSyncSettings;
     secureStorage!: SecureStorage;
@@ -45,7 +61,7 @@ export class SettingsManager {
                 ) as Partial<VaultSyncSettings>;
                 loadedSettings = { ...loadedSettings, ...openData };
             } catch (e) {
-                console.error("Vault-Sync: Failed to load open-data.json", e);
+                console.error("Vault Syncer: Failed to load open-data.json", e);
             }
         }
 
@@ -56,11 +72,23 @@ export class SettingsManager {
                 ) as Partial<VaultSyncSettings>;
                 loadedSettings = { ...loadedSettings, ...localData };
             } catch (e) {
-                console.error("Vault-Sync: Failed to load local-data.json", e);
+                console.error("Vault Syncer: Failed to load local-data.json", e);
             }
         }
 
-        this.settings = Object.assign({}, DEFAULT_SETTINGS, loadedSettings);
+        // Nested groups get new fields' defaults, and the result shares no objects
+        // with DEFAULT_SETTINGS (a shallow copy let setting changes alter the defaults).
+        const merged = mergeWithDefaults(DEFAULT_SETTINGS, loadedSettings);
+        moveLegacyDeviceExclusion(merged as unknown as Record<string, unknown>, Platform.isMobile);
+        // Reloaded after another device changed them: the same object, so the sync and
+        // the triggers (which keep a reference) see the new values too
+        if (this.settings) {
+            Object.assign(this.settings, merged);
+        } else {
+            this.settings = merged;
+        }
+        // Brought to the current shape in memory; written with the next save.
+        migrateSettings(this.settings as unknown as Record<string, unknown>);
 
         // SEC-010: Initialize SecureStorage early to use its SecretStorage methods
         this.secureStorage = new SecureStorage(

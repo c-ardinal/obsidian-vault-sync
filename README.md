@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="img/vaultsync_logotype_v2.webp" alt="Vault-Sync" width="420">
+  <img src="img/vaultsync_logotype_v2.webp" alt="Vault Syncer" width="420">
 </p>
 
 <p align="center">
@@ -14,12 +14,12 @@
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
   <a href="https://github.com/c-ardinal/obsidian-vault-sync/releases"><img src="https://img.shields.io/github/v/release/c-ardinal/obsidian-vault-sync?label=Release&logo=github" alt="GitHub Release"></a>
   <a href="https://github.com/c-ardinal/obsidian-vault-sync/actions/workflows/test.yml"><img src="https://img.shields.io/github/actions/workflow/status/c-ardinal/obsidian-vault-sync/test.yml?branch=main&label=CI&logo=github-actions" alt="CI Status"></a>
-  <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20MacOS%20%7C%20Linux-lightgrey" alt="Platform: Windows | MacOS | Linux">
+  <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20iOS%20%7C%20Android-lightgrey" alt="Platform: Windows | macOS | Linux | iOS | Android">
 </p>
 
 A high-speed, intelligent cloud storage sync plugin for Obsidian.
 Leveraging cloud storage, it provides robust data consistency and a fast synchronization experience across PC and mobile devices (iOS/Android).
-Supported cloud storage providers are listed below; others are planned.
+It currently supports the cloud storage below. Obsidian 1.11.4 or later is required.
 
 - [x] Google Drive
 
@@ -31,20 +31,28 @@ Supported cloud storage providers are listed below; others are planned.
     - Combines MD5 hash computation with Obsidian's built-in file change detection to detect all changes in the vault quickly and efficiently. Dotfile changes are also detected.
 - **Smart Merge (3-way Merge)**:
     - Even when conflicts arise from simultaneous editing on multiple devices or sync timing differences, the plugin safely protects data via lock control while automatically merging wherever possible.
+    - Canvas, JSON and Bases files are merged as data, so a merge never leaves them unreadable.
 - **Revision History & Diff Viewer**:
     - Retrieves file revisions from cloud storage to display diffs against the local version and restore past versions.
 - **Mobile Optimized**:
-    - Built on the `fetch` API for both desktop and mobile.
-    - Features auto-sync on edit-stop or save, and layout change triggers (e.g., when switching tabs).
+    - Works on desktop and mobile (iOS/Android) with the same features.
+    - Features auto-sync on edit-stop or save, and layout change triggers (e.g., when switching tabs). Waiting changes are also sent when the app is hidden or closed.
+    - Large files can wait for Wi-Fi or for the battery to recover (Android and PCs).
 - **Granular Sync Settings**:
     - Selectively sync settings, plugins, themes, and hotkeys within `.obsidian`. Cache and temporary files are automatically excluded.
+    - Exclusions, a file size limit and the `.obsidian` categories can also be set separately for PCs and mobile devices.
+- **Data Protection and Restore**:
+    - Files deleted from the cloud are kept for a set number of days and can be restored. The vault or a folder can be restored to a past time.
+    - A sync that would delete many files, or overwrite many files on the cloud, asks for confirmation first.
+- **Sync Status and Diagnostics**:
+    - Shows the devices that sync the vault and the changes each one sent, checks that this device matches the cloud, and gathers diagnostic info for a support request.
 - **Secure Authentication & Storage**:
     - OAuth2 authentication via the built-in auth proxy (no setup required) or your own Client ID/Secret with PKCE.
     - Credentials are separated from settings and stored securely via Obsidian's SecretStorage API.
 - **Background Transfer**:
     - Large files are uploaded and downloaded in the background without blocking the UI. Configurable thresholds and concurrency limits.
 - **End-to-End Encryption (E2EE)**:
-    - By installing the [E2EE Engine](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine) separately, vault data can be encrypted. Files are encrypted before upload and decrypted after download — no plaintext is stored in the cloud.
+    - By installing the [E2EE Engine](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine) separately, vault data can be encrypted. File contents are encrypted before upload and decrypted after download, so they are never stored in the cloud as plaintext. File and folder names are not encrypted.
 
 |               Transfer Status               |                   Selective Sync                   |
 | :-----------------------------------------: | :------------------------------------------------: |
@@ -60,9 +68,24 @@ Supported cloud storage providers are listed below; others are planned.
     - **Ribbon Icon**:
         - Click the sync icon in the left toolbar to start a Smart Sync.
     - **Command Palette**:
-        - Press `Ctrl+P` (or `Cmd+P`) and select `Vault-Sync: Sync with Cloud`.
+        - Press `Ctrl+P` (or `Cmd+P`) and select `Vault Syncer: Sync now`.
 - **Auto-Sync**:
-    - Depending on your settings, sync triggers on file save, when you stop editing, or at fixed intervals.
+    - Depending on your settings, sync triggers on startup, on file save, when you stop editing, on layout changes, or at fixed intervals.
+- **Other Commands**:
+    - The command palette also offers the screens below.
+
+| Command                                                  | What it shows                                              |
+| :------------------------------------------------------- | :--------------------------------------------------------- |
+| `Vault Syncer: Show sync status`                         | Sync state, waiting changes and shortcuts to other screens |
+| `Vault Syncer: Show transfer status`                     | Running and finished uploads and downloads                 |
+| `Vault Syncer: Show conflict resolution`                 | Conflict copies, to compare and settle them                |
+| `Vault Syncer: Show kept deleted files`                  | Deleted files kept in the cloud, to restore them           |
+| `Vault Syncer: Show restore to a past time`              | Restore of the vault to a chosen time                      |
+| `Vault Syncer: Show devices and changes`                 | Devices that sync the vault and their recent changes       |
+| `Vault Syncer: Check that this device matches the cloud` | A read-only comparison of this device and the cloud        |
+| `Vault Syncer: Fetch a file not synced on this device`   | One-off download of a file left out on this device         |
+| `Vault Syncer: Show diagnostics`                         | Diagnostic info to copy or report                          |
+| `Vault Syncer: Show add-on install`                      | Add-on install screen                                      |
 
 |             Sync Notifications              |                     Sync Triggers                      |
 | :-----------------------------------------: | :----------------------------------------------------: |
@@ -71,11 +94,11 @@ Supported cloud storage providers are listed below; others are planned.
 ### History and Restoration
 
 - **File History**:
-    - Right-click a file and select "View History in Cloud (Vault-Sync)" to compare against past revisions on cloud storage.
+    - Right-click a file and select "Show version history (Vault Syncer)" to compare against past revisions on cloud storage.
 - **Advanced Diff Viewer**:
     - Provides powerful comparison tools including Unified/Split view toggle, inline character-level highlighting, jump navigation between changes (with looping), and adjustable context lines.
 - **Full Scan**:
-    - If concerned about consistency, run `Vault-Sync: Audit & Fix Consistency (Full Scan)` from the command palette to force a sync state check.
+    - If concerned about consistency, run `Vault Syncer: Run a full scan` from the command palette to force a sync state check.
 
 |              Cloud History              |             Diff Viewer             |
 | :-------------------------------------: | :---------------------------------: |
@@ -89,15 +112,15 @@ Supported cloud storage providers are listed below; others are planned.
 
 1. Open Obsidian Settings > Community Plugins.
 2. Click "Browse" in Community Plugins.
-3. Search for "Vault-Sync" and click "Install".
-4. Go back to Settings > Community Plugins and enable "Vault-Sync".
+3. Search for "Vault Syncer" and click "Install".
+4. Go back to Settings > Community Plugins and enable "Vault Syncer".
 
 ### Via BRAT
 
 1. Install the [BRAT](https://github.com/TfTHacker/obsidian42-brat) plugin from the Obsidian Community Plugins.
 2. Open BRAT settings and click **"Add Beta plugin"**.
 3. Enter `c-ardinal/obsidian-vault-sync`, select `Latest version`, and click **"Add Plugin"**.
-4. Enable "Vault-Sync" in Settings > Community Plugins.
+4. Enable "Vault Syncer" in Settings > Community Plugins.
 
 BRAT will automatically check for updates and keep the plugin up to date.
 
@@ -106,13 +129,13 @@ BRAT will automatically check for updates and keep the plugin up to date.
 1. Download `main.js`, `manifest.json`, and `styles.css` from the [latest release](https://github.com/c-ardinal/obsidian-vault-sync/releases/latest).
 2. Create a folder named `cardinal-vault-sync` in your vault's `.obsidian/plugins/` directory.
 3. Place the downloaded files into the folder.
-4. Enable "Vault-Sync" in Settings > Community Plugins.
+4. Enable "Vault Syncer" in Settings > Community Plugins.
 
 ### Updating from an older version (plugin ID `obsidian-vault-sync`)
 
 For the community directory the plugin ID changed from `obsidian-vault-sync` to `cardinal-vault-sync`, so Obsidian installs it into a new folder.
 
-1. Install Vault-Sync from the community browser (or update it with BRAT).
+1. Install Vault Syncer from the community browser (or update it with BRAT).
 2. Turn off the old copy (ID `obsidian-vault-sync`) in Settings > Community Plugins and restart the app. While the old copy is on, the new one does not sync, so the two never sync the same vault at once.
 3. On its first start the new copy carries over your settings, sync state and installed add-ons from the old folder. After that you can uninstall the old copy.
 
@@ -122,20 +145,20 @@ Update every device. Until all are updated, devices still on the old copy keep w
 
 ## 🚀 Login Instructions
 
-Vault-Sync offers three authentication methods. Choose the one that suits your needs.
+Vault Syncer offers three authentication methods. Choose the one that suits your needs.
 
 ### Method A: Default (Recommended)
 
 The simplest way to get started. The plugin uses the developer-provided authentication proxy to handle the OAuth login — no Google Cloud setup required.
 
-1. Open Obsidian Settings > "Vault-Sync".
-2. Ensure the Login Method is set to **"Default"**.
+1. Open Obsidian Settings > "Vault Syncer" > "Authentication".
+2. Ensure the Login method is set to **"Default (recommended)"**.
 3. Click the **"Login"** button.
 4. A browser will open with the Google login screen.
 5. After successful login, you will be automatically redirected back to Obsidian. Completion is confirmed when the success notification appears.
     - If you are not automatically redirected, click the "Open Obsidian" button on the browser screen.
     - If it still doesn't return, manually switch back to the Obsidian app.
-6. Restart Obsidian after the success notification appears.
+6. The first sync starts right after login. No restart is needed.
 
 > **Note**: The authentication proxy handles OAuth codes and tokens transiently (in-memory only) and discards them after processing. No vault data passes through the proxy. See the [Privacy Policy](https://obsidian-vault-sync.pages.dev/privacy/) for details.
 
@@ -143,12 +166,11 @@ The simplest way to get started. The plugin uses the developer-provided authenti
 
 Use your own authentication proxy server instead of the default one.
 
-1. Deploy an authentication proxy compatible with the Vault-Sync API (see the `www/functions/` directory for the reference implementation).
-2. Open Obsidian Settings > "Vault-Sync".
-3. Set the Login Method to **"Use Custom Auth Proxy"**.
+1. Deploy an authentication proxy compatible with the Vault Syncer API (see the `www/functions/` directory for the reference implementation).
+2. Open Obsidian Settings > "Vault Syncer" > "Authentication".
+3. Set the Login method to **"Use custom auth proxy"**.
 4. Enter your proxy URL (must use HTTPS).
-5. Click the **"Login"** button and complete the Google login flow.
-6. Restart Obsidian after the success notification appears.
+5. Click the **"Login"** button and complete the Google login flow. The first sync starts right after login.
 
 ### Method C: Client ID / Secret
 
@@ -188,14 +210,14 @@ For full control, create your own Google Cloud Project and use your own OAuth cr
 
 #### 4. Apply to Plugin
 
-1. Open Obsidian Settings > "Vault-Sync".
-2. Set the Login Method to **"Use Client ID / Secret"**.
+1. Open Obsidian Settings > "Vault Syncer" > "Authentication".
+2. Set the Login method to **"Use Client ID / Secret"**.
 3. Enter the Client ID and Client Secret, then click the **"Login"** button.
 4. A browser will open with the Google login screen.
 5. After successful login, you will be automatically redirected back to Obsidian. Completion is confirmed when the success notification appears.
     - If you are not automatically redirected, click the "Open Obsidian" button on the browser screen.
     - If it still doesn't return, manually switch back to the Obsidian app.
-6. Restart Obsidian after the success notification appears.
+6. The first sync starts right after login. No restart is needed.
 
 ---
 
@@ -254,7 +276,7 @@ flowchart TD
 
 ### 3-way Merge
 
-When the same file is edited on multiple devices, Vault-Sync resolves conflicts using a three-way merge based on a common ancestor.
+When the same file is edited on multiple devices, Vault Syncer resolves conflicts using a three-way merge based on a common ancestor.
 
 ```mermaid
 graph TD
@@ -269,7 +291,7 @@ graph TD
 
 ### Other Specifications
 
-- **Conflict Resolution**: In addition to 3-way Merge, choose from "Smart Merge", "Force Local", "Force Remote", or "Always Fork" strategies. If a conflict cannot be auto-resolved, the local file is backed up as `(Conflict YYYY-MM-DDTHH-mm-ss)`.
+- **Conflict Resolution**: Choose from the "Smart merge", "Create copies", "Keep this device", or "Keep cloud" strategies. If a conflict cannot be auto-resolved, the local file is kept as a copy named `(Conflict YYYY-MM-DDTHH-mm-ss)`, which can be settled later from the conflict resolution screen.
 - **Selective Sync**: Control synchronization of files within `.obsidian/` (plugins, themes, hotkeys, etc.) by category. Device-specific data like `workspace.json` and `cache/` are automatically excluded.
 - **Device Communication**: Merge lock control between devices via `communication.json` prevents overwriting when the same file is edited simultaneously.
 - **Atomic Updates**: Individual index entries are updated upon each file transfer. The index is Gzip-compressed for efficient synchronization.
@@ -284,8 +306,8 @@ As required by Obsidian's developer policies:
 - **Network use**: The plugin connects only to the services below, and only to sync your vault or sign you in.
     - Google Drive API (`www.googleapis.com`): uploads, downloads and lists the files of your vault in your own Google Drive.
     - Google sign-in (`accounts.google.com`, `oauth2.googleapis.com`): OAuth login and token refresh.
-    - Vault-Sync authentication proxy (`obsidian-vault-sync.pages.dev`, Cloudflare Pages): completes the OAuth login when the default login method is used. It never sees your vault data. You can avoid it with your own Client ID / Secret (Method C) or your own proxy (Method B). See the [Privacy Policy](https://obsidian-vault-sync.pages.dev/privacy/).
-    - GitHub (`github.com`): opened in your browser only when you tap "Open download page" while installing an add-on. The plugin itself never downloads code.
+    - Vault Syncer authentication proxy (`obsidian-vault-sync.pages.dev`, Cloudflare Pages): completes the OAuth login when the default login method is used. It never sees your vault data. You can avoid it with your own Client ID / Secret (Method C) or your own proxy (Method B). See the [Privacy Policy](https://obsidian-vault-sync.pages.dev/privacy/).
+    - GitHub (`github.com`): opened in your browser only when you tap "Open download page" while installing an add-on, or "Report on GitHub" on the diagnostics screen. The latter fills the issue form with the diagnostic text shown on that screen, so that text is sent to GitHub in the link when the form opens. It becomes a public issue only when you submit it. The plugin itself never downloads code.
 - **No telemetry, no ads, no payments**: The plugin collects no usage data and shows no ads. It is free and open source (MIT).
 
 ---
@@ -301,13 +323,13 @@ As required by Obsidian's developer policies:
 - **Data Location**:
     - Synced data is stored exclusively in your own cloud storage space (in the root folder you specify).
 - **File Encryption**:
-    - By default, synced data (Markdown files, etc.) is uploaded to cloud storage in **plain text (without encryption)**. While protected by the cloud storage security model (HTTPS transfer, server-side encryption), data is readable on the server side. If End-to-End Encryption is required, install the [Vault-Sync E2EE Engine](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine). See the section below for details.
+    - By default, synced data (Markdown files, etc.) is uploaded to cloud storage in **plain text (without encryption)**. While protected by the cloud storage security model (HTTPS transfer, server-side encryption), data is readable on the server side. If End-to-End Encryption is required, install the [Vault Syncer E2EE Engine](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine). See the section below for details.
 
 ---
 
 ## 🔑 End-to-End Encryption (E2EE)
 
-Vault-Sync supports optional End-to-End Encryption through a separate, open-source encryption engine.
+Vault Syncer supports optional End-to-End Encryption through a separate, open-source encryption engine.
 
 ```mermaid
 flowchart LR
@@ -333,8 +355,9 @@ flowchart LR
 When E2EE is enabled:
 
 - All files are **encrypted on your device before upload** using AES-256-GCM
-- Files are **decrypted locally after download** — your cloud provider never sees plaintext
-- A `vault-lock.vault` file protects the master key (derived via PBKDF2 from your password)
+- Files are **decrypted locally after download** — your cloud provider never sees file contents
+- File and folder names, sizes and modification times are **not** encrypted
+- Files are encrypted with a random master key. A `vault-lock.vault` file holds that key, protected by a key derived from your password via PBKDF2
 - Smart sync features (3-way merge, conflict detection) work seamlessly with encrypted data
 - Password can be optionally stored via Obsidian's SecretStorage for auto-unlock
 - Password changes without re-encrypting data
@@ -343,14 +366,15 @@ When E2EE is enabled:
 
 The E2EE Engine is a separately distributed **add-on** with its own terms of use, so that only people who want encryption install it, by their own choice. Installing it takes a few taps, on desktop or mobile, with no need to open the hidden `.obsidian` folder:
 
-1. Open Vault-Sync's settings and tap **Install add-on...** under "Add-ons" (or run `Install add-on` from the command palette).
+1. Open Vault Syncer's settings and tap **Install add-on...** under "Add-ons" (or run `Vault Syncer: Show add-on install` from the command palette).
 2. Tap **Open download page** and download `vault-sync-e2ee-engine.zip` from the latest release.
-3. Tap **Choose file** and pick the downloaded zip. Vault-Sync checks every file in it against the approved release (SHA-256).
+3. Tap **Choose file** and pick the downloaded zip. Vault Syncer checks every file in it against the approved release (SHA-256).
 4. Read the add-on's terms of use shown in the dialog, agree, and tap **Install**. The add-on is active right away, without a restart.
+5. The add-on's own settings page now appears under "Add-ons" in Vault Syncer's settings. Its operations can be started from there as well as from the command palette.
 
-Vault-Sync itself never downloads add-ons. If the vault already uses the add-on on another device, the install dialog opens on startup and then asks for the password. Copying `e2ee-engine.js` into `.obsidian/plugins/cardinal-vault-sync/` by hand still works too.
+Vault Syncer itself never downloads add-ons. If the vault already uses the add-on on another device, the install dialog opens on startup and then asks for the password. Copying `e2ee-engine.js` into `.obsidian/plugins/cardinal-vault-sync/` by hand still works too.
 
-For details, available commands, build instructions, and the encryption specification, see the **[Vault-Sync E2EE Engine repository](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine)**.
+For details, available commands, build instructions, and the encryption specification, see the **[Vault Syncer E2EE Engine repository](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine)**.
 
 ---
 
@@ -393,7 +417,7 @@ A: You might be syncing many files, or the network may be unstable.
 Check the notification messages or enable logging in the settings for details.
 
 **Q: I want to exclude specific folders or files from syncing.**
-A: Add glob patterns to the "Exclude Files/Folders" setting.
+A: Add glob patterns to "Exclude files/folders (all devices)" under "Sync scope" in the settings.
 For example, adding `secret/**` will exclude the `secret` folder and all files within it from synchronization.
 
 **Q: On mobile, I'm not redirected back to the app after authentication.**

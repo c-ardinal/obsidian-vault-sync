@@ -17,11 +17,14 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { GoogleAuthService } from "../../../src/cloud-adapters/google-drive/auth-service";
+import { AUTH_PROXY_BASE_URL } from "../../../src/constants";
+import { requestUrl } from "obsidian";
 
 // Mock window and localStorage
 const localStorageMock: Record<string, string | null> = {};
 // Use Node.js webcrypto for real crypto operations
 import { webcrypto } from "node:crypto";
+import { windowStub } from "../../setup-window";
 
 const windowMock = {
     crypto: {
@@ -38,11 +41,10 @@ const windowMock = {
     navigator: { onLine: true },
     open: vi.fn(),
 };
-(globalThis as any).window = windowMock;
+(globalThis as any).window = windowStub(windowMock);
 
-// Mock global fetch
-const mockFetch = vi.fn();
-(globalThis as any).fetch = mockFetch;
+// The token endpoint is reached through Obsidian's requestUrl (mocked in tests/__mocks__/obsidian.ts)
+const mockRequestUrl = vi.mocked(requestUrl);
 
 describe("GoogleAuthService", () => {
     let auth: GoogleAuthService;
@@ -121,29 +123,34 @@ describe("GoogleAuthService", () => {
     });
 
     describe("setAuthConfig", () => {
-        it("should accept default method", () => {
-            auth.setAuthConfig("default");
-            // No error thrown
+        // Where sign-in requests go: the built-in proxy, a custom HTTPS proxy, or none
+        const proxyBase = () => (auth as any).getProxyBaseUrl() as string | null;
+
+        it("uses the built-in proxy for the default method", () => {
+            auth.setAuthConfig("default", "https://ignored.example.com");
+            expect(proxyBase()).toBe(AUTH_PROXY_BASE_URL);
         });
 
-        it("should accept custom-proxy with valid HTTPS URL", () => {
-            auth.setAuthConfig("custom-proxy", "https://my-proxy.example.com");
-            // Internally stored; validated via getAuthUrl behavior
+        it("uses a custom HTTPS proxy, without trailing slashes", () => {
+            auth.setAuthConfig("custom-proxy", "https://my-proxy.example.com//");
+            expect(proxyBase()).toBe("https://my-proxy.example.com");
         });
 
-        it("should reject custom-proxy with HTTP URL", () => {
+        it("refuses a custom proxy over plain HTTP (tokens would travel unencrypted)", () => {
             auth.setAuthConfig("custom-proxy", "http://insecure.example.com");
-            // Falls back to empty proxyUrl (non-HTTPS rejected)
+            expect(proxyBase()).toBe("");
         });
 
-        it("should reject custom-proxy with invalid URL", () => {
+        it("refuses a custom proxy address that is not a URL", () => {
             auth.setAuthConfig("custom-proxy", "not-a-url");
-            // Falls back to empty proxyUrl
+            expect(proxyBase()).toBe("");
         });
 
-        it("should handle client-credentials method", () => {
+        it("forgets an earlier proxy when switching to client credentials", () => {
+            auth.setAuthConfig("custom-proxy", "https://my-proxy.example.com");
             auth.setAuthConfig("client-credentials");
-            // No error thrown, proxyUrl cleared
+            expect(proxyBase()).toBeNull();
+            expect((auth as any).proxyUrl).toBe("");
         });
     });
 
@@ -183,13 +190,13 @@ describe("GoogleAuthService", () => {
 
         it("should exchange code for tokens successfully", async () => {
             (auth as any).codeVerifier = "test-verifier";
-            mockFetch.mockResolvedValueOnce({
-                ok: true,
-                text: () => Promise.resolve(JSON.stringify({
+            mockRequestUrl.mockResolvedValueOnce({
+                status: 200,
+                text: JSON.stringify({
                     access_token: "new-access",
                     refresh_token: "new-refresh",
                     expires_in: 3600,
-                })),
+                }),
             });
 
             await auth.exchangeCodeForToken("auth-code");
@@ -200,12 +207,12 @@ describe("GoogleAuthService", () => {
 
         it("should throw on token exchange error response", async () => {
             (auth as any).codeVerifier = "test-verifier";
-            mockFetch.mockResolvedValueOnce({
-                ok: false,
-                text: () => Promise.resolve(JSON.stringify({
+            mockRequestUrl.mockResolvedValueOnce({
+                status: 400,
+                text: JSON.stringify({
                     error: "invalid_grant",
                     error_description: "Code expired",
-                })),
+                }),
             });
 
             await expect(auth.exchangeCodeForToken("bad-code")).rejects.toThrow("Code expired");
@@ -213,19 +220,19 @@ describe("GoogleAuthService", () => {
 
         it("should throw on network error", async () => {
             (auth as any).codeVerifier = "test-verifier";
-            mockFetch.mockRejectedValueOnce(new Error("Network error"));
+            mockRequestUrl.mockRejectedValueOnce(new Error("Network error"));
 
             await expect(auth.exchangeCodeForToken("code")).rejects.toThrow("could not reach Google servers");
         });
 
         it("should recover verifier from localStorage", async () => {
             localStorageMock["vault-sync-verifier"] = "stored-verifier";
-            mockFetch.mockResolvedValueOnce({
-                ok: true,
-                text: () => Promise.resolve(JSON.stringify({
+            mockRequestUrl.mockResolvedValueOnce({
+                status: 200,
+                text: JSON.stringify({
                     access_token: "at",
                     refresh_token: "rt",
-                })),
+                }),
             });
 
             await auth.exchangeCodeForToken("code");
@@ -234,9 +241,9 @@ describe("GoogleAuthService", () => {
 
         it("should throw on malformed JSON response", async () => {
             (auth as any).codeVerifier = "test-verifier";
-            mockFetch.mockResolvedValueOnce({
-                ok: true,
-                text: () => Promise.resolve("<html>Error page</html>"),
+            mockRequestUrl.mockResolvedValueOnce({
+                status: 200,
+                text: "<html>Error page</html>",
             });
 
             await expect(auth.exchangeCodeForToken("code")).rejects.toThrow("Invalid JSON");
@@ -250,13 +257,13 @@ describe("GoogleAuthService", () => {
         });
 
         it("should refresh tokens successfully", async () => {
-            mockFetch.mockResolvedValueOnce({
-                ok: true,
-                text: () => Promise.resolve(JSON.stringify({
+            mockRequestUrl.mockResolvedValueOnce({
+                status: 200,
+                text: JSON.stringify({
                     access_token: "refreshed-access",
                     refresh_token: "new-refresh",
                     expires_in: 7200,
-                })),
+                }),
             });
 
             const onRefresh = vi.fn();
@@ -270,13 +277,12 @@ describe("GoogleAuthService", () => {
 
         it("should clear tokens on invalid_grant error", async () => {
             auth.accessToken = "old-access";
-            mockFetch.mockResolvedValueOnce({
-                ok: false,
+            mockRequestUrl.mockResolvedValueOnce({
                 status: 400,
-                text: () => Promise.resolve(JSON.stringify({
+                text: JSON.stringify({
                     error: "invalid_grant",
                     error_description: "Token revoked",
-                })),
+                }),
             });
 
             const onFailure = vi.fn();
@@ -290,10 +296,9 @@ describe("GoogleAuthService", () => {
 
         it("should not clear tokens on non-fatal server error", async () => {
             auth.accessToken = "still-valid";
-            mockFetch.mockResolvedValueOnce({
-                ok: false,
+            mockRequestUrl.mockResolvedValueOnce({
                 status: 500,
-                text: () => Promise.resolve(JSON.stringify({ error: "server_error" })),
+                text: JSON.stringify({ error: "server_error" }),
             });
 
             // Should NOT throw — non-fatal errors are silently ignored
@@ -303,7 +308,7 @@ describe("GoogleAuthService", () => {
 
         it("should throw on network error without clearing tokens", async () => {
             auth.accessToken = "keep-this";
-            mockFetch.mockRejectedValueOnce(new Error("Connection refused"));
+            mockRequestUrl.mockRejectedValueOnce(new Error("Connection refused"));
 
             await expect(auth.refreshTokens()).rejects.toThrow("Google OAuth unreachable");
             expect(auth.accessToken).toBe("keep-this");
@@ -311,12 +316,9 @@ describe("GoogleAuthService", () => {
 
         it("should share promise for concurrent refresh calls", async () => {
             let resolveCount = 0;
-            mockFetch.mockImplementation(() => {
+            mockRequestUrl.mockImplementation(() => {
                 resolveCount++;
-                return Promise.resolve({
-                    ok: true,
-                    text: () => Promise.resolve(JSON.stringify({ access_token: "at" })),
-                });
+                return Promise.resolve({ status: 200, text: JSON.stringify({ access_token: "at" }) });
             });
 
             await Promise.all([auth.refreshTokens(), auth.refreshTokens()]);
@@ -335,11 +337,11 @@ describe("GoogleAuthService", () => {
         it("should exchange code when state matches", async () => {
             (auth as any).currentAuthState = "good-state";
             (auth as any).codeVerifier = "verifier";
-            mockFetch.mockResolvedValueOnce({
-                ok: true,
-                text: () => Promise.resolve(JSON.stringify({
+            mockRequestUrl.mockResolvedValueOnce({
+                status: 200,
+                text: JSON.stringify({
                     access_token: "at", refresh_token: "rt",
-                })),
+                }),
             });
 
             await auth.handleCallback("obsidian://vault-sync-auth?state=good-state&code=auth-code");

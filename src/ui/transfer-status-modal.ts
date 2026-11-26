@@ -8,7 +8,8 @@
  * Kept close to Obsidian's own lists: plain rows, one-colour icons, colour only
  * for failures, no cards or badges.
  */
-import { App, DropdownComponent, Modal, moment, setIcon } from "obsidian";
+import { App, DropdownComponent, Modal, setIcon } from "obsidian";
+import { formatMoment } from "./format-time";
 import { SyncManager } from "../sync-manager";
 import type { TransferItem, TransferRecord } from "../sync-manager/transfer-types";
 import type { SyncProgressSnapshot } from "../sync-manager/sync-progress";
@@ -31,6 +32,8 @@ const REFRESH_MS = 1000;
 export interface TransferModalActions {
     onSyncNow: () => void;
     onOpenSettings: () => void;
+    onReport?: (title: string) => void;
+    onResolveConflicts?: () => void;
 }
 
 export class TransferStatusModal extends Modal {
@@ -111,6 +114,18 @@ export class TransferStatusModal extends Modal {
                       actions.onOpenSettings();
                   }
                 : undefined,
+            onReport: actions?.onReport
+                ? (title) => {
+                      this.close();
+                      actions.onReport?.(title);
+                  }
+                : undefined,
+            onResolveConflicts: actions?.onResolveConflicts
+                ? () => {
+                      this.close();
+                      actions.onResolveConflicts?.();
+                  }
+                : undefined,
         });
     }
 
@@ -156,6 +171,13 @@ export class TransferStatusModal extends Modal {
         if (active.length === 0) {
             el.createDiv({ cls: "vault-sync-xfer-empty", text: t("transferNoActive") });
             return;
+        }
+        const deferred = this.syncManager.getTransferDeferReason?.();
+        if (deferred) {
+            el.createDiv({
+                cls: "vault-sync-xfer-muted vault-sync-xfer-deferred",
+                text: t(deferred === "cellular" ? "transferDeferredCellular" : "transferDeferredLowBattery"),
+            });
         }
         // Transferring first, then waiting in queue order.
         const sorted = [...active].sort(
@@ -241,7 +263,7 @@ export class TransferStatusModal extends Modal {
                         ? t("transferToday")
                         : day.kind === "yesterday"
                           ? t("transferYesterday")
-                          : moment(day.dayStart).format("LL"),
+                          : formatMoment(day.dayStart, "LL"),
             });
             for (const batch of day.batches) {
                 this.renderBatch(dayEl, batch, first);
@@ -310,7 +332,7 @@ export class TransferStatusModal extends Modal {
             }
             meta.createSpan({
                 cls: "vault-sync-xfer-time",
-                text: moment(r.completedAt).format("LTS"),
+                text: formatMoment(r.completedAt, "LTS"),
             });
         }
     }

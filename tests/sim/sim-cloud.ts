@@ -1,5 +1,6 @@
 import type { CloudAdapter } from "../../src/types/adapter";
 import { MockCloudAdapter } from "../helpers/mock-cloud-adapter";
+import { FakeDriveServer, driveAdapterOnFakeServer } from "../helpers/fake-drive-server";
 import type { Rng } from "./rng";
 
 /** Methods that represent a network round-trip (latency + faults apply) */
@@ -81,9 +82,19 @@ export class SimCloud {
     /** Optional sink so callers can stream records (e.g. into a timeline) */
     onCall: ((rec: CallRecord) => void) | null = null;
 
-    constructor() {
+    /**
+     * Drive mode: each device runs the real Google Drive adapter (path resolver,
+     * HTTP client) against this server, which keeps folders as items with ids like
+     * Drive does. Off: devices share the in-memory store, keyed by path.
+     */
+    readonly driveServer: FakeDriveServer | null;
+
+    constructor(opts: { drive?: boolean } = {}) {
+        this.driveServer = opts.drive ? new FakeDriveServer() : null;
         // Like Google Drive: one entry per file with its current state (see MockCloudAdapter)
         this.store.changesLatestStateOnly = true;
+        // Like Drive: a clone with another vault name is a folder next to the vault (trash)
+        this.store.cloneRoots = true;
     }
 
     createDeviceView(
@@ -92,7 +103,7 @@ export class SimCloud {
         getProfile: () => NetworkProfile,
         isOnline: () => boolean,
     ): CloudAdapter {
-        const store = this.store;
+        const store: object = this.driveServer ? driveAdapterOnFakeServer(this.driveServer).adapter : this.store;
         const calls = this.calls;
         const sim = this;
         let deviceLogger: (msg: string, level?: string) => void = () => {};
@@ -112,7 +123,7 @@ export class SimCloud {
             sim.onCall?.(rec);
         };
 
-        const handler: ProxyHandler<MockCloudAdapter> = {
+        const handler: ProxyHandler<any> = {
             get(target, prop, receiver) {
                 if (prop === "setLogger") {
                     return (logger: (msg: string, level?: string) => void) => {
@@ -120,7 +131,8 @@ export class SimCloud {
                     };
                 }
                 if (prop === "cloneWithNewVaultName") {
-                    return () => proxy;
+                    return (name: string) =>
+                        name === target.vaultName ? proxy : target.cloneWithNewVaultName(name);
                 }
                 const value = Reflect.get(target, prop, receiver);
                 if (typeof value !== "function" || typeof prop !== "string") return value;
@@ -169,6 +181,15 @@ export class SimCloud {
         decode?: (bytes: ArrayBuffer) => Promise<ArrayBuffer>,
     ): Promise<Record<string, string>> {
         const out: Record<string, string> = {};
+        if (this.driveServer) {
+            for (const [path, item] of this.driveServer.vaultItems()) {
+                if (item.folder || isInternal(path)) continue;
+                const raw = item.content ?? new Uint8Array();
+                const plain = decode ? await decode(raw.slice().buffer) : raw.slice().buffer;
+                out[path] = new TextDecoder().decode(plain);
+            }
+            return out;
+        }
         for (const f of await this.store.listFiles()) {
             if (isInternal(f.path)) continue;
             if (decode) {

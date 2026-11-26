@@ -1,9 +1,10 @@
 import type { App } from "obsidian";
+import type { AddonUiContributions, AddonUiHost } from "../addons/addon-ui";
 
 // Minimal types copied from settings-schema to avoid circular dependency
 export interface SettingItem {
     key: string;
-    type: "toggle" | "text" | "number" | "dropdown" | "textarea" | "info";
+    type: "toggle" | "text" | "number" | "dropdown" | "textarea" | "info" | "subheader";
     label: string;
     desc?: string;
     getDesc?: (settings: unknown, plugin: unknown) => string;
@@ -149,7 +150,13 @@ export interface ICryptoEngine {
     showRecoveryImportModal?(ctx: E2EEPluginContext): void;
     getSettingsSections(ctx: E2EEPluginContext): SettingSection[];
     /**
-     * Display text of the add-on for a UI language ("en", "ja", ...). Vault-Sync's
+     * Settings pages and actions of the add-on (see addons/addon-ui.ts). Vault Syncer
+     * lists the pages on its add-on settings page and registers the actions as
+     * commands. Engines before 0.18 lack it (and are no longer accepted).
+     */
+    getUiContributions?(ctx: E2EEPluginContext, host: AddonUiHost): AddonUiContributions;
+    /**
+     * Display text of the add-on for a UI language ("en", "ja", ...). Vault Syncer's
      * own dictionary carries no add-on specific wording.
      */
     getStrings?(lang: string): Record<string, string>;

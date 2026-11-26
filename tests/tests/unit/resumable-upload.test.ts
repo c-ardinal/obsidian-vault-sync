@@ -11,6 +11,7 @@ import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { createHash } from "crypto";
 import { GoogleDriveAdapter } from "../../../src/cloud-adapters/google-drive/index";
 import { GoogleDriveHttpClient } from "../../../src/cloud-adapters/google-drive/http-client";
+import { windowStub } from "../../setup-window";
 
 const SESSION = "https://upload.example.test/session/1";
 
@@ -106,7 +107,7 @@ function payload(size: number): ArrayBuffer {
 
 describe("Resumable upload (fake Drive server)", () => {
     beforeEach(() => {
-        vi.stubGlobal("window", { navigator: { onLine: true }, addEventListener() {}, removeEventListener() {} });
+        vi.stubGlobal("window", windowStub({ navigator: { onLine: true }, addEventListener() {}, removeEventListener() {} }));
         vi.spyOn(GoogleDriveAdapter, "RESUMABLE_CHUNK_BYTES", "get").mockReturnValue(256 * 1024);
         vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     });
@@ -215,7 +216,7 @@ describe("GoogleDriveHttpClient network failures", () => {
     }
 
     beforeEach(() => {
-        vi.stubGlobal("window", { navigator: { onLine: true }, addEventListener() {}, removeEventListener() {} });
+        vi.stubGlobal("window", windowStub({ navigator: { onLine: true }, addEventListener() {}, removeEventListener() {} }));
         vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     });
     afterEach(() => {
@@ -261,6 +262,36 @@ describe("GoogleDriveHttpClient network failures", () => {
         await vi.advanceTimersByTimeAsync(10 * 60_000);
         await assertion;
         expect(fetchMock).toHaveBeenCalledTimes(4); // first try + 3 retries
+    });
+
+    it("aborts an answer whose body stops coming after the headers, then retries", async () => {
+        const original = GoogleDriveHttpClient.transport;
+        let calls = 0;
+        GoogleDriveHttpClient.transport = (_url, init, options) => {
+            calls++;
+            if (calls > 1) return Promise.resolve(new Response("ok", { status: 200 }));
+            return new Promise<Response>((_, reject) => {
+                init.signal?.addEventListener("abort", () =>
+                    reject(new DOMException("The operation was aborted.", "AbortError")),
+                );
+                options.onHeaders?.();
+                // Some bytes keep coming for a while (each restarts the idle limit) ...
+                for (let i = 1; i <= 3; i++) {
+                    setTimeout(() => options.onProgress?.(), i * (GoogleDriveHttpClient.BODY_IDLE_MS - 1_000));
+                }
+                // ... then nothing more
+            });
+        };
+        try {
+            const p = makeClient().fetchWithAuth("https://example.test/stall");
+            await vi.advanceTimersByTimeAsync(3 * GoogleDriveHttpClient.BODY_IDLE_MS);
+            expect(calls).toBe(1); // still receiving: not cut off
+            await vi.advanceTimersByTimeAsync(2 * GoogleDriveHttpClient.BODY_IDLE_MS);
+            await expect(p).resolves.toBeInstanceOf(Response);
+            expect(calls).toBe(2);
+        } finally {
+            GoogleDriveHttpClient.transport = original;
+        }
     });
 
     it("gives uploads extra time in proportion to their size", () => {

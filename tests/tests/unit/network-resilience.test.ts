@@ -24,6 +24,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { GoogleDriveAdapter } from "../../../src/cloud-adapters/google-drive";
 import { requestUrl } from "obsidian";
+import { windowStub } from "../../setup-window";
 
 // ── Test Helpers (DRY) ──────────────────────────────────────────────
 
@@ -113,14 +114,14 @@ function networkError(): () => never {
 
 /** Minimal window stub for Node.js test environment. */
 function createMockWindow(online = true) {
-    return {
+    return windowStub({
         navigator: { onLine: online },
         addEventListener: vi.fn(),
         removeEventListener: vi.fn(),
         localStorage: { getItem: vi.fn(), setItem: vi.fn(), removeItem: vi.fn() },
         crypto: globalThis.crypto,
         open: vi.fn(),
-    };
+    });
 }
 
 // ── Tests ──────────────────────────────────────────────────────────
@@ -161,9 +162,9 @@ describe("Network Resilience", () => {
     describe("OK-2: 401 → direct refresh → retry succeeds", () => {
         it("should refresh token directly and retry the API call", async () => {
             const a = createAdapter("client-credentials");
+            vi.mocked(requestUrl).mockResolvedValueOnce(mockProxyResult(VALID_TOKEN_RESPONSE));
             vi.stubGlobal("fetch", sequentialFetch([
                 { match: /googleapis.*startPageToken/, respond: mockResponse({ error: { message: "Invalid Credentials" } }, 401) },
-                { match: /oauth2\.googleapis\.com\/token/, respond: mockResponse(VALID_TOKEN_RESPONSE) },
                 { match: /googleapis.*startPageToken/, respond: mockResponse(PAGE_TOKEN_RESPONSE) },
             ]));
 
@@ -288,9 +289,9 @@ describe("Network Resilience", () => {
             const onFail = vi.fn();
             a.onAuthFailure = onFail;
 
+            vi.mocked(requestUrl).mockRejectedValueOnce(new Error("net::ERR_INTERNET_DISCONNECTED"));
             vi.stubGlobal("fetch", sequentialFetch([
                 { match: /googleapis.*startPageToken/, respond: mockResponse({}, 401) },
-                { match: /oauth2\.googleapis\.com\/token/, respond: networkError() },
             ]));
 
             await expect(a.getStartPageToken()).rejects.toThrow("Authentication failed");
@@ -339,9 +340,9 @@ describe("Network Resilience", () => {
         it("should fail gracefully when direct refresh returns garbage", async () => {
             const a = createAdapter("client-credentials");
 
+            vi.mocked(requestUrl).mockResolvedValueOnce(mockProxyResult("{{not json}}"));
             vi.stubGlobal("fetch", sequentialFetch([
                 { match: /googleapis.*startPageToken/, respond: mockResponse({}, 401) },
-                { match: /oauth2\.googleapis\.com\/token/, respond: htmlResponse("{{not json}}") },
             ]));
 
             const err = a.getStartPageToken();
@@ -353,9 +354,7 @@ describe("Network Resilience", () => {
             const a = createAdapter("client-credentials");
             (a as any).auth.codeVerifier = "test-verifier";
 
-            vi.stubGlobal("fetch", sequentialFetch([
-                { match: /oauth2\.googleapis\.com\/token/, respond: htmlResponse("<html>Error</html>") },
-            ]));
+            vi.mocked(requestUrl).mockResolvedValueOnce(mockProxyResult("<html>Error</html>"));
 
             // No 401 wrapper here — safeJsonParse error propagates directly
             await expect(a.exchangeCodeForToken("test-code")).rejects.toThrow(
@@ -401,9 +400,7 @@ describe("Network Resilience", () => {
             const a = createAdapter("client-credentials");
             (a as any).auth.codeVerifier = "test-verifier";
 
-            vi.stubGlobal("fetch", sequentialFetch([
-                { match: /oauth2\.googleapis\.com\/token/, respond: networkError() },
-            ]));
+            vi.mocked(requestUrl).mockRejectedValueOnce(new Error("net::ERR_INTERNET_DISCONNECTED"));
 
             await expect(a.exchangeCodeForToken("test-code")).rejects.toThrow(
                 "could not reach Google servers",
@@ -485,9 +482,9 @@ describe("Network Resilience", () => {
             const onRefresh = vi.fn();
             a.onTokenRefresh = onRefresh;
 
+            vi.mocked(requestUrl).mockResolvedValueOnce(mockProxyResult(VALID_TOKEN_RESPONSE));
             vi.stubGlobal("fetch", sequentialFetch([
                 { match: /googleapis.*startPageToken/, respond: mockResponse({}, 401) },
-                { match: /oauth2\.googleapis\.com\/token/, respond: mockResponse(VALID_TOKEN_RESPONSE) },
                 { match: /googleapis.*startPageToken/, respond: mockResponse(PAGE_TOKEN_RESPONSE) },
             ]));
 

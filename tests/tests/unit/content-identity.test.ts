@@ -1,0 +1,39 @@
+import { describe, it, expect } from "vitest";
+import { entryIdentityHash, localIdentityHash, storesTransformedContent } from "../../../src/sync-manager/content-identity";
+import { contentFingerprint } from "../../../src/sync-manager/content-fingerprint";
+import { hashContent } from "../../../src/sync-manager/file-utils";
+import { NO_CLOUD_CAPABILITIES } from "../../../src/types/adapter";
+
+const bytes = (s: string) => new TextEncoder().encode(s).buffer as ArrayBuffer;
+
+describe("content identity", () => {
+    const entry = { hash: "cloud-hash", plainHash: "plain-hash" };
+
+    it("compares by the cloud hash when the cloud stores the bytes as they are", async () => {
+        const ctx = { e2eeEnabled: false, adapter: undefined };
+        expect(storesTransformedContent(ctx)).toBe(false);
+        expect(entryIdentityHash(ctx, entry)).toBe("cloud-hash");
+        const content = bytes("a\r\nb");
+        expect(await localIdentityHash(ctx, content)).toBe(contentFingerprint(content));
+    });
+
+    it("compares by plainHash when an add-on transforms the stored bytes", async () => {
+        const ctx = { e2eeEnabled: true, adapter: undefined };
+        expect(storesTransformedContent(ctx)).toBe(true);
+        expect(entryIdentityHash(ctx, entry)).toBe("plain-hash");
+        expect(entryIdentityHash(ctx, { hash: "only-cloud" })).toBeUndefined();
+        const content = bytes("a\r\nb");
+        expect(await localIdentityHash(ctx, content)).toBe(await hashContent(content));
+    });
+
+    it("compares by plainHash when the cloud's hash is not an MD5", async () => {
+        const md5Cloud = { capabilities: { ...NO_CLOUD_CAPABILITIES, contentHash: "md5" as const } };
+        const otherCloud = { capabilities: { ...NO_CLOUD_CAPABILITIES, contentHash: null } };
+        expect(storesTransformedContent({ e2eeEnabled: false, adapter: md5Cloud })).toBe(false);
+        const ctx = { e2eeEnabled: false, adapter: otherCloud };
+        expect(storesTransformedContent(ctx)).toBe(true);
+        expect(entryIdentityHash(ctx, entry)).toBe("plain-hash");
+        const content = bytes("a\r\nb");
+        expect(await localIdentityHash(ctx, content)).toBe(await hashContent(content));
+    });
+});

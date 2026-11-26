@@ -3,14 +3,20 @@ import type { VaultSyncSettings } from "../types/settings";
 export type SyncManagerSettings = Pick<
     VaultSyncSettings,
     | "concurrency"
+    | "remoteTrashRetentionDays"
+    | "autoKeepRevisionDays"
     | "largeFileThresholdMB"
     | "bgTransferIntervalSec"
+    | "deferLargeOnCellular"
+    | "deferLargeOnLowBattery"
     | "notificationLevel"
     | "showSyncStatus"
     | "conflictResolutionStrategy"
     | "enableLogging"
     | "isDeveloperMode"
     | "exclusionPatterns"
+    | "desktopExclusionPatterns"
+    | "mobileExclusionPatterns"
     | "syncAppearance"
     | "syncCommunityPlugins"
     | "syncCoreConfig"
@@ -22,7 +28,18 @@ export type SyncManagerSettings = Pick<
     | "syncWorkspace"
     | "hasCompletedFirstSync"
     | "e2eeEnabled"
->;
+> &
+    Partial<
+        Pick<
+            VaultSyncSettings,
+            | "autoKeepAttachmentRevisions"
+            | "desktopMaxFileSizeMB"
+            | "mobileMaxFileSizeMB"
+            | "obsidianScopeStrategy"
+            | "desktopObsidianScope"
+            | "mobileObsidianScope"
+        >
+    >;
 
 export interface LocalFileIndex {
     [path: string]: {
@@ -52,6 +69,14 @@ export interface LocalFileIndex {
         pendingMove?: {
             oldPath: string;
         };
+        /** Local only: a merge result not pushed yet, made from our version with this hash */
+        mergedFrom?: string;
+        /** Versions (cloud hashes) this version was merged from besides the one it was
+         *  built on: an upload that replaced one of them is repaired by this merge already */
+        includes?: string[];
+        /** Set when another device deleted this file in the cloud and the deletion
+         *  mark that tells whether it saw our upload has not arrived yet (Unix ms) */
+        remoteDeletionSeenAt?: number;
         /** If set, a background transfer is in progress for this file */
         pendingTransfer?: {
             direction: "push" | "pull";

@@ -1,4 +1,16 @@
 import { CloudAdapter } from "../types/adapter";
+import { TFile } from "obsidian";
+import { CtxFlag, describeCtxState } from "./context-state";
+import { isQuietCycle } from "./change-peek";
+import { logTail, MAX_LOG_LINES, type DiagnosticsSnapshot } from "./diagnostics";
+import {
+    forgetDevice as _forgetDevice,
+    getDeviceName as _getDeviceName,
+    listDevices as _listDevices,
+    isSettingsPath,
+    setDeviceName as _setDeviceName,
+    type DeviceRecord,
+} from "./device-registry";
 import type { IVaultOperations } from "../types/vault-operations";
 import type { INotificationService, NoticeOptions } from "../services/notification-service";
 import { RevisionCache } from "../services/revision-cache";
@@ -12,7 +24,7 @@ import {
 import { SyncLogger, type LogLevel } from "./logger";
 import { ICryptoEngine } from "../encryption/interfaces";
 import { EncryptedAdapter } from "../encryption/encrypted-adapter";
-import { VaultLockService } from "../services/vault-lock-service";
+import { MIGRATION_LOCK_STALE_MS, VaultLockService } from "../services/vault-lock-service";
 import { MigrationService } from "../services/migration-service";
 import { SecureStorage } from "../services/secure-storage";
 import {
@@ -22,6 +34,11 @@ import {
     CONFLICT_NOTICE_KEYS,
 } from "./notification-matrix";
 import { SyncProgressTracker } from "./sync-progress";
+import { RemoteDeletionService } from "./remote-deletion";
+import { TrashRemoteDeletion, listTrash as _listTrash } from "./remote-trash";
+import { applyRestore, planRestore, type PlanOptions, type RestorePlan, type RestoreResult } from "./point-in-time";
+import { isFirstSyncDeferred, type FirstSyncGuard } from "./first-sync";
+import { approveAllPlanGuard, type PlanGuard } from "./sync-plan";
 import {
     PLUGIN_DIR,
     INTERNAL_LOCAL_ONLY,
@@ -70,6 +87,10 @@ import {
     deleteRevision as _deleteRevision,
     restoreRevision as _restoreRevision,
 } from "./history";
+import { forgetAutoKept } from "./revision-retention";
+import { fetchCloudOnlyFile, listCloudOnlyFiles, type CloudOnlyFile } from "./on-demand";
+import { verifySync, type VerifyReport } from "./sync-verify";
+import { refreshStorage, storageSummary, storageSummaryNow, type StorageSummary } from "./storage-check";
 import {
     linesToChars3 as _linesToChars3,
     perform3WayMerge as _perform3WayMerge,
@@ -91,10 +112,23 @@ import {
     executeFullScan as _executeFullScan,
 } from "./sync-orchestration";
 import { syncErrorNotice } from "./sync-coordinator";
+import { forgetReincludedFiles as _forgetReincludedFiles } from "./sync-pull";
+import { noteFullCleanupRequest } from "./sync-push";
 import { BackgroundTransferQueue } from "./background-transfer";
 import type { TransferItem, TransferRecord, TransferCallbacks } from "./transfer-types";
 export type { SyncManagerSettings, LocalFileIndex, SyncState, FullScanProgress, CommunicationData };
 export type { SyncTrigger } from "./notification-matrix";
+
+/** A vault-lock check found no lock since the plugin started */
+const vaultLockClear = new CtxFlag("vaultLockClear", "A vault-lock check found no lock since the plugin started");
+
+/** Automatic triggers whose vault-lock check can wait for a cycle that has changes */
+const QUIET_TRIGGERS: ReadonlySet<SyncTrigger> = new Set<SyncTrigger>([
+    "timer-sync",
+    "save-sync",
+    "modify-sync",
+    "layout-sync",
+]);
 export type { TransferItem, TransferRecord, TransferCallbacks } from "./transfer-types";
 
 export class SyncManager {
@@ -157,6 +191,23 @@ export class SyncManager {
     /** Progress of the running sync, for the status display */
     public readonly progress = new SyncProgressTracker();
 
+    /** Every removal on the cloud goes through this service */
+    public readonly remoteDeletion = new RemoteDeletionService();
+
+    /** Reviews each sync step's deletions and overwrites before they run */
+    public planGuard: PlanGuard = approveAllPlanGuard;
+
+    /** Asks how this device's first sync starts (unset = merge, as before) */
+    public firstSyncGuard?: FirstSyncGuard;
+
+    /** Platform label and default name of this device (set by the plugin) */
+    public deviceInfo?: { platform: string; defaultName: string };
+
+    /** Files the shared index lists (the plugin's own index file not counted) */
+    syncedFileCount(): number {
+        return Object.keys(this.index).filter((p) => p !== this.pluginDataPath).length;
+    }
+
     /** Current sync trigger — controls notification visibility via matrix lookup */
     public currentTrigger: SyncTrigger = "manual-sync";
 
@@ -171,6 +222,10 @@ export class SyncManager {
     private isSpinning = false;
     /** Set on macOS / iOS, whose file systems treat NFC and NFD names as one file */
     unicodeInsensitiveFs = false;
+    /** Set on Windows / macOS / iOS / Android, whose file systems ignore letter case */
+    caseInsensitiveFs = false;
+    /** Set on Windows / Android, which refuse names such as "a?.md" or "con.md" */
+    windowsNameRules = false;
     public settingsUpdated = false;
 
     private startActivity() {
@@ -201,6 +256,11 @@ export class SyncManager {
         return this.baseAdapter;
     }
 
+    /** Whether the cloud account is signed in on this device */
+    get isSignedIn(): boolean {
+        return this.baseAdapter.isAuthenticated();
+    }
+
     /**
      * Swap the add-on engine (null removes it). The cached adapter wraps the old
      * engine, so it is dropped as well.
@@ -219,6 +279,7 @@ export class SyncManager {
     }
 
     private vaultLockedNotified = false;
+    private vaultConvertingNotified = false;
 
     private syncRequestedWhileSyncing: boolean = false;
     private nextSyncParams: { trigger: SyncTrigger; scanVault: boolean } | null = null;
@@ -237,7 +298,10 @@ export class SyncManager {
         this.baseAdapter = adapter;
         this.revisionCache = revisionCache;
         this.backgroundTransferQueue = backgroundQueue;
-        this.vaultLockService = new VaultLockService(this.baseAdapter);
+        this.remoteDeletion.setStrategy(
+            new TrashRemoteDeletion(() => this.settings.remoteTrashRetentionDays ?? -1),
+        );
+        this.vaultLockService = new VaultLockService(this.baseAdapter, this.remoteDeletion);
         this.migrationService = new MigrationService(
             this.baseAdapter,
             this.vaultLockService,
@@ -271,6 +335,7 @@ export class SyncManager {
      */
     public triggerFullCleanup() {
         this.forceCleanupNextSync = true;
+        noteFullCleanupRequest(this);
     }
 
     public setActivityCallbacks(onStart: () => void, onEnd: () => void) {
@@ -281,8 +346,32 @@ export class SyncManager {
     // === Background Transfer Public API ===
 
     /** Local changes waiting for the next upload */
+    /** Files changed here and not sent yet */
+    public get pendingPaths(): string[] {
+        return [...this.dirtyPaths.keys()];
+    }
+
     public get pendingChangeCount(): number {
         return this.dirtyPaths.size;
+    }
+
+    /** Read-only comparison of this device with the cloud */
+    async verifySync(): Promise<VerifyReport> {
+        return verifySync(this as unknown as SyncContext);
+    }
+
+    /** Cloud files this device leaves out and does not have (fetch one by one) */
+    async listCloudOnlyFiles(): Promise<CloudOnlyFile[]> {
+        return listCloudOnlyFiles(this as unknown as SyncContext);
+    }
+
+    async fetchCloudOnlyFile(file: CloudOnlyFile): Promise<void> {
+        return fetchCloudOnlyFile(this as unknown as SyncContext, file);
+    }
+
+    /** Why large transfers wait now (mobile network, low battery), or null */
+    public getTransferDeferReason(): "cellular" | "low-battery" | null {
+        return this.backgroundTransferQueue.deferredReason;
     }
 
     public getActiveTransfers(): TransferItem[] {
@@ -529,6 +618,43 @@ export class SyncManager {
 
     // === Sync Orchestration (delegated to sync-orchestration.ts) ===
 
+    /**
+     * The vault-lock check can wait for this sync: an automatic sync, nothing
+     * to upload or re-check here, an earlier check found no lock, and the
+     * change feed shows nothing new (a lock another device creates is a change
+     * there). The next sync with any change checks again.
+     */
+    /**
+     * Another device is converting this vault for an add-on (migration.lock): it
+     * re-uploads every file into a new folder, swaps it in and deletes the old
+     * folder. Whatever this device pushed meanwhile went into the old folder and
+     * was deleted with it, so sync waits until the conversion is done (the
+     * vault-lock then appears). A lock older than a day is a leftover of an
+     * abandoned conversion (the converting device overrides it after that too).
+     */
+    private async otherDeviceConvertingVault(trigger: SyncTrigger): Promise<boolean> {
+        const lock = await this.vaultLockService.getMigrationLock();
+        if (!lock || lock.deviceId === this.deviceId) return false;
+        if (!(lock.timestamp > Date.now() - MIGRATION_LOCK_STALE_MS)) return false;
+        const isUserAction = trigger === "manual-sync" || trigger === "full-scan";
+        await this.log(`Sync skipped: device ${lock.deviceId} is converting this vault.`, "warn");
+        if (isUserAction || !this.vaultConvertingNotified) {
+            this.currentTrigger = trigger;
+            await this.notify("noticeVaultConverting");
+            this.vaultConvertingNotified = true;
+        }
+        return true;
+    }
+
+    private async lockCheckCanWait(trigger: SyncTrigger): Promise<boolean> {
+        if (!vaultLockClear.has(this) || !QUIET_TRIGGERS.has(trigger)) return false;
+        try {
+            return await isQuietCycle(this as unknown as SyncContext);
+        } catch {
+            return false; // the check itself reports the problem
+        }
+    }
+
     async requestSmartSync(
         trigger: SyncTrigger = "manual-sync",
         scanVault: boolean = false,
@@ -538,9 +664,11 @@ export class SyncManager {
             return;
         }
         // Auto-detect remote E2EE before first sync attempt
-        if (!this.settings.e2eeEnabled) {
+        if (!this.settings.e2eeEnabled && !(await this.lockCheckCanWait(trigger))) {
             try {
                 const hasRemoteLock = await this.vaultLockService.checkForLockFile();
+                if (!hasRemoteLock) vaultLockClear.add(this);
+                if (!hasRemoteLock && (await this.otherDeviceConvertingVault(trigger))) return;
                 if (hasRemoteLock) {
                     await this.log("Remote E2EE detected. Enabling E2EE locally.", "system");
                     this.settings.e2eeEnabled = true;
@@ -579,7 +707,14 @@ export class SyncManager {
             return;
         }
         this.vaultLockedNotified = false;
+        this.vaultConvertingNotified = false;
+        if (isFirstSyncDeferred(this) && trigger !== "manual-sync" && trigger !== "full-scan") {
+            await this.log(`Sync request (${trigger}) skipped: first sync held until a manual sync.`, "debug");
+            return;
+        }
         this.currentTrigger = trigger;
+        // After a conversion: the old folder is checked and deleted once its grace time is over
+        await this.migrationService.finishBackupCleanup();
         return _requestSmartSync(this as unknown as SyncContext, scanVault);
     }
 
@@ -614,8 +749,148 @@ export class SyncManager {
 
     // === History Management (delegated to history.ts) ===
 
+    /** The cloud tells how much storage the account uses */
+    get supportsStorageQuota(): boolean {
+        return !!this.adapter?.getStorageQuota;
+    }
+
     get supportsHistory(): boolean {
         return _supportsHistory(this as unknown as SyncContext);
+    }
+
+    // === Diagnostic info (diagnostics.ts) ===
+
+    /** The sync's part of the diagnostic info */
+    diagnosticsState(): Pick<
+        DiagnosticsSnapshot,
+        | "cloud"
+        | "signedIn"
+        | "addOnActive"
+        | "syncState"
+        | "lastError"
+        | "syncedFiles"
+        | "pendingChanges"
+        | "backgroundTransfers"
+        | "internalState"
+    > {
+        return {
+            cloud: this.baseAdapter.name,
+            signedIn: this.baseAdapter.isAuthenticated(),
+            addOnActive: this.cryptoEngine !== null,
+            syncState: this.syncState,
+            lastError: (() => {
+                const last = this.progress.snapshot().last;
+                return last && last.outcome !== "ok" ? `${last.outcome}: ${last.message ?? ""}`.trim() : undefined;
+            })(),
+            syncedFiles: this.syncedFileCount(),
+            pendingChanges: this.dirtyPaths.size,
+            backgroundTransfers: this.backgroundTransferQueue.getPendingTransfers().length,
+            internalState: describeCtxState(this),
+        };
+    }
+
+    /**
+     * This device's exclusion list changed (`previous`: the patterns before).
+     * Files no longer left out come back with the next sync.
+     */
+    async applyDeviceScopeChange(previous: string): Promise<number> {
+        // Files created or edited here while left out raised no upload: a scan finds them
+        this.triggerFullCleanup();
+        return _forgetReincludedFiles(this as unknown as SyncContext, previous);
+    }
+
+    /** The last lines of this device's log files (newest files first until enough) */
+    async readRecentLog(max = MAX_LOG_LINES): Promise<string[]> {
+        try {
+            if (!(await this.vault.exists(this.logFolder))) return [];
+            const files = (await this.vault.list(this.logFolder)).files.filter((f) => f.endsWith(".log")).sort();
+            let lines: string[] = [];
+            for (let i = files.length - 1; i >= 0 && lines.length < max; i--) {
+                lines = [...logTail(await this.vault.read(files[i]), max), ...lines];
+            }
+            return lines.slice(Math.max(0, lines.length - max));
+        } catch {
+            return [];
+        }
+    }
+
+    // === Point-in-time restore (point-in-time.ts) ===
+
+    /** What a folder would get back from a past time (reads only) */
+    async planPointInTimeRestore(folder: string, time: number, options: PlanOptions = {}): Promise<RestorePlan> {
+        const ctx = this as unknown as SyncContext;
+        return planRestore(
+            {
+                files: () =>
+                    Object.entries(this.index)
+                        .filter(([path, e]) => !!e.fileId && path !== this.pluginDataPath)
+                        .map(([path, e]) => ({ path, fileId: e.fileId })),
+                listRevisions: (path, fileId) => _listRevisions(ctx, path, fileId),
+                createdTime: async (_path, fileId) =>
+                    (this.adapter.getBaseAdapter?.() ?? this.adapter).getFileCreatedTime?.(fileId),
+                listTrash: () => _listTrash(this.adapter),
+                exists: (path) => this.vault.getAbstractFileByPath(path) !== null,
+                excluded: (path) => this.isManagedSeparately(path) || isSettingsPath(ctx, path),
+            },
+            folder,
+            time,
+            { concurrency: this.settings.concurrency, ...options },
+        );
+    }
+
+    /** Write a plan into the vault; `remove` takes away files created after the time (when asked) */
+    async applyPointInTimeRestore(
+        plan: RestorePlan,
+        options: {
+            removeCreatedAfter: boolean;
+            remove: (path: string) => Promise<void>;
+            onProgress?: (done: number, total: number) => void;
+        },
+    ): Promise<RestoreResult> {
+        const ctx = this as unknown as SyncContext;
+        const result = await applyRestore(
+            {
+                revisionContent: (path, revisionId, fileId) => _getRevisionContent(ctx, path, revisionId, fileId),
+                trashContent: (file) => this.adapter.downloadFile(file.id),
+                write: async (path, data) => {
+                    await this.ensureLocalFolder(path);
+                    const file = this.vault.getAbstractFileByPath(path);
+                    if (file instanceof TFile) await this.vault.modifyBinary(file, data);
+                    else await this.vault.createBinary(path, data);
+                },
+                remove: options.remove,
+            },
+            plan,
+            options,
+        );
+        await this.log(
+            `[Restore] Point in time ${new Date(plan.time).toISOString()} folder="${plan.folder}": ` +
+                `restored ${result.restored}, recreated ${result.recreated}, removed ${result.removed}, failed ${result.failed.length}`,
+            "info",
+        );
+        return result;
+    }
+
+    // === Devices and their changes (device-registry.ts) ===
+
+    get thisDeviceId(): string {
+        return this.deviceId;
+    }
+
+    async listDevices(): Promise<DeviceRecord[]> {
+        return _listDevices(this as unknown as SyncContext);
+    }
+
+    async forgetDevice(deviceId: string): Promise<void> {
+        return _forgetDevice(this as unknown as SyncContext, deviceId);
+    }
+
+    async getDeviceName(): Promise<string> {
+        return _getDeviceName(this as unknown as SyncContext);
+    }
+
+    async setDeviceName(name: string): Promise<void> {
+        return _setDeviceName(this as unknown as SyncContext, name);
     }
 
     async listRevisions(path: string): Promise<import("../types/adapter").FileRevision[]> {
@@ -631,12 +906,26 @@ export class SyncManager {
         revisionId: string,
         keepForever: boolean,
     ): Promise<void> {
+        // Set by hand: the user's from now on, never thinned
+        await forgetAutoKept(this as unknown as SyncContext, revisionId);
         return _setRevisionKeepForever(
             this as unknown as SyncContext,
             path,
             revisionId,
             keepForever,
         );
+    }
+
+    /** Cloud storage as last read (null: not read yet this session) */
+    getStorageSummary(): StorageSummary | null {
+        return storageSummaryNow(this as unknown as SyncContext);
+    }
+
+    /** Read the cloud storage now, or the stored reading (settings page) */
+    async loadStorageSummary(refresh: boolean): Promise<StorageSummary> {
+        const ctx = this as unknown as SyncContext;
+        if (refresh) await refreshStorage(ctx);
+        return storageSummary(ctx);
     }
 
     async deleteRevision(path: string, revisionId: string): Promise<void> {

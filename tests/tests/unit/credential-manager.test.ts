@@ -15,6 +15,7 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { CredentialManager } from "../../../src/services/credential-manager";
+import { windowStub } from "../../setup-window";
 
 function createMockDeps() {
     const adapter = {
@@ -61,7 +62,7 @@ function createMockDeps() {
 
 // Mock window.localStorage
 const localStorageMock: Record<string, string> = {};
-(globalThis as any).window = {
+(globalThis as any).window = windowStub({
     localStorage: {
         getItem: (key: string) => localStorageMock[key] || null,
         setItem: (key: string, value: string) => {
@@ -71,7 +72,7 @@ const localStorageMock: Record<string, string> = {};
             delete localStorageMock[key];
         },
     },
-};
+});
 
 describe("CredentialManager", () => {
     let adapter: ReturnType<typeof createMockDeps>["adapter"];

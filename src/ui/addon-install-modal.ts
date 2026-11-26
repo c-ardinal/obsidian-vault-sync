@@ -21,11 +21,11 @@ const PACKAGE_ERROR_KEYS: Record<AddonPackageError, string> = {
 /**
  * Installs an add-on from a package (.zip) the user downloaded themselves:
  *   1. open the download page,
- *   2. pick the package; Vault-Sync verifies every file against its pinned hash,
+ *   2. pick the package; Vault Syncer verifies every file against its pinned hash,
  *   3. read the add-on's own terms of use (shipped in the package) and agree,
  *   4. install.
  *
- * Vault-Sync never downloads add-ons, and all add-on specific wording (name,
+ * Vault Syncer never downloads add-ons, and all add-on specific wording (name,
  * description, terms) comes from the package.
  */
 export class AddonInstallModal extends Modal {
@@ -58,7 +58,7 @@ export class AddonInstallModal extends Modal {
         contentEl.createEl("p", { text: t("addonInstallIntro") });
 
         // Step 1: download
-        contentEl.createEl("h3", { text: t("addonStepDownload") });
+        new Setting(contentEl).setName(t("addonStepDownload")).setHeading().settingEl.addClass("vault-sync-modal-heading");
         const download = new Setting(contentEl).setDesc(t("addonStepDownloadDesc"));
         APPROVED_ADDONS.forEach((addon, i) => {
             const label =
@@ -71,7 +71,7 @@ export class AddonInstallModal extends Modal {
         });
 
         // Step 2: choose the package
-        contentEl.createEl("h3", { text: t("addonStepChoose") });
+        new Setting(contentEl).setName(t("addonStepChoose")).setHeading().settingEl.addClass("vault-sync-modal-heading");
         const fileInput = contentEl.createEl("input", {
             type: "file",
             attr: { accept: ".zip,application/zip,application/x-zip-compressed,*/*" },
@@ -116,7 +116,7 @@ export class AddonInstallModal extends Modal {
             this.setStatus("", false);
             await this.showTerms(result.pkg);
         } catch (e) {
-            console.error("Vault-Sync: reading add-on package failed", e);
+            console.error("Vault Syncer: reading add-on package failed", e);
             this.setStatus(t("addonErrorNotPackage"), true);
         }
     }
@@ -126,7 +126,7 @@ export class AddonInstallModal extends Modal {
         const el = this.reviewEl!;
         const lang = currentLanguage();
 
-        el.createEl("h3", { text: t("addonStepTerms") });
+        new Setting(el).setName(t("addonStepTerms")).setHeading().settingEl.addClass("vault-sync-modal-heading");
         el.createEl("p", {
             text: `${pkg.manifest.name} ${pkg.manifest.version}`,
             cls: "vault-sync-addon-install-name",

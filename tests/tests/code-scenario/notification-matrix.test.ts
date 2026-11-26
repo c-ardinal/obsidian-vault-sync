@@ -20,6 +20,7 @@
  * - クリーン同期時に競合/認証/履歴系通知が発火しないこと
  */
 
+import { testCapabilities } from "../../helpers/mock-cloud-adapter";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { SyncManager, SyncManagerSettings, type SyncTrigger } from "../../../src/sync-manager";
 import { MockApp, MockVaultOperations } from "../../helpers/mock-vault-adapter";
@@ -29,7 +30,7 @@ import { en } from "../../../src/i18n";
 import ja from "../../../src/i18n/lang/ja.json";
 const i18nDict = { en, ja: ja as Record<string, string> };
 /**
- * Keys whose text the installed add-on supplies (Vault-Sync's dictionaries hold
+ * Keys whose text the installed add-on supplies (Vault Syncer's dictionaries hold
  * no add-on specific wording). Their text is tested in the add-on's repository.
  */
 const ADDON_SUPPLIED_KEYS = new Set([
@@ -68,9 +69,7 @@ class MockCloudAdapter implements CloudAdapter {
     clientId = "mock";
     clientSecret = "mock";
     isReady = async () => true;
-    supportsChangesAPI = true;
-    supportsHash = false;
-    supportsHistory = false;
+    capabilities = testCapabilities({ changeFeed: true });
     initialize = async () => {};
     login = async () => {};
     logout = async () => {};
@@ -130,6 +129,8 @@ const DEFAULT_SETTINGS: SyncManagerSettings = {
     enableLogging: false,
     isDeveloperMode: false,
     exclusionPatterns: "",
+    desktopExclusionPatterns: "",
+    mobileExclusionPatterns: "",
     largeFileThresholdMB: 0,
     bgTransferIntervalSec: 0,
     syncAppearance: true,
@@ -144,6 +145,10 @@ const DEFAULT_SETTINGS: SyncManagerSettings = {
 
     hasCompletedFirstSync: false,
     e2eeEnabled: false,
+    deferLargeOnCellular: false,
+    deferLargeOnLowBattery: false,
+    remoteTrashRetentionDays: -1,
+    autoKeepRevisionDays: -1,
 };
 
 // ════════════════════════════════════════════════════════════════
@@ -205,7 +210,7 @@ const MATRIX: MatrixEntry[] = [
         },
     },
     {
-        // 🔍️ 同期: ローカルファイルを走査中...
+        // 🔍️ 同期: 本端末のファイルを走査中...
         key: "noticeScanningLocalFiles",
         scenarios: {
             initialSync: { v: "Show", s: "Show" },
@@ -262,7 +267,7 @@ const MATRIX: MatrixEntry[] = [
         },
     },
     {
-        // 📤 同期: アップロード中 {file}
+        // 📤 同期: 送信中 {file}
         key: "noticeFilePushed",
         scenarios: {
             initialSync: { v: "Show", s: "Show" },
@@ -278,7 +283,7 @@ const MATRIX: MatrixEntry[] = [
         },
     },
     {
-        // ✅ 同期: アップロード完了 (x files)
+        // ✅ 同期: 送信完了（x 件）
         key: "noticePushCompleted",
         scenarios: {
             initialSync: { v: "Show", s: "Show" },
@@ -307,7 +312,7 @@ const MATRIX: MatrixEntry[] = [
         },
     },
     {
-        // 📝 同期: アップロード結果を検証中...
+        // 📝 同期: 送信結果を検証中...
         key: "noticeInitialSyncConfirmation",
         scenarios: {
             initialSync: { v: "Show", s: "Show" },
@@ -421,7 +426,7 @@ const MATRIX: MatrixEntry[] = [
         },
     },
     {
-        // ⚠️ 競合: ローカル版を保護し、リモート版を反映しました: {file}
+        // ⚠️ 競合: 本端末上のファイルを保護し、クラウド上のファイルを反映しました: {file}
         key: "noticeConflictSaved",
         scenarios: {
             pushConflict: { v: "Show", s: "Show" },
@@ -429,7 +434,7 @@ const MATRIX: MatrixEntry[] = [
         },
     },
     {
-        // ⚠️ 競合: リモート版を保護し、ローカル版を反映しました: {file}
+        // ⚠️ 競合: クラウド上のファイルを保護し、本端末上のファイルを反映しました: {file}
         key: "noticeConflictRemoteSaved",
         scenarios: {
             pushConflict: { v: "Show", s: "Show" },
@@ -635,73 +640,73 @@ interface FormatSpec {
  * These define the EXACT user-visible text including filename placement.
  */
 const FORMAT_SPECS: FormatSpec[] = [
-    { key: "noticeSyncing", specJa: "⚡ [同期] 処理開始..." },
-    { key: "noticeScanningLocalFiles", specJa: "🔍️ [同期] ローカルファイルを走査中..." },
+    { key: "noticeSyncing", specJa: "Vault Syncer: 同期開始..." },
+    { key: "noticeScanningLocalFiles", specJa: "Vault Syncer: 本端末のファイルを走査中..." },
     {
         key: "noticeWaitingForRemoteRegistration",
-        specJa: "⌛️ [同期] リモート側の反映完了を待機中...",
+        specJa: "Vault Syncer: クラウド側の反映完了を待機中...",
     },
-    { key: "noticeFilePulled", specJa: "📥 [同期] ダウンロード中: {file}" },
-    { key: "noticePullCompleted", specJa: "✅ [同期] ダウンロード完了 ({0} files)" },
-    { key: "noticeFilePushed", specJa: "📤 [同期] アップロード中: {file}" },
-    { key: "noticePushCompleted", specJa: "✅ [同期] アップロード完了 ({0} files)" },
-    { key: "noticeVaultUpToDate", specJa: "✅ [同期] 全ファイルが最新状態です" },
+    { key: "noticeFilePulled", specJa: "Vault Syncer: 受信中: {file}" },
+    { key: "noticePullCompleted", specJa: "Vault Syncer: 受信完了（{0} 件）" },
+    { key: "noticeFilePushed", specJa: "Vault Syncer: 送信中: {file}" },
+    { key: "noticePushCompleted", specJa: "Vault Syncer: 送信完了（{0} 件）" },
+    { key: "noticeVaultUpToDate", specJa: "Vault Syncer: 全ファイルが最新状態です" },
     {
         key: "noticeInitialSyncConfirmation",
-        specJa: "📝 [同期] アップロード結果を検証中...",
+        specJa: "Vault Syncer: 送信結果を検証中...",
     },
-    { key: "noticeSyncConfirmed", specJa: "✅ [同期] 成功: {file}" },
-    { key: "noticeFileTrashed", specJa: "🗑️ [同期] 削除: {file}" },
-    { key: "noticeFileRenamed", specJa: "✏️ [同期] リネーム: {file}" },
-    { key: "noticeMergingFile", specJa: "⌛️ [競合] マージ中: {file}" },
-    { key: "noticeMergeSuccess", specJa: "✅ [競合] 自動解決されました: {file}" },
+    { key: "noticeSyncConfirmed", specJa: "Vault Syncer: 同期完了: {file}" },
+    { key: "noticeFileTrashed", specJa: "Vault Syncer: 削除: {file}" },
+    { key: "noticeFileRenamed", specJa: "Vault Syncer: リネーム: {file}" },
+    { key: "noticeMergingFile", specJa: "Vault Syncer: マージ中: {file}" },
+    { key: "noticeMergeSuccess", specJa: "Vault Syncer: 競合を自動解決しました: {file}" },
     {
         key: "noticeConflictSaved",
-        specJa: "⚠️ [競合] ローカル版を保護し、リモート版を反映しました: {file}",
+        specJa: "⚠️ Vault Syncer: 本端末上のファイルを保護し、クラウド上のファイルを反映しました: {file}",
     },
     {
         key: "noticeConflictRemoteSaved",
-        specJa: "⚠️ [競合] リモート版を保護し、ローカル版を反映しました: {file}",
+        specJa: "⚠️ Vault Syncer: クラウド上のファイルを保護し、本端末上のファイルを反映しました: {file}",
     },
     {
         key: "noticeCheckOtherDevice",
-        specJa: "⚠️ [競合] マージに失敗した可能性があります。詳細は他デバイスを確認してください",
+        specJa: "⚠️ Vault Syncer: マージに失敗した可能性があります。詳細は他端末で確認してください。",
     },
     {
         key: "noticeMergeLockLost",
-        specJa: "⚠️ [競合] マージロックが失効しました。ローカルに保存済み、次回同期でプッシュします。: {file}",
+        specJa: "⚠️ Vault Syncer: マージロックが失効しました。本端末に保存済みのため、次回の同期で送信します。: {file}",
     },
     {
         key: "noticeWaitOtherDeviceMerge",
-        specJa: "⌛️ [競合] 他デバイスが解決するのを待機しています...: {0}",
+        specJa: "Vault Syncer: 他端末による解決を待機中...: {0}",
     },
     {
         key: "noticeRemoteMergeSynced",
-        specJa: "✅ [競合] 他デバイスの解決結果を反映しました: {file}",
+        specJa: "Vault Syncer: 他端末の解決結果を反映しました: {file}",
     },
     // ═══ Auth Notifications ═══
-    { key: "noticeAuthSuccess", specJa: "✅ [認証] 成功！" },
-    { key: "noticeAuthFailed", specJa: "❌ [認証] 失敗" },
+    { key: "noticeAuthSuccess", specJa: "Vault Syncer: ログインしました" },
+    { key: "noticeAuthFailed", specJa: "❌ Vault Syncer: ログインに失敗しました。再度ログインしてください。" },
     // ═══ History Notifications ═══
-    { key: "noticeSavedKeepForever", specJa: "✅ [履歴] 無期限保護設定完了" },
+    { key: "noticeSavedKeepForever", specJa: "Vault Syncer: 無期限保護設定完了" },
     {
         key: "historyKeepForeverError",
         specJa: "❌ [履歴] クラウド側の仕様により、無期限保存設定を解除することはできません。",
     },
-    { key: "noticeFileRestored", specJa: "💾 [履歴] ファイルを復元しました" },
-    { key: "noticeHistoryRestoreAs", specJa: "💾 [履歴] 別名で復元しました: {0}" },
-    { key: "noticeRevisionDeleted", specJa: "🗑️ [履歴] リビジョンを削除しました" },
+    { key: "noticeFileRestored", specJa: "Vault Syncer: ファイルを復元しました" },
+    { key: "noticeHistoryRestoreAs", specJa: "Vault Syncer: 別名で復元しました: {0}" },
+    { key: "noticeRevisionDeleted", specJa: "Vault Syncer: バージョンを削除しました" },
     {
         key: "noticeAddonRequired",
-        specJa: "⚠️ このVaultでは、このデバイスに未導入のアドオンが使用されています。設定 → アドオン から導入してください。同期を一時停止しています。",
+        specJa: "⚠️ Vault Syncer: このVaultでは、本端末に未導入のアドオンを使用中です。設定 → アドオン から導入してください。同期を一時停止しています。",
     },
     {
         key: "noticeEngineVerifyFailed",
-        specJa: "❌ アドオンの検証に失敗しました。承認済みリリースと不一致です。最新パッケージを再ダウンロードして再導入してください。",
+        specJa: "❌ Vault Syncer: アドオンの検証に失敗しました。承認済みリリースと不一致です。最新パッケージを再ダウンロードして再導入してください。",
     },
     {
         key: "noticeAddonUpdateRequired",
-        specJa: "⚠️ 導入済みのアドオンは、本バージョンのVault-Syncに非対応の旧版です。最新パッケージをダウンロードし、設定 → アドオン から導入してください。同期を一時停止しています。",
+        specJa: "⚠️ Vault Syncer: 導入済みのアドオンは、本バージョンのVault Syncerに非対応の旧バージョンです。最新パッケージをダウンロードし、設定 → アドオン から導入してください。同期を一時停止しています。",
     },
 ];
 

@@ -1,9 +1,15 @@
 import { App, Modal, setIcon, ButtonComponent, TextComponent } from "obsidian";
 import type VaultSync from "../main";
-import type { VaultSyncSettings } from "../types/settings";
+import { OBSIDIAN_SCOPE_KEYS, type ObsidianScopeKey, type VaultSyncSettings } from "../types/settings";
 import { t } from "../i18n";
 import { matchWildcard } from "../utils/wildcard";
-import { PLUGIN_DIR } from "../sync-manager/file-utils";
+import {
+    OBSIDIAN_CORE_CONFIG_FILES,
+    OBSIDIAN_WORKSPACE_FILES,
+    PLUGIN_DIR,
+    obsidianScopeOn,
+} from "../sync-manager/file-utils";
+import { configDir, configPath } from "../utils/config-dir";
 
 interface ToggleExclusion {
     settingKey: keyof VaultSyncSettings;
@@ -11,34 +17,27 @@ interface ToggleExclusion {
     patterns: string[];
 }
 
-/** Built when shown: PLUGIN_DIR is known only once the plugin has loaded. */
+/** Built when shown: PLUGIN_DIR and the config folder are known only once the plugin has loaded. */
 const toggleExclusions = (): ToggleExclusion[] => [
     {
         settingKey: "syncCoreConfig",
         label: "settingSyncCoreConfig",
-        patterns: [
-            ".obsidian/app.json",
-            ".obsidian/appearance.json",
-            ".obsidian/hotkeys.json",
-            ".obsidian/core-plugins.json",
-            ".obsidian/community-plugins.json",
-            ".obsidian/graph.json",
-        ],
+        patterns: OBSIDIAN_CORE_CONFIG_FILES.map(configPath),
     },
     {
         settingKey: "syncCommunityPlugins",
         label: "settingSyncCommunityPlugins",
-        patterns: [".obsidian/plugins/**"],
+        patterns: [configPath("plugins/**")],
     },
     {
         settingKey: "syncAppearance",
         label: "settingSyncAppearance",
-        patterns: [".obsidian/themes/**", ".obsidian/snippets/**"],
+        patterns: [configPath("themes/**"), configPath("snippets/**")],
     },
     {
         settingKey: "syncWorkspace",
         label: "settingSyncWorkspace",
-        patterns: [".obsidian/workspace.json", ".obsidian/workspace-mobile.json"],
+        patterns: OBSIDIAN_WORKSPACE_FILES.map(configPath),
     },
     {
         settingKey: "syncImagesAndMedia",
@@ -62,6 +61,15 @@ const toggleExclusions = (): ToggleExclusion[] => [
     },
 ];
 
+/** The two pattern lists: for every device (also removed from the cloud), or this device only */
+export type ExclusionListKey = "exclusionPatterns" | "desktopExclusionPatterns" | "mobileExclusionPatterns";
+
+const LIST_TEXTS: Record<ExclusionListKey, { title: string; note: string }> = {
+    exclusionPatterns: { title: "settingExclusionModalTitle", note: "settingExclusionModalNote" },
+    desktopExclusionPatterns: { title: "settingDesktopExclusionModalTitle", note: "settingDesktopExclusionModalNote" },
+    mobileExclusionPatterns: { title: "settingMobileExclusionModalTitle", note: "settingMobileExclusionModalNote" },
+};
+
 export class ExclusionPatternModal extends Modal {
     private plugin: VaultSync;
     private patterns: string[];
@@ -75,10 +83,14 @@ export class ExclusionPatternModal extends Modal {
     private expandedPatterns: Set<string> = new Set();
     private pathsLoaded = false;
 
-    constructor(app: App, plugin: VaultSync) {
+    constructor(
+        app: App,
+        plugin: VaultSync,
+        private readonly key: ExclusionListKey = "exclusionPatterns",
+    ) {
         super(app);
         this.plugin = plugin;
-        this.patterns = (plugin.settings.exclusionPatterns || "")
+        this.patterns = (plugin.settings[key] || "")
             .split("\n")
             .map((p) => p.trim())
             .filter((p) => p);
@@ -89,7 +101,12 @@ export class ExclusionPatternModal extends Modal {
         this.modalEl.addClass("vault-sync-exclusion-modal");
         contentEl.empty();
 
-        this.setTitle(t("settingExclusionModalTitle"));
+        const texts = LIST_TEXTS[this.key];
+        this.setTitle(t(texts.title));
+        contentEl.createEl("p", {
+            cls: "vault-sync-exclusion-note",
+            text: t(texts.note),
+        });
 
         const addRow = contentEl.createDiv({ cls: "vault-sync-exclusion-add-row" });
 
@@ -158,8 +175,8 @@ export class ExclusionPatternModal extends Modal {
             }
         }
 
-        // .obsidian directory files via adapter (async)
-        await this.listRecursive(".obsidian", paths, folders);
+        // Config folder files via adapter (async)
+        await this.listRecursive(configDir(), paths, folders);
 
         this.allPaths = Array.from(paths).sort();
         this.allFolders = Array.from(folders).sort();
@@ -258,7 +275,10 @@ export class ExclusionPatternModal extends Modal {
             }
 
             // Delete button
-            const deleteBtn = item.createDiv({ cls: "vault-sync-exclusion-delete" });
+            const deleteBtn = item.createEl("button", {
+                cls: "clickable-icon vault-sync-exclusion-delete",
+                attr: { "aria-label": t("settingExclusionModalDelete") },
+            });
             setIcon(deleteBtn, "x");
             const idx = i;
             deleteBtn.addEventListener("click", () => {
@@ -271,7 +291,13 @@ export class ExclusionPatternModal extends Modal {
     }
 
     private getActiveToggleExclusions(): ToggleExclusion[] {
-        return toggleExclusions().filter((te) => !this.plugin.settings[te.settingKey]);
+        // The toggles apply to every device: shown only with the list that does too
+        if (this.key !== "exclusionPatterns") return [];
+        return toggleExclusions().filter((te) =>
+            (OBSIDIAN_SCOPE_KEYS as readonly string[]).includes(te.settingKey)
+                ? !obsidianScopeOn(this.plugin.settings, te.settingKey as ObsidianScopeKey)
+                : !this.plugin.settings[te.settingKey],
+        );
     }
 
     private renderToggleExclusions(): void {
@@ -423,7 +449,7 @@ export class ExclusionPatternModal extends Modal {
     }
 
     private savePatterns(): void {
-        this.plugin.settings.exclusionPatterns = this.patterns.join("\n");
+        this.plugin.settings[this.key] = this.patterns.join("\n");
         void this.plugin.saveSettings();
     }
 }

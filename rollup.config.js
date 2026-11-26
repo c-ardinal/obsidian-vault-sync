@@ -6,6 +6,7 @@ import commonjs from "@rollup/plugin-commonjs";
 import json from "@rollup/plugin-json";
 import terser from "@rollup/plugin-terser";
 import { codecovRollupPlugin } from "@codecov/rollup-plugin";
+import { minifyCss } from "./minify-css.mjs";
 
 const isProd = process.env.BUILD === "production";
 
@@ -15,14 +16,6 @@ if you want to view the source visit the github repository of this plugin
 */
 `;
 
-function minifyCss(css) {
-    return css
-        .replace(/\/\*[\s\S]*?\*\//g, "")
-        .replace(/\s+/g, " ")
-        .replace(/\s*([{}:;,>~+])\s*/g, "$1")
-        .replace(/;}/g, "}")
-        .trim();
-}
 
 function copyFiles(targets) {
     return {

@@ -7,7 +7,8 @@
  *
  * Everything is driven by SyncProgressTracker snapshots.
  */
-import { Platform, moment } from "obsidian";
+import { Platform, setIcon } from "obsidian";
+import { formatMoment } from "./format-time";
 import type VaultSync from "../main";
 import type { SyncManager } from "../sync-manager";
 import { t } from "../i18n";
@@ -46,7 +47,7 @@ export function formatDuration(sec: number): string {
 
 export function formatClock(ms: number): string {
     // Obsidian sets moment's locale to the app language.
-    return moment(ms).format("LT");
+    return formatMoment(ms, "LT");
 }
 
 export function formatAgo(ms: number): string {
@@ -324,6 +325,15 @@ export class SyncStatusView {
                 this.closeDetails();
                 this.plugin.openSettingsTab();
             },
+            onReport: (title) => {
+                this.closeDetails();
+                this.plugin.openDiagnostics(title);
+            },
+            onResolveConflicts: () => {
+                this.closeDetails();
+                this.plugin.openConflictResolver();
+            },
+            onMoreMenu: (evt) => this.plugin.showToolsMenu(evt, () => this.closeDetails()),
         });
     }
 }
@@ -354,6 +364,12 @@ export interface SyncPanelOptions {
     onOpenTransfers?: () => void;
     onSyncNow?: () => void;
     onOpenSettings?: () => void;
+    /** After a failed sync: report it, with a suggested issue title */
+    onReport?: (title: string) => void;
+    /** Makes the conflict count a link to the conflict resolver */
+    onResolveConflicts?: () => void;
+    /** A "more" button listing the plugin's other screens */
+    onMoreMenu?: (evt: MouseEvent) => void;
 }
 
 /** The sync status panel: used by the popover, the phone sheet and the transfer status screen. */
@@ -376,28 +392,30 @@ export function renderSyncPanel(el: HTMLElement, s: SyncProgressSnapshot, o: Syn
     }
     if (sub) head.createSpan({ cls: "vault-sync-status-sub", text: sub });
 
+    // After a finished sync the steps and per-direction bars would all be full:
+    // only the overall bar stays, the rest carries no news.
+    const finished = !s.active && state === "synced";
+
     // Steps: check -> (scan) -> download -> upload -> done
-    const steps = el.createDiv({ cls: "vault-sync-status-steps" });
-    const order: Array<{ id: string; label: string }> = [
-        { id: "checking", label: t("statusStepCheck") },
-        ...(s.phase === "scanning" || s.scan.total > 0 ? [{ id: "scanning", label: t("statusStepScan") }] : []),
-        { id: "pulling", label: t("statusStepPull") },
-        { id: "pushing", label: t("statusStepPush") },
-        { id: "done", label: t("statusStepDone") },
-    ];
-    const currentIdx = s.active
-        ? order.findIndex((o) => o.id === s.phase)
-        : state === "synced"
-          ? order.length
-          : -1;
-    order.forEach((o, i) => {
-        const step = steps.createDiv({ cls: "vault-sync-status-step" });
-        if (currentIdx >= 0 && i < currentIdx) step.addClass("is-done");
-        if (i === currentIdx) step.addClass("is-current");
-        step.createDiv({ cls: "vault-sync-status-step-bar" });
-        step.createSpan({ text: o.label });
-    });
-    steps.style.setProperty("--vs-steps", String(order.length));
+    if (!finished) {
+        const steps = el.createDiv({ cls: "vault-sync-status-steps" });
+        const order: Array<{ id: string; label: string }> = [
+            { id: "checking", label: t("statusStepCheck") },
+            ...(s.phase === "scanning" || s.scan.total > 0 ? [{ id: "scanning", label: t("statusStepScan") }] : []),
+            { id: "pulling", label: t("statusStepPull") },
+            { id: "pushing", label: t("statusStepPush") },
+            { id: "done", label: t("statusStepDone") },
+        ];
+        const currentIdx = s.active ? order.findIndex((o) => o.id === s.phase) : -1;
+        order.forEach((o, i) => {
+            const step = steps.createDiv({ cls: "vault-sync-status-step" });
+            if (currentIdx >= 0 && i < currentIdx) step.addClass("is-done");
+            if (i === currentIdx) step.addClass("is-current");
+            step.createDiv({ cls: "vault-sync-status-step-bar" });
+            step.createSpan({ text: o.label });
+        });
+        steps.style.setProperty("--vs-steps", String(order.length));
+    }
 
     // Overall bar
     const total = s.pull.total + s.push.total;
@@ -431,16 +449,32 @@ export function renderSyncPanel(el: HTMLElement, s: SyncProgressSnapshot, o: Syn
         const kv = el.createDiv({ cls: "vault-sync-status-kv" });
         const dir = (label: string, d: { done: number; total: number }) => {
             kv.createSpan({ cls: "vault-sync-status-muted", text: label });
-            const mini = kv.createDiv({ cls: "vault-sync-status-mini" });
-            mini.createDiv({ cls: "vault-sync-status-bar-fill" }).style.width =
-                `${d.total > 0 ? Math.round((d.done / d.total) * 100) : 0}%`;
+            const mini = kv.createDiv({ cls: finished ? "" : "vault-sync-status-mini" });
+            if (!finished) {
+                mini.createDiv({ cls: "vault-sync-status-bar-fill" }).style.width =
+                    `${d.total > 0 ? Math.round((d.done / d.total) * 100) : 0}%`;
+            }
             kv.createSpan({ cls: "vault-sync-status-num", text: `${d.done} / ${d.total}` });
         };
         dir(t("statusPull"), s.pull);
         dir(t("statusPush"), s.push);
         const conflicts = s.active ? s.conflicts : (s.last?.conflicts ?? 0);
         if (conflicts > 0) {
-            kv.createSpan({ cls: "vault-sync-status-warn", text: t("statusConflicts") });
+            if (o.onResolveConflicts) {
+                const resolve = o.onResolveConflicts;
+                const link = kv.createEl("a", {
+                    cls: "vault-sync-status-warn vault-sync-status-link",
+                    text: t("statusConflicts"),
+                    href: "#",
+                    attr: { "aria-label": t("statusResolveConflicts") },
+                });
+                link.addEventListener("click", (e) => {
+                    e.preventDefault();
+                    resolve();
+                });
+            } else {
+                kv.createSpan({ cls: "vault-sync-status-warn", text: t("statusConflicts") });
+            }
             kv.createDiv();
             kv.createSpan({ cls: "vault-sync-status-num vault-sync-status-warn", text: String(conflicts) });
         }
@@ -484,6 +518,21 @@ export function renderSyncPanel(el: HTMLElement, s: SyncProgressSnapshot, o: Syn
     foot.createSpan({ cls: "vault-sync-status-muted", text: note });
 
     const btns = foot.createDiv({ cls: "vault-sync-status-btns" });
+    if (o.onMoreMenu) {
+        const more = o.onMoreMenu;
+        const moreBtn = btns.createEl("button", {
+            cls: "clickable-icon vault-sync-status-more",
+            attr: { "aria-label": t("statusMoreTools") },
+        });
+        setIcon(moreBtn, "more-horizontal");
+        moreBtn.addEventListener("click", (e) => more(e));
+    }
+    if (!s.active && state === "error" && o.onReport) {
+        // A failure the user cannot fix by signing in or going online: offer a report
+        const report = o.onReport;
+        const title = `Sync failed: ${(s.last?.message ?? "").slice(0, 120)}`;
+        btns.createEl("button", { text: t("statusReport") }).addEventListener("click", () => report(title));
+    }
     if (o.onOpenTransfers) {
         const open = o.onOpenTransfers;
         btns.createEl("button", { text: t("statusTransferDetails") }).addEventListener("click", () => open());

@@ -1,9 +1,21 @@
+import { isCloudNotFound } from "../cloud-adapters/cloud-error";
 import { TFile } from "obsidian";
-import type { FileRevision } from "../types/adapter";
+import { capabilitiesOf, type FileRevision } from "../types/adapter";
 import type { SyncContext } from "./context";
 
-export function supportsHistory(ctx: SyncContext): boolean {
-    return ctx.adapter.supportsHistory ?? false;
+/** What this module reads from the sync context */
+export type HistoryCtx = Pick<
+    SyncContext,
+    | "adapter"
+    | "log"
+    | "notify"
+    | "revisionCache"
+    | "t"
+    | "vault"
+>;
+
+export function supportsHistory(ctx: HistoryCtx): boolean {
+    return capabilitiesOf(ctx.adapter).revisions;
 }
 
 /**
@@ -20,11 +32,12 @@ export class TransientHistoryError extends Error {
 
 function isPermanentHistoryError(e: unknown): boolean {
     if (!e) return false;
-    const err = e as { name?: unknown; status?: unknown; message?: unknown };
+    const err = e as { name?: unknown; message?: unknown };
     if (err.name === "DecryptionError") return true;
-    if (err.status === 404 || err.status === 410) return true;
+    if (isCloudNotFound(e)) return true;
+    // Wrappers word their own misses ("Revision ... not found"): also permanent.
     const msg = typeof err.message === "string" ? err.message : "";
-    return /not found|API Error 404|API Error 410/i.test(msg);
+    return /not found/i.test(msg);
 }
 
 async function wrapHistoryCall<T>(fn: () => Promise<T>): Promise<T> {
@@ -35,8 +48,8 @@ async function wrapHistoryCall<T>(fn: () => Promise<T>): Promise<T> {
     }
 }
 
-export async function listRevisions(ctx: SyncContext, path: string, fileId?: string): Promise<FileRevision[]> {
-    if (!ctx.adapter.supportsHistory || !ctx.adapter.listRevisions) {
+export async function listRevisions(ctx: HistoryCtx, path: string, fileId?: string): Promise<FileRevision[]> {
+    if (!supportsHistory(ctx) || !ctx.adapter.listRevisions) {
         throw new Error(
             ctx.t("historyNotSupported") || "Cloud adapter does not support history.",
         );
@@ -45,12 +58,12 @@ export async function listRevisions(ctx: SyncContext, path: string, fileId?: str
 }
 
 export async function getRevisionContent(
-    ctx: SyncContext,
+    ctx: HistoryCtx,
     path: string,
     revisionId: string,
     fileId?: string,
 ): Promise<ArrayBuffer> {
-    if (!ctx.adapter.supportsHistory || !ctx.adapter.getRevisionContent) {
+    if (!supportsHistory(ctx) || !ctx.adapter.getRevisionContent) {
         throw new Error(
             ctx.t("historyNotSupported") || "Cloud adapter does not support history.",
         );
@@ -69,12 +82,12 @@ export async function getRevisionContent(
 }
 
 export async function setRevisionKeepForever(
-    ctx: SyncContext,
+    ctx: HistoryCtx,
     path: string,
     revisionId: string,
     keepForever: boolean,
 ): Promise<void> {
-    if (!ctx.adapter.supportsHistory || !ctx.adapter.setRevisionKeepForever) {
+    if (!supportsHistory(ctx) || !ctx.adapter.setRevisionKeepForever) {
         throw new Error(
             ctx.t("historyNotSupported") || "Cloud adapter does not support history.",
         );
@@ -83,8 +96,8 @@ export async function setRevisionKeepForever(
     await ctx.log(`[History] Set keepForever=${keepForever} for ${path} (rev: ${revisionId})`, "info");
 }
 
-export async function deleteRevision(ctx: SyncContext, path: string, revisionId: string): Promise<void> {
-    if (!ctx.adapter.supportsHistory || !ctx.adapter.deleteRevision) {
+export async function deleteRevision(ctx: HistoryCtx, path: string, revisionId: string): Promise<void> {
+    if (!supportsHistory(ctx) || !ctx.adapter.deleteRevision) {
         throw new Error(
             ctx.t("historyNotSupported") || "Cloud adapter does not support history.",
         );
@@ -94,7 +107,7 @@ export async function deleteRevision(ctx: SyncContext, path: string, revisionId:
 }
 
 export async function restoreRevision(
-    ctx: SyncContext,
+    ctx: HistoryCtx,
     path: string,
     revision: FileRevision,
 ): Promise<void> {

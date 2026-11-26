@@ -66,8 +66,8 @@ jobs:
 
             # Deterministic, minimized reproductions of known multi-device bugs.
             # Fails when a bug stops reproducing (= fixed) so it gets promoted to a regression test.
-            - name: Harness self-tests and known-bug scenarios
-              run: npx vitest run --config vitest.sim.config.ts tests/sim/harness.test.ts tests/sim/known-bugs.test.ts
+            - name: Harness self-tests, known-bug scenarios and OS name differences
+              run: npx vitest run --config vitest.sim.config.ts tests/sim/harness.test.ts tests/sim/known-bugs.test.ts tests/sim/os-names.test.ts
 
             # Randomized multi-device runs. Non-blocking until the known bugs are fixed:
             # results are shown in the job summary and uploaded as an artifact.
@@ -95,3 +95,70 @@ jobs:
                   path: test-results/sim/
                   if-no-files-found: ignore
                   retention-days: 14
+
+    formal:
+        name: TLA+ model checking
+        runs-on: ubuntu-latest
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Use Node.js 20.x
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 20.x
+
+            - name: Use Java 17
+              uses: actions/setup-java@v4
+              with:
+                  distribution: temurin
+                  java-version: "17"
+
+            - name: Cache tla2tools.jar
+              uses: actions/cache@v4
+              with:
+                  path: formal/.cache
+                  key: tla2tools-${{ hashFiles('formal/run.mjs') }}
+
+            # Current code must pass every model; earlier code and rejected designs must
+            # still break the named property (see formal/README.md)
+            - name: Check the models
+              run: node formal/run.mjs
+
+    browser:
+        name: Browser engines (Chromium, WebKit)
+        # Playwright 1.56 has no browsers for ubuntu-latest (26.04) yet
+        runs-on: ubuntu-24.04
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Use Node.js 20.x
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 20.x
+                  cache: "npm"
+
+            - name: Install dependencies
+              run: npm ci
+
+            - name: Install Chromium and WebKit
+              run: npx playwright-core install --with-deps chromium webkit
+
+            # Built from the add-on commit pinned in approved-addons.ts, so the tests
+            # do not depend on which add-on release is the latest
+            - name: Cache the approved add-on package
+              uses: actions/cache@v4
+              with:
+                  path: .addon-pkg
+                  key: addon-pkg-${{ hashFiles('src/addons/approved-addons.ts', 'e2e/prepare-approved-addon.mjs') }}
+
+            - name: Prepare the approved add-on package
+              timeout-minutes: 10
+              run: node e2e/prepare-approved-addon.mjs
+
+            # The shipped Drive adapter over XMLHttpRequest, and the add-on loader, in
+            # Chromium (desktop, Android) and WebKit (iPhone, iPad), cross-origin like
+            # googleapis.com from the Obsidian app
+            - name: Run browser tests
+              run: npx vitest run --config vitest.browser.config.ts

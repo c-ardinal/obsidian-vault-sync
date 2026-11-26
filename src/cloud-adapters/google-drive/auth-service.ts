@@ -1,3 +1,4 @@
+import type { OAuthMethod } from "../../types/oauth-adapter";
 import { generateCodeChallenge, generateCodeVerifier } from "./pkce";
 import { OAUTH_REDIRECT_URI, AUTH_PROXY_BASE_URL } from "../../constants";
 import { toHex } from "../../utils/format";
@@ -12,7 +13,7 @@ interface TokenResponse {
     error_description?: string;
 }
 
-export type AuthMethod = "default" | "custom-proxy" | "client-credentials";
+export type AuthMethod = OAuthMethod;
 
 export class GoogleAuthService {
     /** Exposed for HttpClient to attach Authorization header. */
@@ -20,6 +21,15 @@ export class GoogleAuthService {
     refreshToken: string | null = null;
     tokenExpiresAt: number = 0; // epoch ms
     private refreshPromise: Promise<void> | null = null;
+    /**
+     * Bumped whenever the signed-in session ends or changes (sign-out, a new
+     * sign-in, other tokens set). A refresh started under an older generation
+     * drops its result: a refresh still in flight at sign-out used to put the
+     * access token back (the plugin showed as signed in again), and one in
+     * flight across a new sign-in mixed the old account's access token with the
+     * new refresh token and saved the pair.
+     */
+    private generation = 0;
     private codeVerifier: string | null = null;
     private currentAuthState: string | null = null;
 
@@ -62,7 +72,7 @@ export class GoogleAuthService {
     }
 
     private async log(msg: string, level: string = "debug") {
-        console.debug(`Vault-Sync: [${level.toUpperCase()}] ${msg}`);
+        console.debug(`Vault Syncer: [${level.toUpperCase()}] ${msg}`);
         if (this.logger) this.logger(msg, level);
     }
 
@@ -81,6 +91,10 @@ export class GoogleAuthService {
         } else {
             this.proxyUrl = "";
         }
+    }
+
+    getAuthConfig(): { method: AuthMethod; proxyUrl: string } {
+        return { method: this.authMethod, proxyUrl: this.proxyUrl };
     }
 
     private getProxyBaseUrl(): string | null {
@@ -111,6 +125,8 @@ export class GoogleAuthService {
     }
 
     setTokens(accessToken: string | null, refreshToken: string | null, tokenExpiresAt?: number) {
+        // Same refresh token (e.g. credentials saved again): the session is the same
+        if (refreshToken !== this.refreshToken) this.generation++;
         this.accessToken = accessToken;
         this.refreshToken = refreshToken;
         if (tokenExpiresAt !== undefined) this.tokenExpiresAt = tokenExpiresAt;
@@ -196,22 +212,19 @@ export class GoogleAuthService {
             redirect_uri: this.getRedirectUri(),
         });
 
-        let response: Response;
+        let text: string;
         try {
-            response = await fetch("https://oauth2.googleapis.com/token", {
-                method: "POST",
-                headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                body: body.toString(),
-            });
+            text = (await this.postTokenEndpoint(body)).text;
         } catch {
             throw new Error(
                 `Authentication failed: could not reach Google servers. Check your network connection.`,
             );
         }
 
-        const data = await this.safeJsonParse(response, "token exchange");
+        const data = this.safeJsonParse(text, "token exchange");
         if (data.error) throw new Error(data.error_description || data.error);
 
+        this.generation++;
         this.accessToken = data.access_token;
         this.refreshToken = data.refresh_token;
         if (data.expires_in) this.tokenExpiresAt = Date.now() + data.expires_in * 1000;
@@ -233,6 +246,7 @@ export class GoogleAuthService {
      */
     async logout(): Promise<void> {
         const token = this.refreshToken || this.accessToken;
+        this.generation++;
         this.accessToken = null;
         this.refreshToken = null;
         this.tokenExpiresAt = 0;
@@ -255,8 +269,22 @@ export class GoogleAuthService {
     }
 
     /** Parse JSON safely. Throws a clear error on malformed responses (CDN/WAF HTML pages, truncated body). */
-    private async safeJsonParse(response: Response, context: string): Promise<TokenResponse> {
-        const text = await response.text();
+    /**
+     * POST to Google's token endpoint. requestUrl (not fetch) so that HTTP errors
+     * come back as a status instead of an exception, like the proxy refresh.
+     */
+    private async postTokenEndpoint(body: URLSearchParams): Promise<{ status: number; text: string }> {
+        const res = await requestUrl({
+            url: "https://oauth2.googleapis.com/token",
+            method: "POST",
+            contentType: "application/x-www-form-urlencoded",
+            body: body.toString(),
+            throw: false,
+        });
+        return { status: res.status, text: res.text };
+    }
+
+    private safeJsonParse(text: string, context: string): TokenResponse {
         try {
             return JSON.parse(text) as TokenResponse;
         } catch {
@@ -266,22 +294,28 @@ export class GoogleAuthService {
 
     refreshTokens(): Promise<void> {
         if (this.refreshPromise) return this.refreshPromise;
-        this.refreshPromise = (async () => {
-            try {
-                const proxyBase = this.getProxyBaseUrl();
-                if (proxyBase) {
-                    await this.refreshTokensViaProxy(proxyBase);
-                } else {
-                    await this.refreshTokensDirect();
-                }
-            } finally {
-                this.refreshPromise = null;
-            }
-        })();
-        return this.refreshPromise;
+        const generation = this.generation;
+        const proxyBase = this.getProxyBaseUrl();
+        const promise: Promise<void> = (
+            proxyBase
+                ? this.refreshTokensViaProxy(proxyBase, generation)
+                : this.refreshTokensDirect(generation)
+        ).finally(() => {
+            // A refresh started after sign-out owns the slot now; leave it
+            if (this.refreshPromise === promise) this.refreshPromise = null;
+        });
+        this.refreshPromise = promise;
+        return promise;
     }
 
-    private async refreshTokensViaProxy(proxyBase: string) {
+    /** True when the session this refresh was started for has ended (sign-out or another sign-in). */
+    private async superseded(generation: number): Promise<boolean> {
+        if (generation === this.generation) return false;
+        await this.log("Token refresh result dropped: signed out or signed in again meanwhile.", "system");
+        return true;
+    }
+
+    private async refreshTokensViaProxy(proxyBase: string, generation: number) {
         await this.log(
             `Refreshing tokens via proxy... RT present: ${!!this.refreshToken}`,
             "system",
@@ -313,6 +347,8 @@ export class GoogleAuthService {
             throw new Error("Token refresh failed: proxy unreachable");
         }
 
+        if (await this.superseded(generation)) return;
+
         let data: TokenResponse;
         try {
             data = JSON.parse(text) as TokenResponse;
@@ -322,7 +358,7 @@ export class GoogleAuthService {
 
         if (status < 200 || status >= 300) {
             const err = data.error_description || data.error || JSON.stringify(data);
-            console.error(`Vault-Sync: Proxy refresh failure (${status}): ${err}`);
+            console.error(`Vault Syncer: Proxy refresh failure (${status}): ${err}`);
             if (data.error === "invalid_grant" || data.error === "unauthorized_client") {
                 this.accessToken = null;
                 this.refreshToken = null;
@@ -346,7 +382,7 @@ export class GoogleAuthService {
         if (this.onTokenRefresh) void this.onTokenRefresh();
     }
 
-    private async refreshTokensDirect() {
+    private async refreshTokensDirect(generation: number) {
         await this.log(
             `Refreshing tokens... ClientID present: ${!!this.clientId}, Secret present: ${!!this.clientSecret}, RT present: ${!!this.refreshToken}`,
             "system",
@@ -359,13 +395,9 @@ export class GoogleAuthService {
             grant_type: "refresh_token",
         });
 
-        let response: Response;
+        let response: { status: number; text: string };
         try {
-            response = await fetch("https://oauth2.googleapis.com/token", {
-                method: "POST",
-                headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                body: body.toString(),
-            });
+            response = await this.postTokenEndpoint(body);
         } catch (e) {
             await this.log(
                 `Direct refresh network error: ${e instanceof Error ? e.message : String(e)}`,
@@ -377,11 +409,12 @@ export class GoogleAuthService {
             throw new Error("Token refresh failed: Google OAuth unreachable");
         }
 
-        const data = await this.safeJsonParse(response, "direct refresh");
+        const data = this.safeJsonParse(response.text, "direct refresh");
+        if (await this.superseded(generation)) return;
 
-        if (!response.ok) {
+        if (response.status < 200 || response.status >= 300) {
             const err = data.error_description || data.error || JSON.stringify(data);
-            console.error(`Vault-Sync: Refresh failed (${response.status}): ${err}`);
+            console.error(`Vault Syncer: Refresh failed (${response.status}): ${err}`);
             if (data.error === "invalid_grant" || data.error === "unauthorized_client") {
                 this.accessToken = null;
                 this.refreshToken = null;

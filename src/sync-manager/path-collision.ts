@@ -1,5 +1,16 @@
 import type { SyncContext } from "./context";
 import { basename, dirname } from "../utils/path";
+import { CtxState } from "./context-state";
+import { moveAttemptedUploads, type SyncHelpersCtx } from "./sync-helpers";
+
+/** What this module reads from the sync context */
+export type PathCollisionCtx = Pick<
+    SyncContext,
+    | "dirtyPaths"
+    | "index"
+    | "localIndex"
+    | "vault"
+>;
 
 /**
  * Paths that differ only in letter case or Unicode normalization (NFC "é" vs
@@ -20,7 +31,7 @@ export function pathKey(path: string): string {
  * Folder-only differences count too: "Projects/a.md" vs "projects/a.md".
  */
 export function findPathCollision(
-    ctx: SyncContext,
+    ctx: PathCollisionCtx,
     path: string,
     fileId?: string,
 ): string | null {
@@ -42,7 +53,7 @@ export function findPathCollision(
  * so a parallel pull of a colliding name sees it. Returns null when another file
  * already holds the name (the caller must rename instead).
  */
-export function claimPullPath(ctx: SyncContext, path: string, fileId: string): (() => void) | null {
+export function claimPullPath(ctx: PathCollisionCtx, path: string, fileId: string): (() => void) | null {
     const key = pathKey(path);
     const m = inFlight(ctx);
     const cur = m.get(key);
@@ -54,15 +65,21 @@ export function claimPullPath(ctx: SyncContext, path: string, fileId: string): (
     };
 }
 
-const pulls = new WeakMap<SyncContext, Map<string, { path: string; fileId: string }>>();
-function inFlight(ctx: SyncContext): Map<string, { path: string; fileId: string }> {
+/** Whether a pull of another file (not `fileId`) is writing exactly `path` right now. */
+export function isPathClaimedByOther(ctx: PathCollisionCtx, path: string, fileId: string): boolean {
+    const cur = inFlight(ctx).get(pathKey(path));
+    return !!cur && cur.fileId !== fileId && cur.path === path;
+}
+
+const pulls = new CtxState<Map<string, { path: string; fileId: string }>>("pullsInFlight", "Pulls running now, by folded path");
+function inFlight(ctx: PathCollisionCtx): Map<string, { path: string; fileId: string }> {
     let m = pulls.get(ctx);
     if (!m) pulls.set(ctx, (m = new Map<string, { path: string; fileId: string }>()));
     return m;
 }
 
 /** First "name (n).ext" next to `path` whose key is free in the index and locally. */
-export async function freeCollisionPath(ctx: SyncContext, path: string): Promise<string> {
+export async function freeCollisionPath(ctx: PathCollisionCtx, path: string): Promise<string> {
     const dir = dirname(path);
     const name = basename(path);
     const dot = name.lastIndexOf(".");
@@ -70,8 +87,10 @@ export async function freeCollisionPath(ctx: SyncContext, path: string): Promise
     const ext = dot > 0 ? name.slice(dot) : "";
     const used = new Set([
         ...Object.keys(ctx.index).map(pathKey),
+        ...Object.keys(ctx.localIndex).map(pathKey),
         ...[...ctx.dirtyPaths.keys()].map(pathKey),
         ...reservedKeys(ctx),
+        ...(incoming.get(ctx) ?? []),
         ...inFlight(ctx).keys(),
     ]);
     for (let n = 2; n < 1000; n++) {
@@ -85,15 +104,15 @@ export async function freeCollisionPath(ctx: SyncContext, path: string): Promise
     return `${dir ? dir + "/" : ""}${stem} (${Date.now()})${ext}`;
 }
 
-const reserved = new WeakMap<SyncContext, Set<string>>();
-function reservedKeys(ctx: SyncContext): Set<string> {
+const reserved = new CtxState<Set<string>>("reservedPaths", "Paths reserved for files being renamed apart");
+function reservedKeys(ctx: PathCollisionCtx): Set<string> {
     let r = reserved.get(ctx);
     if (!r) reserved.set(ctx, (r = new Set()));
     return r;
 }
 
 /** Move a file's index / local-index entries and dirty mark to its new path. */
-export function moveIndexEntry(ctx: SyncContext, from: string, to: string): void {
+export function moveIndexEntry(ctx: PathCollisionCtx, from: string, to: string): void {
     if (ctx.index[from]) {
         ctx.index[to] = { ...ctx.index[from] };
         delete ctx.index[from];
@@ -106,4 +125,40 @@ export function moveIndexEntry(ctx: SyncContext, from: string, to: string): void
         ctx.dirtyPaths.delete(from);
         ctx.dirtyPaths.set(to, Date.now());
     }
+    // Unconfirmed uploads go with the file: found under the old name only, our own
+    // lost upload looked like another device's edit (a needless conflict copy)
+    moveAttemptedUploads(ctx as unknown as SyncHelpersCtx, from, to);
+}
+
+/**
+ * Why Windows (and Android shared storage) cannot store this path, or null. macOS,
+ * Linux and iOS accept these names, so such a note can reach the cloud from there.
+ */
+export function windowsNameProblem(path: string): string | null {
+    for (const seg of path.split("/")) {
+        if (/[<>:"|?*\\]/.test(seg) || [...seg].some((c) => c.charCodeAt(0) < 0x20)) return "character";
+        if (/[. ]$/.test(seg)) return "trailing dot or space";
+        const base = seg.split(".")[0].trimEnd().toUpperCase();
+        if (/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/.test(base)) return "reserved name";
+    }
+    return null;
+}
+
+const incoming = new CtxState<Set<string>>("incomingPaths", "Cloud paths of the pull batch running now (folded)");
+
+/**
+ * Names the current pull batch is about to download. Pulls run in parallel, so a
+ * clashing file renamed apart could otherwise be given the name ("x (2).md") of
+ * another file in the same batch that was not pulled yet. Returns a release.
+ */
+export function announceIncoming(ctx: PathCollisionCtx, paths: string[]): () => void {
+    const keys = paths.map(pathKey);
+    let set = incoming.get(ctx);
+    if (!set) incoming.set(ctx, (set = new Set<string>()));
+    const batch = set;
+    const added = keys.filter((k) => !batch.has(k));
+    for (const k of added) batch.add(k);
+    return () => {
+        for (const k of added) batch.delete(k);
+    };
 }

@@ -1772,6 +1772,21 @@ describe("coverage gap tests", () => {
     });
 
     describe("lines 733-755 - folder wipe for ignored folders (full path)", () => {
+        it("never removes a folder left out by this device's settings from the cloud", async () => {
+            const sm = device.syncManager as any;
+            sm.settings.exclusionPatterns = "temp/**";
+            await cloud.uploadFile("temp/file1.txt", new ArrayBuffer(10), Date.now());
+            const id = (await cloud.getFileMetadata("temp/file1.txt"))!.id;
+            sm.index["temp/file1.txt"] = { fileId: id, mtime: Date.now(), size: 10 };
+            sm.localIndex["temp/file1.txt"] = { fileId: id, mtime: Date.now(), size: 10 };
+            sm.dirtyPaths.set("temp/file1.txt", Date.now());
+            const ctx = await createTestContext(cloud, device);
+            await smartPush(ctx, false);
+            // Another device that syncs temp/ keeps it
+            expect(await cloud.getFileMetadata("temp/file1.txt")).not.toBeNull();
+            expect(sm.dirtyPaths.has("temp/file1.txt")).toBe(false);
+        });
+
         it("should execute folder wipe code path", async () => {
             const sm = device.syncManager as any;
 
@@ -1885,15 +1900,16 @@ describe("coverage gap tests", () => {
         it("should handle folder wipe failure gracefully", async () => {
             const sm = device.syncManager as any;
 
-            sm.settings.exclusionPatterns = "wipefail/**";
+            // Only folders no device may sync are wiped whole (a folder left out by
+            // this device's settings may hold files other devices sync)
 
             // Create folder and file
-            await cloud.uploadFile("wipefail", new ArrayBuffer(0), Date.now());
-            await cloud.uploadFile("wipefail/data.json", new ArrayBuffer(10), Date.now());
+            await cloud.uploadFile("_VaultSync_Orphans", new ArrayBuffer(0), Date.now());
+            await cloud.uploadFile("_VaultSync_Orphans/data.json", new ArrayBuffer(10), Date.now());
 
-            sm.index["wipefail/data.json"] = { fileId: "f1", mtime: Date.now(), size: 10 };
-            sm.localIndex["wipefail/data.json"] = { fileId: "f1", mtime: Date.now(), size: 10 };
-            sm.dirtyPaths.set("wipefail/data.json", Date.now());
+            sm.index["_VaultSync_Orphans/data.json"] = { fileId: "f1", mtime: Date.now(), size: 10 };
+            sm.localIndex["_VaultSync_Orphans/data.json"] = { fileId: "f1", mtime: Date.now(), size: 10 };
+            sm.dirtyPaths.set("_VaultSync_Orphans/data.json", Date.now());
 
             // Create regular file to push
             device.app.vaultAdapter.setFile("regular.md", "content");
@@ -1904,10 +1920,10 @@ describe("coverage gap tests", () => {
             // Make getFileMetadata return valid meta for the folder
             const originalGetMeta = cloud.getFileMetadata.bind(cloud);
             cloud.getFileMetadata = async (path: string) => {
-                if (path === "wipefail") {
+                if (path === "_VaultSync_Orphans") {
                     return {
                         id: "wipefail_folder_id",
-                        path: "wipefail",
+                        path: "_VaultSync_Orphans",
                         mtime: Date.now(),
                         size: 0,
                         kind: "folder" as const,

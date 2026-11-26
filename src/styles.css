@@ -241,7 +241,7 @@
 
 /* Details Colors */
 .revision-meta {
-    font-size: 0.85em;
+    font-size: var(--font-ui-small);
     display: flex;
     flex-direction: column;
     gap: 4px;
@@ -260,7 +260,7 @@
 
 .revision-hash {
     font-family: var(--font-monospace);
-    font-size: 0.85em;
+    font-size: var(--font-ui-small);
     color: var(--text-muted);
     background-color: var(--background-modifier-form-field); /* Slightly darker/lighter box */
     padding: 1px 4px;
@@ -270,7 +270,7 @@
 .revision-author,
 .revision-size {
     color: var(--text-muted);
-    font-size: 0.8em;
+    font-size: var(--font-ui-smaller);
 }
 
 /* Info Header Styling */
@@ -379,7 +379,7 @@
     user-select: none;
     background-color: var(--background-secondary);
     flex-shrink: 0;
-    font-size: 0.8em;
+    font-size: var(--font-ui-smaller);
 }
 
 .diff-cn {
@@ -498,6 +498,13 @@
 .is-mobile .modal.mod-history-modal,
 .is-mobile .modal.mod-transfer-status-modal {
     padding-top: var(--safe-area-inset-top);
+}
+
+/* Tall card modals on phone: keep the whole card clear of the status bar */
+.is-phone .modal.vault-sync-conflict-modal,
+.is-phone .modal.vault-sync-devices-modal {
+    margin-top: var(--safe-area-inset-top);
+    max-height: calc(100% - var(--safe-area-inset-top) - var(--safe-area-inset-bottom) - 16px);
 }
 
 .is-mobile .modal.mod-history-modal > .modal-header-button,
@@ -725,7 +732,7 @@
     justify-content: center;
     background-color: var(--background-modifier-border);
     color: var(--text-muted);
-    font-size: 0.7em;
+    font-size: var(--font-ui-smaller);
     font-weight: bold;
     border-radius: 4px;
     pointer-events: none;
@@ -744,7 +751,7 @@
 }
 .vault-sync-info-status {
     color: var(--text-muted);
-    font-size: 0.85em;
+    font-size: var(--font-ui-small);
     background-color: var(--background-modifier-border);
     padding: 2px 8px;
     border-radius: 4px;
@@ -752,39 +759,56 @@
 }
 
 .is-mobile .vault-sync-info-status {
-    font-size: 0.75em;
+    font-size: var(--font-ui-smaller);
     padding: 4px 10px;
 }
 
 /* Number Limits Hint — sits inside .setting-item-control */
 .vault-sync-number-hint {
     width: 100%;
-    font-size: 0.75em;
+    font-size: var(--font-ui-smaller);
     color: var(--text-muted);
     margin-top: 4px;
     text-align: right;
     line-height: 1.2;
 }
 
-/* Compact settings: prevent mobile wrap so label and control stay side-by-side */
+.vault-sync-number-hint.is-error {
+    color: var(--text-error);
+}
+
+/* Phone and tablet: the description keeps the full width, the number field goes below it */
 .is-mobile .vault-sync-number-setting.setting-item,
-.is-mobile .vault-sync-info-setting.setting-item {
-    display: flex !important;
-    flex-direction: row !important;
-    flex-wrap: nowrap !important;
-    align-items: center !important;
+.is-mobile .vault-sync-toggle-number-setting.setting-item {
+    flex-wrap: wrap;
 }
 
 .is-mobile .vault-sync-number-setting .setting-item-info,
-.is-mobile .vault-sync-info-setting .setting-item-info {
-    flex: 1 1 0 !important;
-    min-width: 0;
+.is-mobile .vault-sync-toggle-number-setting .setting-item-info {
+    flex: 1 1 100%;
+    margin-right: 0;
 }
 
 .is-mobile .vault-sync-number-setting .setting-item-control,
+.is-mobile .vault-sync-toggle-number-setting .setting-item-control {
+    flex: 1 1 100%;
+    justify-content: flex-end;
+    margin-top: var(--size-4-2);
+}
+
+.is-mobile .vault-sync-info-setting.setting-item {
+    flex-wrap: nowrap;
+    align-items: center;
+}
+
+.is-mobile .vault-sync-info-setting .setting-item-info {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
 .is-mobile .vault-sync-info-setting .setting-item-control {
-    flex: 0 0 auto !important;
-    width: auto !important;
+    flex: 0 0 auto;
+    width: auto;
 }
 
 /* Number column: input+unit stacked above limits hint */
@@ -806,31 +830,29 @@
     flex-basis: 100%;
 }
 
-/* Subheader group: label + nested children block */
+/* Subheader group: an Obsidian setting heading and the rows below it */
 .vault-sync-subheader-group {
-    margin-top: 12px;
-    margin-bottom: 16px;
-    margin-left: 8px;
-    padding-left: 12px;
-    border-left: 2px solid var(--background-modifier-border);
-}
-
-.vault-sync-subheader-label {
-    display: flex;
-    align-items: center;
-    padding: 6px 0;
+    margin-top: var(--size-4-3);
 }
 
 .vault-sync-subheader-text {
-    font-size: 0.82em;
-    font-weight: 600;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+    font-weight: var(--font-semibold);
+    color: var(--text-normal);
 }
 
-.vault-sync-subheader-body > .setting-item {
+.vault-sync-subheader-body > .setting-item:first-child {
     border-top: none;
+}
+
+/* Folded secondary facts under a setting's description */
+.vault-sync-setting-detail > summary {
+    cursor: pointer;
+    color: var(--text-muted);
+    width: fit-content;
+}
+
+.vault-sync-setting-detail > div {
+    margin-top: var(--size-2-2);
 }
 
 /* Exclusion Pattern Modal */
@@ -877,7 +899,7 @@
 }
 
 .vault-sync-exclusion-match-count {
-    font-size: 0.75em;
+    font-size: var(--font-ui-smaller);
     color: var(--text-muted);
     white-space: nowrap;
     flex-shrink: 0;
@@ -904,7 +926,7 @@
 
 .vault-sync-exclusion-file-item {
     font-family: var(--font-monospace);
-    font-size: 0.78em;
+    font-size: var(--font-ui-smaller);
     color: var(--text-muted);
     padding: 1px 0;
     user-select: text;
@@ -951,7 +973,7 @@
 
 .vault-sync-exclusion-error {
     color: var(--text-error);
-    font-size: 0.85em;
+    font-size: var(--font-ui-small);
     margin-top: 4px;
 }
 
@@ -974,7 +996,7 @@
     padding: 6px 10px;
     cursor: pointer;
     font-family: var(--font-monospace);
-    font-size: 0.85em;
+    font-size: var(--font-ui-small);
     display: flex;
     align-items: center;
     gap: 6px;
@@ -990,7 +1012,7 @@
 }
 
 .vault-sync-exclusion-status {
-    font-size: 0.78em;
+    font-size: var(--font-ui-smaller);
     color: var(--text-muted);
     text-align: right;
     padding: 6px 4px 0;
@@ -1006,7 +1028,7 @@
 }
 
 .vault-sync-exclusion-section-label {
-    font-size: 0.78em;
+    font-size: var(--font-ui-smaller);
     font-weight: 600;
     color: var(--text-muted);
     text-transform: uppercase;
@@ -1026,7 +1048,7 @@
 }
 
 .vault-sync-exclusion-managed-badge {
-    font-size: 0.72em;
+    font-size: var(--font-ui-smaller);
     color: var(--text-muted);
     background: var(--background-modifier-border);
     padding: 1px 6px;
@@ -1064,7 +1086,7 @@
 }
 
 .vault-sync-migration-file {
-    font-size: 0.8em;
+    font-size: var(--font-ui-smaller);
     color: var(--text-faint);
     white-space: nowrap;
     overflow: hidden;
@@ -1379,7 +1401,7 @@
 
 .vault-sync-prompt-error {
     color: var(--text-error);
-    font-size: 0.85em;
+    font-size: var(--font-ui-small);
     margin-top: 4px;
     min-height: 1.2em;
 }
@@ -1405,15 +1427,15 @@
 }
 
 /* Settings: hierarchical navigation */
-.vault-sync-settings-nav-item {
+.vault-sync-settings-nav-row {
     cursor: pointer;
     align-items: center;
     gap: 12px;
     border-radius: var(--radius-s);
 }
 
-.vault-sync-settings-nav-item:hover,
-.vault-sync-settings-nav-item:focus-visible {
+.vault-sync-settings-nav-row:hover,
+.vault-sync-settings-nav-row:focus-visible {
     background-color: var(--background-modifier-hover);
 }
 
@@ -1475,9 +1497,7 @@
 }
 
 .vault-sync-settings-section-title {
-    margin-top: 20px;
-    font-weight: 600;
-    color: var(--text-normal);
+    margin-top: var(--size-4-4);
 }
 
 /* ── Sync status display ─────────────────────────────────────────────
@@ -1882,6 +1902,25 @@
     min-height: 40px;
 }
 
+/* Mass deletion confirmation: long path lists scroll inside the dialog */
+.vault-sync-mass-delete-list {
+    max-height: 40vh;
+    overflow-y: auto;
+    padding-inline-start: 1.25em;
+    font-family: var(--font-monospace);
+    font-size: var(--font-ui-small);
+    word-break: break-all;
+}
+
+.vault-sync-remote-trash-list {
+    max-height: 60vh;
+    overflow-y: auto;
+}
+
+.vault-sync-remote-trash-list .setting-item-name {
+    word-break: break-all;
+}
+
 /* Settings: diff preview */
 .vault-sync-diff-preview-setting {
     flex-wrap: wrap;
@@ -1919,4 +1958,320 @@
     border-bottom: 1px solid var(--background-modifier-border);
     color: var(--text-muted);
     font-size: var(--font-ui-smaller);
+}
+
+/* Conflict resolve screen */
+.vault-sync-conflict-modal {
+    width: min(1000px, 95vw);
+}
+
+.vault-sync-conflict-path {
+    font-family: var(--font-monospace);
+    font-size: var(--font-ui-small);
+    color: var(--text-muted);
+    word-break: break-all;
+}
+
+.vault-sync-conflict-chunks {
+    max-height: 45vh;
+    overflow-y: auto;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-s);
+}
+
+.vault-sync-conflict-chunks pre {
+    margin: 0;
+    padding: 2px var(--size-4-2);
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: var(--font-ui-small);
+}
+
+.vault-sync-conflict-same {
+    color: var(--text-muted);
+}
+
+.vault-sync-conflict-fold {
+    padding: 2px var(--size-4-2);
+    font-size: var(--font-ui-smaller);
+    color: var(--text-faint);
+    background: var(--background-secondary);
+}
+
+.vault-sync-conflict-chunk {
+    border-top: 1px solid var(--background-modifier-border);
+    border-bottom: 1px solid var(--background-modifier-border);
+    padding: var(--size-4-1) 0;
+}
+
+.vault-sync-conflict-panes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--size-4-2);
+}
+
+.vault-sync-conflict-pane {
+    flex: 1 1 280px;
+    min-width: 0;
+    background: var(--background-secondary);
+    border-radius: var(--radius-s);
+}
+
+.vault-sync-conflict-pane-label {
+    padding: 2px var(--size-4-2);
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+}
+
+.vault-sync-conflict-choices {
+    display: flex;
+    gap: var(--size-4-2);
+    padding: var(--size-4-1) var(--size-4-2);
+}
+
+.vault-sync-conflict-result {
+    width: 100%;
+    font-family: var(--font-monospace);
+    font-size: var(--font-ui-small);
+}
+
+.vault-sync-conflict-buttons {
+    flex-wrap: wrap;
+}
+
+.vault-sync-conflict-hint {
+    margin-bottom: var(--size-4-2);
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+}
+
+.vault-sync-conflict-modal .modal-content > * {
+    flex-shrink: 0;
+}
+
+/* Phone: the page scrolls as one, the diff has no scroll of its own */
+.is-phone .vault-sync-conflict-chunks {
+    max-height: none;
+    overflow-y: visible;
+}
+
+/* Devices and changes */
+.vault-sync-activity-list {
+    max-height: 50vh;
+    overflow-y: auto;
+}
+
+.vault-sync-activity-row {
+    padding: var(--size-4-1) 0;
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.vault-sync-activity-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--size-4-2);
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+}
+
+.vault-sync-activity-op.mod-delete,
+.vault-sync-activity-op.mod-conflict {
+    color: var(--text-error);
+}
+
+.vault-sync-activity-path {
+    font-size: var(--font-ui-small);
+    overflow-wrap: anywhere;
+}
+
+.vault-sync-activity-from {
+    color: var(--text-muted);
+}
+
+.vault-sync-activity-more {
+    margin-top: var(--size-4-2);
+}
+
+/* Full-height phone modals lay out their content as a flex column: never let
+   a paragraph or list shrink below its content (it was cut to one line). */
+.vault-sync-devices-modal .modal-content > * {
+    flex-shrink: 0;
+}
+
+.vault-sync-devices-note {
+    margin: var(--size-4-2) 0;
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+}
+
+/* Diagnostic info */
+.vault-sync-diagnostics-modal .modal-content > * {
+    flex-shrink: 0;
+}
+
+.vault-sync-diagnostics-note {
+    margin: var(--size-4-2) 0;
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+}
+
+.vault-sync-diagnostics-text {
+    width: 100%;
+    font-family: var(--font-monospace);
+    font-size: var(--font-ui-smaller);
+}
+
+/* Settings search (top page) */
+.vault-sync-settings-search {
+    margin-bottom: var(--size-4-3);
+}
+
+.vault-sync-settings-search .search-input-container {
+    width: 100%;
+}
+
+.vault-sync-settings-search-group a.vault-sync-subheader-text {
+    text-decoration: none;
+}
+
+.vault-sync-settings-search-group a.vault-sync-subheader-text:hover {
+    color: var(--text-accent);
+}
+
+.vault-sync-settings-search-none {
+    color: var(--text-muted);
+}
+
+/* Restore to a past time */
+.vault-sync-pit-modal .modal-content > * {
+    flex-shrink: 0;
+}
+
+.vault-sync-pit-note {
+    margin: var(--size-4-2) 0;
+    font-size: var(--font-ui-small);
+    color: var(--text-muted);
+}
+
+.vault-sync-pit-progress {
+    font-variant-numeric: tabular-nums;
+}
+
+.vault-sync-pit-summary {
+    margin: var(--size-4-2) 0;
+}
+
+.vault-sync-pit-count {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--size-4-2);
+    padding: var(--size-2-2) 0;
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.vault-sync-pit-count-n {
+    font-variant-numeric: tabular-nums;
+    color: var(--text-muted);
+}
+
+.vault-sync-pit-list {
+    max-height: 40vh;
+    overflow-y: auto;
+    margin: var(--size-4-2) 0;
+    font-size: var(--font-ui-small);
+}
+
+.vault-sync-pit-row {
+    display: flex;
+    gap: var(--size-4-2);
+    padding: var(--size-2-1) 0;
+}
+
+.vault-sync-pit-tag {
+    flex-shrink: 0;
+    min-width: 6em;
+    color: var(--text-muted);
+}
+
+.vault-sync-pit-tag.mod-created-after {
+    color: var(--text-warning);
+}
+
+.vault-sync-pit-path {
+    word-break: break-all;
+}
+
+/* Exclusion lists: which devices a list applies to */
+.vault-sync-exclusion-note {
+    margin: 0 0 var(--size-4-3);
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+}
+
+/* Conflict count in the sync status panel: opens the conflict resolver */
+.vault-sync-status-link {
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.vault-sync-status-btns .vault-sync-status-more {
+    padding: var(--size-2-2) var(--size-2-3);
+}
+
+.vault-sync-revision-item:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 2px var(--background-modifier-border-focus);
+}
+
+/* Delete button of an exclusion pattern: a full-size touch target on phones */
+.is-mobile .vault-sync-exclusion-delete {
+    min-width: 44px;
+    min-height: 44px;
+    justify-content: center;
+}
+
+/* Headings inside this plugin's dialogs line up with the rows below them */
+.modal .vault-sync-modal-heading.setting-item-heading {
+    padding-inline: 0;
+}
+
+/* Version history when signed out: the reason and the way to fix it */
+.vault-sync-history-signin {
+    padding: var(--size-4-4);
+}
+
+/* Size after a file name in a suggestion list */
+.vault-sync-suggest-note {
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+}
+
+/* Sync check: one folded list per kind of difference */
+.vault-sync-verify-group {
+    margin: var(--size-4-2) 0;
+}
+.vault-sync-verify-group ul {
+    max-height: 12em;
+    overflow-y: auto;
+    margin: var(--size-4-1) 0 0;
+    font-size: var(--font-ui-small);
+    overflow-wrap: anywhere;
+}
+
+/* File explorer marks (optional): a small dot after the name */
+.nav-file-title.vault-sync-mark-pending::after,
+.nav-file-title.vault-sync-mark-conflict::after {
+    content: "";
+    flex-shrink: 0;
+    width: 6px;
+    height: 6px;
+    margin-inline-start: var(--size-4-1);
+    border-radius: 50%;
+    align-self: center;
+}
+.nav-file-title.vault-sync-mark-pending::after {
+    background-color: var(--text-accent);
+}
+.nav-file-title.vault-sync-mark-conflict::after {
+    background-color: var(--text-error);
 }

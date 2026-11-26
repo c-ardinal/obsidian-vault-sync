@@ -6,6 +6,8 @@
  * - A clash is reported against the index and against pulls in flight, not against the same file id
  * - Free "(n)" names skip names already used in the index, dirty paths, earlier picks and on disk
  * - NFD event paths map onto the NFC index key only on Unicode-insensitive file systems
+ * - Other-case event paths map onto the index key only on case-insensitive file systems
+ * - Names Windows / Android cannot store are recognised; names they can store are not
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -14,6 +16,7 @@ import {
     freeCollisionPath,
     moveIndexEntry,
     pathKey,
+    windowsNameProblem,
 } from "../../../src/sync-manager/path-collision";
 import { indexKeyFor, markRenamed, renameLocal } from "../../../src/sync-manager/state";
 
@@ -98,6 +101,50 @@ describe("indexKeyFor", () => {
         // Case is never folded: on a case-sensitive Mac volume these are two files too
         expect(indexKeyFor(ctx, "notes/CAFÉ.md")).toBe("notes/CAFÉ.md");
     });
+});
+
+describe("indexKeyFor on a case-insensitive file system", () => {
+    it("maps a path reported in other letter case onto the index key (Windows / macOS / Android)", () => {
+        const ctx = makeCtx({ "Projects/idea.md": { fileId: "f1" } });
+        expect(indexKeyFor(ctx, "projects/idea.md")).toBe("projects/idea.md"); // Linux: two files
+        ctx.caseInsensitiveFs = true;
+        expect(indexKeyFor(ctx, "projects/idea.md")).toBe("Projects/idea.md");
+        expect(indexKeyFor(ctx, "projects/other.md")).toBe("projects/other.md");
+        // The exact key wins when it is indexed itself
+        ctx.index["projects/idea.md"] = { fileId: "f2" };
+        expect(indexKeyFor(ctx, "projects/idea.md")).toBe("projects/idea.md");
+    });
+
+    it("folds case and Unicode form together on macOS", () => {
+        const ctx = makeCtx({ [NFC]: { fileId: "f1" } });
+        ctx.caseInsensitiveFs = true;
+        ctx.unicodeInsensitiveFs = true;
+        expect(indexKeyFor(ctx, NFD.toUpperCase())).toBe(NFC);
+    });
+});
+
+describe("windowsNameProblem", () => {
+    it.each([
+        ["Q&A: why?.md", "character"],
+        ['say "hi".md', "character"],
+        ["a|b.md", "character"],
+        ["star*.md", "character"],
+        ["<tag>.md", "character"],
+        ["inbox/con.md", "reserved name"],
+        ["AUX.txt", "reserved name"],
+        ["lpt1.md", "reserved name"],
+        ["folder./note.md", "trailing dot or space"],
+        ["Draft /note.md", "trailing dot or space"],
+    ])("refuses %s (%s)", (path, reason) => {
+        expect(windowsNameProblem(path)).toBe(reason);
+    });
+
+    it.each(["notes/café.md", "v1..v2 plan.md", "console.md", "COM10.md", "a (2).md", "日本語/メモ.md", ".hidden.md"])(
+        "accepts %s",
+        (path) => {
+            expect(windowsNameProblem(path)).toBeNull();
+        },
+    );
 });
 
 describe("renames made by the sync engine itself", () => {

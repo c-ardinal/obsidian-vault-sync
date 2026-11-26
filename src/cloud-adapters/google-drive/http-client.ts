@@ -1,4 +1,6 @@
 import type { GoogleAuthService } from "./auth-service";
+import { CloudError, kindFromHttpStatus } from "../cloud-error";
+import { xhrRequest, type XhrRequestOptions } from "./xhr-request";
 
 export interface FetchExtras {
     /** Non-2xx statuses that are a normal answer for this request (e.g. 308 Resume Incomplete) */
@@ -9,6 +11,26 @@ export interface FetchExtras {
      * sends only the rest.
      */
     retryNetworkErrors?: boolean;
+    /**
+     * The request creates an item (see createItem): a 5xx or a lost answer may
+     * come after Drive carried it out, so it is not simply sent again here.
+     */
+    createsItem?: boolean;
+}
+
+/** appProperties key of the marker a created item carries (see createItem) */
+export const CREATE_MARKER_KEY = "vsCreate";
+
+/** A failure after which Drive may or may not have carried out the request */
+function outcomeUnknown(e: unknown): boolean {
+    if (e instanceof TypeError) return true; // network error: the answer was lost
+    return e instanceof CloudError && e.status !== undefined && e.status >= 500;
+}
+
+function randomMarker(): string {
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 /**
@@ -35,6 +57,12 @@ export class GoogleDriveHttpClient {
     static readonly REQUEST_TIMEOUT_MS = 90_000;
     /** Extra time per byte sent: an upload over a slow link must not time out */
     static readonly MIN_UPLOAD_BYTES_PER_SEC = 16 * 1024;
+    /**
+     * Time allowed without a byte of the answer once its headers arrived. An answer
+     * whose body stopped coming (seen in Chromium: headers and a few KB, then a dead
+     * connection) otherwise never ended, and the sync waited on it forever.
+     */
+    static readonly BODY_IDLE_MS = 60_000;
 
     private inFlight = 0;
     private waiters: Array<() => void> = [];
@@ -76,30 +104,63 @@ export class GoogleDriveHttpClient {
     }
 
     /**
-     * fetch() bounded by MAX_IN_FLIGHT (the slot is NOT held during retry back-off)
-     * and by a time limit until the response arrives (see REQUEST_TIMEOUT_MS).
+     * One request bounded by MAX_IN_FLIGHT (the slot is NOT held during retry
+     * back-off) and by a time limit until the response headers arrive (see
+     * REQUEST_TIMEOUT_MS). The slot and that limit end when the headers arrive;
+     * the body may take longer, but not BODY_IDLE_MS without a byte.
      */
     private async limitedFetch(url: string, init: RequestInit): Promise<Response> {
         await this.acquireSlot();
-        const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+        const controller =
+            typeof AbortController !== "undefined" && !init.signal ? new AbortController() : null;
         let timedOut = false;
-        const timer =
-            controller && !init.signal
-                ? setTimeout(() => {
-                      timedOut = true;
-                      controller.abort();
-                  }, GoogleDriveHttpClient.timeoutFor(init))
-                : null;
+        const abortNow = () => {
+            timedOut = true;
+            controller?.abort();
+        };
+        let timer: number | null = controller
+            ? window.setTimeout(abortNow, GoogleDriveHttpClient.timeoutFor(init))
+            : null;
+        let idle: number | null = null;
+        const watchBody = () => {
+            if (!controller) return;
+            if (idle !== null) window.clearTimeout(idle);
+            idle = window.setTimeout(abortNow, GoogleDriveHttpClient.BODY_IDLE_MS);
+        };
+        let slotHeld = true;
+        const endWait = () => {
+            if (timer !== null) window.clearTimeout(timer);
+            timer = null;
+            if (slotHeld) this.releaseSlot();
+            slotHeld = false;
+        };
         try {
-            return await fetch(url, controller && !init.signal ? { ...init, signal: controller.signal } : init);
+            return await GoogleDriveHttpClient.transport(
+                url,
+                controller ? { ...init, signal: controller.signal } : init,
+                {
+                    onHeaders: () => {
+                        endWait();
+                        watchBody();
+                    },
+                    onProgress: () => {
+                        if (idle !== null) watchBody();
+                    },
+                },
+            );
         } catch (e) {
             if (timedOut) throw new TypeError("Network error: request timed out");
             throw e;
         } finally {
-            if (timer) clearTimeout(timer);
-            this.releaseSlot();
+            endWait();
+            if (idle !== null) window.clearTimeout(idle);
+            idle = null;
         }
     }
+
+    /** How requests go out; tests replace it */
+    static transport: (url: string, init: RequestInit, options: XhrRequestOptions) => Promise<Response> =
+        xhrRequest;
 
     /**
      * fetch() rejects with a TypeError for every network-level failure, but the
@@ -134,7 +195,7 @@ export class GoogleDriveHttpClient {
     }
 
     private async log(msg: string, level: string = "debug") {
-        console.debug(`Vault-Sync: [${level.toUpperCase()}] ${msg}`);
+        console.debug(`Vault Syncer: [${level.toUpperCase()}] ${msg}`);
         if (this.auth.logger) this.auth.logger(msg, level);
     }
 
@@ -144,7 +205,7 @@ export class GoogleDriveHttpClient {
         retryCount: number = 0,
         extra: FetchExtras = {},
     ): Promise<Response> {
-        if (!this.auth.accessToken) throw new Error("Not authenticated");
+        if (!this.auth.accessToken) throw new CloudError("Not authenticated", "auth-expired");
 
         // Proactive token refresh: refresh 5 minutes before expiry
         const REFRESH_BUFFER_MS = 5 * 60 * 1000;
@@ -177,7 +238,10 @@ export class GoogleDriveHttpClient {
                     await this.auth.refreshTokens();
                 } catch {
                     // Token refresh failed (e.g. proxy unreachable) — don't retry with stale token
-                    throw new Error("Authentication failed: unable to refresh access token");
+                    throw new CloudError(
+                        "Authentication failed: unable to refresh access token",
+                        "auth-expired",
+                    );
                 }
                 return this.fetchWithAuth(url, options, retryCount + 1, extra);
             }
@@ -185,7 +249,7 @@ export class GoogleDriveHttpClient {
             // Handle 429 (Too Many Requests), 403 rate limits and 5xx (Server Errors) with Exponential Backoff
             if (
                 (response.status === 429 ||
-                    response.status >= 500 ||
+                    (response.status >= 500 && !extra.createsItem) ||
                     (await this.isRateLimit403(response))) &&
                 retryCount < MAX_RETRIES
             ) {
@@ -200,7 +264,7 @@ export class GoogleDriveHttpClient {
                     `API Error ${response.status}. Retrying in ${Math.round(backoffDelay)}ms (Attempt ${retryCount + 1}/${MAX_RETRIES})...`,
                     "warn",
                 );
-                await new Promise((resolve) => setTimeout(resolve, backoffDelay));
+                await new Promise((resolve) => window.setTimeout(resolve, backoffDelay));
                 return this.fetchWithAuth(url, options, retryCount + 1, extra);
             }
 
@@ -223,21 +287,23 @@ export class GoogleDriveHttpClient {
                 }
 
                 // SEC-007: Sanitize error messages (logging)
-                console.error(`Vault-Sync: API Error ${response.status}: ${errorMsg}`);
+                console.error(`Vault Syncer: API Error ${response.status}: ${errorMsg}`);
 
                 // Throw the actual error message so callers can handle specific cases.
                 // The HTTP status is kept on the error so callers can tell "not found /
                 // no access" apart from transient failures.
-                const err = new Error(errorMsg) as Error & { status?: number };
-                err.status = response.status;
-                throw err;
+                throw new CloudError(
+                    errorMsg,
+                    kindFromHttpStatus(response.status, errorMsg),
+                    response.status,
+                );
             }
 
             return response;
         } catch (e) {
             // Handle network timeouts / offline status
             const isNetworkError = GoogleDriveHttpClient.isNetworkError(e);
-            if (isNetworkError && retryCount < 3 && extra.retryNetworkErrors !== false) {
+            if (isNetworkError && retryCount < 3 && extra.retryNetworkErrors !== false && !extra.createsItem) {
                 if (!window.navigator.onLine) {
                     await this.log(
                         "Network offline during fetch. Waiting for connection...",
@@ -248,7 +314,7 @@ export class GoogleDriveHttpClient {
 
                 const backoffDelay = Math.pow(2, retryCount) * 2000;
                 await this.log(`Network error. Retrying in ${backoffDelay}ms...`, "warn");
-                await new Promise((resolve) => setTimeout(resolve, backoffDelay));
+                await new Promise((resolve) => window.setTimeout(resolve, backoffDelay));
                 return this.fetchWithAuth(url, options, retryCount + 1, extra);
             }
             if (isNetworkError) {
@@ -260,14 +326,101 @@ export class GoogleDriveHttpClient {
         }
     }
 
+    /**
+     * Send a request that creates a Drive item (a new file or folder). Drive may
+     * carry it out and still answer 5xx, or the answer may be lost on the way
+     * back: sending it again then leaves two items of the same name. So the item
+     * carries a random marker (appProperties); after such a failure the marker
+     * is looked up, and the request is sent again only when no item has it.
+     * Looking up the name instead would take an item another device created
+     * meanwhile for this one (formal/tla/CloudRetry.tla).
+     *
+     * The item also gets an id reserved beforehand (files.generateIds). Chromium
+     * (desktop, Android) sends a request again by itself when a reused connection
+     * drops after Drive took it, and the page sees only the second answer: no
+     * failure, so no look-up. With the id given, that second create is refused
+     * (409) instead of making a second item, and the first one is read by its id.
+     */
+    async createItem<T extends { id: string }>(
+        url: string,
+        parentId: string | undefined,
+        build: (extra: { appProperties: Record<string, string>; id?: string }) => RequestInit,
+        fields = "id,md5Checksum,size",
+    ): Promise<T> {
+        const marker = randomMarker();
+        const id = await this.reservedFileId();
+        const init = build({ appProperties: { [CREATE_MARKER_KEY]: marker }, ...(id ? { id } : {}) });
+        const MAX_RETRIES = 3;
+        for (let attempt = 0; ; attempt++) {
+            try {
+                const response = await this.fetchWithAuth(url, init, 0, {
+                    createsItem: true,
+                    ...(id ? { okStatuses: [409] } : {}),
+                });
+                if (id && response.status === 409) {
+                    // Already made by this very request (sent twice): read it by its id
+                    await this.log(`Create request was carried out already: using item ${id}`, "debug");
+                    const existing = await this.fetchWithAuth(
+                        `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}?fields=${fields}`,
+                    );
+                    return (await existing.json()) as T;
+                }
+                return (await response.json()) as T;
+            } catch (e) {
+                if (!outcomeUnknown(e) || attempt >= MAX_RETRIES) throw e;
+                if (!window.navigator.onLine) await this.waitForOnline();
+                const backoffDelay = Math.pow(2, attempt) * 1000 + Math.random() * 500;
+                await this.log(
+                    `Create request failed (${String(e)}). Checking whether it was carried out in ${Math.round(backoffDelay)}ms...`,
+                    "warn",
+                );
+                await new Promise((resolve) => window.setTimeout(resolve, backoffDelay));
+                const query =
+                    `appProperties has { key='${CREATE_MARKER_KEY}' and value='${marker}' } and trashed = false` +
+                    (parentId ? ` and '${this.escapeQueryValue(parentId)}' in parents` : "");
+                const found = await this.fetchWithAuth(
+                    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(${fields})`,
+                );
+                const files = ((await found.json()) as { files?: T[] }).files ?? [];
+                if (files.length > 0) return files[0];
+            }
+        }
+    }
+
+    /** Ids reserved on Drive for items this client creates (see createItem) */
+    private fileIds: string[] = [];
+    private fileIdsRequest: Promise<void> | null = null;
+    static readonly FILE_ID_BATCH = 50;
+
+    /** A reserved id for a new item; none (the item gets one from Drive) when reserving failed */
+    private async reservedFileId(): Promise<string | undefined> {
+        if (this.fileIds.length === 0) {
+            this.fileIdsRequest ??= this.fetchWithAuth(
+                `https://www.googleapis.com/drive/v3/files/generateIds?count=${GoogleDriveHttpClient.FILE_ID_BATCH}&space=drive&type=files&fields=ids`,
+            )
+                .then(async (r) => {
+                    const ids = ((await r.json()) as { ids?: unknown }).ids;
+                    if (Array.isArray(ids)) {
+                        this.fileIds.push(...ids.filter((x): x is string => typeof x === "string" && x.length > 0));
+                    }
+                })
+                .catch((e) => this.log(`Could not reserve ids for new items: ${String(e)}`, "debug"))
+                .finally(() => {
+                    this.fileIdsRequest = null;
+                });
+            await this.fileIdsRequest;
+        }
+        return this.fileIds.shift();
+    }
+
     async waitForOnline(): Promise<void> {
         if (window.navigator.onLine) return;
         return new Promise((resolve) => {
             const cleanup = () => {
                 window.removeEventListener("online", done);
                 window.removeEventListener("focus", done);
-                clearInterval(interval);
-                clearTimeout(timeout);
+                window.clearInterval(interval);
+                window.clearTimeout(timeout);
             };
             const done = () => {
                 cleanup();
@@ -275,10 +428,10 @@ export class GoogleDriveHttpClient {
             };
             window.addEventListener("online", done);
             window.addEventListener("focus", done);
-            const interval = setInterval(() => {
+            const interval = window.setInterval(() => {
                 if (window.navigator.onLine) done();
             }, 5000);
-            const timeout = setTimeout(() => {
+            const timeout = window.setTimeout(() => {
                 void this.log("waitForOnline timed out after 60s — resuming retry loop", "warn");
                 done();
             }, GoogleDriveHttpClient.ONLINE_TIMEOUT_MS);

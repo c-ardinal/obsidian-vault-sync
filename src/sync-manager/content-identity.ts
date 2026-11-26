@@ -1,0 +1,56 @@
+import type { CloudAdapter } from "../types/adapter";
+import type { SyncFlags } from "./context";
+import { cloudHashIsFingerprint, contentFingerprint } from "./content-fingerprint";
+import { hashContent } from "./file-utils";
+
+/**
+ * Which hash identifies a vault file's content in the sync index.
+ *
+ * Index entries carry two hashes:
+ * - `hash`: the cloud's hash of the bytes it stores (also the conflict token:
+ *   when it changes, another device uploaded).
+ * - `plainHash`: hashContent() of the vault content (text with line endings
+ *   normalized).
+ *
+ * When the cloud stores the vault bytes as they are, `hash` is also the
+ * content's fingerprint and local content is compared with it directly. When an
+ * add-on transforms the bytes before they are stored, `hash` describes only the
+ * stored form: local content can be compared with `plainHash` alone, and a
+ * cloud version can be identified only by reading it back.
+ *
+ * A cloud whose hash is not an MD5 (OneDrive quickXorHash, Dropbox content
+ * hash) is in the same position: its `hash` changes with the content, but it
+ * can never be compared with the local fingerprint, so `plainHash` is used too.
+ *
+ * The sync code asks this module instead of checking add-on settings or the
+ * cloud's hash type itself, so the rule has one owner.
+ */
+
+type Ctx = Pick<SyncFlags, "e2eeEnabled"> & {
+    /** Required so a narrowed context cannot drop it and silently count as an MD5 cloud */
+    adapter: Pick<CloudAdapter, "capabilities"> | null | undefined;
+};
+
+/**
+ * True when the cloud's hash cannot identify vault content: the cloud holds a
+ * transformed form of the bytes, or its hash is not the sync's fingerprint.
+ * Contexts without a declared adapter (test doubles) count as MD5 clouds.
+ */
+export function storesTransformedContent(ctx: Ctx): boolean {
+    if (ctx.e2eeEnabled) return true;
+    const adapter = ctx.adapter;
+    return !!adapter?.capabilities && !cloudHashIsFingerprint(adapter);
+}
+
+/** Hash of local content in the form the index compares it with */
+export async function localIdentityHash(ctx: Ctx, content: ArrayBuffer): Promise<string> {
+    return storesTransformedContent(ctx) ? await hashContent(content) : contentFingerprint(content);
+}
+
+/** The index entry's hash comparable with localIdentityHash() (may be absent) */
+export function entryIdentityHash(
+    ctx: Ctx,
+    entry: { hash?: string; plainHash?: string } | null | undefined,
+): string | undefined {
+    return storesTransformedContent(ctx) ? entry?.plainHash : entry?.hash;
+}

@@ -20,6 +20,7 @@
  * - 暗号化/復号の統合が検証されること
  */
 
+import { testCapabilities } from "../../helpers/mock-cloud-adapter";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { EncryptedAdapter } from "../../../src/encryption/encrypted-adapter";
 import type { CloudAdapter, CloudFile, CloudChanges } from "../../../src/types/adapter";
@@ -35,9 +36,7 @@ function createMockBaseAdapter(overrides: Partial<CloudAdapter> = {}): CloudAdap
     return {
         name: "MockBase",
         vaultName: "TestVault",
-        supportsChangesAPI: true,
-        supportsHash: true,
-        supportsHistory: true,
+        capabilities: testCapabilities({ changeFeed: true, contentHash: "md5", revisions: true }),
         isAuthenticated: vi.fn().mockReturnValue(true),
         getAuthUrl: vi.fn().mockResolvedValue(""),
         handleCallback: vi.fn().mockResolvedValue(undefined),
@@ -118,22 +117,23 @@ describe("EncryptedAdapter", () => {
 
     describe("constructor", () => {
         it("should inherit feature flags from base adapter", () => {
-            expect(adapter.supportsChangesAPI).toBe(true);
-            expect(adapter.supportsHash).toBe(true);
-            expect(adapter.supportsHistory).toBe(true);
+            expect(adapter.capabilities).toEqual({ ...baseAdapter.capabilities, contentHash: null });
+        });
+
+        it("never reports the cloud's hash as comparable with vault content", () => {
+            expect(baseAdapter.capabilities.contentHash).toBe("md5");
+            expect(adapter.capabilities.contentHash).toBeNull();
         });
 
         it("should inherit feature flags when base has different values", () => {
             const customBase = createMockBaseAdapter({
-                supportsChangesAPI: false,
-                supportsHash: false,
-                supportsHistory: false,
+                capabilities: testCapabilities({ changeFeed: false, contentHash: null, revisions: false }),
             });
             const customAdapter = new EncryptedAdapter(customBase, engine);
 
-            expect(customAdapter.supportsChangesAPI).toBe(false);
-            expect(customAdapter.supportsHash).toBe(false);
-            expect(customAdapter.supportsHistory).toBe(false);
+            expect(customAdapter.capabilities.changeFeed).toBe(false);
+            expect(customAdapter.capabilities.contentHash).toBe(null);
+            expect(customAdapter.capabilities.revisions).toBe(false);
         });
 
         it("should accept custom largeFileThresholdBytes", () => {

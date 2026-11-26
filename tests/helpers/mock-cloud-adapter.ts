@@ -1,5 +1,12 @@
-import type { CloudAdapter, CloudFile, CloudChanges, FileRevision } from "../../src/types/adapter";
+import type {
+    CloudAdapter,
+    CloudCapabilities,
+    CloudFile,
+    CloudChanges,
+    FileRevision,
+} from "../../src/types/adapter";
 import { md5 } from "../../src/utils/md5";
+import { CloudError } from "../../src/cloud-adapters/cloud-error";
 
 interface StoredFile {
     id: string;
@@ -8,6 +15,8 @@ interface StoredFile {
     mtime: number;
     size: number;
     hash: string;
+    /** Set by addFakeFolder; everything else is a file */
+    kind?: "file" | "folder";
 }
 
 interface StoredRevision {
@@ -25,10 +34,32 @@ interface StoredRevision {
  */
 export class MockCloudAdapter implements CloudAdapter {
     readonly name = "MockCloud";
-    readonly supportsChangesAPI = true;
-    readonly supportsHash = true;
-    readonly supportsHistory = true;
+    /** Drive-like. Tests may replace it to simulate a cloud that can do less. */
+    capabilities: CloudCapabilities = {
+        changeFeed: true,
+        revisions: true,
+        contentHash: "md5",
+        stableIds: true,
+        sameNameSiblings: true,
+        resumableChunkAlignment: 256 * 1024,
+        trash: false,
+        conditionalWrite: false,
+    };
     readonly vaultName = "MockVault";
+    /**
+     * Report a hash that is not an MD5 (like OneDrive's quickXorHash): it still
+     * changes with the content, but never equals the sync's own fingerprint.
+     */
+    private foreignHash = false;
+
+    useForeignHash(): void {
+        this.foreignHash = true;
+        this.capabilities = { ...this.capabilities, contentHash: null };
+    }
+
+    private exposedHash(hash: string | undefined): string | undefined {
+        return hash && this.foreignHash ? `qx:${hash.split("").reverse().join("")}` : hash;
+    }
     /**
      * Max changes returned per getChanges() call. Google Drive pages the
      * Changes API (nextPageToken); Infinity keeps the old single-page behaviour.
@@ -79,13 +110,13 @@ export class MockCloudAdapter implements CloudAdapter {
 
     async getFileMetadataById(fileId: string, knownPath?: string): Promise<CloudFile | null> {
         const file = this.files.get(fileId);
-        if (!file) return null;
+        if (!file || isInOtherRoot(file.path)) return null;
         return this.toCloudFile(file);
     }
 
     async downloadFile(fileId: string): Promise<ArrayBuffer> {
         const file = this.files.get(fileId);
-        if (!file) throw new Error(`Cloud file not found: ${fileId}`);
+        if (!file) throw new CloudError(`Cloud file not found: ${fileId}`, "not-found", 404);
         return file.content.slice(0);
     }
 
@@ -153,7 +184,7 @@ export class MockCloudAdapter implements CloudAdapter {
         newParentPath: string | null,
     ): Promise<CloudFile> {
         const file = this.files.get(fileId);
-        if (!file) throw new Error(`Cloud file not found: ${fileId}`);
+        if (!file) throw new CloudError(`Cloud file not found: ${fileId}`, "not-found", 404);
 
         const oldPath = file.path;
         // 旧パスからパスマップを削除（同名の重複ファイルがあればそちらを指す）
@@ -169,6 +200,20 @@ export class MockCloudAdapter implements CloudAdapter {
 
         this.recordChange(fileId, false, this.toCloudFile(file));
         return this.toCloudFile(file);
+    }
+
+    async copyFile(fileId: string, newName: string, newParentPath: string): Promise<CloudFile> {
+        this.maybeThrow("copyFile");
+        const file = this.files.get(fileId);
+        if (!file || file.kind === "folder") throw new CloudError(`Cloud file not found: ${fileId}`, "not-found", 404);
+        const path = newParentPath ? `${newParentPath}/${newName}` : newName;
+        const id = `file_${this.nextFileId++}`;
+        const stored: StoredFile = { ...file, id, path, content: file.content.slice(0) };
+        this.files.set(id, stored);
+        if (!this.pathToId.has(path)) this.pathToId.set(path, id);
+        this.addRevision(id, stored.content, stored.hash, stored.mtime);
+        this.recordChange(id, false, this.toCloudFile(stored));
+        return this.toCloudFile(stored);
     }
 
     /** Drop `path -> fileId`; another file still at `path` (a duplicate) takes its place. */
@@ -255,17 +300,18 @@ export class MockCloudAdapter implements CloudAdapter {
                 if (lastPos.get(c.fileId) !== i) continue; // superseded by a later change
                 const current = this.files.get(c.fileId);
                 changes.push(
-                    current
+                    current && !isInOtherRoot(current.path)
                         ? { fileId: c.fileId, removed: false, file: this.toCloudFile(current) }
                         : { fileId: c.fileId, removed: true },
                 );
             }
         } else {
-            changes = this.changeLog.slice(from, to).map((c) => ({
-                fileId: c.fileId,
-                removed: c.removed,
-                file: c.file,
-            }));
+            // Like Drive: a file moved out of the vault folder is reported as removed
+            changes = this.changeLog.slice(from, to).map((c) =>
+                c.file && isInOtherRoot(c.file.path)
+                    ? { fileId: c.fileId, removed: true }
+                    : { fileId: c.fileId, removed: c.removed, file: c.file },
+            );
         }
         if (to < this.changeLog.length) {
             return { nextPageToken: String(to), changes };
@@ -276,8 +322,15 @@ export class MockCloudAdapter implements CloudAdapter {
         };
     }
 
-    async listFiles(_folderId?: string): Promise<CloudFile[]> {
-        return Array.from(this.files.values()).map((f) => this.toCloudFile(f));
+    async listFiles(folderId?: string): Promise<CloudFile[]> {
+        const all = Array.from(this.files.values()).filter((f) => !isInOtherRoot(f.path));
+        const folder = folderId ? this.files.get(folderId) : undefined;
+        if (folder?.kind !== "folder") return all.map((f) => this.toCloudFile(f));
+        // Like Drive: the items under the folder, with paths relative to it
+        const prefix = folder.path + "/";
+        return all
+            .filter((f) => f.path.startsWith(prefix))
+            .map((f) => ({ ...this.toCloudFile(f), path: f.path.slice(prefix.length) }));
     }
 
     setLogger(logger: (msg: string) => void): void {
@@ -287,22 +340,22 @@ export class MockCloudAdapter implements CloudAdapter {
     // --- History ---
     async listRevisions(path: string, fileId?: string): Promise<FileRevision[]> {
         const id = fileId ?? this.pathToId.get(path);
-        if (!id || !this.files.has(id)) throw new Error(`File not found: ${path}`);
+        if (!id || !this.files.has(id)) throw new CloudError(`File not found: ${path}`, "not-found", 404);
         const revs = this.revisions.get(id) || [];
         return revs.map((r) => ({
             id: r.id,
             modifiedTime: r.modifiedTime,
             size: r.size,
-            hash: r.hash,
+            hash: this.exposedHash(r.hash),
         }));
     }
 
     async getRevisionContent(path: string, revisionId: string, fileId?: string): Promise<ArrayBuffer> {
         const id = fileId ?? this.pathToId.get(path);
-        if (!id || !this.files.has(id)) throw new Error(`File not found: ${path}`);
+        if (!id || !this.files.has(id)) throw new CloudError(`File not found: ${path}`, "not-found", 404);
         const rev = (this.revisions.get(id) || []).find((r) => r.id === revisionId);
         if (rev) return rev.content.slice(0);
-        throw new Error(`Revision not found: ${revisionId}`);
+        throw new CloudError(`Revision not found: ${revisionId}`, "not-found", 404);
     }
 
     async setRevisionKeepForever(
@@ -320,8 +373,24 @@ export class MockCloudAdapter implements CloudAdapter {
         return "mock-app-root-id";
     }
 
-    cloneWithNewVaultName(_newVaultName: string): CloudAdapter {
-        return this;
+    /**
+     * false (default): a clone is this adapter (tests of migrations rely on it).
+     * true: a clone with another vault name is a folder of its own next to the
+     * vault (see MockRootView), as on Drive.
+     */
+    cloneRoots = false;
+    private rootViews = new Map<string, CloudAdapter>();
+
+    cloneWithNewVaultName(newVaultName: string): CloudAdapter {
+        if (!this.cloneRoots || newVaultName === this.vaultName) return this;
+        let view = this.rootViews.get(newVaultName);
+        if (!view) this.rootViews.set(newVaultName, (view = mockRootView(this, newVaultName)));
+        return view;
+    }
+
+    /** All stored items, for MockRootView */
+    storedItems(): CloudFile[] {
+        return Array.from(this.files.values()).map((f) => this.toCloudFile(f));
     }
 
     // --- Test Helpers ---
@@ -437,6 +506,7 @@ export class MockCloudAdapter implements CloudAdapter {
             mtime: Date.now(),
             size: 0,
             hash: "",
+            kind: "folder",
         };
         this.files.set(folderId, stored);
         this.pathToId.set(path, folderId);
@@ -499,8 +569,85 @@ export class MockCloudAdapter implements CloudAdapter {
             path: stored.path,
             mtime: stored.mtime,
             size: stored.size,
-            kind: "file" as const,
-            hash: stored.hash,
+            kind: stored.kind ?? "file",
+            hash: this.exposedHash(stored.hash),
         };
     }
+}
+
+/**
+ * Capabilities for hand-made adapter doubles: nothing optional unless named.
+ * `contentHash: "md5"` etc. as overrides.
+ */
+export function testCapabilities(overrides: Partial<CloudCapabilities> = {}): CloudCapabilities {
+    return {
+        changeFeed: false,
+        revisions: false,
+        contentHash: null,
+        stableIds: true,
+        sameNameSiblings: true,
+        resumableChunkAlignment: null,
+        trash: false,
+        conditionalWrite: false,
+        ...overrides,
+    };
+}
+
+/** Paths of items in another root folder (MockRootView) start with this */
+const OTHER_ROOT = "\u0001";
+
+function isInOtherRoot(path: string): boolean {
+    return path.startsWith(OTHER_ROOT);
+}
+
+/**
+ * Another root folder next to the vault (as a clone with another vault name is
+ * on Drive), kept in the same store: its items' paths carry a prefix that the
+ * vault's own listing and change feed treat as "outside the vault". Folders are
+ * implied by the paths; their ids are "mockdir:<prefixed path>".
+ */
+function mockRootView(store: MockCloudAdapter, rootName: string): CloudAdapter {
+    const prefix = `${OTHER_ROOT}${rootName}`;
+    const full = (path: string) => (path ? `${prefix}/${path}` : prefix);
+    const items = () => store.storedItems().filter((f) => f.path.startsWith(prefix + "/"));
+    const rel = (f: CloudFile): CloudFile => ({ ...f, path: f.path.slice(prefix.length + 1) });
+    const view = {
+        name: store.name,
+        vaultName: rootName,
+        capabilities: store.capabilities,
+        async getFileMetadata(path: string) {
+            const f = await store.getFileMetadata(full(path));
+            return f ? rel(f) : null;
+        },
+        async moveFile(fileId: string, newName: string, newParentPath: string | null) {
+            return rel(await store.moveFile(fileId, newName, full(newParentPath ?? "")));
+        },
+        async copyFile(fileId: string, newName: string, newParentPath: string) {
+            return rel(await store.copyFile(fileId, newName, full(newParentPath)));
+        },
+        async ensureFoldersExist() {},
+        async listFiles() {
+            const files = items().map(rel);
+            const dirs = new Set<string>();
+            for (const f of files) {
+                const parts = f.path.split("/");
+                for (let i = 1; i < parts.length; i++) dirs.add(parts.slice(0, i).join("/"));
+            }
+            const folders: CloudFile[] = [...dirs].map((d) => ({
+                id: `mockdir:${full(d)}`,
+                path: d,
+                mtime: 0,
+                size: 0,
+                kind: "folder",
+            }));
+            return [...folders, ...files];
+        },
+        async deleteFile(fileId: string) {
+            if (!fileId.startsWith("mockdir:")) return store.deleteFile(fileId);
+            const under = fileId.slice("mockdir:".length) + "/";
+            for (const f of store.storedItems()) if (f.path.startsWith(under)) await store.deleteFile(f.id);
+        },
+        getBaseAdapter: () => view as unknown as CloudAdapter,
+    };
+    return view as unknown as CloudAdapter;
 }

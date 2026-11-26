@@ -1,3 +1,5 @@
+import type { OAuthMethod } from "./oauth-adapter";
+
 export const DATA_LOCAL_DIR = "data/local";
 export const DATA_REMOTE_DIR = "data/remote";
 export const DATA_FLEXIBLE_DIR = "data/flexible";
@@ -27,11 +29,27 @@ export interface VaultSyncSettings {
     largeFileThresholdMB: number;
     /** Delay (seconds) between consecutive background transfer items. 0 = no throttling. */
     bgTransferIntervalSec: number;
+    /** Large (background) transfers wait while on a mobile network (Android, PC) */
+    deferLargeOnCellular: boolean;
+    /** Large (background) transfers wait while the battery is low and not charging (Android, PC) */
+    deferLargeOnLowBattery: boolean;
+    /** Ask before one sync deletes this many files or more (-1 = never ask by count) */
+    massDeleteConfirmFiles: number;
+    /** Ask before one sync deletes this share (%) of the synced files or more (-1 = off) */
+    massDeleteConfirmPercent: number;
+    /** Days a file deleted from the cloud stays in the cloud trash (-1 = removed at once) */
+    remoteTrashRetentionDays: number;
+    /** Keep one version of each note for good per this many days (-1 = off) */
+    autoKeepRevisionDays: number;
+    /** Also keep versions of attachments (images, PDFs, ...), not only notes */
+    autoKeepAttachmentRevisions: boolean;
 
     notificationLevel: "verbose" | "standard" | "error";
     /** Status bar / mobile progress display of the running sync. Progress notices are
      *  folded into it unless the notification level is verbose. */
     showSyncStatus: boolean;
+    /** Small marks in the file explorer: not sent yet, conflict copy */
+    showFileExplorerMarks: boolean;
     /** Text size (px) of the history diff view, per device type */
     diffFontSizeDesktop: number;
     diffFontSizeMobile: number;
@@ -48,6 +66,18 @@ export interface VaultSyncSettings {
 
     // Exclusion
     exclusionPatterns: string;
+    /**
+     * Patterns PCs / mobile devices leave out (synced, like the PC / mobile
+     * trigger settings). Unlike exclusionPatterns, matching files stay in the
+     * cloud for the other kind of device: devices of this kind just neither
+     * download, upload nor delete them.
+     */
+    /** Files larger than this (MB) are left out on PCs (-1 = no limit) */
+    desktopMaxFileSizeMB: number;
+    /** Files larger than this (MB) are left out on mobile devices (-1 = no limit) */
+    mobileMaxFileSizeMB: number;
+    desktopExclusionPatterns: string;
+    mobileExclusionPatterns: string;
 
     // Sync Scope Options
     syncAppearance: boolean; // .obsidian/themes, snippets, etc.
@@ -61,9 +91,13 @@ export interface VaultSyncSettings {
     syncFlexibleData: boolean; // data/flexible/*
     syncDeviceLogs: boolean; // logs/{deviceId}/*
     syncWorkspace: boolean; // workspace.json, workspace-mobile.json
+    /** The .obsidian categories above: the same on every device, or set per kind of device */
+    obsidianScopeStrategy: "unified" | "per-platform";
+    desktopObsidianScope: ObsidianScope;
+    mobileObsidianScope: ObsidianScope;
 
     // Authentication
-    authMethod: "default" | "custom-proxy" | "client-credentials";
+    authMethod: OAuthMethod;
     customProxyUrl: string;
 
     // Security
@@ -77,4 +111,11 @@ export interface VaultSyncSettings {
     >;
     // Internal State
     hasCompletedFirstSync: boolean;
+    /** Shape version of these settings (see services/settings-migration.ts). Absent = 0. */
+    settingsVersion?: number;
 }
+
+/** The .obsidian categories that can be set per kind of device (PC or mobile) */
+export const OBSIDIAN_SCOPE_KEYS = ["syncCoreConfig", "syncCommunityPlugins", "syncAppearance", "syncWorkspace"] as const;
+export type ObsidianScopeKey = (typeof OBSIDIAN_SCOPE_KEYS)[number];
+export type ObsidianScope = Record<ObsidianScopeKey, boolean>;

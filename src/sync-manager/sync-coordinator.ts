@@ -1,4 +1,5 @@
-import { md5 } from "../utils/md5";
+import { capabilitiesOf } from "../types/adapter";
+import { cloudHashMatches, contentFingerprint } from "./content-fingerprint";
 import type { SyncContext } from "./context";
 import type { SyncState } from "./types";
 import { ALWAYS_SHOW_ACTIVITY, TRIGGER_PRIORITY } from "./notification-matrix";
@@ -9,7 +10,16 @@ import {
     SCAN_FULL_SCAN_CHUNK_SIZE,
 } from "./constants";
 import { retryOverwriteRepairs } from "./overwrite-recovery";
+import { holdsNewFiles } from "./sync-scan";
+import { purgeTrashIfDue } from "./remote-trash";
+import { prepareFirstSync } from "./first-sync";
+import { keepRevisionsIfDue } from "./revision-retention";
+import { checkStorageIfDue } from "./storage-check";
+import { publishDeviceRecordIfDue } from "./device-registry";
 import { migratePlainHashes } from "./plain-hash-migration";
+import { reconcileScopeChange } from "./sync-pull";
+import { noteScopeAtSyncEnd } from "./sync-scope";
+import { CtxFlag } from "./context-state";
 
 
 /**
@@ -97,7 +107,7 @@ export async function requestSmartSync(
  * one; when it fails (offline at launch, a network error, the E2EE check) or
  * startup sync is disabled, the first sync that gets through scans instead.
  */
-const scanDone = new WeakSet<object>();
+const scanDone = new CtxFlag("vaultScanDone", "A sync with a full vault scan went through since the plugin started");
 
 /**
  * Execute Smart Sync logic
@@ -131,12 +141,28 @@ export async function executeSmartSync(ctx: SyncContext, scanVault: boolean): Pr
 
         if ((await migratePlainHashes(ctx)) > 0) await saveIndex(ctx);
 
+        if (!(await prepareFirstSync(ctx))) {
+            await ctx.log("[First Sync] Held by the user. Automatic syncs wait for a manual sync.", "info");
+            await ctx.notify("noticeFirstSyncDeferred");
+            ctx.progress?.finish("ok");
+            return;
+        }
+
+        // Files kept here while left out sync again: only a vault scan finds them
+        if (await reconcileScopeChange(ctx)) scanVault = true;
+        // A sync setting was changed in the settings tab (maybe back and forth before
+        // this sync): edits made while a file was left out had no effect, find them.
+        if (ctx.forceCleanupNextSync) scanVault = true;
+
         // Call via ctx so vi.spyOn on SyncManager instance methods works in tests
         const pulled = await ctx.smartPull();
 
         if (scanRequested) {
             await ctx.notify("noticeScanningLocalFiles");
         }
+        // New files a scan held back (a rename event might still explain them) are
+        // only looked at again by a scan: without one they were never uploaded.
+        if (holdsNewFiles(ctx)) scanVault = true;
         const pushed = await ctx.smartPush(scanVault);
         if (scanVault) scanDone.add(ctx);
 
@@ -144,6 +170,10 @@ export async function executeSmartSync(ctx: SyncContext, scanVault: boolean): Pr
             await postPushPull(ctx);
         }
         await retryOverwriteRepairs(ctx);
+        await purgeTrashIfDue(ctx);
+        await keepRevisionsIfDue(ctx);
+        await checkStorageIfDue(ctx);
+        await publishDeviceRecordIfDue(ctx);
 
         if (!pulled && !pushed) {
             await ctx.notify("noticeVaultUpToDate");
@@ -172,6 +202,7 @@ export async function executeSmartSync(ctx: SyncContext, scanVault: boolean): Pr
         else await ctx.notify(notice.key, notice.suffix);
         throw e;
     } finally {
+        noteScopeAtSyncEnd(ctx, ctx.settings);
         await endSyncCycle(ctx);
         ctx.adapter.clearDownloadCache?.();
         await ctx.logger.endCycle();
@@ -219,7 +250,7 @@ async function postPushPull(ctx: SyncContext, maxRetries: number = SYNC_POST_PUS
             if (attempt === 0 && !ctx.settings.hasCompletedFirstSync) {
                 await ctx.notify("noticeInitialSyncConfirmation");
             }
-            if (ctx.adapter.supportsChangesAPI) {
+            if (capabilitiesOf(ctx.adapter).changeFeed) {
                 await ctx.pullViaChangesAPI(true);
             } else {
                 await ctx.smartPull();
@@ -370,8 +401,8 @@ export async function executeFullScan(ctx: SyncContext): Promise<void> {
                     // File exists locally but not in index - check if it matches remote
                     try {
                         const content = await ctx.vault.readBinary(remoteFile.path);
-                        const localHash = md5(content);
-                        if (localHash === remoteFile.hash.toLowerCase()) {
+                        const localHash = contentFingerprint(content);
+                        if (cloudHashMatches(ctx.adapter, remoteFile.hash, localHash)) {
                             // Adopt into index - treat as "pull" since we're accepting remote state
                             ctx.index[remoteFile.path] = {
                                 fileId: remoteFile.id,
@@ -393,7 +424,7 @@ export async function executeFullScan(ctx: SyncContext): Promise<void> {
             ctx.progress?.scanProgress(ctx.fullScanProgress.currentIndex, remoteFiles.length);
 
             // Yield to allow interrupt check
-            await new Promise((resolve) => setTimeout(resolve, 0));
+            await new Promise((resolve) => window.setTimeout(resolve, 0));
         }
 
         await ctx.log("=== BACKGROUND FULL SCAN COMPLETED ===", "info");

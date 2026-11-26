@@ -9,10 +9,12 @@ import {
     Menu,
     TextComponent,
 } from "obsidian";
+import { formatDateTime, formatDay, formatTimeOfDay } from "./format-time";
 import { SyncManager } from "../sync-manager";
 import { FileRevision } from "../types/adapter";
 import { diff_match_patch } from "diff-match-patch";
 import { PromptModal } from "./prompt-modal";
+import { ConfirmModal } from "./confirm-modal";
 import { formatSize } from "../utils/format";
 
 interface DiffSegment {
@@ -41,6 +43,8 @@ export class HistoryModal extends Modal {
     private diffBlocks: HTMLElement[][] = [];
     private currentDiffIndex: number = -1;
     private isDrawerOpen: boolean = false;
+    /** A revision was picked with the keyboard: keep the focus on it after the re-render */
+    private focusSelectedAfterRender = false;
 
     // Cache: revisionId -> content string (Persistent across modal instances)
     private static contentCache: Map<string, string> = new Map();
@@ -51,6 +55,7 @@ export class HistoryModal extends Modal {
         app: App,
         private syncManager: SyncManager,
         private file: TFile,
+        private openSettings?: () => void,
     ) {
         super(app);
     }
@@ -75,14 +80,14 @@ export class HistoryModal extends Modal {
         } else {
             const loadingContainer = contentEl.createDiv({ cls: "vault-sync-loading-container" });
             loadingContainer.createDiv({ cls: "vault-sync-spinner" });
-            loadingContainer.createDiv({ text: "Loading history..." });
+            loadingContainer.createDiv({ text: this.syncManager.t("historyLoading") });
         }
 
         try {
             // Load history and local content in parallel for speed, with timeout
             const HISTORY_TIMEOUT_MS = 15_000;
             const timeout = new Promise<never>((_, reject) =>
-                setTimeout(() => reject(new Error("Timeout (15s)")), HISTORY_TIMEOUT_MS),
+                window.setTimeout(() => reject(new Error("Timeout (15s)")), HISTORY_TIMEOUT_MS),
             );
             const [revisions, localContent] = await Promise.race([
                 Promise.all([
@@ -107,6 +112,20 @@ export class HistoryModal extends Modal {
             }
         } catch (e) {
             contentEl.empty();
+            if (this.syncManager.isSignedIn === false) {
+                // Same wording and action as the sync status panel when signed out
+                const box = contentEl.createDiv({ cls: "vault-sync-history-signin" });
+                box.createEl("p", { text: this.syncManager.t("historySignInRequired") });
+                const open = this.openSettings;
+                if (open) {
+                    const btn = box.createEl("button", { cls: "mod-cta", text: this.syncManager.t("statusOpenSettings") });
+                    btn.addEventListener("click", () => {
+                        this.close();
+                        open();
+                    });
+                }
+                return;
+            }
             this.setTitle(this.syncManager.t("historyError"));
             const errDiv = contentEl.createDiv({ cls: "error-text" });
             errDiv.setText(
@@ -195,7 +214,7 @@ export class HistoryModal extends Modal {
         let lastDateStr = "";
         for (const rev of this.revisions) {
             const date = new Date(rev.modifiedTime);
-            const dateStr = date.toLocaleDateString();
+            const dateStr = formatDay(date.getTime());
             if (dateStr !== lastDateStr) {
                 ul.createEl("li", { cls: "vault-sync-revision-date-header" }).setText(dateStr);
                 lastDateStr = dateStr;
@@ -206,11 +225,7 @@ export class HistoryModal extends Modal {
                 li.addClass("is-selected");
             }
 
-            const timeStr = date.toLocaleTimeString([], {
-                hour: "2-digit",
-                minute: "2-digit",
-                second: "2-digit",
-            });
+            const timeStr = formatTimeOfDay(date.getTime());
             const metaDiv = li.createDiv({ cls: "revision-meta" });
 
             // Row 1: Time and Hash
@@ -237,6 +252,23 @@ export class HistoryModal extends Modal {
                 pin.title = this.syncManager.t("historyProtectedFromDeletion");
             }
 
+            // Keyboard: Tab reaches the list, arrows move, Enter / Space select
+            li.tabIndex = 0;
+            li.setAttr("role", "button");
+            li.setAttr("aria-pressed", String(this.selectedRevision?.id === rev.id));
+            li.addEventListener("keydown", (e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    this.focusSelectedAfterRender = true;
+                    li.click();
+                } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                    e.preventDefault();
+                    const items = Array.from(ul.querySelectorAll<HTMLElement>(".vault-sync-revision-item"));
+                    const next = items[items.indexOf(li) + (e.key === "ArrowDown" ? 1 : -1)];
+                    next?.focus();
+                }
+            });
+
             li.addEventListener("click", () => {
                 this.selectedRevision = rev;
                 // Reset base to previous relative to the NEW selection
@@ -254,6 +286,10 @@ export class HistoryModal extends Modal {
         }
         ul.scrollLeft = this.listScrollLeft;
         ul.scrollTop = this.listScrollTop;
+        if (this.focusSelectedAfterRender) {
+            this.focusSelectedAfterRender = false;
+            ul.querySelector<HTMLElement>(".vault-sync-revision-item.is-selected")?.focus();
+        }
 
         if (!this.selectedRevision) {
             const placeholder = container.createDiv({ cls: "placeholder-container" });
@@ -273,19 +309,24 @@ export class HistoryModal extends Modal {
             cls: "revision-control-row vault-sync-revision-control-row",
         });
 
-        controlRow.createSpan({ text: this.syncManager.t("historyCompareWith") });
+        // Phone: the label goes inside the choices so it does not take a line of its own
+        const compareWith = this.syncManager.t("historyCompareWith");
+        if (!Platform.isPhone) controlRow.createSpan({ text: compareWith });
 
         const dropdown = new DropdownComponent(controlRow);
-        dropdown.addOption("local", this.syncManager.t("historyCurrentLocalFile"));
+        dropdown.selectEl.setAttr("aria-label", compareWith.trim());
+        const add = (value: string, label: string) =>
+            dropdown.addOption(value, Platform.isPhone ? `${compareWith}${label}` : label);
+        add("local", this.syncManager.t("historyCurrentLocalFile"));
         const currentIdx = this.revisions.indexOf(this.selectedRevision);
         if (currentIdx < this.revisions.length - 1) {
             const prev = this.revisions[currentIdx + 1];
-            dropdown.addOption(
+            add(
                 prev.id,
-                `${this.syncManager.t("historyPreviousVersion")} (${new Date(prev.modifiedTime).toLocaleString()})`,
+                `${this.syncManager.t("historyPreviousVersion")} (${formatDateTime(prev.modifiedTime)})`,
             );
         } else {
-            dropdown.addOption(
+            add(
                 "empty",
                 `${this.syncManager.t("historyPreviousVersion")} (${this.syncManager.t("historyInitialEmptyVersion")})`,
             );
@@ -297,9 +338,9 @@ export class HistoryModal extends Modal {
                 r.id === this.revisions[currentIdx + 1].id
             )
                 return;
-            dropdown.addOption(
+            add(
                 r.id,
-                `${new Date(r.modifiedTime).toLocaleString()} (${r.author || this.syncManager.t("historyAuthorUnknown")})`,
+                `${formatDateTime(r.modifiedTime)} (${r.author || this.syncManager.t("historyAuthorUnknown")})`,
             );
         });
         if (this.baseRevision) {
@@ -403,9 +444,11 @@ export class HistoryModal extends Modal {
 
                             // Warn before enabling, as it cannot be undone for past revisions
                             if (newVal) {
-                                const confirmed = window.confirm(
+                                const confirmed = await new ConfirmModal(
+                                    this.app,
                                     this.syncManager.t("historyKeepForeverConfirm"),
-                                );
+                                    this.syncManager.t("historyKeepForever"),
+                                ).ask();
                                 if (!confirmed) return;
                             }
 
@@ -496,12 +539,13 @@ export class HistoryModal extends Modal {
                         .setIcon("rotate-ccw")
                         .setWarning(true)
                         .onClick(async () => {
-                            const dateStr = new Date(
-                                this.selectedRevision!.modifiedTime,
-                            ).toLocaleString();
-                            const confirmed = window.confirm(
+                            const dateStr = formatDateTime(this.selectedRevision!.modifiedTime);
+                            const confirmed = await new ConfirmModal(
+                                this.app,
                                 this.syncManager.t("historyRestoreConfirm").replace("{0}", dateStr),
-                            );
+                                this.syncManager.t("historyRestoreVersion"),
+                                true,
+                            ).ask();
                             if (confirmed) {
                                 this.close();
                                 await this.syncManager.restoreRevision(
@@ -520,12 +564,13 @@ export class HistoryModal extends Modal {
                         .setIcon("trash")
                         .setWarning(true)
                         .onClick(async () => {
-                            const dateStr = new Date(
-                                this.selectedRevision!.modifiedTime,
-                            ).toLocaleString();
-                            const confirmed = window.confirm(
+                            const dateStr = formatDateTime(this.selectedRevision!.modifiedTime);
+                            const confirmed = await new ConfirmModal(
+                                this.app,
                                 this.syncManager.t("historyDeleteConfirm").replace("{0}", dateStr),
-                            );
+                                this.syncManager.t("historyDeleteRevision"),
+                                true,
+                            ).ask();
                             if (!confirmed) return;
 
                             try {
@@ -700,7 +745,7 @@ export class HistoryModal extends Modal {
 
             // Auto-highlight first diff
             if (this.diffBlocks.length > 0) {
-                setTimeout(() => this.jumpToDiff(0), 50);
+                window.setTimeout(() => this.jumpToDiff(0), 50);
             }
         } catch (e) {
             container.empty();

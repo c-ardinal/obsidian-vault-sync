@@ -1,5 +1,7 @@
-import { CloudAdapter, CloudChanges, CloudFile } from "../../types/adapter";
+import { CloudAdapter, CloudCapabilities, CloudChanges, CloudFile, StorageQuota } from "../../types/adapter";
+import type { OAuthCloudAdapter } from "../../types/oauth-adapter";
 import { basename } from "../../utils/path";
+import { CloudError, isCloudNotFound } from "../cloud-error";
 import { GoogleAuthService, type AuthMethod } from "./auth-service";
 import { GoogleDriveHttpClient } from "./http-client";
 import { DrivePathResolver, isUnreachableFromVault } from "./path-resolver";
@@ -48,15 +50,28 @@ interface DriveUploadMetadata {
     name: string;
     modifiedTime?: string;
     parents?: string[];
+    appProperties?: Record<string, string>;
 }
 
-export class GoogleDriveAdapter implements CloudAdapter {
+/** Every resumable upload chunk but the last must be a multiple of this (Drive API rule) */
+export const DRIVE_RESUMABLE_ALIGNMENT = 256 * 1024;
+
+export const GOOGLE_DRIVE_CAPABILITIES: CloudCapabilities = Object.freeze({
+    changeFeed: true,
+    revisions: true,
+    contentHash: "md5", // md5Checksum of the stored bytes
+    stableIds: true,
+    sameNameSiblings: true, // a folder may hold several files with one name
+    resumableChunkAlignment: DRIVE_RESUMABLE_ALIGNMENT,
+    trash: false, // Drive has a trash, but this adapter does not use it yet
+    conditionalWrite: false, // Drive offers no compare-and-set on content
+});
+
+export class GoogleDriveAdapter implements OAuthCloudAdapter {
     name = "Google Drive";
 
     // Feature flags - Google Drive supports both
-    readonly supportsChangesAPI = true;
-    readonly supportsHash = true; // MD5 checksum
-    readonly supportsHistory = true;
+    readonly capabilities: CloudCapabilities = GOOGLE_DRIVE_CAPABILITIES;
 
     public auth: GoogleAuthService;
     private http: GoogleDriveHttpClient;
@@ -186,6 +201,12 @@ export class GoogleDriveAdapter implements CloudAdapter {
         return this.pathResolver.getFolderIdByName(name, parentId);
     }
 
+    /**
+     * The same account under another vault folder. The clone shares this
+     * adapter's sign-in and request queue: a token refresh, a new sign-in or a
+     * changed sign-in method on either one holds for both. A clone with its own
+     * copy of the tokens kept using the old session after signing in again.
+     */
     cloneWithNewVaultName(newVaultName: string): CloudAdapter {
         const cloned = new GoogleDriveAdapter(
             this.auth.clientId,
@@ -193,10 +214,12 @@ export class GoogleDriveAdapter implements CloudAdapter {
             newVaultName,
             this.rootFolder,
         );
-        const tokens = this.auth.getTokens();
-        cloned.auth.setTokens(tokens.accessToken, tokens.refreshToken, tokens.tokenExpiresAt);
+        cloned.auth = this.auth;
+        cloned.http = this.http;
+        cloned.pathResolver = new DrivePathResolver(this.http, newVaultName, this.rootFolder);
         if (this.logger) {
-            cloned.setLogger(this.logger);
+            cloned.logger = this.logger;
+            cloned.pathResolver.setLogger(this.logger);
         }
         return cloned;
     }
@@ -243,6 +266,15 @@ export class GoogleDriveAdapter implements CloudAdapter {
             if (isNotFound(e)) return null;
             throw e;
         }
+    }
+
+    async getFileCreatedTime(fileId: string): Promise<number | undefined> {
+        const response = await this.http.fetchWithAuth(
+            `https://www.googleapis.com/drive/v3/files/${fileId}?fields=createdTime`,
+        );
+        const { createdTime } = (await response.json()) as { createdTime?: string };
+        const time = createdTime ? Date.parse(createdTime) : NaN;
+        return Number.isFinite(time) ? time : undefined;
     }
 
     async getFileMetadataById(fileId: string, knownPath?: string): Promise<CloudFile | null> {
@@ -313,40 +345,43 @@ export class GoogleDriveAdapter implements CloudAdapter {
             if (existing) activeFileId = existing.id;
         }
 
-        let url =
-            "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,md5Checksum,size";
-        let method = "POST";
+        const boundary = "-------314159265358979323846";
+        const body = (meta: DriveUploadMetadata): Uint8Array<ArrayBuffer> => {
+            const header = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${boundary}\r\nContent-Type: application/octet-stream\r\n\r\n`;
+            const footer = `\r\n--${boundary}--`;
+            const encoder = new TextEncoder();
+            const headerArray = encoder.encode(header);
+            const footerArray = encoder.encode(footer);
+            const bodyArray = new Uint8Array(
+                headerArray.byteLength + content.byteLength + footerArray.byteLength,
+            );
+            bodyArray.set(headerArray, 0);
+            bodyArray.set(new Uint8Array(content), headerArray.byteLength);
+            bodyArray.set(footerArray, headerArray.byteLength + content.byteLength);
+            return bodyArray;
+        };
+        const init = (meta: DriveUploadMetadata): RequestInit => ({
+            method: activeFileId ? "PATCH" : "POST",
+            headers: { "Content-Type": `multipart/related; boundary=${boundary}` },
+            body: body(meta),
+        });
 
+        let data: DriveFile;
         if (activeFileId) {
-            url = `https://www.googleapis.com/upload/drive/v3/files/${activeFileId}?uploadType=multipart&fields=id,md5Checksum,size`;
-            method = "PATCH";
+            const response = await this.http.fetchWithAuth(
+                `https://www.googleapis.com/upload/drive/v3/files/${activeFileId}?uploadType=multipart&fields=id,md5Checksum,size`,
+                init(metadata),
+            );
+            data = (await response.json()) as DriveFile;
         } else {
             const parentId = await this.pathResolver.resolveParentId(path, true);
             metadata.parents = [parentId];
+            data = await this.http.createItem<DriveFile>(
+                "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,md5Checksum,size",
+                parentId,
+                (extra) => init({ ...metadata, ...extra }),
+            );
         }
-
-        const boundary = "-------314159265358979323846";
-        const header = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: application/octet-stream\r\n\r\n`;
-        const footer = `\r\n--${boundary}--`;
-
-        const encoder = new TextEncoder();
-        const headerArray = encoder.encode(header);
-        const footerArray = encoder.encode(footer);
-
-        const bodyArray = new Uint8Array(
-            headerArray.byteLength + content.byteLength + footerArray.byteLength,
-        );
-        bodyArray.set(headerArray, 0);
-        bodyArray.set(new Uint8Array(content), headerArray.byteLength);
-        bodyArray.set(footerArray, headerArray.byteLength + content.byteLength);
-
-        const response = await this.http.fetchWithAuth(url, {
-            method: method,
-            headers: { "Content-Type": `multipart/related; boundary=${boundary}` },
-            body: bodyArray,
-        });
-
-        const data = (await response.json()) as DriveFile;
         const result: CloudFile = {
             id: data.id,
             path: path,
@@ -471,7 +506,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
                 return this.resumableResult((await uploadResponse.json()) as DriveFile, path, mtime, totalSize);
             } catch (e) {
                 if (!(e instanceof TypeError) || attempt >= GoogleDriveAdapter.MAX_CHUNK_RESUMES) throw e;
-                await new Promise((r) => setTimeout(r, Math.min(30_000, 1000 * 2 ** attempt)));
+                await new Promise((r) => window.setTimeout(r, Math.min(30_000, 1000 * 2 ** attempt)));
                 const status = await this.queryResumableStatus(sessionUri, totalSize, path, mtime);
                 if (status.done) return status.done;
                 const inChunk = status.received - offset;
@@ -580,6 +615,33 @@ export class GoogleDriveAdapter implements CloudAdapter {
         return result;
     }
 
+    async copyFile(fileId: string, newName: string, newParentPath: string): Promise<CloudFile> {
+        const parentId = await this.pathResolver.resolveParentId(
+            (newParentPath ? newParentPath + "/" : "") + "__dummy__",
+            true,
+        );
+        const fields = "id,name,mimeType,modifiedTime,size,md5Checksum";
+        const data = await this.http.createItem<DriveFile>(
+            `https://www.googleapis.com/drive/v3/files/${fileId}/copy?fields=${fields}`,
+            parentId,
+            (extra) => ({
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name: newName, parents: [parentId], ...extra }),
+            }),
+            fields,
+        );
+        const path = newParentPath ? `${newParentPath}/${newName}` : newName;
+        return {
+            id: data.id,
+            path,
+            mtime: new Date(data.modifiedTime).getTime(),
+            size: parseInt(data.size || "0"),
+            kind: "file",
+            hash: data.md5Checksum,
+        };
+    }
+
     async fileExistsById(fileId: string): Promise<boolean> {
         try {
             const response = await this.http.fetchWithAuth(
@@ -591,6 +653,24 @@ export class GoogleDriveAdapter implements CloudAdapter {
             if (isNotFound(e)) return false;
             throw e;
         }
+    }
+
+    // === Storage ===
+
+    async getStorageQuota(): Promise<StorageQuota> {
+        const response = await this.http.fetchWithAuth(
+            "https://www.googleapis.com/drive/v3/about?fields=storageQuota(limit,usage,usageInDriveTrash)",
+        );
+        const data = (await response.json()) as {
+            storageQuota?: { limit?: string; usage?: string; usageInDriveTrash?: string };
+        };
+        const q = data.storageQuota ?? {};
+        const num = (v?: string) => (v === undefined || v === "" ? undefined : Number(v));
+        return {
+            limit: num(q.limit),
+            usage: num(q.usage) ?? 0,
+            usageInTrash: num(q.usageInDriveTrash),
+        };
     }
 
     // === Changes API ===
@@ -610,6 +690,11 @@ export class GoogleDriveAdapter implements CloudAdapter {
             `https://www.googleapis.com/drive/v3/changes?pageToken=${pageToken}&pageSize=1000&fields=${fields}`,
         );
         const data = (await response.json()) as DriveChangeList;
+        // A folder in this page was renamed, moved or deleted: paths cached from it
+        // are stale for every item below it (their own changes are not listed)
+        if ((data.changes || []).some((c) => c.file?.mimeType === "application/vnd.google-apps.folder")) {
+            this.pathResolver.forgetPaths();
+        }
 
         return {
             nextPageToken: data.nextPageToken,
@@ -672,7 +757,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
 
         await this.pathResolver.ensureRootFolders();
         const rootId = folderId || this.pathResolver.vaultRootId;
-        console.debug(`Vault-Sync: listFiles starting with rootId: ${rootId}`);
+        console.debug(`Vault Syncer: listFiles starting with rootId: ${rootId}`);
         if (!rootId) throw new Error("Vault root not initialized");
 
         const files: CloudFile[] = [];
@@ -686,12 +771,12 @@ export class GoogleDriveAdapter implements CloudAdapter {
                     (pageToken ? `&pageToken=${pageToken}` : "");
 
                 console.debug(
-                    `Vault-Sync: listFiles querying folder ${currentFolderId}, prefix: "${currentPathPrefix}"`,
+                    `Vault Syncer: listFiles querying folder ${currentFolderId}, prefix: "${currentPathPrefix}"`,
                 );
                 const response = await this.http.fetchWithAuth(url);
                 const data = (await response.json()) as DriveFileList;
                 console.debug(
-                    `Vault-Sync: listFiles query returned ${data.files?.length || 0} items`,
+                    `Vault Syncer: listFiles query returned ${data.files?.length || 0} items`,
                 );
                 pageToken = data.nextPageToken;
 
@@ -725,8 +810,14 @@ export class GoogleDriveAdapter implements CloudAdapter {
 
     // === History & Revisions Support ===
 
+    /**
+     * Only path traversal is refused. Characters that Windows forbids (< > : " | ? *)
+     * are valid in note names made on macOS, Linux and iOS, and ".." can be part of a
+     * name ("v1..v2.md"): refusing them made the history of such notes unreadable, so
+     * every concurrent edit of them ended in a conflict copy instead of a merge.
+     */
     private validatePath(path: string) {
-        if (path.includes("..") || path.includes("\\") || /[<>:"|?*]/.test(path)) {
+        if (path.startsWith("/") || path.includes("\\") || path.split("/").some((seg) => seg === ".." || seg === ".")) {
             throw new Error(`Invalid path: ${path}`);
         }
     }
@@ -737,7 +828,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
     ): Promise<import("../../types/adapter").FileRevision[]> {
         this.validatePath(path);
         const meta = fileId ? { id: fileId } : await this.getFileMetadata(path);
-        if (!meta) throw new Error(`File not found: ${path}`);
+        if (!meta) throw new CloudError(`File not found: ${path}`, "not-found");
 
         const response = await this.http.fetchWithAuth(
             `https://www.googleapis.com/drive/v3/files/${meta.id}/revisions?fields=revisions(id,modifiedTime,size,lastModifyingUser,keepForever,md5Checksum)`,
@@ -757,7 +848,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
     async getRevisionContent(path: string, revisionId: string, fileId?: string): Promise<ArrayBuffer> {
         this.validatePath(path);
         const meta = fileId ? { id: fileId } : await this.getFileMetadata(path);
-        if (!meta) throw new Error(`File not found: ${path}`);
+        if (!meta) throw new CloudError(`File not found: ${path}`, "not-found");
 
         const metaResponse = await this.http.fetchWithAuth(
             `https://www.googleapis.com/drive/v3/files/${meta.id}/revisions/${revisionId}?fields=md5Checksum`,
@@ -791,7 +882,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
     ): Promise<void> {
         this.validatePath(path);
         const meta = await this.getFileMetadata(path);
-        if (!meta) throw new Error(`File not found: ${path}`);
+        if (!meta) throw new CloudError(`File not found: ${path}`, "not-found");
 
         await this.http.fetchWithAuth(
             `https://www.googleapis.com/drive/v3/files/${meta.id}/revisions/${revisionId}`,
@@ -806,7 +897,7 @@ export class GoogleDriveAdapter implements CloudAdapter {
     async deleteRevision(path: string, revisionId: string): Promise<void> {
         this.validatePath(path);
         const meta = await this.getFileMetadata(path);
-        if (!meta) throw new Error(`File not found: ${path}`);
+        if (!meta) throw new CloudError(`File not found: ${path}`, "not-found");
 
         await this.http.fetchWithAuth(
             `https://www.googleapis.com/drive/v3/files/${meta.id}/revisions/${revisionId}`,
@@ -817,9 +908,5 @@ export class GoogleDriveAdapter implements CloudAdapter {
 
 /** A 404 from Drive, or our own "folder not found" while resolving a parent path */
 function isNotFound(e: unknown): boolean {
-    if (!e || typeof e !== "object") return false;
-    const err = e as { status?: unknown; message?: string };
-    if (err.status === 404) return true;
-    const msg: string = err.message ?? "";
-    return msg.startsWith("Folder not found") || msg.includes("API Error 404") || msg.includes("File not found");
+    return isCloudNotFound(e);
 }

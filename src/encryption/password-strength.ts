@@ -17,17 +17,28 @@ const COMMON_PASSWORDS = new Set([
  * Lightweight password strength checker (no external dependencies).
  * Returns a score from 0 (weak) to 4 (strong) with feedback messages.
  */
+/**
+ * Shortest password the add-on accepts for a new password. Anyone holding the
+ * add-on's lock file can test guesses offline, so 8 characters is too few.
+ */
+export const MIN_PASSWORD_LENGTH = 12;
+
 export function checkPasswordStrength(password: string): PasswordStrengthResult {
     const feedback: string[] = [];
     let score = 0;
 
+    // Common password check
+    if (COMMON_PASSWORDS.has(password.toLowerCase())) {
+        feedback.push("passwordTooCommon");
+        return { score: 0, strength: "weak", feedback };
+    }
+
     // Length scoring
-    if (password.length < 8) {
+    if (password.length < MIN_PASSWORD_LENGTH) {
         feedback.push("passwordTooShort");
         return { score: 0, strength: "weak", feedback };
     }
-    if (password.length >= 8) score++;
-    if (password.length >= 12) score++;
+    score += 2; // at least MIN_PASSWORD_LENGTH characters
     if (password.length >= 16) score++;
 
     // Character diversity
@@ -55,18 +66,12 @@ export function checkPasswordStrength(password: string): PasswordStrengthResult 
         score = Math.max(score - 1, 0);
     }
 
-    // Common password check
-    if (COMMON_PASSWORDS.has(password.toLowerCase())) {
-        feedback.push("passwordTooCommon");
-        return { score: 0, strength: "weak", feedback };
-    }
-
     // Clamp score
     score = Math.min(Math.max(score, 0), 4);
 
     const strengthMap: PasswordStrength[] = ["weak", "weak", "fair", "good", "strong"];
 
-    if (feedback.length === 0 && score <= 1) {
+    if (feedback.length === 0 && score <= 2) {
         feedback.push("passwordCouldBeStronger");
     }
 

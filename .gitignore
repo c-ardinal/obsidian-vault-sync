@@ -156,3 +156,6 @@ test-results/
 
 # Obsidian UI check (e2e/obsidian)
 .obsidian-cache/
+
+# Add-on package built for the checks (e2e/prepare-approved-addon.mjs)
+.addon-pkg/

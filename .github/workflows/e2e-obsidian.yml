@@ -8,7 +8,11 @@ on:
         paths:
             - "src/**"
             - "styles.css"
+            # The release build (CSS minifier, bundling) is what the check runs
+            - "rollup.config.js"
+            - "minify-css.mjs"
             - "e2e/obsidian/**"
+            - "e2e/prepare-approved-addon.mjs"
             - ".github/workflows/e2e-obsidian.yml"
             - "package-lock.json"
     workflow_dispatch:
@@ -23,7 +27,9 @@ permissions:
 jobs:
     obsidian-ui:
         runs-on: ubuntu-latest
-        timeout-minutes: 20
+        # Room for a slow package mirror (the apt step once took 13 minutes); the
+        # steps that can hang have their own, tighter limits
+        timeout-minutes: 30
         env:
             OBSIDIAN_VERSION: ${{ inputs.obsidian_version }}
         steps:
@@ -38,9 +44,10 @@ jobs:
               run: npm ci
 
             - name: Build plugin
-              run: npx rollup -c
+              run: npx rollup -c --environment BUILD:production
 
             - name: Install display and fonts
+              timeout-minutes: 15
               run: |
                   sudo apt-get update -qq
                   sudo apt-get install -y -qq xvfb fonts-noto-cjk libnss3 libgbm1 libasound2t64 libgtk-3-0t64 libxss1 >/dev/null
@@ -55,17 +62,20 @@ jobs:
             - name: Download Obsidian
               run: echo "OBSIDIAN_BIN=$(node e2e/obsidian/setup-obsidian.mjs | tail -n 1)" >> "$GITHUB_ENV"
 
-            - name: Download add-on package (for the install review screen)
-              env:
-                  GH_TOKEN: ${{ github.token }}
-              run: |
-                  repo=c-ardinal/obsidian-vault-sync-e2ee-engine
-                  tag=$(gh release list --repo "$repo" -L 1 --json tagName -q '.[0].tagName' || true)
-                  if [ -n "$tag" ] && gh release download "$tag" --repo "$repo" --pattern 'vault-sync-e2ee-engine.zip' -D .addon-pkg; then
-                      echo "ADDON_ZIP=$PWD/.addon-pkg/vault-sync-e2ee-engine.zip" >> "$GITHUB_ENV"
-                  fi
+            # Built from the add-on commit pinned in approved-addons.ts, so the check
+            # does not depend on which add-on release is the latest
+            - name: Cache the approved add-on package
+              uses: actions/cache@v4
+              with:
+                  path: .addon-pkg
+                  key: addon-pkg-${{ hashFiles('src/addons/approved-addons.ts', 'e2e/prepare-approved-addon.mjs') }}
+
+            - name: Prepare the approved add-on package
+              timeout-minutes: 10
+              run: node e2e/prepare-approved-addon.mjs
 
             - name: Run UI check
+              timeout-minutes: 15
               run: xvfb-run -a --server-args="-screen 0 1920x1080x24" node e2e/obsidian/run.mjs
 
             - name: Summary

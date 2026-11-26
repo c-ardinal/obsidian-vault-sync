@@ -23,6 +23,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { BackgroundTransferQueue } from "../../../src/sync-manager/background-transfer";
 import { TransferPriority } from "../../../src/sync-manager/transfer-types";
+import { pendingPullsOf } from "../../../src/sync-manager/sync-helpers";
 import type {
     TransferItem,
     TransferRecord,
@@ -60,6 +61,25 @@ function makeRecord(overrides: Partial<TransferRecord> = {}): TransferRecord {
         ...overrides,
     };
 }
+
+describe("background pull of a file changed here", () => {
+    it("is handed to the sync cycle as an owed pull, not dropped", async () => {
+        const queue = new BackgroundTransferQueue();
+        const ctx = {
+            dirtyPaths: new Map([["notes/big.md", Date.now()]]),
+            localIndex: { "notes/big.md": { fileId: "f1", mtime: 0, size: 1, hash: "h0", pendingTransfer: { direction: "pull" } } },
+            index: {},
+            log: vi.fn(async () => {}),
+        };
+        queue.setContext(ctx as never);
+        const item = makeItem({ direction: "pull", path: "notes/big.md", fileId: "f1", remoteHash: "h2", size: 500 });
+        await (queue as unknown as { executePull: (c: unknown, i: TransferItem) => Promise<void> }).executePull(ctx, item);
+        // Used to: dropped, and when the "edit" was our own earlier write the push found
+        // nothing to upload, so this device kept the older version
+        expect(pendingPullsOf(ctx as never).get("f1")?.file).toMatchObject({ path: "notes/big.md", hash: "h2" });
+        expect(pendingPullsOf(ctx as never).get("f1")?.background).toBeFalsy();
+    });
+});
 
 // ═══════════════════════════════════════════════════════════════════
 // PART 1: Unit tests for BackgroundTransferQueue
@@ -721,7 +741,7 @@ describe("Online/Offline detection", () => {
         // If window exists, the listener should be registered
         const queue = new BackgroundTransferQueue();
         const addEventSpy =
-            typeof window !== "undefined" ? vi.spyOn(window, "addEventListener") : null;
+            typeof window?.addEventListener === "function" ? vi.spyOn(window, "addEventListener") : null;
 
         // Create a minimal mock context
         const cloud = new MockCloudAdapter();
@@ -742,7 +762,7 @@ describe("Online/Offline detection", () => {
 
     it("should remove online listener on destroy when window is available", () => {
         const removeEventSpy =
-            typeof window !== "undefined" ? vi.spyOn(window, "removeEventListener") : null;
+            typeof window?.removeEventListener === "function" ? vi.spyOn(window, "removeEventListener") : null;
 
         const cloud = new MockCloudAdapter();
         const device = new DeviceSimulator("TestDevice", cloud);
@@ -782,6 +802,77 @@ describe("Online/Offline detection", () => {
         queue.resume();
         // processLoop starts asynchronously — item transitions from "pending" to "active"
         expect((queue as any).isProcessing || queue.hasPendingItems()).toBe(true);
+    });
+
+    it("waits on a mobile network and goes once Wi-Fi is back", async () => {
+        const cloud = new MockCloudAdapter();
+        const device = new DeviceSimulator("TestDevice", cloud);
+        const sm = device.syncManager as any;
+        sm.settings.deferLargeOnCellular = true;
+        // Node 20 has no navigator: stub one (Node 21+ has one without "connection")
+        vi.stubGlobal("navigator", { onLine: true, connection: { type: "cellular" } });
+        try {
+            const queue = sm.backgroundTransferQueue;
+            queue.enqueue(makeItem({ path: "big.pdf" }));
+            await (queue as any).processLoop(sm);
+            expect(queue.deferredReason).toBe("cellular");
+            expect(queue.hasPendingItems()).toBe(true);
+            expect(sm.getTransferDeferReason()).toBe("cellular");
+            vi.stubGlobal("navigator", { onLine: true, connection: { type: "wifi" } });
+            const exec = vi.spyOn(queue as any, "executePush").mockResolvedValue(undefined);
+            await (queue as any).processLoop(sm);
+            expect(exec).toHaveBeenCalled();
+            expect(queue.deferredReason).toBeNull();
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it("does not start a transfer when a sync paused the queue while the battery was read", async () => {
+        const cloud = new MockCloudAdapter();
+        const device = new DeviceSimulator("TestDevice", cloud);
+        const sm = device.syncManager as any;
+        sm.settings.deferLargeOnLowBattery = true;
+        let release!: (b: unknown) => void;
+        const battery = new Promise((r) => (release = r));
+        vi.stubGlobal("navigator", { onLine: true, getBattery: () => battery });
+        try {
+            const queue = sm.backgroundTransferQueue;
+            const exec = vi.spyOn(queue as any, "executePush").mockResolvedValue(undefined);
+            queue.enqueue(makeItem({ path: "big.pdf" }));
+            const loop = (queue as any).processLoop(sm);
+            await Promise.resolve();
+            queue.pause();
+            release({ level: 1, charging: true });
+            await loop;
+            expect(exec).not.toHaveBeenCalled();
+            expect(queue.hasPendingItems()).toBe(true);
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it("does not start an item cancelled while the battery was read", async () => {
+        const cloud = new MockCloudAdapter();
+        const device = new DeviceSimulator("TestDevice", cloud);
+        const sm = device.syncManager as any;
+        sm.settings.deferLargeOnLowBattery = true;
+        let release!: (b: unknown) => void;
+        const battery = new Promise((r) => (release = r));
+        vi.stubGlobal("navigator", { onLine: true, getBattery: () => battery });
+        try {
+            const queue = sm.backgroundTransferQueue;
+            const exec = vi.spyOn(queue as any, "executePush").mockResolvedValue(undefined);
+            queue.enqueue(makeItem({ path: "big.pdf" }));
+            const loop = (queue as any).processLoop(sm);
+            await Promise.resolve();
+            queue.cancelAll();
+            release({ level: 1, charging: true });
+            await loop;
+            expect(exec).not.toHaveBeenCalled();
+        } finally {
+            vi.unstubAllGlobals();
+        }
     });
 
     it("should break processLoop when e2eeLocked is true", () => {

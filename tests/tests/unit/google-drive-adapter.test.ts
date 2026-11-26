@@ -69,9 +69,10 @@ describe("GoogleDriveAdapter", () => {
     // === Basic Properties ===
 
     it("should expose feature flags", () => {
-        expect(adapter.supportsChangesAPI).toBe(true);
-        expect(adapter.supportsHash).toBe(true);
-        expect(adapter.supportsHistory).toBe(true);
+        expect(adapter.capabilities.changeFeed).toBe(true);
+        expect(adapter.capabilities.contentHash).toBe("md5");
+        expect(adapter.capabilities.revisions).toBe(true);
+        expect(adapter.capabilities.resumableChunkAlignment).toBe(256 * 1024);
     });
 
     // === getFileMetadata ===
@@ -227,7 +228,9 @@ describe("GoogleDriveAdapter", () => {
         it("should POST for new file (no existingFileId)", async () => {
             // First call: getFileMetadata lookup returns null
             mockFetch.mockResolvedValueOnce(jsonResponse({ files: [] }));
-            // Second call: actual upload
+            // Second call: ids reserved for new items
+            mockFetch.mockResolvedValueOnce(jsonResponse({ ids: ["new-id", "next-id"] }));
+            // Third call: actual upload
             mockFetch.mockResolvedValueOnce(jsonResponse({
                 id: "new-id",
                 md5Checksum: "newhash",
@@ -238,8 +241,11 @@ describe("GoogleDriveAdapter", () => {
             const result = await adapter.uploadFile("notes/new.md", content, Date.now());
 
             expect(result.id).toBe("new-id");
-            const uploadCall = mockFetch.mock.calls[1];
+            expect(mockFetch.mock.calls[1][0]).toContain("/files/generateIds");
+            const uploadCall = mockFetch.mock.calls[2];
             expect(uploadCall[1].method).toBe("POST");
+            // The new item is created under the reserved id (a create sent twice is refused)
+            expect(new TextDecoder().decode(uploadCall[1].body as Uint8Array)).toContain('"id":"new-id"');
         });
     });
 
@@ -416,6 +422,43 @@ describe("GoogleDriveAdapter", () => {
         });
     });
 
+    describe("cloneWithNewVaultName keeps the sign-in method", () => {
+        it("refreshes through the same custom proxy as the source adapter", () => {
+            adapter.setAuthConfig("custom-proxy", "https://proxy.example.com/");
+            const cloned = adapter.cloneWithNewVaultName("NewVault") as GoogleDriveAdapter;
+            expect(cloned.auth.getAuthConfig()).toEqual({
+                method: "custom-proxy",
+                proxyUrl: "https://proxy.example.com/",
+            });
+        });
+
+        it("follows a new sign-in on the source adapter", () => {
+            const cloned = adapter.cloneWithNewVaultName("NewVault") as GoogleDriveAdapter;
+            adapter.auth.setTokens("access-2", "refresh-2", Date.now() + 3600 * 1000);
+            expect(cloned.auth.getTokens().accessToken).toBe("access-2");
+            expect(cloned.auth.getTokens().refreshToken).toBe("refresh-2");
+        });
+
+        it("keeps client credentials mode", () => {
+            adapter.setAuthConfig("client-credentials");
+            const cloned = adapter.cloneWithNewVaultName("NewVault") as GoogleDriveAdapter;
+            expect(cloned.auth.getAuthConfig().method).toBe("client-credentials");
+        });
+    });
+
+    describe("getFileCreatedTime", () => {
+        it("reads the creation time of a file", async () => {
+            mockFetch.mockResolvedValueOnce({ json: async () => ({ createdTime: "2026-11-01T00:00:00.000Z" }) });
+            expect(await adapter.getFileCreatedTime("f1")).toBe(Date.UTC(2026, 10, 1));
+            expect(mockFetch.mock.calls[0][0]).toContain("/files/f1?fields=createdTime");
+        });
+
+        it("is undefined when the cloud gives none", async () => {
+            mockFetch.mockResolvedValueOnce({ json: async () => ({}) });
+            expect(await adapter.getFileCreatedTime("f1")).toBeUndefined();
+        });
+    });
+
     describe("getBaseAdapter", () => {
         it("should return self", () => {
             expect(adapter.getBaseAdapter()).toBe(adapter);
@@ -439,8 +482,9 @@ describe("GoogleDriveAdapter", () => {
             await expect(adapter.listRevisions("../etc/passwd")).rejects.toThrow("Invalid path");
         });
 
-        it("should reject paths with special characters", async () => {
-            await expect(adapter.listRevisions("file<name>.md")).rejects.toThrow("Invalid path");
+        it("should accept characters Windows forbids (valid on macOS / Linux / iOS)", async () => {
+            mockFetch.mockResolvedValueOnce(jsonResponse({ revisions: [] }));
+            await expect(adapter.listRevisions("file<name>.md", "file-1")).resolves.toEqual([]);
         });
     });
 

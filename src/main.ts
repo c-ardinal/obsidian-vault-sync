@@ -1,13 +1,28 @@
-import { Notice, Plugin, TFile, setIcon, Platform } from "obsidian";
-import { GoogleDriveAdapter } from "./cloud-adapters/google-drive";
+import { deviceScopePatterns } from "./sync-manager/file-utils";
+import { Menu, Notice, Plugin, TFile, TFolder, setIcon, Platform, apiVersion } from "obsidian";
+import { createCloudAdapter, DEFAULT_CLOUD_PROVIDER } from "./cloud-adapters";
+import { MassChangeGuard } from "./sync-manager/mass-change-guard";
+import { ConflictResolveModal, openConflictResolver } from "./ui/conflict-resolve-modal";
+import { isConflictCopyPath } from "./sync-manager/conflict-resolution";
+import { DevicesModal } from "./ui/devices-modal";
+import { DiagnosticsModal } from "./ui/diagnostics-modal";
+import { PointInTimeModal } from "./ui/point-in-time-modal";
+import { formatDiagnostics } from "./sync-manager/diagnostics";
+import { MassChangeModal } from "./ui/mass-change-modal";
+import { RemoteTrashModal } from "./ui/remote-trash-modal";
+import { FirstSyncModal } from "./ui/first-sync-modal";
+import type { OAuthCloudAdapter } from "./types/oauth-adapter";
 import { SyncManager, type SyncTrigger } from "./sync-manager";
 import type { SecureStorage } from "./services/secure-storage";
 import { HistoryModal } from "./ui/history-modal";
+import { FileExplorerMarks } from "./ui/file-explorer-marks";
+import { SyncVerifyModal } from "./ui/sync-verify-modal";
+import { fetchLinkedCloudOnly, openCloudOnlyPicker } from "./ui/cloud-only-modal";
 import { TransferStatusModal, type TransferModalActions } from "./ui/transfer-status-modal";
 import { SyncStatusView } from "./ui/sync-status-view";
 import { DEFAULT_SETTINGS } from "./constants";
 import { DATA_REMOTE_DIR, VaultSyncSettings } from "./types/settings";
-import { t, initI18n, setAddonStrings } from "./i18n";
+import { t, initI18n, setAddonStrings, currentLanguage } from "./i18n";
 import type { ICryptoEngine } from "./encryption/interfaces";
 import { VaultSyncSettingTab } from "./ui/vault-sync-setting-tab";
 import {
@@ -17,6 +32,8 @@ import {
 } from "./encryption/engine-loader";
 import { AddonInstallModal, type AddonInstallOutcome } from "./ui/addon-install-modal";
 import type { AddonPackage } from "./addons/addon-package";
+import { AddonUiRegistry, type AddonUiHost } from "./addons/addon-ui";
+import { APPROVED_ADDONS } from "./addons/approved-addons";
 import { checkPasswordStrength } from "./encryption/password-strength";
 import type { E2EEPluginContext } from "./encryption/interfaces";
 import {
@@ -37,9 +54,36 @@ import { CredentialManager } from "./services/credential-manager";
 import { setPluginDir } from "./sync-manager/file-utils";
 import { isLegacyCopyEnabled, migrateLegacyPluginData } from "./services/legacy-plugin-migration";
 
+/** Command ids of Vault Syncer itself; an add-on action may not take them. */
+const BUILTIN_COMMAND_IDS: ReadonlySet<string> = new Set([
+    "sync-vault",
+    "force-full-scan",
+    "install-addon",
+    "transfer-status",
+    "show-remote-trash",
+    "resolve-conflicts",
+    "show-devices",
+    "copy-diagnostics",
+    "restore-to-point-in-time",
+    "show-sync-status",
+    "fetch-cloud-only",
+    "verify-sync",
+    "dev-demo-history",
+    "dev-demo-transfer-status",
+    "dev-demo-notifications",
+    "dev-demo-sync-animation",
+    "dev-demo-prompt-modal",
+]);
+
+/** Id of the crypto-engine add-on (its UI parts are registered under it). */
+const CRYPTO_ADDON_ID = APPROVED_ADDONS.find((a) => a.kind === "crypto-engine")?.id ?? "crypto-engine";
+
+/** Syncs the user starts: a mass-change question held before is asked again */
+const USER_TRIGGERS: ReadonlySet<SyncTrigger> = new Set<SyncTrigger>(["manual-sync", "full-scan", "initial-sync"]);
+
 export default class VaultSync extends Plugin {
     settings!: VaultSyncSettings;
-    adapter!: GoogleDriveAdapter;
+    adapter!: OAuthCloudAdapter;
     syncManager!: SyncManager;
     secureStorage!: SecureStorage;
     public vaultOps!: IVaultOperations;
@@ -49,6 +93,7 @@ export default class VaultSync extends Plugin {
     public i18n = t;
 
     private syncRibbonIconEl: HTMLElement | null = null;
+    private transferRibbonEl: HTMLElement | null = null;
     private manualSyncInProgress = false;
     private mobileSyncFabEl: HTMLElement | null = null;
     private syncStatusView: SyncStatusView | null = null;
@@ -57,6 +102,10 @@ export default class VaultSync extends Plugin {
     private settingsMgr!: SettingsManager;
     private credentialMgr!: CredentialManager;
     public t = t;
+    /** Settings pages and actions of the active add-ons. */
+    public readonly addonUi = new AddonUiRegistry(BUILTIN_COMMAND_IDS);
+    /** Add-on action ids already registered as commands (Obsidian has no unregister for us). */
+    private addonCommandIds = new Set<string>();
 
     /**
      * Installs a verified add-on package the user picked and agreed to (see
@@ -80,7 +129,6 @@ export default class VaultSync extends Plugin {
             };
         }
 
-        this.attachCryptoEngine(result.engine);
         this.settings.addonAgreements = {
             ...(this.settings.addonAgreements ?? {}),
             [pkg.addon.id]: {
@@ -90,6 +138,7 @@ export default class VaultSync extends Plugin {
                 agreedAt: new Date().toISOString(),
             },
         };
+        this.attachCryptoEngine(result.engine);
         await this.saveSettings();
         await this.syncManager.log(
             `Add-on installed: ${pkg.manifest.id} ${pkg.manifest.version} (terms ${pkg.termsHash.slice(0, 12)})`,
@@ -124,85 +173,69 @@ export default class VaultSync extends Plugin {
         return true;
     }
 
-    private addonCommandsRegistered = false;
-
     /**
      * Activate (or with null, remove) the add-on engine: hand it to the sync
-     * manager, take its display text, and register its commands. Commands are
-     * registered on first activation so their names come from the add-on; they
-     * hide themselves while no add-on is present.
+     * manager, take its display text, and register its settings pages and
+     * actions. Each action becomes a command the first time it is seen (its
+     * name comes from the add-on); commands hide themselves while their action
+     * is missing or unavailable.
      */
     private attachCryptoEngine(engine: ICryptoEngine | null): void {
         this.syncManager.setCryptoEngine(engine);
         setAddonStrings(engine?.getStrings ? (lang) => engine.getStrings!(lang) : null);
-        if (engine && !this.addonCommandsRegistered) {
-            this.addonCommandsRegistered = true;
-            this.registerAddonCommands();
+        if (!engine) {
+            this.addonUi.remove(CRYPTO_ADDON_ID);
+            return;
         }
+        const name = this.settings.addonAgreements?.[CRYPTO_ADDON_ID]?.name ?? CRYPTO_ADDON_ID;
+        let problems: string[];
+        try {
+            const ui = engine.getUiContributions?.(this.buildE2EEContext(), this.addonUiHost(CRYPTO_ADDON_ID));
+            problems = this.addonUi.set(CRYPTO_ADDON_ID, name, ui);
+        } catch (e) {
+            problems = [`UI parts could not be read: ${String(e)}`];
+            this.addonUi.set(CRYPTO_ADDON_ID, name, null);
+        }
+        for (const p of problems) void this.syncManager.log(`Add-on UI: ${p}`, "warn");
+        this.registerAddonCommands();
+    }
+
+    private addonUiHost(addonId: string): AddonUiHost {
+        return {
+            refresh: () => this.refreshSettingsUI(),
+            openPage: (pageId) => this.openAddonPage(addonId, pageId),
+            runAction: (actionId) => this.addonUi.run(actionId),
+        };
     }
 
     private registerAddonCommands(): void {
-        this.addCommand({
-            id: "e2ee-setup",
-            name: t("labelE2EESetup"),
-            checkCallback: (checking: boolean) => {
-                if (!this.syncManager.cryptoEngine || this.settings.e2eeEnabled) return false;
-                if (!checking) {
-                    this.syncManager.cryptoEngine.showSetupModal(this.buildE2EEContext());
-                }
-                return true;
-            },
-        });
+        for (const action of this.addonUi.commandActions()) {
+            if (this.addonCommandIds.has(action.id)) continue;
+            this.addonCommandIds.add(action.id);
+            const id = action.id;
+            this.addCommand({
+                id,
+                name: action.label,
+                checkCallback: (checking: boolean) => {
+                    const found = this.addonUi.findAction(id);
+                    if (!found || found.action.command === false) return false;
+                    if (!this.addonUi.isAvailable(found.action)) return false;
+                    if (!checking) void this.addonUi.run(id);
+                    return true;
+                },
+            });
+        }
+    }
 
-        this.addCommand({
-            id: "e2ee-unlock",
-            name: t("labelE2EEUnlock"),
-            checkCallback: (checking: boolean) => {
-                const isLocked =
-                    this.settings.e2eeEnabled &&
-                    this.syncManager.cryptoEngine &&
-                    !this.syncManager.cryptoEngine.isUnlocked();
-                if (!isLocked) return false;
-                if (!checking) {
-                    this.syncManager.cryptoEngine?.showUnlockModal(this.buildE2EEContext());
-                }
-                return true;
-            },
-        });
-
-        this.addCommand({
-            id: "e2ee-change-password",
-            name: t("labelE2EEChangePassword"),
-            checkCallback: (checking: boolean) => {
-                const engine = this.syncManager.cryptoEngine;
-                if (!engine?.showPasswordChangeModal || !engine.isUnlocked()) return false;
-                if (!checking) engine.showPasswordChangeModal(this.buildE2EEContext());
-                return true;
-            },
-        });
-
-        this.addCommand({
-            id: "e2ee-show-recovery",
-            name: t("labelE2EEShowRecovery"),
-            checkCallback: (checking: boolean) => {
-                const engine = this.syncManager.cryptoEngine;
-                if (!engine?.showRecoveryExportModal || !engine.isUnlocked()) return false;
-                if (!checking) engine.showRecoveryExportModal(this.buildE2EEContext());
-                return true;
-            },
-        });
-
-        this.addCommand({
-            id: "e2ee-recover",
-            name: t("labelE2EERecover"),
-            checkCallback: (checking: boolean) => {
-                const engine = this.syncManager.cryptoEngine;
-                if (!engine?.showRecoveryImportModal || !this.settings.e2eeEnabled) return false;
-                if (engine.isUnlocked()) return false;
-                if (!checking) engine.showRecoveryImportModal(this.buildE2EEContext());
-                return true;
-            },
-        });
+    /** Open the settings screen on an add-on's page. */
+    public openAddonPage(addonId: string, pageId: string): void {
+        if (!this.settingTab || !this.addonUi.findPage(addonId, pageId)) return;
+        const setting = (this.app as unknown as {
+            setting?: { open(): void; openTabById(id: string): unknown };
+        }).setting;
+        setting?.open();
+        setting?.openTabById(this.manifest.id);
+        this.settingTab.openAddonPage(addonId, pageId);
     }
 
     public openAddonInstallModal(): void {
@@ -213,6 +246,12 @@ export default class VaultSync extends Plugin {
                 // The vault already uses the add-on on another device: go straight to unlocking.
                 if (this.settings.e2eeEnabled && this.syncManager.e2eeLocked) {
                     this.syncManager.cryptoEngine?.showUnlockModal(this.buildE2EEContext());
+                    return;
+                }
+                // Installed from the settings screen: show the add-on's own page next
+                const page = this.addonUi.get(CRYPTO_ADDON_ID)?.pages[0];
+                if (page && this.settingTab?.containerEl.isShown()) {
+                    this.settingTab.openAddonPage(CRYPTO_ADDON_ID, page.id);
                 }
             },
             this.settings.e2eeEnabled,
@@ -271,14 +310,13 @@ export default class VaultSync extends Plugin {
             );
             if (migrated) new Notice(t("noticeLegacyDataMigrated"), 15000);
         } catch (e) {
-            console.error("Vault-Sync: Could not carry over data from the old plugin folder", e);
+            console.error("Vault Syncer: Could not carry over data from the old plugin folder", e);
         }
 
         this.vaultOps = new ObsidianVaultOperations(this.app);
 
-        this.adapter = new GoogleDriveAdapter(
-            "",
-            "",
+        this.adapter = createCloudAdapter(
+            DEFAULT_CLOUD_PROVIDER,
             this.vaultOps.getVaultName(),
             DEFAULT_SETTINGS.cloudRootFolder,
         );
@@ -303,17 +341,56 @@ export default class VaultSync extends Plugin {
             this.manifest.dir || "",
             t,
             new ObsidianNotificationService((path) => {
-                void this.app.workspace.openLinkText(path, "", true);
+                if (isConflictCopyPath(path)) new ConflictResolveModal(this.app, path).open();
+                else void this.app.workspace.openLinkText(path, "", true);
             }),
             revisionCache,
             backgroundQueue,
         );
         this.syncManager.secureStorage = this.secureStorage;
+        this.syncManager.planGuard = new MassChangeGuard(
+            () => this.settings,
+            () => this.syncManager.syncedFileCount(),
+            async (plan, summary, kinds) => {
+                const ok = await new MassChangeModal(this.app, plan, summary, kinds).ask();
+                if (!ok) new Notice(t("noticeMassDeleteHeld"));
+                return ok;
+            },
+            () => USER_TRIGGERS.has(this.syncManager.currentTrigger),
+        );
+        this.syncManager.firstSyncGuard = {
+            choose: (summary) => new FirstSyncModal(this.app, summary).ask(),
+        };
+        const platform = Platform.isIosApp
+            ? Platform.isTablet
+                ? "iPad"
+                : "iPhone"
+            : Platform.isAndroidApp
+              ? Platform.isTablet
+                  ? "Android tablet"
+                  : "Android"
+              : Platform.isMacOS
+                ? "Mac"
+                : Platform.isWin
+                  ? "Windows"
+                  : Platform.isLinux
+                    ? "Linux"
+                    : "";
+        this.syncManager.deviceInfo = { platform, defaultName: platform || "Device" };
         this.syncManager.unicodeInsensitiveFs = Platform.isMacOS || Platform.isIosApp;
+        this.syncManager.caseInsensitiveFs =
+            Platform.isWin || Platform.isMacOS || Platform.isIosApp || Platform.isAndroidApp;
+        this.syncManager.windowsNameRules = Platform.isWin || Platform.isAndroidApp;
 
         this.syncManager.onSettingsUpdated = async () => {
+            const scopeBefore = deviceScopePatterns(this.settings);
             await this.loadSettings();
+            // Another device of this kind changed the exclusion list
+            if (deviceScopePatterns(this.settings) !== scopeBefore) {
+                await this.syncManager.applyDeviceScopeChange(scopeBefore);
+            }
             this.triggerManager.setupAutoSyncInterval();
+            this.refreshFileExplorerMarks();
             if (this.settingTab) {
                 this.settingTab.display();
             }
@@ -396,6 +473,11 @@ export default class VaultSync extends Plugin {
             syncManager: this.syncManager,
             registerEvent: (evt) => this.registerEvent(evt),
             registerInterval: (id) => this.registerInterval(id),
+            registerDomEvent: (target, type, cb) => {
+                if (type === "online" && target instanceof Window) this.registerDomEvent(target, "online", cb);
+                else if (type === "visibilitychange" && !(target instanceof Window))
+                    this.registerDomEvent(target, "visibilitychange", cb);
+            },
         });
 
         this.app.workspace.onLayoutReady(() => {
@@ -557,7 +639,8 @@ export default class VaultSync extends Plugin {
             callback: () => this.openAddonInstallModal(),
         });
 
-        this.addRibbonIcon("arrow-up-down", t("labelTransferStatus"), () => {
+        // Only while the status display is off: otherwise its panel opens this screen
+        this.transferRibbonEl = this.addRibbonIcon("arrow-up-down", t("labelTransferStatus"), () => {
             new TransferStatusModal(this.app, this.syncManager, this.transferModalActions()).open();
         });
 
@@ -567,6 +650,52 @@ export default class VaultSync extends Plugin {
             callback: () => {
                 new TransferStatusModal(this.app, this.syncManager, this.transferModalActions()).open();
             },
+        });
+
+        this.addCommand({
+            id: "show-remote-trash",
+            name: t("labelRemoteTrashCommand"),
+            callback: () => this.openRemoteTrash(),
+        });
+
+        this.addCommand({
+            id: "resolve-conflicts",
+            name: t("labelResolveConflictCommand"),
+            callback: () => openConflictResolver(this.app),
+        });
+
+        this.addCommand({
+            id: "show-devices",
+            name: t("labelDevicesCommand"),
+            callback: () => this.openDevices(),
+        });
+
+        this.addCommand({
+            id: "copy-diagnostics",
+            name: t("labelDiagnosticsCommand"),
+            callback: () => this.openDiagnostics(),
+        });
+
+        this.addCommand({
+            id: "restore-to-point-in-time",
+            name: t("labelPointInTimeCommand"),
+            checkCallback: (checking: boolean) => {
+                if (!this.syncManager?.supportsHistory) return false;
+                if (!checking) this.openPointInTime("");
+                return true;
+            },
+        });
+
+        this.addCommand({
+            id: "verify-sync",
+            name: t("labelVerifyCommand"),
+            callback: () => this.openSyncVerify(),
+        });
+
+        this.addCommand({
+            id: "fetch-cloud-only",
+            name: t("labelCloudOnlyCommand"),
+            callback: () => void openCloudOnlyPicker(this.app, this.syncManager),
         });
 
         this.addCommand({
@@ -641,7 +770,10 @@ export default class VaultSync extends Plugin {
 
         // 3. Sync status display (status bar / mobile pill). On mobile, the older
         // spinning indicator (FAB) is used only when the status display is off.
-        this.app.workspace.onLayoutReady(() => this.refreshSyncStatusView());
+        this.app.workspace.onLayoutReady(() => {
+            this.refreshSyncStatusView();
+            this.refreshFileExplorerMarks();
+        });
 
         this.settingTab = new VaultSyncSettingTab(this.app, this);
         this.addSettingTab(this.settingTab);
@@ -651,16 +783,37 @@ export default class VaultSync extends Plugin {
 
         this.registerEvent(
             this.app.workspace.on("file-menu", (menu, file) => {
+                if (file instanceof TFile && isConflictCopyPath(file.path)) {
+                    menu.addItem((item) => {
+                        item.setTitle(t("labelResolveConflict"))
+                            .setIcon("git-merge")
+                            .onClick(() => new ConflictResolveModal(this.app, file.path).open());
+                    });
+                }
                 if (this.syncManager && this.syncManager.supportsHistory) {
                     if (file instanceof TFile) {
                         menu.addItem((item) => {
                             item.setTitle(t("labelViewHistory"))
                                 .setIcon("history")
                                 .onClick(() => {
-                                    new HistoryModal(this.app, this.syncManager, file).open();
+                                    new HistoryModal(this.app, this.syncManager, file, () => this.openSettingsTab()).open();
                                 });
                         });
                     }
+                    if (file instanceof TFolder) {
+                        menu.addItem((item) => {
+                            item.setTitle(t("labelPointInTimeFolder"))
+                                .setIcon("history")
+                                .onClick(() => this.openPointInTime(file.isRoot() ? "" : file.path));
+                        });
+                    }
+                }
+                if (this.syncManager && file instanceof TFile && file.extension === "md") {
+                    menu.addItem((item) => {
+                        item.setTitle(t("labelFetchLinkedCloudOnly"))
+                            .setIcon("cloud-download")
+                            .onClick(() => void fetchLinkedCloudOnly(this.app, this.syncManager, file));
+                    });
                 }
             }),
         );
@@ -672,6 +825,7 @@ export default class VaultSync extends Plugin {
     }
 
     onunload() {
+        this.fileMarks?.disable();
         this.triggerManager?.destroy();
         this.syncStatusView?.unmount();
         this.syncStatusView = null;
@@ -694,8 +848,24 @@ export default class VaultSync extends Plugin {
         activeDocument.body.style.setProperty("--vault-sync-diff-font-size", `${px}px`);
     }
 
+    private fileMarks: FileExplorerMarks | null = null;
+
+    /** Show or hide the file explorer marks to match the setting. */
+    refreshFileExplorerMarks(): void {
+        if (this.settings.showFileExplorerMarks) {
+            this.fileMarks ??= new FileExplorerMarks(this.app, {
+                pendingPaths: () => this.syncManager.pendingPaths,
+                subscribe: (cb) => this.syncManager.progress.subscribe(() => cb()),
+            });
+            this.fileMarks.enable();
+        } else {
+            this.fileMarks?.disable();
+        }
+    }
+
     /** Show or hide the sync status display to match the setting. */
     refreshSyncStatusView(): void {
+        this.transferRibbonEl?.toggle(!this.settings.showSyncStatus);
         if (this.settings.showSyncStatus) {
             this.mobileSyncFabEl?.remove();
             this.mobileSyncFabEl = null;
@@ -729,7 +899,58 @@ export default class VaultSync extends Plugin {
         return {
             onSyncNow: () => void this.runManualSync(),
             onOpenSettings: () => this.openSettingsTab(),
+            onReport: (title) => this.openDiagnostics(title),
+            onResolveConflicts: () => this.openConflictResolver(),
         };
+    }
+
+    /** Pick a conflict copy to resolve (or say there is none). */
+    openConflictResolver(): void {
+        openConflictResolver(this.app);
+    }
+
+    /**
+     * The plugin's screens in one menu (from the sync status panel), so that
+     * they can be found without the command palette or the settings.
+     */
+    showToolsMenu(evt: MouseEvent, beforeOpen?: () => void): void {
+        const menu = new Menu();
+        const add = (title: string, icon: string, run: () => void) =>
+            menu.addItem((item) =>
+                item
+                    .setTitle(title)
+                    .setIcon(icon)
+                    .onClick(() => {
+                        beforeOpen?.();
+                        run();
+                    }),
+            );
+        add(t("labelTransferStatusCommand"), "arrow-up-down", () =>
+            new TransferStatusModal(this.app, this.syncManager, this.transferModalActions()).open(),
+        );
+        add(t("labelResolveConflictCommand"), "git-merge", () => this.openConflictResolver());
+        menu.addSeparator();
+        add(t("labelRemoteTrashCommand"), "trash-2", () => this.openRemoteTrash());
+        if (this.syncManager.supportsHistory) {
+            add(t("labelPointInTimeCommand"), "history", () => this.openPointInTime(""));
+        }
+        add(t("labelDevicesCommand"), "monitor-smartphone", () => this.openDevices());
+        add(t("labelCloudOnlyCommand"), "cloud-download", () => void openCloudOnlyPicker(this.app, this.syncManager));
+        menu.addSeparator();
+        add(t("labelVerifyCommand"), "list-checks", () => this.openSyncVerify());
+        add(t("labelDiagnosticsCommand"), "stethoscope", () => this.openDiagnostics());
+        add(t("statusOpenSettings"), "settings", () => this.openSettingsTab());
+        menu.showAtMouseEvent(evt);
+    }
+
+    /** Read-only check: this device against the cloud */
+    openSyncVerify(): void {
+        new SyncVerifyModal(this.app, {
+            run: () => this.syncManager.verifySync(),
+            isSyncing: () => this.syncManager.isSyncing(),
+            isSignedIn: () => this.syncManager.isSignedIn,
+            syncNow: () => void this.requestManualSync(),
+        }).open();
     }
 
     /** Open this plugin's settings tab. */
@@ -811,6 +1032,44 @@ export default class VaultSync extends Plugin {
         this.secureStorage = this.settingsMgr.secureStorage;
     }
 
+    /** The devices that sync this vault, and their changes */
+    openDevices(): void {
+        new DevicesModal(this.app, this.syncManager).open();
+    }
+
+    /** A folder (or the whole vault) back to a past time */
+    openPointInTime(folder: string): void {
+        if (!this.syncManager.supportsHistory) {
+            new Notice(t("pitNotSupported"));
+            return;
+        }
+        new PointInTimeModal(this.app, this.syncManager, folder).open();
+    }
+
+    /** Diagnostic info for a support request, to copy */
+    openDiagnostics(issueTitle = ""): void {
+        new DiagnosticsModal(this.app, async (includeLog) => {
+            const agreements = this.settings.addonAgreements ?? {};
+            const snapshot = {
+                pluginVersion: this.manifest.version,
+                obsidianVersion: apiVersion,
+                platform: this.syncManager.deviceInfo?.platform ?? "",
+                language: currentLanguage(),
+                addOns: Object.values(agreements).map((a) => `${a.name} ${a.version}`),
+                firstSyncDone: this.settings.hasCompletedFirstSync,
+                settings: this.settings as unknown as Record<string, unknown>,
+                ...this.syncManager.diagnosticsState(),
+            };
+            const log = includeLog ? await this.syncManager.readRecentLog() : null;
+            return formatDiagnostics(snapshot, log);
+        }, issueTitle).open();
+    }
+
+    /** The list of files kept in the cloud trash, with restore */
+    openRemoteTrash(): void {
+        new RemoteTrashModal(this.app, this.syncManager.adapter, this.settings.remoteTrashRetentionDays).open();
+    }
+
     async saveSettings() {
         await this.settingsMgr.saveSettings();
     }
@@ -873,6 +1132,30 @@ export default class VaultSync extends Plugin {
         this.syncManager.triggerFullCleanup();
     }
 
+    /**
+     * The PC or mobile exclusion list changed. When it is the list of this kind of
+     * device, files no longer left out are fetched now (the other kind of device
+     * applies it when the settings reach it).
+     */
+    async applyExclusionListChange(
+        key: "desktopExclusionPatterns" | "mobileExclusionPatterns",
+        previous: string,
+    ): Promise<void> {
+        const ownKey = Platform.isMobile ? "mobileExclusionPatterns" : "desktopExclusionPatterns";
+        if (key !== ownKey) return;
+        await this.syncManager.applyDeviceScopeChange(previous);
+        if (this.settings.hasCompletedFirstSync) void this.requestManualSync();
+    }
+
+    /**
+     * The file-size limit of this kind of device changed: the next sync checks the
+     * whole vault, so files no longer over the limit are fetched and uploaded.
+     */
+    applyMaxFileSizeChange(key: "desktopMaxFileSizeMB" | "mobileMaxFileSizeMB"): void {
+        const ownKey = Platform.isMobile ? "mobileMaxFileSizeMB" : "desktopMaxFileSizeMB";
+        if (key === ownKey) this.syncManager.triggerFullCleanup();
+    }
+
     updateLoggerOptions(): void {
         this.syncManager.updateLoggerOptions();
     }
@@ -884,11 +1167,5 @@ export default class VaultSync extends Plugin {
             this.vaultOps.getVaultName(),
             this.settings.cloudRootFolder,
         );
-    }
-
-    getE2EESettingsSections(): ReturnType<
-        NonNullable<typeof this.syncManager.cryptoEngine>["getSettingsSections"]
-    > {
-        return this.syncManager.cryptoEngine?.getSettingsSections(this.buildE2EEContext()) || [];
     }
 }

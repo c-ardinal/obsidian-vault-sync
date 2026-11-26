@@ -1,9 +1,17 @@
 import { CloudAdapter } from "../types/adapter";
+import { remoteDeletionOf } from "../sync-manager/remote-deletion";
 import { ICryptoEngine } from "../encryption/interfaces";
-import { VaultLockService } from "./vault-lock-service";
+import { MIGRATION_LOCK_FILENAME, MIGRATION_LOCK_STALE_MS, VaultLockService } from "./vault-lock-service";
 import { EncryptedAdapter } from "../encryption/encrypted-adapter";
-import { getLocalFiles, shouldIgnore, runParallel, hashContent } from "../sync-manager/file-utils";
-import { saveIndex, saveLocalIndex } from "../sync-manager/state";
+import {
+    getLocalFiles,
+    shouldIgnore,
+    runParallel,
+    hashContent,
+    ensureLocalFolder,
+} from "../sync-manager/file-utils";
+import { freeConflictCopyPath } from "../sync-manager/conflict-resolution";
+import { markDeleted, saveIndex, saveLocalIndex } from "../sync-manager/state";
 import { SyncContext } from "../sync-manager/context";
 
 interface MigrationProgress {
@@ -12,8 +20,52 @@ interface MigrationProgress {
     fileName: string;
 }
 
+/**
+ * How long the old folder is kept after the swap. A sync another device started
+ * before the migration lock appeared can still push into the old folder after
+ * the catch-up read it; such a cycle ends well within this time, and later
+ * cycles stop at the migration lock that stays in the old folder.
+ */
+export const BACKUP_CLEANUP_GRACE_MS = 60 * 60 * 1000;
+
+/** The old folder kept after a conversion, and what the catch-up read from it */
+export interface PendingBackupCleanup {
+    backupName: string;
+    backupId: string;
+    /** Not before this time (ms) */
+    notBefore: number;
+    /** Cloud hash of each file of the old folder when the catch-up read it */
+    scan: Record<string, string>;
+    /**
+     * Plaintext hash of the version of each file the catch-up left here: a local
+     * file still at it was not changed on this device since.
+     */
+    base: Record<string, string>;
+}
+
 export class MigrationService {
     private pendingLockBlob: string | null = null;
+    /**
+     * Cloud hash of every file as this device last synced it, taken before the
+     * conversion rewrites the index: a vault file whose cloud hash differs at
+     * the end was changed by another device (see catchUpOtherDevices).
+     */
+    private syncedHashes = new Map<string, string | undefined>();
+    /** Paths with local edits not yet pushed when the conversion started */
+    private dirtyAtStart = new Set<string>();
+    /**
+     * Plaintext hash of every file as this device last synced it. A file counts
+     * as untouched here only when its converted copy is still that version: an
+     * edit made after the conversion started, but before the file was read,
+     * is in the converted copy and must not be replaced by another device's.
+     */
+    private syncedPlainHashes = new Map<string, string | undefined>();
+    /** What the catch-up read from the old folder (see finishBackupCleanup) */
+    private scan: Record<string, string> = {};
+    private scanBase: Record<string, string> = {};
+    /** undefined until read from disk */
+    private pendingCleanup: PendingBackupCleanup | null | undefined = undefined;
+    private cleanupRunning = false;
     public isMigrating = false;
     public currentProgress: MigrationProgress | null = null;
 
@@ -48,7 +100,7 @@ export class MigrationService {
         const existingLock = await this.lockService.getMigrationLock();
         if (existingLock && existingLock.deviceId !== this.ctx.deviceId) {
             // Check if it's very old (24 hours for large vaults)
-            const dayAgo = Date.now() - 24 * 3600 * 1000;
+            const dayAgo = Date.now() - MIGRATION_LOCK_STALE_MS;
             if (existingLock.timestamp > dayAgo) {
                 throw new Error(
                     `Another device (${existingLock.deviceId}) is migrating this vault. ` +
@@ -62,6 +114,11 @@ export class MigrationService {
         }
 
         await this.lockService.createMigrationLock(this.ctx.deviceId);
+        this.syncedHashes = new Map(Object.entries(this.ctx.index).map(([p, e]) => [p, e.hash]));
+        this.dirtyAtStart = new Set(this.ctx.dirtyPaths?.keys() ?? []);
+        this.syncedPlainHashes = new Map(
+            Object.entries(this.ctx.localIndex).map(([p, e]) => [p, e.plainHash]),
+        );
 
         this.ctx.syncState = "MIGRATING";
         this.isMigrating = true;
@@ -106,28 +163,7 @@ export class MigrationService {
 
             const content = await this.ctx.vault.readBinary(file.path);
 
-            const result = await tempEncryptedAdapter.uploadFile(file.path, content, file.mtime);
-
-            // Compute plaintext hash BEFORE encryption for E2EE change detection
-            const plainHash = await hashContent(content);
-
-            // CRITICAL: Update local index with new ENCRYPTED remote hash
-            // This prevents "conflict" or "download required" spikes after migration.
-            const entry = this.ctx.localIndex[file.path] || {
-                path: file.path,
-                size: file.size,
-                mtime: file.mtime,
-            };
-            this.ctx.localIndex[file.path] = {
-                ...entry,
-                hash: result.hash,
-                plainHash: plainHash,
-                ancestorHash: result.hash, // Current version is now remote version
-                size: result.size,
-                mtime: file.mtime,
-                fileId: result.id,
-            };
-            this.ctx.index[file.path] = { ...this.ctx.localIndex[file.path] };
+            const result = await this.uploadConverted(tempEncryptedAdapter, file.path, content, file.mtime);
 
             // Collect samples for integrity verification (up to 5, distributed)
             if (verificationSamples.length < 5 && current % Math.ceil(total / 5) === 0) {
@@ -176,6 +212,263 @@ export class MigrationService {
     }
 
     /**
+     * Upload one file into the converted vault and record it in both indexes.
+     * The local index gets the new (encrypted) cloud hash, so the first sync after
+     * the conversion sees no change, and the plaintext hash for change detection.
+     */
+    private async uploadConverted(
+        tempEncryptedAdapter: CloudAdapter,
+        path: string,
+        content: ArrayBuffer,
+        mtime: number,
+        existingFileId?: string,
+    ): Promise<{ id: string; hash?: string; size: number }> {
+        const result = existingFileId
+            ? await tempEncryptedAdapter.uploadFile(path, content, mtime, existingFileId)
+            : await tempEncryptedAdapter.uploadFile(path, content, mtime);
+        const plainHash = await hashContent(content);
+        const entry = this.ctx.localIndex[path] || { path, size: content.byteLength, mtime };
+        this.ctx.localIndex[path] = {
+            ...entry,
+            hash: result.hash,
+            plainHash,
+            ancestorHash: result.hash, // Current version is now remote version
+            size: result.size,
+            mtime,
+            fileId: result.id,
+        };
+        this.ctx.index[path] = { ...this.ctx.localIndex[path] };
+        return result;
+    }
+
+    /** Plaintext hash of the local file, or null when there is none */
+    private async localHash(path: string): Promise<string | null> {
+        if (!(await this.ctx.vault.exists(path))) return null;
+        return hashContent(await this.ctx.vault.readBinary(path));
+    }
+
+    /**
+     * Bring in what other devices pushed to the vault that this device has not:
+     * edits and deletions made before the conversion and not pulled yet, and
+     * everything other devices pushed while it ran (devices that started a sync
+     * before the migration lock existed, or run an older version that ignores
+     * it). All of it sits in the old folder, which is not synced after the swap.
+     *
+     * A file this device had not touched takes the other device's version (or is
+     * deleted with it), here and in the converted vault. When this device changed
+     * it too, the other device's version is kept as a conflict copy next to it,
+     * and a deletion gives way to the edit made here.
+     */
+    private async catchUpOtherDevices(tempEncryptedAdapter: CloudAdapter): Promise<void> {
+        const remoteFiles = await this.baseAdapter.listFiles();
+        this.scan = {};
+        this.scanBase = {};
+        const seen = new Set<string>();
+        for (const f of remoteFiles) {
+            if (f.kind !== "file" || f.path === MIGRATION_LOCK_FILENAME) continue;
+            if (shouldIgnore(this.ctx, f.path)) continue;
+            seen.add(f.path);
+            this.scan[f.path] = f.hash ?? "";
+            const synced = this.syncedHashes.get(f.path);
+            const syncedPlain = this.syncedPlainHashes.get(f.path);
+            if (f.hash && synced && f.hash === synced) {
+                if (syncedPlain !== undefined) this.scanBase[f.path] = syncedPlain;
+                continue;
+            }
+
+            const content = await this.baseAdapter.downloadFile(f.id);
+            const remotePlain = await hashContent(content);
+            this.scanBase[f.path] = remotePlain;
+            const converted = this.ctx.localIndex[f.path];
+            if (converted?.plainHash === remotePlain) continue; // same content as converted
+
+            const localNow = await this.localHash(f.path);
+            if (localNow === remotePlain) continue;
+            let untouched = localNow === null ? !converted : this.untouchedSinceStart(f.path, localNow);
+
+            if (untouched) {
+                // Check again right before replacing it: the note may have been
+                // saved here while the checks above were waiting on the disk
+                await ensureLocalFolder(this.ctx, f.path);
+                if ((await this.localHash(f.path)) !== localNow) untouched = false;
+            }
+            let target = f.path;
+            let existingFileId: string | undefined = converted?.fileId;
+            if (!untouched) {
+                target = await freeConflictCopyPath((p) => this.ctx.vault.exists(p), f.path);
+                existingFileId = undefined;
+                await ensureLocalFolder(this.ctx, target);
+            }
+            await this.ctx.vault.writeBinary(target, content);
+            await this.uploadConverted(tempEncryptedAdapter, target, content, Date.now(), existingFileId);
+            await this.ctx.log(
+                untouched
+                    ? `[Migration] Took another device's version of ${f.path}.`
+                    : `[Migration] ${f.path} was changed here and on another device: kept theirs as ${target}.`,
+                "info",
+            );
+        }
+
+        // Deleted on another device: synced here, gone from the old folder
+        for (const path of this.syncedHashes.keys()) {
+            if (seen.has(path) || path === MIGRATION_LOCK_FILENAME || shouldIgnore(this.ctx, path)) continue;
+            const converted = this.ctx.localIndex[path];
+            const localNow = await this.localHash(path);
+            if (localNow !== null) {
+                if (!this.untouchedSinceStart(path, localNow)) continue; // the edit here wins
+                if ((await this.localHash(path)) !== localNow) continue;
+                await this.removeLocal(path);
+            }
+            if (converted?.fileId) {
+                await remoteDeletionOf(this.ctx).remove(
+                    tempEncryptedAdapter,
+                    { id: converted.fileId, path, kind: "file" },
+                    "maintenance",
+                );
+            }
+            delete this.ctx.localIndex[path];
+            delete this.ctx.index[path];
+            await this.ctx.log(`[Migration] ${path} was deleted on another device: deleted it here too.`, "info");
+        }
+    }
+
+    /**
+     * Delete a local file: to the system trash when it is a vault file, directly
+     * when only the adapter sees it (files under the config folder)
+     */
+    private async removeLocal(path: string): Promise<void> {
+        const file = this.ctx.vault.getAbstractFileByPath(path);
+        if (file) await this.ctx.vault.trashFile(file, true);
+        else await this.ctx.vault.remove(path);
+    }
+
+    /**
+     * The local file and its converted copy are both still the version this
+     * device last synced: an edit made after the conversion started, but before
+     * the file was read, is in the converted copy and must win.
+     */
+    private untouchedSinceStart(path: string, localNow: string): boolean {
+        const syncedPlain = this.syncedPlainHashes.get(path);
+        return (
+            !this.dirtyAtStart.has(path) &&
+            syncedPlain !== undefined &&
+            this.ctx.localIndex[path]?.plainHash === syncedPlain &&
+            localNow === syncedPlain
+        );
+    }
+
+    private get cleanupRecordPath(): string {
+        return `${this.ctx.pluginDir}/data/local/migration-backup.json`;
+    }
+
+    private async loadPendingCleanup(): Promise<PendingBackupCleanup | null> {
+        if (this.pendingCleanup === undefined) {
+            try {
+                this.pendingCleanup = (await this.ctx.vault.exists(this.cleanupRecordPath))
+                    ? (JSON.parse(await this.ctx.vault.read(this.cleanupRecordPath)) as PendingBackupCleanup)
+                    : null;
+            } catch {
+                this.pendingCleanup = null;
+            }
+        }
+        return this.pendingCleanup;
+    }
+
+    private async savePendingCleanup(rec: PendingBackupCleanup | null): Promise<void> {
+        this.pendingCleanup = rec;
+        if (rec) {
+            await ensureLocalFolder(this.ctx, this.cleanupRecordPath);
+            await this.ctx.vault.write(this.cleanupRecordPath, JSON.stringify(rec));
+        } else if (await this.ctx.vault.exists(this.cleanupRecordPath)) {
+            await this.ctx.vault.remove(this.cleanupRecordPath);
+        }
+    }
+
+    /**
+     * Once the grace time after a conversion has passed: bring in what other
+     * devices pushed into the old folder after the catch-up read it, then delete
+     * the old folder. Called before a sync; the files it changes here are marked
+     * so that this sync takes them to the converted vault (merging with whatever
+     * reached it meanwhile, as for any local edit).
+     */
+    async finishBackupCleanup(): Promise<void> {
+        if (this.cleanupRunning || this.isMigrating || this.ctx.syncState !== "IDLE") return;
+        const rec = await this.loadPendingCleanup();
+        if (!rec || Date.now() < rec.notBefore) return;
+        this.cleanupRunning = true;
+        try {
+            const appRootId = await this.baseAdapter.getAppRootId();
+            const folderId = await this.lockService.getFolderId(rec.backupName, appRootId);
+            if (folderId !== rec.backupId) {
+                // Removed (or replaced) by hand: nothing left to bring in
+                await this.savePendingCleanup(null);
+                return;
+            }
+            const backup = this.baseAdapter.cloneWithNewVaultName(rec.backupName);
+            if (backup.initialize) await backup.initialize();
+            const files = await backup.listFiles();
+            const seen = new Set<string>();
+            for (const f of files) {
+                if (f.kind !== "file" || f.path === MIGRATION_LOCK_FILENAME) continue;
+                if (shouldIgnore(this.ctx, f.path)) continue;
+                seen.add(f.path);
+                if (f.hash && rec.scan[f.path] === f.hash) continue;
+                const content = await backup.downloadFile(f.id);
+                const remotePlain = await hashContent(content);
+                const localNow = await this.localHash(f.path);
+                if (localNow === remotePlain) continue;
+                const base = rec.base[f.path];
+                let untouched = base === undefined ? localNow === null : localNow === base;
+                if (untouched) {
+                    // Check again right before replacing it: the note may have been
+                    // saved here while the checks above were waiting on the disk
+                    await ensureLocalFolder(this.ctx, f.path);
+                    if ((await this.localHash(f.path)) !== localNow) untouched = false;
+                }
+                const target = untouched
+                    ? f.path
+                    : await freeConflictCopyPath((p) => this.ctx.vault.exists(p), f.path);
+                if (!untouched) await ensureLocalFolder(this.ctx, target);
+                await this.ctx.vault.writeBinary(target, content);
+                this.ctx.dirtyPaths.set(target, Date.now());
+                // Taken: a retry after a later failure must not take it again
+                rec.scan[f.path] = f.hash ?? "";
+                if (untouched) rec.base[f.path] = remotePlain;
+                await this.savePendingCleanup(rec);
+                await this.ctx.log(
+                    untouched
+                        ? `[Migration] Took another device's late version of ${f.path} from the old folder.`
+                        : `[Migration] ${f.path} was changed here and late on another device: kept theirs as ${target}.`,
+                    "info",
+                );
+            }
+            for (const path of Object.keys(rec.scan)) {
+                // Left out of sync since (scope changed): not a deletion
+                if (seen.has(path) || shouldIgnore(this.ctx, path)) continue;
+                const localNow = await this.localHash(path);
+                if (localNow === null || localNow !== rec.base[path]) continue; // the edit here wins
+                if ((await this.localHash(path)) !== localNow) continue;
+                await this.removeLocal(path);
+                markDeleted(this.ctx, path);
+                delete rec.scan[path];
+                await this.savePendingCleanup(rec);
+                await this.ctx.log(`[Migration] ${path} was deleted late on another device: deleted it here too.`, "info");
+            }
+            await remoteDeletionOf(this.ctx).remove(
+                this.baseAdapter,
+                { id: rec.backupId, path: rec.backupName, kind: "folder" },
+                "maintenance",
+            );
+            await this.ctx.log(`[Migration] Deleted backup folder: ${rec.backupName}`, "info");
+            await this.savePendingCleanup(null);
+        } catch (e) {
+            await this.ctx.log(`[Migration] Backup folder cleanup failed (retried later): ${String(e)}`, "warn");
+        } finally {
+            this.cleanupRunning = false;
+        }
+    }
+
+    /**
      * Finalize: Rename folders and upload vault-lock.vault.
      * Implements atomic folder swap with recovery capabilities.
      */
@@ -194,6 +487,9 @@ export class MigrationService {
         const tempId = await this.lockService.getFolderId(tempName, appRootId);
 
         if (!tempId) throw new Error("Temporary encrypted folder not found.");
+
+        // Last, so that it also covers what other devices pushed during the upload
+        await this.catchUpOtherDevices(tempEncryptedAdapter);
 
         await this.ctx.log(
             `[Migration] Finalizing swap. Original: ${originalId}, Temp: ${tempId}`,
@@ -246,12 +542,19 @@ export class MigrationService {
             throw error; // Re-throw to signal migration failure
         }
 
+        // The old folder is deleted later (finishBackupCleanup): a sync another
+        // device started before the migration lock existed may still push into it
         if (originalId) {
             try {
-                await this.baseAdapter.deleteFile(originalId);
-                await this.ctx.log(`[Migration] Deleted backup folder: ${backupName}`, "info");
+                await this.savePendingCleanup({
+                    backupName,
+                    backupId: originalId,
+                    notBefore: Date.now() + BACKUP_CLEANUP_GRACE_MS,
+                    scan: this.scan,
+                    base: this.scanBase,
+                });
             } catch (e) {
-                await this.ctx.log(`[Migration] Failed to delete backup folder: ${String(e)}`, "warn");
+                await this.ctx.log(`[Migration] Could not record the backup folder for cleanup: ${String(e)}`, "warn");
             }
         }
 
@@ -274,7 +577,11 @@ export class MigrationService {
         const tempName = `${this.baseAdapter.vaultName}-Temp-Encrypted`;
         const tempId = await this.lockService.getFolderId(tempName);
         if (tempId) {
-            await this.baseAdapter.deleteFile(tempId);
+            await remoteDeletionOf(this.ctx).remove(
+                this.baseAdapter,
+                { id: tempId, path: tempName, kind: "folder" },
+                "maintenance",
+            );
         }
         await this.lockService.removeMigrationLock();
         this.ctx.syncState = "IDLE";

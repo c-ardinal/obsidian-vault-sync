@@ -3,7 +3,7 @@
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Vault-Sync - Obsidian Cloud Sync Plugin</title>
+        <title>Vault Syncer - Obsidian Cloud Sync Plugin</title>
         <script src="site.js"></script>
         <link rel="stylesheet" href="style.css" />
         <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
@@ -81,7 +81,7 @@
                 <header>
                     <img
                         src="img/vaultsync_logotype_v2.webp"
-                        alt="Vault-Sync"
+                        alt="Vault Syncer"
                         class="logo hero-item"
                         style="--d: 0"
                         width="1221"
@@ -91,7 +91,7 @@
                 </header>
 
                 <p class="intro hero-item" style="--d: 2">
-                    Vault-Sync seamlessly synchronizes your Obsidian vault across multiple devices
+                    Vault Syncer seamlessly synchronizes your Obsidian vault across multiple devices
                     through cloud storage. All sync operations run directly between your device and
                     your cloud storage account &mdash; no intermediary servers involved.
                 </p>
@@ -124,7 +124,7 @@
                                 <h3>Install the Plugin</h3>
                                 <p>
                                     Search for
-                                    <code>Vault-Sync</code> in Community plugins &rarr; Install
+                                    <code>Vault Syncer</code> in Community plugins &rarr; Install
                                     &amp; Enable
                                 </p>
                             </div>
@@ -134,8 +134,8 @@
                             <div class="step-content">
                                 <h3>Login to Cloud Service</h3>
                                 <p>
-                                    Open the Vault-Sync settings tab and click
-                                    <strong>Login</strong>.
+                                    Open <strong>Authentication</strong> in the Vault Syncer settings
+                                    and click <strong>Login</strong>.
                                 </p>
                                 <p>
                                     A browser window opens for authentication &mdash; authorize
@@ -171,24 +171,27 @@
                         <p>
                             Sync your vault across desktop and mobile devices. Supports flexible
                             triggers: on startup, on a timer, on save, after you stop editing, and
-                            on layout changes such as switching tabs.
+                            on layout changes such as switching tabs. Waiting changes are also sent
+                            when the app is hidden or closed.
                         </p>
                     </div>
                     <div class="feature-card" data-reveal style="--i: 1">
                         <h3><i data-lucide="git-merge"></i>Smart Merge</h3>
                         <p>
                             Three-way merge automatically resolves conflicts when the same file is
-                            edited on multiple devices. Choose from four strategies: smart-merge,
-                            force-local, force-remote, and always-fork. Notes whose names differ
-                            only in letter case or Unicode form are kept side by side as
+                            edited on multiple devices. Canvas, JSON and Bases files are merged as
+                            data, so a merge never leaves them unreadable. Choose from four
+                            strategies: smart merge, create copies, keep this device, and keep
+                            cloud. Notes whose names differ only in letter case or Unicode form are
+                            kept side by side as
                             <code>name (2).md</code> instead of overwriting each other.
                         </p>
                     </div>
                     <div class="feature-card" data-reveal style="--i: 2">
                         <h3><i data-lucide="shield-check"></i>End-to-End Encryption</h3>
                         <p>
-                            Optionally encrypt your entire vault with AES-256-GCM before it leaves
-                            your device. The
+                            Optionally encrypt the contents of your files with AES-256-GCM before
+                            they leave your device. The
                             <a
                                 href="https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine"
                                 target="_blank"
@@ -197,9 +200,10 @@
                             >
                             is a separate, opt-in add-on that you install from the plugin settings
                             in a few taps, on desktop or mobile. Includes password change, recovery
-                            code export, and streaming encryption for large files. The key is
-                            derived from your password with PBKDF2, and your password never leaves
-                            your device.
+                            code export, and streaming encryption for large files. Files are
+                            encrypted with a random key that your password protects through PBKDF2,
+                            and your password never leaves your device. File and folder names are
+                            not encrypted.
                         </p>
                     </div>
                     <div class="feature-card" data-reveal style="--i: 3">
@@ -214,21 +218,25 @@
                         <h3><i data-lucide="sliders-horizontal"></i>Granular Sync Control</h3>
                         <p>
                             Choose exactly what to sync: themes, plugins, core settings, media
-                            files, dotfiles, and more. Exclude files with glob patterns.
+                            files, dotfiles, and more. Exclude files with glob patterns or a file
+                            size limit.
                         </p>
                     </div>
                     <div class="feature-card" data-reveal style="--i: 5">
                         <h3><i data-lucide="monitor-smartphone"></i>Per-Platform Settings</h3>
                         <p>
-                            Configure sync triggers independently for desktop and mobile, or use
-                            unified settings across all devices.
+                            Configure sync triggers, exclusions and the file size limit
+                            independently for desktop and mobile, or use unified settings across all
+                            devices.
                         </p>
                     </div>
                     <div class="feature-card" data-reveal style="--i: 6">
                         <h3><i data-lucide="hard-drive-upload"></i>Background Transfer</h3>
                         <p>
                             Large files are uploaded and downloaded in the background without
-                            blocking the UI. Configurable thresholds and concurrency limits.
+                            blocking the UI. Configurable thresholds and concurrency limits. Large
+                            files can wait for Wi-Fi or for the battery to recover (Android and
+                            PCs).
                         </p>
                     </div>
                     <div class="feature-card" data-reveal style="--i: 7">
@@ -236,6 +244,23 @@
                         <p>
                             OAuth2 with PKCE via a built-in proxy or your own credentials. Tokens
                             are stored via Obsidian's SecretStorage API.
+                        </p>
+                    </div>
+                    <div class="feature-card" data-reveal style="--i: 8">
+                        <h3><i data-lucide="archive-restore"></i>Data Protection</h3>
+                        <p>
+                            Deleted files are kept in the cloud for a set number of days and can be
+                            restored. The vault or a folder can be restored to a past time. A sync
+                            that would delete many files, or overwrite many files on the cloud, asks
+                            for confirmation first.
+                        </p>
+                    </div>
+                    <div class="feature-card" data-reveal style="--i: 9">
+                        <h3><i data-lucide="activity"></i>Sync Status</h3>
+                        <p>
+                            See the devices that sync your vault and the changes each one sent,
+                            check that a device matches the cloud, and gather diagnostic info for a
+                            support request.
                         </p>
                     </div>
                 </div>
@@ -250,9 +275,6 @@
                         for minimal, app-only access
                     </li>
                 </ul>
-                <p class="muted" data-reveal>
-                    Additional providers are planned for future releases.
-                </p>
 
                 <footer>
                     &copy; 2026 c-ardinal &middot;
@@ -274,7 +296,7 @@
                 <header>
                     <img
                         src="img/vaultsync_logotype_v2.webp"
-                        alt="Vault-Sync"
+                        alt="Vault Syncer"
                         class="logo hero-item"
                         style="--d: 0"
                         width="1221"
@@ -284,7 +306,7 @@
                 </header>
 
                 <p class="intro hero-item" style="--d: 2">
-                    Vault-Syncは、クラウドストレージを介してObsidianのVaultを複数デバイス間でシームレスに同期するプラグインです。全同期処理はデバイスとクラウドストレージ間で直接実行され、中間サーバーを経由しません。
+                    Vault Syncerは、クラウドストレージを介してObsidianのVaultを複数デバイス間でシームレスに同期するプラグインです。全同期処理はデバイスとクラウドストレージ間で直接実行され、中間サーバーを経由しません。
                 </p>
 
                 <div class="links hero-item" style="--d: 3">
@@ -313,7 +335,7 @@
                                 <h3>プラグインをインストール</h3>
                                 <p>
                                     コミュニティプラグインで
-                                    <code>Vault-Sync</code> を検索 &rarr; インストール&有効化
+                                    <code>Vault Syncer</code> を検索 &rarr; インストール&有効化
                                 </p>
                             </div>
                         </div>
@@ -322,7 +344,7 @@
                             <div class="step-content">
                                 <h3>クラウドサービスへログイン</h3>
                                 <p>
-                                    Vault-Syncの設定タブを表示し、<strong>ログイン</strong>をクリック。
+                                    Vault Syncerの設定画面で<strong>認証</strong>を表示し、<strong>ログイン</strong>をクリック。
                                 </p>
                                 <p>
                                     ブラウザに表示される認証画面でアクセスを許可すると、自動的にObsidianへ復帰。
@@ -348,13 +370,13 @@
                     <div class="feature-card" data-reveal style="--i: 0">
                         <h3><i data-lucide="cloud-upload"></i>クラウド同期</h3>
                         <p>
-                            デスクトップとモバイルの両方でVaultを同期。起動時、タイマー、保存時、編集後、タブ移動などのレイアウト変更時といった、柔軟なトリガー設定に対応。
+                            デスクトップとモバイルの両方でVaultを同期。起動時、タイマー、保存時、編集後、タブ移動などのレイアウト変更時といった、柔軟なトリガー設定に対応。アプリの非表示化・終了時にも、未送信の変更を即時送信。
                         </p>
                     </div>
                     <div class="feature-card" data-reveal style="--i: 1">
                         <h3><i data-lucide="git-merge"></i>スマートマージ</h3>
                         <p>
-                            複数デバイスで同一ファイルを編集した際も、自動的に競合を解決。ローカル優先、リモート優先、常時フォークといったマージ戦略も選択可能。大文字・小文字やUnicodeの表記のみが相違する名前のノートは、上書きせず<code
+                            複数デバイスで同一ファイルを編集した際も、自動的に競合を解決。Canvas・JSON・Basesファイルはデータ構造単位でマージするため、マージ結果が読込不能になることはありません。スマートマージ、コピーを作成、本端末を優先、クラウドを優先の4戦略を選択可能。大文字・小文字やUnicodeの表記のみが相違する名前のノートは、上書きせず<code
                                 >名前 (2).md</code
                             >として両方を保持します。
                         </p>
@@ -367,7 +389,7 @@
                                 target="_blank"
                                 rel="noopener"
                                 >E2EEエンジン</a
-                            >（任意）を導入すると、Vault全体をAES-256-GCMで暗号化した上でアップロード。エンジンは別途配布のアドオンで、プラグインの設定画面から、デスクトップ・モバイルとも数タップで導入可能。パスワード変更、リカバリーコード、大容量ファイルのストリーミング暗号化に対応。暗号鍵はパスワードからPBKDF2で導出し、パスワードがデバイス外部に送信されることはありません。
+                            >（任意）を導入すると、ファイル内容をAES-256-GCMで暗号化した上でアップロード。エンジンは別途配布のアドオンで、プラグインの設定画面から、デスクトップ・モバイルとも数タップで導入可能。パスワード変更、リカバリーコード、大容量ファイルのストリーミング暗号化に対応。ファイルはランダム生成の鍵で暗号化し、同鍵をパスワード（PBKDF2）で保護します。パスワードがデバイス外部に送信されることはありません。ファイル名・フォルダ名は暗号化の対象外です。
                         </p>
                     </div>
                     <div class="feature-card" data-reveal style="--i: 3">
@@ -379,25 +401,37 @@
                     <div class="feature-card" data-reveal style="--i: 4">
                         <h3><i data-lucide="sliders-horizontal"></i>詳細な同期制御</h3>
                         <p>
-                            テーマ、プラグイン、コア設定、メディアファイル、ドットファイルなど、同期対象を詳細に選択可能。globパターンによる除外設定にも対応。
+                            テーマ、プラグイン、コア設定、メディアファイル、ドットファイルなど、同期対象を詳細に選択可能。globパターンとファイルサイズ上限による除外設定にも対応。
                         </p>
                     </div>
                     <div class="feature-card" data-reveal style="--i: 5">
                         <h3><i data-lucide="monitor-smartphone"></i>プラットフォーム別設定</h3>
                         <p>
-                            デスクトップとモバイルで同期トリガーを個別に設定可能。全デバイス統一設定への変更も可能。
+                            デスクトップとモバイルで、同期トリガー・除外パターン・ファイルサイズ上限を個別に設定可能。全デバイス統一設定への変更も可能。
                         </p>
                     </div>
                     <div class="feature-card" data-reveal style="--i: 6">
                         <h3><i data-lucide="hard-drive-upload"></i>バックグラウンド転送</h3>
                         <p>
-                            大容量ファイルはバックグラウンドでアップロード・ダウンロードし、UIをブロックしません。閾値と同時接続数を設定可能。
+                            大容量ファイルはバックグラウンドでアップロード・ダウンロードし、UIをブロックしません。閾値と同時接続数を設定可能。大容量ファイルの転送は、Wi-Fi接続時または電池残量の回復時まで延期可能（Android・PC）。
                         </p>
                     </div>
                     <div class="feature-card" data-reveal style="--i: 7">
                         <h3><i data-lucide="key-round"></i>安全な認証</h3>
                         <p>
                             PKCEベースのOAuth2認証。内蔵プロキシまたは独自の認証情報を選択可能。トークンはObsidianのSecretStorageに保存。
+                        </p>
+                    </div>
+                    <div class="feature-card" data-reveal style="--i: 8">
+                        <h3><i data-lucide="archive-restore"></i>データ保護</h3>
+                        <p>
+                            削除されたファイルをクラウド上で指定日数保管し、復元可能。Vault全体またはフォルダ単位で、過去時点への復元にも対応。大量のファイルの削除、またはクラウド上の大量のファイルの上書きを実行する同期は、事前に確認を要求します。
+                        </p>
+                    </div>
+                    <div class="feature-card" data-reveal style="--i: 9">
+                        <h3><i data-lucide="activity"></i>同期状況の確認</h3>
+                        <p>
+                            同期端末の一覧と各端末の変更履歴の表示、端末とクラウドの同期状態の検証、サポート依頼用の診断情報の取得が可能。
                         </p>
                     </div>
                 </div>
@@ -412,7 +446,6 @@
                         <code>drive.file</code>スコープを使用し、アプリ専用ファイルのみにアクセス
                     </li>
                 </ul>
-                <p class="muted" data-reveal>今後のリリースで他プロバイダにも対応予定です。</p>
 
                 <footer>
                     &copy; 2026 c-ardinal &middot;

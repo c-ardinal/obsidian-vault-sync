@@ -74,9 +74,10 @@ describe("GoogleDriveAdapter - Full Coverage", () => {
 
     describe("Basic Properties", () => {
         it("should expose feature flags", () => {
-            expect(adapter.supportsChangesAPI).toBe(true);
-            expect(adapter.supportsHash).toBe(true);
-            expect(adapter.supportsHistory).toBe(true);
+            expect(adapter.capabilities.changeFeed).toBe(true);
+            expect(adapter.capabilities.contentHash).toBe("md5");
+            expect(adapter.capabilities.revisions).toBe(true);
+            expect(adapter.capabilities.resumableChunkAlignment).toBe(256 * 1024);
         });
 
         it("should expose static ONLINE_TIMEOUT_MS", () => {
@@ -1187,21 +1188,21 @@ describe("GoogleDriveAdapter - Full Coverage", () => {
             await expect(adapter.listRevisions("file\\name.md")).rejects.toThrow("Invalid path");
         });
 
-        it("should reject paths with colon", async () => {
-            await expect(adapter.listRevisions("file:name.md")).rejects.toThrow("Invalid path");
+        it("should reject '..' and '.' path segments", async () => {
+            await expect(adapter.listRevisions("notes/../secret.md")).rejects.toThrow("Invalid path");
+            await expect(adapter.listRevisions("./note.md")).rejects.toThrow("Invalid path");
+            await expect(adapter.listRevisions("/note.md")).rejects.toThrow("Invalid path");
         });
 
-        it("should reject paths with pipe", async () => {
-            await expect(adapter.listRevisions("file|name.md")).rejects.toThrow("Invalid path");
-        });
-
-        it("should reject paths with question mark", async () => {
-            await expect(adapter.listRevisions("file?name.md")).rejects.toThrow("Invalid path");
-        });
-
-        it("should reject paths with asterisk", async () => {
-            await expect(adapter.listRevisions("file*name.md")).rejects.toThrow("Invalid path");
-        });
+        // Valid note names on macOS / Linux / iOS: their history must stay readable,
+        // or every concurrent edit of such a note ends in a conflict copy.
+        it.each(["Q&A: why?.md", 'say "hi" | <draft>*.md', "v1..v2 plan.md", "notes/..hidden.md"])(
+            "should accept the note name %s",
+            async (name) => {
+                mockFetch.mockResolvedValueOnce(jsonResponse({ revisions: [] }));
+                await expect(adapter.listRevisions(name, "file-1")).resolves.toEqual([]);
+            },
+        );
 
         it("should accept valid paths with dots", async () => {
             mockFetch.mockResolvedValueOnce(

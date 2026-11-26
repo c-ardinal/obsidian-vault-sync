@@ -6,7 +6,7 @@
  * setRevisionKeepForever, deleteRevision, restoreRevision をテストする。
  *
  * @pass_criteria
- * - supportsHistory: adapter.supportsHistory に基づく
+ * - supportsHistory: adapter.capabilities.revisions に基づく
  * - listRevisions: adapter 委譲 / 非対応時エラー
  * - getRevisionContent: キャッシュヒット時はadapter呼ばない / ミス時はadapter + キャッシュ保存
  * - setRevisionKeepForever: adapter 委譲
@@ -14,6 +14,7 @@
  * - restoreRevision: コンテンツ取得→既存ファイル上書き/新規作成→通知
  */
 
+import { testCapabilities } from "../../helpers/mock-cloud-adapter";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { TFile } from "obsidian";
 import {
@@ -37,7 +38,7 @@ function createMockCtx(
     const { adapterSupportsHistory = true, cachedContent = null } = opts;
 
     const adapter: any = {
-        supportsHistory: adapterSupportsHistory,
+        capabilities: testCapabilities({ revisions: adapterSupportsHistory }),
         listRevisions: vi.fn(async () => [
             { id: "rev-1", modifiedTime: 1000, size: 100 },
             { id: "rev-2", modifiedTime: 2000, size: 200 },
@@ -81,9 +82,9 @@ describe("supportsHistory", () => {
         expect(supportsHistory(ctx)).toBe(false);
     });
 
-    it("should return false when supportsHistory is undefined", () => {
+    it("should return false when the adapter declares no capabilities", () => {
         const ctx = createMockCtx();
-        (ctx.adapter as any).supportsHistory = undefined;
+        (ctx.adapter as any).capabilities = undefined;
         expect(supportsHistory(ctx)).toBe(false);
     });
 });

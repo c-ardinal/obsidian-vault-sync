@@ -15,6 +15,7 @@
  * - VSC2チャンク復号失敗時にchunkIndexが設定されること
  * - EncryptedAdapterがVSC1/VSC2を自動判定し、適切なDecryptionErrorに変換すること
  */
+import { testCapabilities } from "../../helpers/mock-cloud-adapter";
 import { describe, it, expect, vi } from "vitest";
 import { DecryptionError } from "../../../src/encryption/errors";
 import {
@@ -34,9 +35,7 @@ import type { ICryptoEngine } from "../../../src/encryption/interfaces";
 function createMockBaseAdapter(storedContent?: ArrayBuffer): CloudAdapter {
     return {
         name: "MockBase",
-        supportsChangesAPI: true,
-        supportsHash: true,
-        supportsHistory: false,
+        capabilities: testCapabilities({ changeFeed: true, contentHash: "md5", revisions: false }),
         vaultName: "test",
         isAuthenticated: () => true,
         getAuthUrl: async () => "",

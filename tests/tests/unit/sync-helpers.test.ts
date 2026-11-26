@@ -17,6 +17,10 @@ import {
     getThresholdBytes,
     generateTransferId,
     markPendingTransfer,
+    buildRemoteIndexPayload,
+    checkIndexOverwrite,
+    owesIndexUpload,
+    pendingPullsOf,
 } from "../../../src/sync-manager/sync-helpers";
 import type { SyncContext } from "../../../src/sync-manager/context";
 import type { LocalFileIndex } from "../../../src/sync-manager/types";
@@ -35,12 +39,16 @@ describe("sync-helpers", () => {
             settings: {
                 largeFileThresholdMB: 10,
                 concurrency: 2,
+                remoteTrashRetentionDays: 30,
+                autoKeepRevisionDays: -1,
                 notificationLevel: "standard",
                 showSyncStatus: false,
                 conflictResolutionStrategy: "smart-merge",
                 enableLogging: false,
                 isDeveloperMode: false,
                 exclusionPatterns: "",
+                desktopExclusionPatterns: "",
+                mobileExclusionPatterns: "",
                 bgTransferIntervalSec: 0,
                 syncAppearance: true,
                 syncCommunityPlugins: true,
@@ -53,6 +61,8 @@ describe("sync-helpers", () => {
                 syncWorkspace: false,
                 hasCompletedFirstSync: false,
                 e2eeEnabled: false,
+                deferLargeOnCellular: false,
+                deferLargeOnLowBattery: false,
             },
             localIndex: {},
         };
@@ -286,5 +296,58 @@ describe("sync-helpers", () => {
             expect(entry.pendingTransfer?.direction).toBe("pull");
             expect(entry.pendingTransfer?.snapshotHash).toBe("snapshot_def");
         });
+    });
+});
+
+describe("checkIndexOverwrite (shared index uploaded by two devices at once)", () => {
+    const INDEX = ".obsidian/plugins/obsidian-vault-sync/data/remote/sync-index.json";
+    const makeCtx = (adapter: MockCloudAdapter) =>
+        ({
+            adapter: adapter as unknown as CloudAdapter,
+            index: {},
+            localIndex: {},
+            pluginDataPath: INDEX,
+            settings: { exclusionPatterns: "", desktopExclusionPatterns: "", mobileExclusionPatterns: "" },
+            log: vi.fn(async () => {}),
+        }) as unknown as SyncContext;
+    const bytes = (s: string) => new TextEncoder().encode(s).buffer as ArrayBuffer;
+
+    it("asks for another upload when another device's index landed between our read and our upload", async () => {
+        const adapter = new MockCloudAdapter();
+        const ctx = makeCtx(adapter);
+        await buildRemoteIndexPayload(ctx); // reads the cloud's index (none yet)
+        await adapter.uploadFile(INDEX, bytes("other device"), Date.now());
+        const ours = await adapter.uploadFile(INDEX, bytes("ours"), Date.now());
+        await checkIndexOverwrite(ctx, ours);
+        expect(owesIndexUpload(ctx)).toBe(true);
+    });
+
+    it("pulls files that only the replaced index listed", async () => {
+        const adapter = new MockCloudAdapter();
+        const ctx = makeCtx(adapter);
+        (ctx as unknown as { dirtyPaths: Map<string, number> }).dirtyPaths = new Map();
+        await buildRemoteIndexPayload(ctx);
+        const theirs = await adapter.uploadFile("notes/theirs.md", bytes("x"), Date.now());
+        const theirIndex = {
+            formatVersion: 1,
+            provider: "mock",
+            startPageToken: null,
+            index: { "notes/theirs.md": { fileId: theirs.id, mtime: 1, size: 1, hash: theirs.hash } },
+        };
+        await adapter.uploadFile(INDEX, bytes(JSON.stringify(theirIndex)), Date.now());
+        const ours = await adapter.uploadFile(INDEX, bytes(JSON.stringify({ ...theirIndex, index: {} })), Date.now());
+        await checkIndexOverwrite(ctx, ours);
+        expect(owesIndexUpload(ctx)).toBe(true);
+        expect(pendingPullsOf(ctx).get(theirs.id)?.file.path).toBe("notes/theirs.md");
+    });
+
+    it("does nothing when ours directly follows the version we merged with", async () => {
+        const adapter = new MockCloudAdapter();
+        const ctx = makeCtx(adapter);
+        await adapter.uploadFile(INDEX, bytes("earlier"), Date.now());
+        await buildRemoteIndexPayload(ctx).catch(() => undefined);
+        const ours = await adapter.uploadFile(INDEX, bytes("ours"), Date.now());
+        await checkIndexOverwrite(ctx, ours);
+        expect(owesIndexUpload(ctx)).toBe(false);
     });
 });

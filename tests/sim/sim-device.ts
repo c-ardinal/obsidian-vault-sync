@@ -15,12 +15,16 @@ export const LOCAL_INDEX_PATH = `${PLUGIN_DIR}/data/local/local-index.json`;
 
 export const SIM_SETTINGS: SyncManagerSettings = {
     concurrency: 2,
+    remoteTrashRetentionDays: 30,
+    autoKeepRevisionDays: -1,
     notificationLevel: "standard",
     showSyncStatus: false,
     conflictResolutionStrategy: "smart-merge",
     enableLogging: false,
     isDeveloperMode: false,
     exclusionPatterns: "",
+    desktopExclusionPatterns: "",
+    mobileExclusionPatterns: "",
     largeFileThresholdMB: 0,
     bgTransferIntervalSec: 0,
     syncAppearance: true,
@@ -34,6 +38,8 @@ export const SIM_SETTINGS: SyncManagerSettings = {
     syncWorkspace: false,
     hasCompletedFirstSync: false,
     e2eeEnabled: false,
+    deferLargeOnCellular: false,
+    deferLargeOnLowBattery: false,
 };
 
 /** Paths that are plugin/Obsidian internals, not user content */
@@ -174,6 +180,15 @@ export class SimDevice {
     readonly syncErrors: string[] = [];
     syncsStarted = 0;
     syncsFinished = 0;
+    /**
+     * This device's settings. Kept across restarts (the plugin reloads them from
+     * its settings file), changed in place by the settings-change actions.
+     */
+    readonly settings: SyncManagerSettings;
+    /** Called after every boot (first start and restarts), e.g. to install a plan guard */
+    onBoot?: (device: SimDevice) => void;
+    /** Called after each sync of the current app instance that finished without error */
+    afterSync?: (device: SimDevice) => Promise<void>;
     private inflight = new Set<Promise<void>>();
     private pendingEvents = 0;
 
@@ -191,6 +206,11 @@ export class SimDevice {
                   : new PersonalityVaultAdapter(this.fs, now);
         (this.app as any)._adapter = this.vaultAdapter;
         (this.app.vault as any).adapter = this.vaultAdapter;
+        this.settings = {
+            ...SIM_SETTINGS,
+            ...(opts.settings ?? {}),
+            ...(opts.cryptoEngine ? { e2eeEnabled: true } : {}),
+        };
 
         this.boot();
     }
@@ -228,11 +248,7 @@ export class SimDevice {
         this.ops = rawOps;
 
         const notifier: INotificationService = { show: () => {} };
-        const settings = {
-            ...SIM_SETTINGS,
-            ...(opts.settings ?? {}),
-            ...(opts.cryptoEngine ? { e2eeEnabled: true } : {}),
-        };
+        const settings = this.settings;
         const fencedOps = fence(rawOps);
         this.sm = new SyncManager(
             fencedOps,
@@ -249,9 +265,15 @@ export class SimDevice {
         this.ctx = this.sm as any;
         this.ctx.unicodeInsensitiveFs =
             this.fs === "macos" || (this.fs === "real-fs" && process.platform === "darwin");
+        this.ctx.windowsNameRules = this.fs === "windows" || (this.fs === "real-fs" && process.platform === "win32");
+        this.ctx.caseInsensitiveFs =
+            this.fs === "macos" ||
+            this.fs === "windows" ||
+            (this.fs === "real-fs" && (process.platform === "darwin" || process.platform === "win32"));
         this.ctx.log = async (msg: string, level = "info") => {
             if (alive()) opts.log(this.name, `${level.toUpperCase()} ${msg}`);
         };
+        this.onBoot?.(this);
     }
 
     /**
@@ -281,9 +303,18 @@ export class SimDevice {
 
     // ─── Vault events (TriggerManager equivalent) ───
 
+    /** Delivery time of the latest scheduled vault event (events never overtake it) */
+    private lastEventAt = 0;
+
     private scheduleEvent(ev: VaultEvent, gen: number): void {
         if (isInternalPath(ev.path)) return; // Obsidian doesn't emit vault events for config dir
-        const delay = this.opts.maxEventDelayMs > 0 ? this.opts.rng.int(0, this.opts.maxEventDelayMs) : 0;
+        let delay = this.opts.maxEventDelayMs > 0 ? this.opts.rng.int(0, this.opts.maxEventDelayMs) : 0;
+        // Late, but in order: Obsidian hands vault events to plugins one by one in the
+        // order the file system reported them. Independent delays reordered them (the
+        // second of two quick renames arriving first), which no real vault does.
+        const now = Date.now();
+        delay = Math.max(delay, this.lastEventAt - now);
+        this.lastEventAt = now + delay;
         this.pendingEvents++;
         setTimeout(() => {
             this.pendingEvents--;
@@ -362,10 +393,29 @@ export class SimDevice {
 
     async userRename(oldPath: string, newPath: string): Promise<boolean> {
         const file = this.ops.getAbstractFileByPath(oldPath);
-        if (!file || (await this.vaultAdapter.exists(newPath))) return false;
+        // A rename that only changes letter case / Unicode form is allowed: on Windows
+        // and macOS the "existing" target is this very file.
+        const sameName = (p: string) => p.normalize("NFC").toLowerCase();
+        const caseOnly = this.fs !== "linux" && sameName(oldPath) === sameName(newPath) && oldPath !== newPath;
+        if (!file || (!caseOnly && (await this.vaultAdapter.exists(newPath)))) return false;
         await this.ensureParent(newPath);
         await this.ops.renameFile(file, newPath);
         return true;
+    }
+
+    /** Rename a folder (like dragging it in the file explorer) */
+    async userRenameFolder(oldPath: string, newPath: string): Promise<boolean> {
+        if (await this.isFile(oldPath)) return false;
+        if (!(await this.vaultAdapter.exists(oldPath))) return false;
+        const sameName = (p: string) => p.normalize("NFC").toLowerCase();
+        const caseOnly = this.fs !== "linux" && sameName(oldPath) === sameName(newPath) && oldPath !== newPath;
+        if (!caseOnly && (await this.vaultAdapter.exists(newPath))) return false;
+        await this.ops.rename(oldPath, newPath);
+        return true;
+    }
+
+    private async isFile(path: string): Promise<boolean> {
+        return this.vaultAdapter.hasFile(path);
     }
 
     read(path: string): string | null {
@@ -390,6 +440,9 @@ export class SimDevice {
         const gen = this.generation;
         const p = this.sm
             .requestSmartSync(trigger, scanVault)
+            .then(async () => {
+                if (gen === this.generation && this.afterSync) await this.afterSync(this);
+            })
             .catch((e) => {
                 if (gen !== this.generation) return; // the app was killed meanwhile
                 const msg = e instanceof Error ? e.message : String(e);

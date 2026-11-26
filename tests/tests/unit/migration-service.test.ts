@@ -6,7 +6,7 @@
  * - Engine getter error handling
  * - Integrity check failures (size/content mismatch)
  * - Folder swap error handling and recovery
- * - Backup deletion error handling
+ * - Deferred backup deletion (kept at finalize, failed cleanup retried)
  * - Interrupted migration auto-recovery (success/failure)
  * - checkForInterruptedMigration catch block
  */
@@ -346,33 +346,52 @@ describe("MigrationService - Branch Coverage Tests", () => {
             );
         });
 
-        it("should handle backup folder deletion error gracefully", async () => {
-            const ctx = createMockCtx();
-            const baseAdapter = createMockBaseAdapter();
-            const lockService = createMockLockService();
-            const tempAdapter = createMockBaseAdapter("TestVault-Temp-Encrypted");
-            tempAdapter.getBaseAdapter = vi.fn(() => tempAdapter);
+        it("keeps the old folder at finalize and retries a failed cleanup later", async () => {
+            vi.useFakeTimers({ toFake: ["Date"] });
+            try {
+                const files = new Map<string, string>();
+                const ctx = createMockCtx();
+                Object.assign(ctx.vault, {
+                    exists: vi.fn(async (p: string) => files.has(p)),
+                    write: vi.fn(async (p: string, d: string) => void files.set(p, d)),
+                    read: vi.fn(async (p: string) => files.get(p)!),
+                    remove: vi.fn(async (p: string) => void files.delete(p)),
+                });
+                const record = `${ctx.pluginDir}/data/local/migration-backup.json`;
+                const baseAdapter = createMockBaseAdapter();
+                const lockService = createMockLockService();
+                lockService.getFolderId = vi.fn(async (name: string) =>
+                    name.includes("Temp") ? "temp-folder-id" : "original-folder-id",
+                );
+                const tempAdapter = createMockBaseAdapter("TestVault-Temp-Encrypted");
+                tempAdapter.getBaseAdapter = vi.fn(() => tempAdapter);
+                baseAdapter.deleteFile = vi.fn(async () => {
+                    throw new Error("Permission denied");
+                });
 
-            // Make deleteFile fail for backup deletion
-            baseAdapter.deleteFile = vi.fn(async () => {
-                throw new Error("Permission denied");
-            });
+                const svc = new MigrationService(baseAdapter, lockService, ctx);
+                await svc.startMigration("password");
+                await svc.finalizeMigration(tempAdapter);
+                expect(baseAdapter.deleteFile).not.toHaveBeenCalled();
+                expect(ctx.syncState).toBe("IDLE");
+                expect(svc.isMigrating).toBe(false);
+                expect(files.has(record)).toBe(true);
 
-            const svc = new MigrationService(baseAdapter, lockService, ctx);
-            await svc.startMigration("password");
+                vi.setSystemTime(Date.now() + 2 * 3600 * 1000);
+                await svc.finishBackupCleanup();
+                expect(ctx.log).toHaveBeenCalledWith(
+                    expect.stringContaining("Backup folder cleanup failed"),
+                    "warn",
+                );
+                expect(files.has(record)).toBe(true);
 
-            // Should not throw even though delete fails
-            await svc.finalizeMigration(tempAdapter);
-
-            // Should log warning
-            expect(ctx.log).toHaveBeenCalledWith(
-                expect.stringContaining("Failed to delete backup folder"),
-                "warn",
-            );
-            
-            // Migration should still complete successfully
-            expect(ctx.syncState).toBe("IDLE");
-            expect(svc.isMigrating).toBe(false);
+                baseAdapter.deleteFile = vi.fn(async () => {});
+                await svc.finishBackupCleanup();
+                expect(baseAdapter.deleteFile).toHaveBeenCalledWith("original-folder-id");
+                expect(files.has(record)).toBe(false);
+            } finally {
+                vi.useRealTimers();
+            }
         });
     });
 

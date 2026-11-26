@@ -50,6 +50,26 @@ export class PersonalityVaultAdapter extends MockVaultAdapter {
         super();
     }
 
+    /**
+     * Windows (and Android shared storage) refuse names that macOS/Linux/iOS accept:
+     * the characters < > : " | ? * and \, control characters, a name ending in a dot
+     * or space, and the device names CON, PRN, AUX, NUL, COM1-9, LPT1-9 (with any
+     * extension). Writing one throws like the real file system does.
+     */
+    private assertWritable(path: string): void {
+        if (this.personality !== "windows") return;
+        for (const seg of path.split("/")) {
+            const base = seg.split(".")[0].toUpperCase();
+            if (
+                /[<>:"|?*\\\x00-\x1f]/.test(seg) ||
+                /[. ]$/.test(seg) ||
+                /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/.test(base.trimEnd())
+            ) {
+                throw new Error(`EINVAL: invalid file name on Windows: ${path}`);
+            }
+        }
+    }
+
     private fold(path: string): string {
         let p = path;
         if (this.personality === "macos") p = p.normalize("NFD");
@@ -57,8 +77,22 @@ export class PersonalityVaultAdapter extends MockVaultAdapter {
         return p;
     }
 
-    /** The name the OS hands back when you create `path` */
+    /**
+     * The name the OS hands back when you create `path`. On a case-insensitive disk a
+     * file created as "Projects/a.md" while the folder exists as "projects" lands in
+     * that folder: the disk reports "projects/a.md".
+     */
     private storedName(path: string): string {
+        const p = this.osName(path);
+        if (this.personality === "linux") return p;
+        const slash = p.lastIndexOf("/");
+        if (slash < 0) return p;
+        const parent = this.dirs.get(this.fold(p.slice(0, slash)));
+        return parent ? parent + p.slice(slash) : p;
+    }
+
+    /** Unicode form the OS reports, without resolving the parent folder's spelling */
+    private osName(path: string): string {
         return this.personality === "macos" ? path.normalize("NFD") : path;
     }
 
@@ -74,6 +108,7 @@ export class PersonalityVaultAdapter extends MockVaultAdapter {
     }
 
     override async writeBinary(path: string, content: ArrayBuffer): Promise<void> {
+        this.assertWritable(path);
         const k = this.fold(path);
         const existing = this.entries.get(k);
         this.entries.set(k, {
@@ -93,6 +128,7 @@ export class PersonalityVaultAdapter extends MockVaultAdapter {
     }
 
     override async rename(from: string, to: string): Promise<void> {
+        this.assertWritable(to);
         const fk = this.fold(from);
         if (this.dirs.has(fk)) {
             const fromPrefix = this.dirs.get(fk)! + "/";
@@ -100,17 +136,17 @@ export class PersonalityVaultAdapter extends MockVaultAdapter {
                 if (e.path.startsWith(fromPrefix) || this.fold(e.path).startsWith(fk + "/")) {
                     const np = to + "/" + e.path.slice(fromPrefix.length);
                     this.entries.delete(k);
-                    this.entries.set(this.fold(np), { ...e, path: this.storedName(np) });
+                    this.entries.set(this.fold(np), { ...e, path: this.osName(np) });
                 }
             }
             for (const [k, p] of [...this.dirs]) {
                 if (k === fk || k.startsWith(fk + "/")) {
                     this.dirs.delete(k);
                     const np = to + p.slice(this.dirs.get(fk)?.length ?? from.length);
-                    this.dirs.set(this.fold(np), this.storedName(np));
+                    this.dirs.set(this.fold(np), this.osName(np));
                 }
             }
-            this.dirs.set(this.fold(to), this.storedName(to));
+            this.dirs.set(this.fold(to), this.osName(to));
             return;
         }
         const e = this.entries.get(fk);
@@ -126,18 +162,19 @@ export class PersonalityVaultAdapter extends MockVaultAdapter {
         const folders: string[] = [];
         for (const [k, e] of this.entries) {
             if (k.startsWith(base) && !k.slice(base.length).includes("/")) {
-                files.push(e.path.split("/").pop()!);
+                files.push(e.path);
             }
         }
         for (const [k, p] of this.dirs) {
             if (k.startsWith(base) && k !== base.slice(0, -1) && !k.slice(base.length).includes("/")) {
-                folders.push(p.split("/").pop()!);
+                folders.push(p);
             }
         }
         return { files, folders };
     }
 
     override async mkdir(path: string): Promise<void> {
+        this.assertWritable(path);
         const k = this.fold(path);
         if (!this.dirs.has(k)) this.dirs.set(k, this.storedName(path));
     }
@@ -225,8 +262,9 @@ export class RealFsVaultAdapter extends MockVaultAdapter {
         if (!existsSync(dir)) return { files: [], folders: [] };
         const files: string[] = [];
         const folders: string[] = [];
+        const prefix = path === "/" || path === "" ? "" : `${path}/`;
         for (const d of readdirSync(dir, { withFileTypes: true })) {
-            (d.isDirectory() ? folders : files).push(d.name);
+            (d.isDirectory() ? folders : files).push(prefix + d.name);
         }
         return { files, folders };
     }

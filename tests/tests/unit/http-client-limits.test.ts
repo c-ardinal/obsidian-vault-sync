@@ -3,6 +3,7 @@
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { GoogleDriveHttpClient } from "../../../src/cloud-adapters/google-drive/http-client";
+import { windowStub } from "../../setup-window";
 
 function makeClient() {
     const auth = {
@@ -46,7 +47,7 @@ describe("GoogleDriveHttpClient limits", () => {
     });
 
     it("retries a 403 rateLimitExceeded, honouring Retry-After", async () => {
-        vi.stubGlobal("window", { navigator: { onLine: true } });
+        vi.stubGlobal("window", windowStub({ navigator: { onLine: true } }));
         const fetchMock = vi
             .fn()
             .mockResolvedValueOnce(

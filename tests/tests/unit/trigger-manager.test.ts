@@ -15,7 +15,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { TriggerManager } from "../../../src/services/trigger-manager";
+import { TriggerManager, RESUME_MIN_HIDDEN_MS, HIDDEN_INTERVAL_MS, QUIT_FLUSH_MAX_MS } from "../../../src/services/trigger-manager";
 import { DEFAULT_SETTINGS, SETTINGS_LIMITS } from "../../../src/constants";
 import { TFile, TFolder } from "../../../tests/__mocks__/obsidian";
 
@@ -35,6 +35,7 @@ function createMockDeps(settingsOverrides: Record<string, any> = {}) {
     const syncManager = {
         requestSmartSync: vi.fn(),
         isSyncing: vi.fn(() => false),
+        pendingChangeCount: 0,
         shouldIgnore: vi.fn(() => false),
         markDirty: vi.fn(),
         markDeleted: vi.fn(),
@@ -261,6 +262,111 @@ describe("TriggerManager", () => {
             await new Promise((r) => process.nextTick(r));
             await new Promise((r) => process.nextTick(r));
             expect(syncManager.requestSmartSync).toHaveBeenCalled();
+        });
+    });
+
+    describe("near-realtime: back to the front, network back, hidden app", () => {
+        const flush = async () => {
+            await new Promise((r) => process.nextTick(r));
+            await new Promise((r) => process.nextTick(r));
+        };
+        const make = (autoSyncIntervalSec = 10) => {
+            const m = createMockDeps({
+                triggerConfigStrategy: "unified",
+                unifiedTriggers: { ...DEFAULT_SETTINGS.unifiedTriggers, autoSyncIntervalSec },
+            });
+            const tm = new TriggerManager(m.deps);
+            tm.setReady(true);
+            return { tm, ...m };
+        };
+
+        it("syncs at once when the app comes back after a while", async () => {
+            const { tm, syncManager } = make();
+            tm.onVisibilityChange(true, 1000);
+            tm.onVisibilityChange(false, 1000 + RESUME_MIN_HIDDEN_MS);
+            await flush();
+            expect(syncManager.requestSmartSync).toHaveBeenCalledWith("timer-sync");
+        });
+
+        it("does not sync for a short switch away", async () => {
+            const { tm, syncManager } = make();
+            tm.onVisibilityChange(true, 1000);
+            tm.onVisibilityChange(false, 1500);
+            await flush();
+            expect(syncManager.requestSmartSync).not.toHaveBeenCalled();
+        });
+
+        it("follows the timer setting: off means no resume or network sync", async () => {
+            const { tm, syncManager } = make(SETTINGS_LIMITS.autoSyncInterval.disabled);
+            tm.onVisibilityChange(true, 1000);
+            tm.onVisibilityChange(false, 100_000);
+            tm.onOnline();
+            await flush();
+            expect(syncManager.requestSmartSync).not.toHaveBeenCalled();
+        });
+
+        it("syncs when the network comes back", async () => {
+            const { tm, syncManager } = make();
+            tm.onOnline();
+            await flush();
+            expect(syncManager.requestSmartSync).toHaveBeenCalledWith("timer-sync");
+        });
+
+        it("runs the timer rarely while hidden, unless local changes wait", async () => {
+            const { tm, syncManager } = make();
+            tm.onVisibilityChange(true);
+            const tick = async () => {
+                await (tm as any).triggerSmartSync("interval");
+                await flush();
+            };
+            await tick();
+            expect(syncManager.requestSmartSync).toHaveBeenCalledTimes(1);
+            await tick();
+            expect(syncManager.requestSmartSync).toHaveBeenCalledTimes(1);
+            syncManager.pendingChangeCount = 2;
+            await tick();
+            expect(syncManager.requestSmartSync).toHaveBeenCalledTimes(2);
+            syncManager.pendingChangeCount = 0;
+            vi.setSystemTime(Date.now() + HIDDEN_INTERVAL_MS);
+            await tick();
+            expect(syncManager.requestSmartSync).toHaveBeenCalledTimes(3);
+        });
+
+        it("on mobile, runs no timer sync while hidden unless local changes wait", async () => {
+            const { Platform } = await import("../../../tests/__mocks__/obsidian");
+            const original = Platform.isMobile;
+            Platform.isMobile = true;
+            try {
+                const { tm, syncManager } = make();
+                tm.onVisibilityChange(true);
+                const tick = async () => {
+                    await (tm as any).triggerSmartSync("interval");
+                    await flush();
+                };
+                await tick();
+                vi.setSystemTime(Date.now() + HIDDEN_INTERVAL_MS);
+                await tick();
+                expect(syncManager.requestSmartSync).not.toHaveBeenCalled();
+                syncManager.pendingChangeCount = 1;
+                await tick();
+                expect(syncManager.requestSmartSync).toHaveBeenCalledTimes(1);
+                // Back in front: the resume sync fetches what changed meanwhile
+                syncManager.pendingChangeCount = 0;
+                tm.onVisibilityChange(false, Date.now() + RESUME_MIN_HIDDEN_MS);
+                await flush();
+                expect(syncManager.requestSmartSync).toHaveBeenCalledTimes(2);
+            } finally {
+                Platform.isMobile = original;
+            }
+        });
+
+        it("registers the page and network listeners", () => {
+            const m = createMockDeps();
+            const seen: string[] = [];
+            (globalThis as any).activeDocument = { visibilityState: "visible" };
+            const tm = new TriggerManager({ ...m.deps, registerDomEvent: (_t: unknown, type: string) => seen.push(type) } as any);
+            tm.registerResumeTriggers();
+            expect(seen.sort()).toEqual(["online", "visibilitychange"]);
         });
     });
 
@@ -1361,6 +1467,129 @@ describe("TriggerManager", () => {
 
             await expect((tm as any).triggerSmartSync("layout-change")).resolves.toBeUndefined();
             expect(syncManager.requestSmartSync).toHaveBeenCalledWith("layout-sync");
+        });
+    });
+
+    describe("waiting changes go out when the app is hidden or closed", () => {
+        const flush = async () => {
+            await new Promise((r) => process.nextTick(r));
+            await new Promise((r) => process.nextTick(r));
+        };
+        const make = (onModifyDelaySec = 5) => {
+            const m = createMockDeps({
+                triggerConfigStrategy: "unified",
+                unifiedTriggers: { ...DEFAULT_SETTINGS.unifiedTriggers, onModifyDelaySec },
+            });
+            const tm = new TriggerManager(m.deps);
+            tm.setReady(true);
+            tm.registerTriggers();
+            return { tm, ...m };
+        };
+
+        it("sends at once on hide when changes wait, and the edit delay no longer fires", async () => {
+            const { tm, syncManager, eventHandlers } = make();
+            const file = new TFile();
+            file.path = "note.md";
+            await eventHandlers.modify[0](file);
+            syncManager.pendingChangeCount = 1;
+            tm.onVisibilityChange(true, 1000);
+            await flush();
+            expect(syncManager.requestSmartSync).toHaveBeenCalledTimes(1);
+            expect(syncManager.requestSmartSync).toHaveBeenCalledWith("modify-sync");
+            vi.advanceTimersByTime(10_000);
+            await flush();
+            expect(syncManager.requestSmartSync).toHaveBeenCalledTimes(1);
+        });
+
+        it("sends nothing on hide when nothing waits", async () => {
+            const { tm, syncManager } = make();
+            tm.onVisibilityChange(true, 1000);
+            await flush();
+            expect(syncManager.requestSmartSync).not.toHaveBeenCalled();
+        });
+
+        it("sends nothing on hide when the edit trigger is off", async () => {
+            const { tm, syncManager } = make(SETTINGS_LIMITS.onModifyDelay.disabled);
+            syncManager.pendingChangeCount = 3;
+            tm.onVisibilityChange(true, 1000);
+            await flush();
+            expect(syncManager.requestSmartSync).not.toHaveBeenCalled();
+        });
+
+        it("an edit saved while hidden goes out at once, not after the delay", async () => {
+            const { tm, syncManager, eventHandlers } = make();
+            tm.onVisibilityChange(true, 1000);
+            const file = new TFile();
+            file.path = "note.md";
+            await eventHandlers.modify[0](file);
+            await flush();
+            expect(syncManager.requestSmartSync).toHaveBeenCalledWith("modify-sync");
+        });
+
+        it("PC closing waits for the waiting changes, bounded", async () => {
+            const { tm, syncManager, eventHandlers } = make();
+            syncManager.pendingChangeCount = 1;
+            let finish!: () => void;
+            syncManager.requestSmartSync.mockImplementation(
+                () =>
+                    new Promise<void>((r) => {
+                        finish = () => {
+                            syncManager.pendingChangeCount = 0;
+                            r();
+                        };
+                    }),
+            );
+            const added: Array<() => Promise<unknown>> = [];
+            eventHandlers.quit[0]({ add: (cb: () => Promise<unknown>) => added.push(cb) });
+            expect(added).toHaveLength(1);
+            let done = false;
+            const p = added[0]().then(() => (done = true));
+            await flush();
+            expect(syncManager.requestSmartSync).toHaveBeenCalledWith("modify-sync");
+            expect(done).toBe(false);
+            finish();
+            await p;
+            expect(done).toBe(true);
+        });
+
+        it("PC closing during a running sync waits for the queued pass that sends the rest", async () => {
+            const { tm, syncManager } = make();
+            syncManager.pendingChangeCount = 1;
+            syncManager.isSyncing.mockReturnValue(true);
+            let done = false;
+            const p = tm.onQuit().then(() => (done = true));
+            await flush();
+            // The running sync ends; the edits made during it are still waiting
+            vi.advanceTimersByTime(1000);
+            await flush();
+            expect(done).toBe(false);
+            syncManager.isSyncing.mockReturnValue(false);
+            syncManager.requestSmartSync.mockImplementation(async () => {
+                syncManager.pendingChangeCount = 0;
+            });
+            vi.advanceTimersByTime(200);
+            await p;
+            expect(syncManager.requestSmartSync).toHaveBeenCalledWith("modify-sync");
+            expect(syncManager.pendingChangeCount).toBe(0);
+            expect(done).toBe(true);
+        });
+
+        it("PC closing gives up after the time limit", async () => {
+            const { tm, syncManager } = make();
+            syncManager.pendingChangeCount = 1;
+            syncManager.requestSmartSync.mockImplementation(() => new Promise<void>(() => {}));
+            let done = false;
+            const p = tm.onQuit().then(() => (done = true));
+            await flush();
+            vi.advanceTimersByTime(QUIT_FLUSH_MAX_MS);
+            await p;
+            expect(done).toBe(true);
+        });
+
+        it("PC closing with nothing waiting sends nothing", async () => {
+            const { tm, syncManager } = make();
+            await tm.onQuit();
+            expect(syncManager.requestSmartSync).not.toHaveBeenCalled();
         });
     });
 });

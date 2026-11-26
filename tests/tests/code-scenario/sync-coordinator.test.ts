@@ -13,6 +13,7 @@
  * - re-queuing: triggerの優先度マージ
  */
 
+import { testCapabilities } from "../../helpers/mock-cloud-adapter";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
     requestSmartSync,
@@ -40,7 +41,7 @@ function createMockCtx(overrides: Partial<SyncContext> = {}): SyncContext {
     const adapter: any = {
         initialize: vi.fn(),
         clearDownloadCache: vi.fn(),
-        supportsChangesAPI: false,
+        capabilities: testCapabilities({ changeFeed: false }),
         listFiles: vi.fn(async () => []),
     };
 

@@ -179,7 +179,7 @@ describe("SyncLogger", () => {
         await logger.endCycle();
 
         expect(consoleSpy).toHaveBeenCalledWith(
-            "Vault-Sync: Failed to write log entry",
+            "Vault Syncer: Failed to write log entry",
             expect.any(Error),
         );
 

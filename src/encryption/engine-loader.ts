@@ -30,6 +30,27 @@ async function computeSHA256(content: string): Promise<string> {
     return toHex(new Uint8Array(hashBuffer));
 }
 
+type CommonJsFactory = (
+    module: unknown,
+    exports: unknown,
+    require: (name: string) => unknown,
+) => void;
+
+/**
+ * Turns a CommonJS script into a function of (module, exports, require) by
+ * importing it as an ES module from a data: URL. The source is the add-on file
+ * whose SHA-256 the caller has already checked against the approved hash.
+ * A data: URL rather than a blob: URL because both Obsidian and Node (tests)
+ * can import it.
+ */
+async function importCommonJsModule(source: string): Promise<CommonJsFactory> {
+    const wrapped = `export default function (module, exports, require) {\n${source}\n}\n`;
+    const url = `data:text/javascript;charset=utf-8,${encodeURIComponent(wrapped)}`;
+    // eslint-disable-next-line no-unsanitized/method -- the module is the add-on file the caller verified against APPROVED_ENGINE_HASH
+    const mod = (await import(url)) as { default: CommonJsFactory };
+    return mod.default;
+}
+
 /**
  * Loads the external E2EE engine if available in the plugin directory.
  * Validates the engine hash and interface before loading.
@@ -50,7 +71,7 @@ export async function loadExternalCryptoEngine(
     // Remove duplicates
     const uniquePaths = [...new Set(variations)];
     console.debug(
-        `Vault-Sync: Attempting to load E2EE engine. Candidates: ${JSON.stringify(uniquePaths)}`,
+        `Vault Syncer: Attempting to load E2EE engine. Candidates: ${JSON.stringify(uniquePaths)}`,
     );
 
     let content: string | null = null;
@@ -69,11 +90,11 @@ export async function loadExternalCryptoEngine(
     }
 
     if (!content) {
-        console.debug("Vault-Sync: E2EE engine file not found at any candidate paths.");
+        console.debug("Vault Syncer: E2EE engine file not found at any candidate paths.");
         return null;
     }
 
-    console.debug(`Vault-Sync: Loading engine from [${successfulPath}]...`);
+    console.debug(`Vault Syncer: Loading engine from [${successfulPath}]...`);
     return evaluateEngine(content, onNotify);
 }
 
@@ -91,7 +112,7 @@ export async function evaluateEngine(
             const actualHash = await computeSHA256(content);
             if (actualHash !== APPROVED_ENGINE_HASH) {
                 console.error(
-                    `Vault-Sync: E2EE engine hash mismatch! Expected: ${APPROVED_ENGINE_HASH}, Got: ${actualHash}`,
+                    `Vault Syncer: E2EE engine hash mismatch! Expected: ${APPROVED_ENGINE_HASH}, Got: ${actualHash}`,
                 );
                 if (onNotify) {
                     await onNotify(
@@ -104,24 +125,21 @@ export async function evaluateEngine(
             }
         } else {
             const actualHash = await computeSHA256(content);
-            console.warn("Vault-Sync: E2EE engine hash verification skipped (development mode)");
-            console.warn(`Vault-Sync: Engine SHA-256: ${actualHash}`);
+            console.warn("Vault Syncer: E2EE engine hash verification skipped (development mode)");
+            console.warn(`Vault Syncer: Engine SHA-256: ${actualHash}`);
         }
 
-        // Dynamic execution of the engine script as CommonJS
+        // Run the engine script (CommonJS) as a module: wrapped in an ES module
+        // whose default export takes module / exports / require.
         const engineModule: { exports: { default?: unknown } } = { exports: {} };
-        const execute = new Function("module", "exports", "require", content) as (
-            module: unknown,
-            exports: unknown,
-            require: (name: string) => unknown,
-        ) => void;
+        const execute = await importCommonJsModule(content);
 
         const customRequire = (name: string): unknown => {
             if (name === "obsidian") return obsidianModule;
             const globalRequire = (window as unknown as { require?: (name: string) => unknown })
                 .require;
             if (globalRequire) return globalRequire(name);
-            console.warn(`Vault-Sync: Engine required '${name}' but no require available.`);
+            console.warn(`Vault Syncer: Engine required '${name}' but no require available.`);
             return undefined;
         };
 
@@ -157,15 +175,15 @@ export async function evaluateEngine(
 
         if (missingMethods.length > 0) {
             console.error(
-                `Vault-Sync: E2EE engine missing required methods: ${missingMethods.join(", ")}`,
+                `Vault Syncer: E2EE engine missing required methods: ${missingMethods.join(", ")}`,
             );
             return null;
         }
 
-        console.debug("Vault-Sync: External E2EE engine fully verified.");
+        console.debug("Vault Syncer: External E2EE engine fully verified.");
         return engine as unknown as ICryptoEngine;
     } catch (e) {
-        console.error("Vault-Sync: Engine execution failed", e);
+        console.error("Vault Syncer: Engine execution failed", e);
         return null;
     }
 }
@@ -203,7 +221,7 @@ export async function installEngineFromContent(
         const actualHash = await computeSHA256(content);
         if (actualHash !== APPROVED_ENGINE_HASH) {
             console.error(
-                `Vault-Sync: Picked engine file hash mismatch. Expected: ${APPROVED_ENGINE_HASH}, Got: ${actualHash}`,
+                `Vault Syncer: Picked engine file hash mismatch. Expected: ${APPROVED_ENGINE_HASH}, Got: ${actualHash}`,
             );
             return { ok: false, reason: "hash-mismatch" };
         }
@@ -215,7 +233,7 @@ export async function installEngineFromContent(
     try {
         await vault.write(normalizePath(`${pluginPath}/${ENGINE_FILE_NAME}`), content);
     } catch (e) {
-        console.error("Vault-Sync: Failed to save the engine file", e);
+        console.error("Vault Syncer: Failed to save the engine file", e);
         return { ok: false, reason: "write-failed" };
     }
     return { ok: true, engine };

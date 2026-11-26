@@ -1,9 +1,11 @@
-import { App, PluginSettingTab, Setting, setIcon } from "obsidian";
+import { App, PluginSettingTab, SearchComponent, Setting, setIcon } from "obsidian";
 import type VaultSync from "../main";
 import { t } from "../i18n";
 import { getSettingsSections, SettingItem, SettingSection } from "./settings-schema";
 import { ExclusionPatternModal } from "./exclusion-modal";
 import { ConfirmModal } from "./confirm-modal";
+import { matchesWords, queryWords } from "./settings-search";
+import type { AddonPage, AddonSettingItem, AddonSettingSection, RegisteredAddon } from "../addons/addon-ui";
 
 /** Old accordion state; no longer used, removed on load. */
 const LEGACY_CLOSED_GROUPS_KEY = "vault-sync:closed-groups";
@@ -13,7 +15,9 @@ type PageId =
     | "account"
     | "triggers"
     | "scope"
-    | "performance"
+    | "behavior"
+    | "protection"
+    | "transfer"
     | "display"
     | "addons"
     | "advanced";
@@ -54,11 +58,25 @@ const CATEGORIES: SettingsCategory[] = [
         sectionIds: ["sync_scope"],
     },
     {
-        id: "performance",
+        id: "behavior",
+        icon: "git-merge",
+        titleKey: "settingBehaviorSection",
+        descKey: "settingCategoryBehaviorDesc",
+        sectionIds: ["sync_behavior"],
+    },
+    {
+        id: "protection",
+        icon: "shield-check",
+        titleKey: "settingProtectionSection",
+        descKey: "settingCategoryProtectionDesc",
+        sectionIds: ["data_protection"],
+    },
+    {
+        id: "transfer",
         icon: "gauge",
-        titleKey: "settingPerfSection",
-        descKey: "settingCategoryPerformanceDesc",
-        sectionIds: ["performance"],
+        titleKey: "settingTransferSection",
+        descKey: "settingCategoryTransferDesc",
+        sectionIds: ["transfer"],
     },
     {
         id: "display",
@@ -83,12 +101,34 @@ const CATEGORIES: SettingsCategory[] = [
     },
 ];
 
+/** A row of Obsidian's own settings search */
+interface SearchRow {
+    name: string;
+    desc: string;
+    visible?: () => boolean;
+    action: () => void;
+}
+
 const MAPPED_SECTION_IDS = new Set(CATEGORIES.flatMap((c) => c.sectionIds));
+
+/** Settings of the account page (drawn by hand, not from the schema), for search: name and description keys */
+const ACCOUNT_SEARCH_KEYS: [string, string][] = [
+    ["settingAuthMethod", "settingAuthMethodDesc"],
+    ["settingCustomProxyUrl", "settingCustomProxyUrlDesc"],
+    ["settingClientId", "settingClientIdDesc"],
+    ["settingClientSecret", "settingClientSecretDesc"],
+    ["settingLogin", "settingLoginDesc"],
+    ["settingLogout", "settingLogoutDesc"],
+];
 
 export class VaultSyncSettingTab extends PluginSettingTab {
     plugin: VaultSync;
     /** Page currently shown. Kept across re-renders, reset when the tab is hidden. */
     private page: PageId = "root";
+    /** Text in the search box of the top page. Kept across re-renders, cleared when the tab is hidden. */
+    private query = "";
+    /** Add-on page shown (a sub-page of the add-on category), or null. */
+    private addonPage: { addonId: string; pageId: string } | null = null;
 
     constructor(app: App, plugin: VaultSync) {
         super(app, plugin);
@@ -102,12 +142,71 @@ export class VaultSyncSettingTab extends PluginSettingTab {
 
     hide(): void {
         this.page = "root";
+        this.query = "";
+        this.addonPage = null;
         super.hide();
+    }
+
+    /**
+     * Rows for Obsidian's own settings search (Obsidian 1.13 and later; older
+     * versions never ask). Each row opens the page here that holds the setting.
+     * Obsidian draws a tab from these rows instead of display() unless renderTab
+     * is overridden, so they are offered only where renderTab exists.
+     */
+    getSettingDefinitions(): SearchRow[] {
+        if (typeof (PluginSettingTab.prototype as unknown as { renderTab?: unknown }).renderTab !== "function") return [];
+        const rows: SearchRow[] = [];
+        const row = (name: string, desc: string | undefined, page: PageId, visible?: () => boolean): void => {
+            if (name) rows.push({ name, desc: desc ?? "", visible, action: () => this.openFromSearch(page) });
+        };
+        const all = getSettingsSections(this.plugin);
+        for (const category of CATEGORIES) {
+            if (category.id === "account") {
+                for (const [name, desc] of ACCOUNT_SEARCH_KEYS) row(t(name), t(desc), category.id);
+                continue;
+            }
+            const sections =
+                category.id === "addons"
+                    ? all.filter((sec) => !MAPPED_SECTION_IDS.has(sec.id))
+                    : category.sectionIds
+                          .map((id) => all.find((sec) => sec.id === id))
+                          .filter((sec): sec is SettingSection => !!sec);
+            for (const section of sections) {
+                for (const item of section.items) {
+                    if (item.type === "subheader" || item.type === "diff-preview") continue;
+                    row(item.label, item.desc, category.id, () =>
+                        !section.isHidden?.(this.plugin.settings, this.plugin) &&
+                        !item.isHidden?.(this.plugin.settings, this.plugin),
+                    );
+                }
+            }
+        }
+        return rows;
+    }
+
+    /** Obsidian's hook for drawing the tab: always our own pages (see getSettingDefinitions) */
+    renderTab(): void {
+        this.display();
+    }
+
+    private openFromSearch(page: PageId): void {
+        this.plugin.openSettingsTab();
+        this.navigate(page);
     }
 
     /** Switch page and scroll to its top. */
     private navigate(page: PageId): void {
         this.page = page;
+        this.addonPage = null;
+        this.display();
+        this.containerEl.scrollTop = 0;
+    }
+
+    /** Show one of an add-on's own pages (from the add-on list, a search hit or the add-on itself). */
+    openAddonPage(addonId: string, pageId: string): void {
+        if (!this.plugin.addonUi.findPage(addonId, pageId)) return;
+        this.page = "addons";
+        this.addonPage = { addonId, pageId };
         this.display();
         this.containerEl.scrollTop = 0;
     }
@@ -119,7 +218,14 @@ export class VaultSyncSettingTab extends PluginSettingTab {
         containerEl.addClass("vault-sync-settings-container");
 
         const category = CATEGORIES.find((c) => c.id === this.page);
-        if (!category) {
+        const addonPage = this.addonPage
+            ? this.plugin.addonUi.findPage(this.addonPage.addonId, this.addonPage.pageId)
+            : undefined;
+        // The add-on may have gone (removed on this device) while its page was open
+        if (!addonPage) this.addonPage = null;
+        if (addonPage && this.addonPage) {
+            this.renderAddonPage(containerEl, this.addonPage.addonId, addonPage);
+        } else if (!category) {
             this.page = "root";
             this.renderRoot(containerEl);
         } else {
@@ -133,32 +239,183 @@ export class VaultSyncSettingTab extends PluginSettingTab {
     }
 
     private renderRoot(el: HTMLElement): void {
+        const searchEl = el.createDiv({ cls: "vault-sync-settings-search" });
         const list = el.createDiv({ cls: "vault-sync-settings-nav" });
-        for (const category of CATEGORIES) {
-            const setting = new Setting(list)
-                .setName(t(category.titleKey))
-                .setDesc(this.getCategoryDesc(category));
-            const row = setting.settingEl;
-            // mod-navigable: Obsidian keeps these rows horizontal on narrow screens
-            row.addClass("vault-sync-settings-nav-item", "mod-navigable");
-            row.setAttr("role", "button");
-            row.setAttr("tabindex", "0");
+        const results = el.createDiv({ cls: "vault-sync-settings-search-results" });
+        const search = new SearchComponent(searchEl);
+        search
+            .setPlaceholder(t("settingSearchPlaceholder"))
+            .setValue(this.query)
+            .onChange((value) => {
+                this.query = value;
+                this.renderSearchResults(list, results);
+            });
+        search.inputEl.setAttr("aria-label", t("settingSearchPlaceholder"));
+        this.renderSearchResults(list, results);
 
+        if (!this.plugin.isAdapterAuthenticated()) {
+            // First thing a new user has to do: say so above the list
+            new Setting(list)
+                .setName(t("settingLoginRequired"))
+                .setDesc(t("settingLoginRequiredDesc"))
+                .addButton((b) =>
+                    b
+                        .setButtonText(t("settingLogin"))
+                        .setCta()
+                        .onClick(async () => {
+                            await this.plugin.adapterLogin();
+                        }),
+                )
+                .settingEl.addClass("vault-sync-settings-login-cta");
+        }
+
+        for (const category of CATEGORIES) {
+            const row = this.renderNavRow(list, t(category.titleKey), this.getCategoryDesc(category), category.id);
+            row.addClass("vault-sync-settings-nav-item");
             const iconEl = createDiv({ cls: ["setting-item-icon", "vault-sync-settings-nav-icon"] });
             setIcon(iconEl, category.icon);
             row.prepend(iconEl);
-
-            const chevron = setting.controlEl.createDiv({ cls: "vault-sync-settings-nav-chevron" });
-            setIcon(chevron, "chevron-right");
-
-            row.addEventListener("click", () => this.navigate(category.id));
-            row.addEventListener("keydown", (e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    this.navigate(category.id);
-                }
-            });
         }
+    }
+
+    /** A row that opens a page (click, Enter or Space) */
+    private renderNavRow(el: HTMLElement, name: string, desc: string, page: PageId | (() => void)): HTMLElement {
+        const open = typeof page === "function" ? page : () => this.navigate(page);
+        const setting = new Setting(el).setName(name).setDesc(desc);
+        const row = setting.settingEl;
+        // mod-navigable: Obsidian keeps these rows horizontal on narrow screens
+        row.addClass("mod-navigable", "vault-sync-settings-nav-row");
+        row.setAttr("role", "button");
+        row.setAttr("tabindex", "0");
+        const chevron = setting.controlEl.createDiv({ cls: "vault-sync-settings-nav-chevron" });
+        setIcon(chevron, "chevron-right");
+        row.addEventListener("click", open);
+        row.addEventListener("keydown", (e) => {
+            if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                open();
+            }
+        });
+        return row;
+    }
+
+    /**
+     * Settings that match the search box, grouped by page and section, shown
+     * with their own controls. The page list is hidden while a search is shown.
+     */
+    private renderSearchResults(list: HTMLElement, results: HTMLElement): void {
+        results.empty();
+        const words = queryWords(this.query);
+        list.toggle(words.length === 0);
+        if (words.length === 0) return;
+
+        const all = getSettingsSections(this.plugin);
+        let found = 0;
+        for (const category of CATEGORIES) {
+            const pageTitle = t(category.titleKey);
+            if (category.id === "account") {
+                const hits = ACCOUNT_SEARCH_KEYS.filter(([name, desc]) =>
+                    matchesWords(words, [pageTitle, t(name), t(desc)]),
+                );
+                if (hits.length === 0) continue;
+                found += hits.length;
+                const group = this.renderResultGroup(results, category, pageTitle);
+                for (const [name, desc] of hits) {
+                    // Drawn by hand on its page (fields depend on each other): a link there
+                    this.renderNavRow(group, t(name), t(desc), category.id);
+                }
+                continue;
+            }
+            const sections =
+                category.id === "addons"
+                    ? all.filter((sec) => !MAPPED_SECTION_IDS.has(sec.id))
+                    : category.sectionIds
+                          .map((id) => all.find((sec) => sec.id === id))
+                          .filter((sec): sec is SettingSection => !!sec);
+            for (const section of sections) {
+                if (section.isHidden?.(this.plugin.settings, this.plugin)) continue;
+                const hits: SettingItem[] = [];
+                let subheader = "";
+                for (const item of section.items) {
+                    if (item.isHidden?.(this.plugin.settings, this.plugin)) continue;
+                    if (item.type === "subheader") {
+                        subheader = item.label;
+                        continue;
+                    }
+                    const desc = item.getDesc ? item.getDesc(this.plugin.settings, this.plugin) : item.desc;
+                    if (matchesWords(words, [pageTitle, section.title, subheader, item.label, desc, item.detail])) {
+                        hits.push(item);
+                    }
+                }
+                if (hits.length === 0) continue;
+                found += hits.length;
+                const label = section.title === pageTitle ? pageTitle : `${pageTitle} › ${section.title}`;
+                const group = this.renderResultGroup(results, category, label);
+                for (const item of hits) this.renderItem(group, item);
+            }
+        }
+        found += this.renderAddonSearchResults(results, words);
+        if (found === 0) {
+            results.createEl("p", { cls: "vault-sync-settings-search-none", text: t("settingSearchNone") });
+        }
+    }
+
+    /** Heading of a group of search results (opens its page) and the group's body */
+    private renderResultGroup(
+        results: HTMLElement,
+        category: SettingsCategory | (() => void),
+        label: string,
+    ): HTMLElement {
+        const open = typeof category === "function" ? category : () => this.navigate(category.id);
+        const groupEl = results.createDiv({ cls: "vault-sync-subheader-group" });
+        const head = groupEl.createDiv({ cls: "vault-sync-subheader-label vault-sync-settings-search-group" });
+        const link = head.createEl("a", { cls: "vault-sync-subheader-text", text: label, href: "#" });
+        link.addEventListener("click", (e) => {
+            e.preventDefault();
+            open();
+        });
+        return groupEl.createDiv({ cls: "vault-sync-subheader-body" });
+    }
+
+    /** Search hits on add-on pages, grouped as "Add-ons › <page> › <section>". Returns the hit count. */
+    private renderAddonSearchResults(results: HTMLElement, words: string[]): number {
+        const categoryTitle = t("addonSectionTitle");
+        let found = 0;
+        for (const addon of this.plugin.addonUi.list()) {
+            for (const page of addon.pages) {
+                for (const section of this.plugin.addonUi.sectionsOf(page)) {
+                    if (this.isAddonHidden(section)) continue;
+                    const hits: SettingItem[] = [];
+                    let subheader = "";
+                    for (const raw of section.items) {
+                        if (this.isAddonHidden(raw)) continue;
+                        if (raw.type === "subheader") {
+                            subheader = raw.label;
+                            continue;
+                        }
+                        const item = this.toSettingItem(addon, raw);
+                        if (!item || item.isHidden?.(this.plugin.settings, this.plugin)) continue;
+                        const desc = item.getDesc ? item.getDesc(this.plugin.settings, this.plugin) : item.desc;
+                        if (
+                            matchesWords(words, [categoryTitle, page.title, section.title, subheader, item.label, desc])
+                        ) {
+                            hits.push(item);
+                        }
+                    }
+                    if (hits.length === 0) continue;
+                    found += hits.length;
+                    const parts = [categoryTitle, page.title];
+                    if (section.title && section.title !== page.title) parts.push(section.title);
+                    const group = this.renderResultGroup(
+                        results,
+                        () => this.openAddonPage(addon.id, page.id),
+                        parts.join(" › "),
+                    );
+                    for (const item of hits) this.renderItem(group, item);
+                }
+            }
+        }
+        return found;
     }
 
     private getCategoryDesc(category: SettingsCategory): string {
@@ -173,19 +430,23 @@ export class VaultSyncSettingTab extends PluginSettingTab {
     }
 
     private renderPageHeader(el: HTMLElement, category: SettingsCategory): void {
+        this.renderHeader(el, t(category.titleKey), () => this.navigate("root"));
+    }
+
+    private renderHeader(el: HTMLElement, title: string, back: () => void): void {
         const header = el.createDiv({ cls: "vault-sync-settings-page-header" });
-        const back = header.createEl("button", {
+        const backBtn = header.createEl("button", {
             cls: ["clickable-icon", "vault-sync-settings-back"],
             attr: { "aria-label": t("settingNavBackAria") },
         });
-        setIcon(back.createSpan({ cls: "vault-sync-settings-back-icon" }), "chevron-left");
-        back.createSpan({ text: t("settingNavBack") });
-        back.addEventListener("click", () => this.navigate("root"));
+        setIcon(backBtn.createSpan({ cls: "vault-sync-settings-back-icon" }), "chevron-left");
+        backBtn.createSpan({ text: t("settingNavBack") });
+        backBtn.addEventListener("click", back);
 
         // Obsidian indents setting headings to the card text; the class below aligns
         // the page title with the back button and the card edges instead.
         new Setting(header)
-            .setName(t(category.titleKey))
+            .setName(title)
             .setHeading()
             .settingEl.addClass("vault-sync-settings-page-title");
     }
@@ -204,7 +465,10 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                       .map((id) => all.find((s) => s.id === id))
                       .filter((s): s is SettingSection => !!s);
 
-        if (category.id === "addons") this.renderAddonManagement(el);
+        if (category.id === "addons") {
+            this.renderAddonManagement(el);
+            this.renderAddonPageList(el);
+        }
 
         const pageTitle = t(category.titleKey);
         for (const section of sections) {
@@ -323,7 +587,7 @@ export class VaultSyncSettingTab extends PluginSettingTab {
 
     private renderSection(el: HTMLElement, section: SettingSection, showTitle: boolean): void {
         if (showTitle) {
-            el.createDiv({ cls: "vault-sync-settings-section-title", text: section.title });
+            new Setting(el).setName(section.title).setHeading().settingEl.addClass("vault-sync-settings-section-title");
         }
         if (section.description) {
             el.createEl("p", { text: section.description, cls: "setting-item-description" });
@@ -333,13 +597,10 @@ export class VaultSyncSettingTab extends PluginSettingTab {
         for (const item of section.items) {
             if (item.isHidden?.(this.plugin.settings, this.plugin)) continue;
 
-            // A subheader starts a new group (static, no collapsing)
+            // A subheader starts a new group, headed like Obsidian's own settings
             if (item.type === "subheader") {
                 const groupEl = el.createDiv({ cls: "vault-sync-subheader-group" });
-                groupEl.createDiv({ cls: "vault-sync-subheader-label" }).createSpan({
-                    cls: "vault-sync-subheader-text",
-                    text: item.label,
-                });
+                new Setting(groupEl).setName(item.label).setHeading().settingEl.addClass("vault-sync-subheader-label");
                 groupBody = groupEl.createDiv({ cls: "vault-sync-subheader-body" });
                 continue;
             }
@@ -355,6 +616,16 @@ export class VaultSyncSettingTab extends PluginSettingTab {
             : item.desc || "";
 
         const setting = new Setting(targetEl).setName(item.label).setDesc(description);
+        this.fillControl(setting, item, description);
+        if (item.detail) {
+            // Secondary facts stay folded so the description reads in one line
+            const details = setting.descEl.createEl("details", { cls: "vault-sync-setting-detail" });
+            details.createEl("summary", { text: t("settingDetailToggle") });
+            details.createDiv({ text: item.detail });
+        }
+    }
+
+    private fillControl(setting: Setting, item: SettingItem, description: string): void {
 
         switch (item.type) {
             case "toggle":
@@ -404,7 +675,12 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                 });
                 break;
             case "textarea":
-                if (item.key === "exclusionPatterns") {
+                if (
+                    item.key === "exclusionPatterns" ||
+                    item.key === "desktopExclusionPatterns" ||
+                    item.key === "mobileExclusionPatterns"
+                ) {
+                    const listKey = item.key;
                     // Render as a button that opens a modal
                     const patternCount = String((this.getSettingValue(item.key) as string | undefined) || "")
                         .split("\n")
@@ -413,16 +689,14 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                         patternCount > 0
                             ? `${patternCount} ${t("settingExclusionPatternCount")}`
                             : t("settingExclusionPatternNone");
-                    setting.setDesc(summary);
+                    setting.setDesc(description ? `${description}\n${summary}` : summary);
                     setting.addButton((btn) => {
                         btn.setButtonText(t("settingExclusionConfigure")).onClick(() => {
-                            const modal = new ExclusionPatternModal(this.app, this.plugin);
+                            const before = String((this.getSettingValue(listKey) as string | undefined) || "");
+                            const modal = new ExclusionPatternModal(this.app, this.plugin, listKey);
                             modal.onClose = () => {
-                                if (item.onChange)
-                                    void item.onChange(
-                                        this.getSettingValue(item.key),
-                                        this.plugin,
-                                    );
+                                const after = String((this.getSettingValue(listKey) as string | undefined) || "");
+                                if (item.onChange && after !== before) void item.onChange(before, this.plugin);
                                 this.display();
                             };
                             modal.open();
@@ -463,30 +737,7 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                 const numCol = setting.controlEl.createDiv({
                     cls: "vault-sync-number-column",
                 });
-                setting.addText((text) => {
-                    text.setValue(String(this.getSettingValue(item.key)))
-                        .setPlaceholder(item.limits ? String(item.limits.default) : "")
-                        .onChange(async (val) => {
-                            const numVal = this.validateNumber(
-                                val,
-                                item.limits?.min ?? -Infinity,
-                                item.limits?.max ?? Infinity,
-                                item.limits?.default ?? 0,
-                                item.limits?.disabled,
-                            );
-                            this.setSettingValue(item.key, numVal);
-                            await this.plugin.saveSettings();
-                            if (item.onChange) await item.onChange(numVal, this.plugin);
-                        });
-
-                    this.addUnitAddon(text.inputEl, item.unit);
-                    const el =
-                        text.inputEl.closest(".vault-sync-number-wrapper") || text.inputEl;
-                    numCol.appendChild(el);
-                });
-                if (item.limits) {
-                    this.addLimitsHint(numCol, item.limits);
-                }
+                this.addNumberInput(setting, numCol, item, item.limits?.disabled);
                 break;
             }
             case "toggle-number": {
@@ -510,30 +761,7 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                     const numCol = setting.controlEl.createDiv({
                         cls: "vault-sync-number-column",
                     });
-                    setting.addText((text) => {
-                        text.setValue(String(currentVal))
-                            .setPlaceholder(item.limits ? String(item.limits.default) : "")
-                            .onChange(async (val) => {
-                                const numVal = this.validateNumber(
-                                    val,
-                                    item.limits?.min ?? -Infinity,
-                                    item.limits?.max ?? Infinity,
-                                    item.limits?.default ?? 0,
-                                );
-                                this.setSettingValue(item.key, numVal);
-                                await this.plugin.saveSettings();
-                                if (item.onChange) await item.onChange(numVal, this.plugin);
-                            });
-
-                        this.addUnitAddon(text.inputEl, item.unit);
-                        const el =
-                            text.inputEl.closest(".vault-sync-number-wrapper") ||
-                            text.inputEl;
-                        numCol.appendChild(el);
-                    });
-                    if (item.limits) {
-                        this.addLimitsHint(numCol, item.limits);
-                    }
+                    this.addNumberInput(setting, numCol, item);
                 }
                 break;
             }
@@ -554,11 +782,34 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                 );
                 break;
             }
+            case "page-link": {
+                const row = setting.settingEl;
+                row.addClass("mod-navigable", "vault-sync-settings-nav-row");
+                row.setAttr("role", "button");
+                row.setAttr("tabindex", "0");
+                setIcon(setting.controlEl.createDiv({ cls: "vault-sync-settings-nav-chevron" }), "chevron-right");
+                const open = () => item.onClick?.(this.plugin);
+                row.addEventListener("click", open);
+                row.addEventListener("keydown", (e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        open();
+                    }
+                });
+                break;
+            }
             case "diff-preview":
                 setting.settingEl.addClass("vault-sync-diff-preview-setting");
                 this.renderDiffPreview(setting.settingEl);
                 break;
             // subheader is handled in renderSection, never reaches here
+            case "button":
+                setting.addButton((btn) => {
+                    btn.setButtonText(item.buttonText ?? item.label).onClick(() => item.onClick?.(this.plugin));
+                    if (item.buttonStyle === "cta") btn.setCta();
+                    if (item.buttonStyle === "warning") btn.setWarning();
+                });
+                break;
             case "info":
                 setting.settingEl.addClass("vault-sync-info-setting");
                 setting.controlEl.createSpan({
@@ -624,6 +875,100 @@ export class VaultSyncSettingTab extends PluginSettingTab {
             });
     }
 
+    /** One row per add-on page, under the install / remove row. */
+    private renderAddonPageList(el: HTMLElement): void {
+        const addons = this.plugin.addonUi.list().filter((a) => a.pages.length > 0);
+        if (addons.length === 0) return;
+        el.createDiv({ cls: "vault-sync-settings-section-title", text: t("addonPagesTitle") });
+        for (const addon of addons) {
+            for (const page of addon.pages) {
+                const row = this.renderNavRow(el, page.title, page.description ?? "", () =>
+                    this.openAddonPage(addon.id, page.id),
+                );
+                row.addClass("vault-sync-addon-page-row");
+                row.setAttr("data-addon-page", `${addon.id}/${page.id}`);
+                const iconEl = createDiv({ cls: ["setting-item-icon", "vault-sync-settings-nav-icon"] });
+                setIcon(iconEl, page.icon || "puzzle");
+                row.prepend(iconEl);
+            }
+        }
+    }
+
+    /** An add-on's own page: its sections, drawn like Vault Syncer's. Back goes to the add-on list. */
+    private renderAddonPage(el: HTMLElement, addonId: string, page: AddonPage): void {
+        const addon = this.plugin.addonUi.get(addonId)!;
+        this.renderHeader(el, page.title, () => this.navigate("addons"));
+        const body = el.createDiv({ cls: "vault-sync-settings-page vault-sync-addon-page" });
+        if (page.description) {
+            body.createEl("p", { text: page.description, cls: "setting-item-description" });
+        }
+        for (const section of this.plugin.addonUi.sectionsOf(page)) {
+            if (this.isAddonHidden(section)) continue;
+            this.renderSection(body, this.toSettingSection(addon, section), !!section.title && section.title !== page.title);
+        }
+    }
+
+    private isAddonHidden(part: AddonSettingItem | AddonSettingSection): boolean {
+        try {
+            return !!part.isHidden?.(this.plugin.settings);
+        } catch {
+            return true;
+        }
+    }
+
+    private toSettingSection(addon: RegisteredAddon, section: AddonSettingSection): SettingSection {
+        return {
+            id: section.id,
+            title: section.title,
+            description: section.description,
+            items: section.items
+                .filter((i) => !this.isAddonHidden(i))
+                .map((i) => this.toSettingItem(addon, i))
+                .filter((i): i is SettingItem => !!i),
+        };
+    }
+
+    /**
+     * An add-on row as a Vault Syncer row. "action" becomes a button that runs the
+     * action (hidden while it is unavailable), "page" a row that opens the page;
+     * an unknown action or page is left out.
+     */
+    private toSettingItem(addon: RegisteredAddon, raw: AddonSettingItem): SettingItem | null {
+        const base = raw as unknown as SettingItem;
+        if (raw.type === "action") {
+            const action = addon.actions.find((a) => a.id === raw.actionId);
+            if (!action) return null;
+            return {
+                key: raw.key,
+                type: "button",
+                label: raw.label || action.label,
+                desc: raw.desc ?? action.description,
+                getDesc: raw.getDesc as SettingItem["getDesc"],
+                buttonText: action.buttonText ?? action.label,
+                buttonStyle: action.style === "default" ? undefined : action.style,
+                isHidden: () => !this.plugin.addonUi.isAvailable(action),
+                onClick: () => {
+                    void this.plugin.addonUi.run(action.id).then(() => {
+                        // The action may change what the page shows (status, which actions apply)
+                        if (this.addonPage) this.display();
+                    });
+                },
+            };
+        }
+        if (raw.type === "page") {
+            const target = addon.pages.find((p) => p.id === raw.pageId);
+            if (!target) return null;
+            return {
+                key: raw.key,
+                type: "page-link",
+                label: raw.label || target.title,
+                desc: raw.desc ?? target.description,
+                onClick: () => this.openAddonPage(addon.id, target.id),
+            };
+        }
+        return base;
+    }
+
     private renderAddonManagement(el: HTMLElement): void {
         // Add-ons are separate, opt-in downloads with their own terms.
         const agreements = this.plugin.settings.addonAgreements ?? {};
@@ -652,7 +997,7 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                         }),
                 );
         } else if (names.length > 0) {
-            // Installed before, but this version of Vault-Sync no longer accepts it
+            // Installed before, but this version of Vault Syncer no longer accepts it
             new Setting(el)
                 .setName(t("addonStatusUpdateRequired"))
                 .setDesc(`${names.join(", ")}\n${t("addonStatusUpdateRequiredDesc")}`)
@@ -688,8 +1033,8 @@ export class VaultSyncSettingTab extends PluginSettingTab {
     private addLimitsHint(
         controlEl: HTMLElement,
         limits: { min: number; max: number; default: number },
-    ): void {
-        controlEl.createDiv({
+    ): HTMLElement {
+        return controlEl.createDiv({
             cls: "vault-sync-number-hint",
             text: t("settingDefaultHint")
                 .replace("{0}", String(limits.min))
@@ -698,18 +1043,88 @@ export class VaultSyncSettingTab extends PluginSettingTab {
         });
     }
 
-    private validateNumber(
-        value: string,
-        min: number,
-        max: number,
-        defaultValue: number,
+    /**
+     * Number field: checked and saved when committed (blur / Enter), not per
+     * keystroke. A value out of range is moved to the nearest limit, shown in the
+     * field, and the range hint is highlighted for a moment.
+     */
+    private addNumberInput(setting: Setting, numCol: HTMLElement, item: SettingItem, disabledValue?: number): void {
+        let hintEl: HTMLElement | null = null;
+        setting.addText((text) => {
+            const current = () => String(this.getSettingValue(item.key));
+            text.setValue(current()).setPlaceholder(item.limits ? String(item.limits.default) : "");
+            text.inputEl.inputMode = "numeric";
+            let busy = false;
+            const commit = async () => {
+                if (busy) return;
+                const raw = text.getValue().trim();
+                const prev = Number(this.getSettingValue(item.key));
+                const { value, adjusted } = this.normalizeNumber(raw, prev, item.limits, disabledValue);
+                text.setValue(String(value));
+                if (adjusted && hintEl) {
+                    hintEl.addClass("is-error");
+                    window.setTimeout(() => hintEl?.removeClass("is-error"), 2500);
+                }
+                if (value === prev) return;
+                busy = true;
+                try {
+                    this.setSettingValue(item.key, value);
+                    await this.plugin.saveSettings();
+                    if (item.onChange) await item.onChange(value, this.plugin);
+                } finally {
+                    busy = false;
+                }
+                setting.settingEl
+                    .querySelector<HTMLElement>(".vault-sync-reset-default")
+                    ?.toggle(item.limits !== undefined && value !== item.limits.default);
+            };
+            text.inputEl.addEventListener("change", () => void commit());
+            text.inputEl.addEventListener("keydown", (e) => {
+                if (e.key === "Enter") text.inputEl.blur();
+            });
+
+            this.addUnitAddon(text.inputEl, item.unit);
+            const el = text.inputEl.closest(".vault-sync-number-wrapper") || text.inputEl;
+            numCol.appendChild(el);
+        });
+        if (item.limits) hintEl = this.addLimitsHint(numCol, item.limits);
+        if (item.limits) this.addResetButton(setting, item, item.limits.default);
+    }
+
+    /** "Restore default" icon, shown while the value differs from the default */
+    private addResetButton(setting: Setting, item: SettingItem, defaultValue: number): void {
+        setting.addExtraButton((btn) => {
+            btn.setIcon("rotate-ccw")
+                .setTooltip(t("settingResetDefault"))
+                .onClick(async () => {
+                    this.setSettingValue(item.key, defaultValue);
+                    await this.plugin.saveSettings();
+                    if (item.onChange) await item.onChange(defaultValue, this.plugin);
+                    this.display();
+                });
+            btn.extraSettingsEl.addClass("vault-sync-reset-default");
+            btn.extraSettingsEl.setAttr("aria-label", t("settingResetDefault"));
+            btn.extraSettingsEl.toggle(Number(this.getSettingValue(item.key)) !== defaultValue);
+        });
+    }
+
+    /**
+     * Entered text to a stored number: empty or not a number keeps the previous
+     * value, out of range moves to the nearest limit. `adjusted` tells the caller
+     * to point at the allowed range.
+     */
+    private normalizeNumber(
+        raw: string,
+        prev: number,
+        limits: SettingItem["limits"],
         disabledValue?: number,
-    ): number {
-        const num = Number(value);
-        if (isNaN(num)) return defaultValue;
-        if (disabledValue !== undefined && num === disabledValue) return num;
-        if (num < min || num > max) return defaultValue;
-        return num;
+    ): { value: number; adjusted: boolean } {
+        const num = Number(raw);
+        if (raw === "" || !Number.isFinite(num)) return { value: prev, adjusted: raw !== "" };
+        if (!limits) return { value: num, adjusted: false };
+        if (disabledValue !== undefined && num === disabledValue) return { value: num, adjusted: false };
+        const clamped = Math.min(limits.max, Math.max(limits.min, num));
+        return { value: clamped, adjusted: clamped !== num };
     }
 
     private getSettingValue(key: string): unknown {

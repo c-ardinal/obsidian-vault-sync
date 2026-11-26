@@ -1,12 +1,13 @@
 /**
- * Add-ons Vault-Sync is willing to install.
+ * Add-ons Vault Syncer is willing to install.
  *
  * An add-on is distributed separately as a zip package (see addon-package.ts).
- * Vault-Sync never downloads it: the user downloads the package and picks it.
+ * Vault Syncer never downloads it: the user downloads the package and picks it.
  * Every file in the package is pinned by SHA-256 here, so a package is only
  * accepted if it is byte-for-byte the reviewed release. Updating an add-on
- * (code, version or terms) therefore needs a matching Vault-Sync release:
- * copy the hashes printed by the add-on's `npm run build`.
+ * (code, version or terms) therefore needs a matching Vault Syncer release:
+ * copy the hashes printed by the add-on's `npm run build`, and set `source`
+ * to the add-on commit that was built.
  *
  * Display text for an add-on (name, description, terms) lives inside its
  * package, not here.
@@ -14,12 +15,19 @@
 export interface ApprovedAddon {
     /** Must equal `id` in the package's addon.json. */
     id: string;
-    /** How Vault-Sync activates the entry file. */
+    /** How Vault Syncer activates the entry file. */
     kind: "crypto-engine";
     /** Where the entry file is saved, relative to the plugin folder. */
     installAs: string;
     /** Page where users download the package themselves. */
     downloadUrl: string;
+    /**
+     * Where the pinned files come from: the add-on's repository and the commit
+     * whose build gives exactly `files`. The automated checks build the package
+     * from it (e2e/prepare-approved-addon.mjs) instead of downloading a release,
+     * and fail when the build and `files` differ. Change it together with `files`.
+     */
+    source?: { repo: string; commit: string };
     /** SHA-256 (hex) of every file the package must contain, by file name. */
     files: Record<string, string>;
     /**
@@ -37,13 +45,24 @@ export const APPROVED_ADDONS: ApprovedAddon[] = [
         kind: "crypto-engine",
         installAs: "e2ee-engine.js",
         downloadUrl: "https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine/releases/latest",
+        source: {
+            repo: "c-ardinal/obsidian-vault-sync-e2ee-engine",
+            // 0.19.0
+            commit: "a4f0c1fc2be0f56e81387e7f97fd10124f1216d6",
+        },
         files: {
-            "addon.json": "068deb1100ca7cf1fc44cbd4527067c61c2bfe2d9b092d4ff748ee6f056b7d79",
-            "e2ee-engine.js": "fc3525012589fee6fca63fe06219b6baddcfdc6bb83a0c35b2dc9af7d285e23c",
-            "TERMS.md": "4b8eb81c12094b937a2899718d646f8e0bdd75e060ea391030d5e622fadfb48f",
-            "TERMS_ja.md": "23d6da4dca54e907ac85625a6d258ced178f04c513c9b9941ef0518d90edaf79",
+            "addon.json": "5f9441aaa3dbf401ea67d5a71e2f655faa5cd499b7d2d4b842cf855629f6885c",
+            "e2ee-engine.js": "9b0c2d618892f80921261b774f9fd88de0c26df9ed17ea82a4225d7429aca83d",
+            "TERMS.md": "12b4525dd2a3dcde2758470c53f74cd8d65ff71c74ffd8a2351ee039191ecf14",
+            "TERMS_ja.md": "ba7a50d0d9e4ee0c0a3696683c33dc8a4f316a39ba51909a87f20e1528114f36",
         },
         retiredEntryHashes: [
+            // 0.18.0
+            "115c3307aee64b9c903495dbc6187864c7ef7ff3d5565f5c8ba803bc0382f588",
+            // 0.17.1
+            "9874a1b6356ec367715b233868cf3f294bd9eb4168fba19a63ae7715022a461e",
+            // 0.17.0
+            "fc3525012589fee6fca63fe06219b6baddcfdc6bb83a0c35b2dc9af7d285e23c",
             // 0.16.0
             "e2b6e3758b768d4dbc2fe896e5830c3cec5bf8d8fd786992f35737661190fa06",
             // earlier releases

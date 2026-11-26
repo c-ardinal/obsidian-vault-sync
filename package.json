@@ -1,6 +1,6 @@
 {
     "name": "obsidian-vault-sync",
-    "version": "0.18.2",
+    "version": "0.19.0",
     "description": "Obsidian Cloud Storage Sync Plugin (Google Drive)",
     "type": "module",
     "main": "dist/cardinal-vault-sync/main.js",
@@ -12,6 +12,7 @@
         "test": "vitest run",
         "test:watch": "vitest",
         "test:sim": "vitest run --config vitest.sim.config.ts",
+        "test:browser": "vitest run --config vitest.browser.config.ts",
         "lint:obsidian": "npm --prefix tools/obsidian-review install --no-audit --no-fund --silent && tools/obsidian-review/node_modules/.bin/eslint -c tools/obsidian-review/eslint.config.mjs ."
     },
     "keywords": [

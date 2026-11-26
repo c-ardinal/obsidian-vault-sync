@@ -1,4 +1,5 @@
-import { md5 } from "../utils/md5";
+import { removeRemote } from "./remote-deletion";
+import { cloudHashMatches, contentFingerprint } from "./content-fingerprint";
 import { formatSize } from "../utils/format";
 import { basename, dirname } from "../utils/path";
 import type { CloudFile } from "../types/adapter";
@@ -6,16 +7,21 @@ import type { SyncContext } from "./context";
 import { hashContent } from "./file-utils";
 import { pullFileSafely } from "./merge";
 import { reconcileVanishedAfterUpload } from "./sync-push";
-import { saveIndex, saveLocalIndex, takeUnsyncedRename } from "./state";
+import { saveIndex, takeUnsyncedRename } from "./state";
 import { compress } from "./file-utils";
 import {
     buildRemoteIndexPayload,
+    checkIndexOverwrite,
+    clearIndexUploadOwed,
+    handBackToSyncCycle,
+    markIndexUploadOwed,
     forgetAttemptedUpload,
     isAttemptedUpload,
     peekAttemptedUpload,
     recordAttemptedUpload,
     releasePendingPull,
     settlePendingPull,
+    pendingPullsOf,
 } from "./sync-helpers";
 import type {
     TransferItem,
@@ -31,6 +37,8 @@ import {
     TRANSFER_HISTORY_FLUSH_BATCH,
     TRANSFER_LOG_RETENTION_DAYS,
 } from "./constants";
+import { storesTransformedContent } from "./content-identity";
+import { deferReason, type DeferReason } from "./transfer-conditions";
 
 export class BackgroundTransferQueue {
     private queue: TransferItem[] = [];
@@ -45,6 +53,13 @@ export class BackgroundTransferQueue {
     private unflushedRecords: TransferRecord[] = [];
     /** Tracks inline (sync-cycle) transfers that are currently in progress */
     private inlineActive = new Map<string, TransferItem>();
+    /** Why the queue waits now (mobile network, low battery), or null */
+    private deferredBy: DeferReason | null = null;
+
+    /** Why large transfers wait right now (null: they do not) */
+    get deferredReason(): DeferReason | null {
+        return this.deferredBy;
+    }
 
     /** Bind to SyncContext after construction (needed because SyncManager creates queue before context is available) */
     setContext(ctx: SyncContext): void {
@@ -240,6 +255,22 @@ export class BackgroundTransferQueue {
                     break;
                 }
 
+                if (!this.queue.some((q) => q.status === "pending")) break;
+
+                // Mobile network or low battery: large files wait; the next sync looks again
+                const reason = await deferReason(ctx.settings);
+                if (reason !== this.deferredBy) {
+                    this.deferredBy = reason;
+                    this.callbacks.onQueueChange?.(this.getPendingTransfers());
+                }
+                // A sync may have paused the queue, or items been cancelled, while the battery was read
+                if (this.isPaused || ctx.e2eeLocked) break;
+                if (reason) {
+                    await ctx.log(`[Background Transfer] Waiting (${reason}): ${this.queue.filter((q) => q.status === "pending").length} large file(s).`, "info");
+                    break;
+                }
+
+                // Picked only now, after the wait, so a cancelled item is never started
                 const next = this.queue.find((q) => q.status === "pending");
                 if (!next) break;
 
@@ -293,7 +324,7 @@ export class BackgroundTransferQueue {
                             `[Background Transfer] Retry ${next.retryCount}/${TRANSFER_MAX_RETRIES} for ${next.path} in ${delay}ms`,
                             "warn",
                         );
-                        await new Promise((r) => setTimeout(r, delay));
+                        await new Promise((r) => window.setTimeout(r, delay));
                     }
                 }
 
@@ -303,7 +334,7 @@ export class BackgroundTransferQueue {
                 // Throttle: wait between consecutive background transfers
                 const throttleMs = (ctx.settings.bgTransferIntervalSec ?? 0) * 1000;
                 if (throttleMs > 0 && this.queue.some((q) => q.status === "pending")) {
-                    await new Promise((r) => setTimeout(r, throttleMs));
+                    await new Promise((r) => window.setTimeout(r, throttleMs));
                 }
             }
         } finally {
@@ -341,7 +372,7 @@ export class BackgroundTransferQueue {
                 ctx.dirtyPaths.set(now, ctx.dirtyPaths.get(now) ?? Date.now());
                 await ctx.log(`[Background Transfer] Moved our earlier upload of ${path} to ${now}.`, "info");
             } else {
-                await ctx.adapter.deleteFile(meta.id);
+                await removeRemote(ctx, { id: meta.id, path, kind: "file" }, "superseded-upload");
                 await ctx.log(`[Background Transfer] Removed our earlier upload of deleted ${path}.`, "info");
             }
             forgetAttemptedUpload(ctx, path);
@@ -364,13 +395,18 @@ export class BackgroundTransferQueue {
                 "warn",
             );
             await this.settleOrphanedUpload(ctx, item.path);
+            // Nothing is in transfer for this name any more (an entry kept for it, e.g.
+            // a file renamed to where this device does not sync, must not wait for it)
+            if (ctx.localIndex[item.path]?.pendingTransfer?.direction === "push") {
+                delete ctx.localIndex[item.path].pendingTransfer;
+            }
             this.completeItem(item, "cancelled");
             return;
         }
 
         if (currentStat.mtime !== item.mtime) {
             const freshContent = await ctx.vault.readBinary(item.path);
-            const freshHash = md5(freshContent);
+            const freshHash = contentFingerprint(freshContent);
             if (freshHash !== item.snapshotHash) {
                 await ctx.log(
                     `[Background Transfer] File modified since enqueue, re-marking dirty: ${item.path}`,
@@ -408,6 +444,15 @@ export class BackgroundTransferQueue {
                 delete ctx.localIndex[item.path].pendingTransfer;
             }
             this.completeItem(item, "cancelled");
+            // Still owed: the sync cycle pulls it inline (merging the edit made here).
+            // Dropped, the push found nothing to upload when the "edit" was only our own
+            // earlier write, and this device kept the older version for good.
+            if (item.fileId) {
+                pendingPullsOf(ctx).set(item.fileId, {
+                    file: { id: item.fileId, path: item.path, hash: item.remoteHash, size: item.size },
+                    attempts: 0,
+                });
+            }
             return;
         }
 
@@ -417,8 +462,8 @@ export class BackgroundTransferQueue {
             if (
                 remoteHash &&
                 (!lastKnownHash || lastKnownHash.toLowerCase() !== remoteHash.toLowerCase()) &&
-                !ctx.e2eeEnabled &&
-                remoteHash.toLowerCase() === md5(item.content!)
+                !storesTransformedContent(ctx) &&
+                cloudHashMatches(ctx.adapter, remoteHash, contentFingerprint(item.content!))
             ) {
                 // The cloud already has exactly this content: our own earlier upload whose
                 // result was never recorded (the app was closed while it was in flight).
@@ -454,6 +499,7 @@ export class BackgroundTransferQueue {
                     "warn",
                 );
                 ctx.dirtyPaths.set(item.path, Date.now());
+                handBackToSyncCycle(ctx, item.path);
                 if (ctx.localIndex[item.path]?.pendingTransfer) {
                     delete ctx.localIndex[item.path].pendingTransfer;
                 }
@@ -465,8 +511,10 @@ export class BackgroundTransferQueue {
         const targetFileId = remoteMeta?.id || ctx.index[item.path]?.fileId;
         // Write-ahead record (as for inline uploads): if the app is closed while this
         // upload is in flight, the next start recognises the cloud version as ours.
-        recordAttemptedUpload(ctx, item.path, md5(item.content!));
-        await saveLocalIndex(ctx, true);
+        recordAttemptedUpload(ctx, item.path, contentFingerprint(item.content!));
+        // The shared index listing this file is owed from now on (kept across an app kill)
+        markIndexUploadOwed(ctx);
+        await saveIndex(ctx);
         let uploaded: CloudFile;
         if (ctx.adapter.uploadFileResumable) {
             uploaded = await ctx.adapter.uploadFileResumable(
@@ -500,7 +548,8 @@ export class BackgroundTransferQueue {
         if (await reconcileVanishedAfterUpload(ctx, item.path, item.content!, entry)) {
             // Renamed or deleted while uploading: the upload was re-homed (as for
             // inline pushes). Registering the old path made both names exist on
-            // every device.
+            // every device. Saved at once, as for inline pushes.
+            await saveIndex(ctx);
         } else {
             ctx.index[item.path] = entry;
             ctx.localIndex[item.path] = { ...entry };
@@ -551,6 +600,15 @@ export class BackgroundTransferQueue {
                 delete ctx.localIndex[item.path].pendingTransfer;
             }
             this.completeItem(item, "cancelled");
+            // Still owed: the sync cycle pulls it inline (merging the edit made here).
+            // Dropped, the push found nothing to upload when the "edit" was only our own
+            // earlier write, and this device kept the older version for good.
+            if (item.fileId) {
+                pendingPullsOf(ctx).set(item.fileId, {
+                    file: { id: item.fileId, path: item.path, hash: item.remoteHash, size: item.size },
+                    attempts: 0,
+                });
+            }
             return;
         }
 
@@ -570,6 +628,27 @@ export class BackgroundTransferQueue {
                     delete ctx.localIndex[item.path].pendingTransfer;
                 }
                 this.completeItem(item, "cancelled");
+                // (after completeItem, which settles the pending pull of this id)
+                // Not here under any name: the rename may predate our Changes token
+                // (first sync from an index written before it), so no change will
+                // bring it. Pull it under its current name.
+                if (
+                    meta &&
+                    meta.path !== item.path &&
+                    (holder === undefined || holder === item.path) &&
+                    !(await ctx.vault.exists(item.path))
+                ) {
+                    // A placeholder entry under the old name (never downloaded) goes too
+                    if (holder === item.path) {
+                        delete ctx.index[item.path];
+                        delete ctx.localIndex[item.path];
+                    }
+                    pendingPullsOf(ctx).set(item.fileId, {
+                        file: { id: item.fileId, path: meta.path, hash: meta.hash, size: meta.size ?? 0, mtime: meta.mtime },
+                        attempts: 0,
+                    });
+                    await ctx.log(`[Background Transfer] Pulling ${meta.path} under its current name next sync.`, "info");
+                }
                 return;
             }
         }
@@ -618,8 +697,9 @@ export class BackgroundTransferQueue {
     // === Helpers ===
 
     private completeItem(item: TransferItem, status: "completed" | "cancelled"): void {
-        // A cancelled pull is handled by the sync cycle (local edit) or by its own
-        // change (renamed / removed on the cloud): nothing is owed any more.
+        // A cancelled pull is handled by its own change (renamed / removed on the
+        // cloud): nothing is owed any more. One cancelled for a local edit is owed
+        // again by executePull itself.
         if (item.direction === "pull" && this.ctx) settlePendingPull(this.ctx, item.fileId);
         item.status = status;
         item.completedAt = Date.now();
@@ -796,9 +876,13 @@ export class BackgroundTransferQueue {
                 size: uploadedIndex.size,
                 hash: uploadedIndex.hash,
             };
+            clearIndexUploadOwed(ctx);
+            await checkIndexOverwrite(ctx, uploadedIndex);
             await saveIndex(ctx);
         } catch (e) {
-            await ctx.log(`[Background Transfer] Failed to upload index: ${String(e)}`, "error");
+            markIndexUploadOwed(ctx);
+            await saveIndex(ctx).catch(() => {});
+            await ctx.log(`[Background Transfer] Failed to upload index (retried next sync): ${String(e)}`, "error");
         }
     }
 }

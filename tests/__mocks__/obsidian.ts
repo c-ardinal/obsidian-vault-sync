@@ -1,3 +1,4 @@
+import YAML from "yaml";
 import { vi } from "vitest";
 
 export const Notice = vi.fn(function (message: string, _timeout?: number) {
@@ -36,6 +37,22 @@ export class App {
 }
 
 /** Obsidian's UI language; like the app, reads the "language" key of localStorage. */
+export function debounce<T extends unknown[]>(cb: (...args: T) => unknown, _timeout?: number, _resetTimer?: boolean) {
+    const fn = (...args: T) => {
+        cb(...args);
+    };
+    (fn as any).cancel = () => fn;
+    return fn;
+}
+
+export function parseYaml(text: string): any {
+    return YAML.parse(text);
+}
+
+export function stringifyYaml(obj: any): string {
+    return YAML.stringify(obj);
+}
+
 export function getLanguage(): string {
     const w = (globalThis as { window?: { localStorage?: Storage } }).window;
     return w?.localStorage?.getItem("language") || "en";

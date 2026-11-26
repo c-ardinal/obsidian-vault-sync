@@ -1,9 +1,9 @@
-import type { GoogleDriveAdapter } from "../cloud-adapters/google-drive";
+import type { OAuthCloudAdapter, OAuthMethod } from "../types/oauth-adapter";
 import type { SecureStorage } from "./secure-storage";
 import type { SyncManager } from "../sync-manager";
 
 interface CredentialManagerDeps {
-    adapter: GoogleDriveAdapter;
+    adapter: OAuthCloudAdapter;
     getSecureStorage: () => SecureStorage;
     getSyncManager: () => SyncManager;
     getVaultName: () => string;
@@ -14,7 +14,7 @@ interface CredentialManagerDeps {
  * Manages OAuth credentials, token persistence, adapter authentication
  * facades, and protocol handler callback logic.
  *
- * Extracted from the main Vault-Sync plugin class to separate
+ * Extracted from the main Vault Syncer plugin class to separate
  * credential management from plugin lifecycle orchestration.
  */
 export class CredentialManager {
@@ -28,7 +28,7 @@ export class CredentialManager {
         const { adapter, getSecureStorage } = this.deps;
 
         adapter.onAuthFailure = async () => {
-            console.debug("Vault-Sync: Auth failed (token expired/revoked). Clearing credentials.");
+            console.debug("Vault Syncer: Auth failed (token expired/revoked). Clearing credentials.");
             await getSecureStorage().clearCredentials();
             adapter.setTokens(null, null);
         };
@@ -81,7 +81,7 @@ export class CredentialManager {
                     "noticeAuthFailed",
                     e instanceof Error ? e.message : String(e),
                 );
-                console.error("Vault-Sync: Auth failed via proxy protocol handler", e);
+                console.error("Vault Syncer: Auth failed via proxy protocol handler", e);
             }
         } else if (params.code) {
             try {
@@ -103,7 +103,7 @@ export class CredentialManager {
                     "noticeAuthFailed",
                     e instanceof Error ? e.message : String(e),
                 );
-                console.error("Vault-Sync: Auth failed via protocol handler", e);
+                console.error("Vault Syncer: Auth failed via protocol handler", e);
             }
         } else if (params.error) {
             await syncManager.notify("noticeAuthFailed", params.error);
@@ -132,10 +132,7 @@ export class CredentialManager {
 
     // === Adapter Facade ===
 
-    setAuthConfig(
-        method: "default" | "custom-proxy" | "client-credentials",
-        proxyUrl: string,
-    ): void {
+    setAuthConfig(method: OAuthMethod, proxyUrl: string): void {
         this.deps.adapter.setAuthConfig(method, proxyUrl);
     }
 

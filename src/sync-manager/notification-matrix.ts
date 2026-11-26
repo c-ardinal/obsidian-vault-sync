@@ -310,11 +310,15 @@ const ALWAYS_SHOW = new Set([
     "noticeConflictSaved",
     "noticeConflictRemoteSaved",
     "noticeCheckOtherDevice",
+    // A cloud note missing on this device for good unless renamed elsewhere
+    "noticeNameNotSupported",
     // Sync is paused until the user acts
     "noticeAddonRequired",
     "noticeAddonUpdateRequired",
     "noticeEngineVerifyFailed",
     "noticeVaultLocked",
+    // A full account stops every upload
+    "noticeStorageAlmostFull",
 ]);
 
 /**
