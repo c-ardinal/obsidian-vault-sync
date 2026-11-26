@@ -83,6 +83,31 @@ describe("i18n", () => {
         expect(t("settingLogin")).toBe(dict.settingLogin);
     });
 
+    it("every key the code asks for has a text (a missing one shows as its raw name)", async () => {
+        const { readdirSync, readFileSync } = await import("node:fs");
+        const { join } = await import("node:path");
+        const { en } = await import("../../../src/i18n/index");
+        const root = join(__dirname, "../../../src");
+        const files = (readdirSync(root, { recursive: true }) as string[]).filter(
+            (f) => f.endsWith(".ts") && !f.startsWith("i18n"),
+        );
+        const missing: string[] = [];
+        for (const f of files) {
+            const src = readFileSync(join(root, f), "utf8");
+            // t("key") / this.t("key") / ctx.t("key") with a literal key
+            for (const m of src.matchAll(/(?<![\w$])t\(\s*"([A-Za-z][\w]*)"\s*[),]/g)) {
+                if (!(m[1] in en)) missing.push(`${f}: ${m[1]}`);
+            }
+        }
+        expect(missing).toEqual([]);
+    });
+
+    it("the Japanese dictionary has every key", async () => {
+        const { en } = await import("../../../src/i18n/index");
+        const ja = (await import("../../../src/i18n/lang/ja.json")).default as Record<string, string>;
+        expect(Object.keys(en).filter((k) => !ja[k])).toEqual([]);
+    });
+
     it("initI18n() with unsupported language should keep English", async () => {
         localStorageMock["language"] = "fr";
         const { initI18n, t } = await import("../../../src/i18n/index");

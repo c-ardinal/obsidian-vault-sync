@@ -166,6 +166,8 @@ export async function executeSmartSync(ctx: SyncContext, scanVault: boolean): Pr
         const pushed = await ctx.smartPush(scanVault);
         if (scanVault) scanDone.add(ctx);
 
+        // Every transfer of the cycle is through; what follows confirms and tidies up.
+        ctx.progress?.setPhase("finishing");
         if (pushed) {
             await postPushPull(ctx);
         }
