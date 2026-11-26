@@ -620,10 +620,17 @@ export const SCOPE_SETTING_KEYS = [
     "mobileObsidianScope",
 ] as const;
 
-/** The scope settings as one comparable value */
+/**
+ * The scope settings as one comparable value. A copy: the per-platform scopes
+ * are objects the settings screen edits in place, and a snapshot sharing them
+ * changed along with the settings, so the change was never seen.
+ */
 export function scopeSnapshot(settings: Record<string, unknown>): Record<string, unknown> {
     const out: Record<string, unknown> = {};
-    for (const k of SCOPE_SETTING_KEYS) out[k] = settings[k];
+    for (const k of SCOPE_SETTING_KEYS) {
+        const v = settings[k];
+        out[k] = v !== null && typeof v === "object" ? (JSON.parse(JSON.stringify(v)) as unknown) : v;
+    }
     return out;
 }
 
