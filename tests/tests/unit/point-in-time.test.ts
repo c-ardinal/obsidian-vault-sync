@@ -19,6 +19,7 @@ function source(
     history: Record<string, FileRevision[] | Error>,
     trash: TrashedFile[] = [],
     present = Object.keys(history),
+    created: Record<string, number> = {},
 ): RestoreSource {
     return {
         files: () => Object.keys(history).map((path) => ({ path, fileId: `id:${path}` })),
@@ -26,6 +27,12 @@ function source(
             const h = history[path];
             if (h instanceof Error) throw h;
             return h;
+        },
+        // By default a file is as old as the oldest revision the cloud still has
+        createdTime: async (path) => {
+            if (path in created) return created[path];
+            const h = history[path];
+            return h instanceof Error || h.length === 0 ? undefined : Math.min(...h.map((r) => r.modifiedTime));
         },
         listTrash: async () => trash,
         exists: (path) => present.includes(path),
@@ -81,6 +88,35 @@ describe("point-in-time restore", () => {
             "no-history": 1,
             recreate: 1,
         });
+    });
+
+    it("leaves a file alone when its history from that time has expired", async () => {
+        // Both files only have a revision after the time; old.md existed long before
+        const history = { "old.md": [rev("o9", T + DAY)], "new.md": [rev("n1", T + DAY)], "unknown.md": [rev("u1", T + DAY)] };
+        const src = source(history, [], Object.keys(history), { "old.md": T - 90 * DAY, "new.md": T + DAY });
+        const known = src.createdTime!;
+        src.createdTime = async (path, id) => (path === "unknown.md" ? undefined : known(path, id));
+        const plan = await planRestore(src, "", T);
+        expect(plan.entries.map((e) => [e.path, e.action])).toEqual([
+            ["new.md", "created-after"],
+            ["old.md", "no-history"],
+            ["unknown.md", "no-history"],
+        ]);
+
+        const removed: string[] = [];
+        await applyRestore(
+            {
+                revisionContent: async () => new ArrayBuffer(0),
+                trashContent: async () => new ArrayBuffer(0),
+                write: async () => {},
+                remove: async (path) => {
+                    removed.push(path);
+                },
+            },
+            plan,
+            { removeCreatedAfter: true },
+        );
+        expect(removed).toEqual(["new.md"]);
     });
 
     it("applies: writes restored and recreated files, removes new ones only when asked", async () => {

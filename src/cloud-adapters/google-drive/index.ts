@@ -210,6 +210,9 @@ export class GoogleDriveAdapter implements OAuthCloudAdapter {
         );
         const tokens = this.auth.getTokens();
         cloned.auth.setTokens(tokens.accessToken, tokens.refreshToken, tokens.tokenExpiresAt);
+        // Same sign-in method: the clone refreshes its token the way this adapter does
+        const { method, proxyUrl } = this.auth.getAuthConfig();
+        cloned.auth.setAuthConfig(method, proxyUrl);
         if (this.logger) {
             cloned.setLogger(this.logger);
         }
@@ -258,6 +261,15 @@ export class GoogleDriveAdapter implements OAuthCloudAdapter {
             if (isNotFound(e)) return null;
             throw e;
         }
+    }
+
+    async getFileCreatedTime(fileId: string): Promise<number | undefined> {
+        const response = await this.http.fetchWithAuth(
+            `https://www.googleapis.com/drive/v3/files/${fileId}?fields=createdTime`,
+        );
+        const { createdTime } = (await response.json()) as { createdTime?: string };
+        const time = createdTime ? Date.parse(createdTime) : NaN;
+        return Number.isFinite(time) ? time : undefined;
     }
 
     async getFileMetadataById(fileId: string, knownPath?: string): Promise<CloudFile | null> {

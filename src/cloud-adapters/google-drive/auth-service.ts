@@ -93,6 +93,10 @@ export class GoogleAuthService {
         }
     }
 
+    getAuthConfig(): { method: AuthMethod; proxyUrl: string } {
+        return { method: this.authMethod, proxyUrl: this.proxyUrl };
+    }
+
     private getProxyBaseUrl(): string | null {
         switch (this.authMethod) {
             case "default":

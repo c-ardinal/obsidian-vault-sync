@@ -826,6 +826,8 @@ export class SyncManager {
                         .filter(([path, e]) => !!e.fileId && path !== this.pluginDataPath)
                         .map(([path, e]) => ({ path, fileId: e.fileId })),
                 listRevisions: (path, fileId) => _listRevisions(ctx, path, fileId),
+                createdTime: async (_path, fileId) =>
+                    (this.adapter.getBaseAdapter?.() ?? this.adapter).getFileCreatedTime?.(fileId),
                 listTrash: () => _listTrash(this.adapter),
                 exists: (path) => this.vault.getAbstractFileByPath(path) !== null,
                 excluded: (path) => this.isManagedSeparately(path) || isSettingsPath(ctx, path),

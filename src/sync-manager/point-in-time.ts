@@ -9,8 +9,11 @@ import { trashDayOf } from "./remote-trash";
  * Planning only reads. For each synced file in the folder:
  * - the newest revision at or before the time is "restore" (or "unchanged"
  *   when it is the current one);
- * - a file whose history starts after the time is "created-after";
- * - a file without readable history is "no-history" (left alone).
+ * - a file whose history starts after the time is "created-after" only when
+ *   the cloud says it was created after the time. The cloud drops old
+ *   revisions, so the oldest one left does not tell when a file was made;
+ * - a file without readable history, or whose history from that time is
+ *   gone, is "no-history" (left alone).
  * A file in the cloud trash, deleted on or after the time's day, with no
  * file at its path now, is "recreate" (with its content when deleted).
  *
@@ -47,6 +50,8 @@ export interface RestoreSource {
     /** Synced files (path and cloud id) */
     files(): { path: string; fileId: string }[];
     listRevisions(path: string, fileId: string): Promise<FileRevision[]>;
+    /** When the cloud file was created (absent or undefined: not known) */
+    createdTime?(path: string, fileId: string): Promise<number | undefined>;
     listTrash(): Promise<TrashedFile[]>;
     /** A file is at this path in the vault now */
     exists(path: string): boolean;
@@ -113,7 +118,16 @@ export async function planRestore(
             let entry: RestoreEntry;
             try {
                 const at = revisionAt(await source.listRevisions(f.path, f.fileId), time);
-                entry = { path: f.path, fileId: f.fileId, ...at };
+                if (at.action === "created-after") {
+                    // Old revisions expire: only the creation time proves the file is newer
+                    const created = await source.createdTime?.(f.path, f.fileId);
+                    entry =
+                        created !== undefined && created > time
+                            ? { path: f.path, fileId: f.fileId, action: "created-after" }
+                            : { path: f.path, fileId: f.fileId, action: "no-history" };
+                } else {
+                    entry = { path: f.path, fileId: f.fileId, ...at };
+                }
             } catch {
                 entry = { path: f.path, fileId: f.fileId, action: "no-history" };
             }

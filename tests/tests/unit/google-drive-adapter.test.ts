@@ -422,6 +422,36 @@ describe("GoogleDriveAdapter", () => {
         });
     });
 
+    describe("cloneWithNewVaultName keeps the sign-in method", () => {
+        it("refreshes through the same custom proxy as the source adapter", () => {
+            adapter.setAuthConfig("custom-proxy", "https://proxy.example.com/");
+            const cloned = adapter.cloneWithNewVaultName("NewVault") as GoogleDriveAdapter;
+            expect(cloned.auth.getAuthConfig()).toEqual({
+                method: "custom-proxy",
+                proxyUrl: "https://proxy.example.com/",
+            });
+        });
+
+        it("keeps client credentials mode", () => {
+            adapter.setAuthConfig("client-credentials");
+            const cloned = adapter.cloneWithNewVaultName("NewVault") as GoogleDriveAdapter;
+            expect(cloned.auth.getAuthConfig().method).toBe("client-credentials");
+        });
+    });
+
+    describe("getFileCreatedTime", () => {
+        it("reads the creation time of a file", async () => {
+            mockFetch.mockResolvedValueOnce({ json: async () => ({ createdTime: "2026-11-01T00:00:00.000Z" }) });
+            expect(await adapter.getFileCreatedTime("f1")).toBe(Date.UTC(2026, 10, 1));
+            expect(mockFetch.mock.calls[0][0]).toContain("/files/f1?fields=createdTime");
+        });
+
+        it("is undefined when the cloud gives none", async () => {
+            mockFetch.mockResolvedValueOnce({ json: async () => ({}) });
+            expect(await adapter.getFileCreatedTime("f1")).toBeUndefined();
+        });
+    });
+
     describe("getBaseAdapter", () => {
         it("should return self", () => {
             expect(adapter.getBaseAdapter()).toBe(adapter);
