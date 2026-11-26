@@ -426,7 +426,7 @@ const MATRIX: MatrixEntry[] = [
         },
     },
     {
-        // ⚠️ 競合: 本端末の版を保護し、クラウドの版を反映しました: {file}
+        // ⚠️ 競合: 本端末のバージョンを保護し、クラウドのバージョンを反映しました: {file}
         key: "noticeConflictSaved",
         scenarios: {
             pushConflict: { v: "Show", s: "Show" },
@@ -434,7 +434,7 @@ const MATRIX: MatrixEntry[] = [
         },
     },
     {
-        // ⚠️ 競合: クラウドの版を保護し、本端末の版を反映しました: {file}
+        // ⚠️ 競合: クラウドのバージョンを保護し、本端末のバージョンを反映しました: {file}
         key: "noticeConflictRemoteSaved",
         scenarios: {
             pushConflict: { v: "Show", s: "Show" },
@@ -662,11 +662,11 @@ const FORMAT_SPECS: FormatSpec[] = [
     { key: "noticeMergeSuccess", specJa: "Vault-Sync: 競合を自動解決しました: {file}" },
     {
         key: "noticeConflictSaved",
-        specJa: "⚠️ Vault-Sync: 本端末の版を保護し、クラウドの版を反映しました: {file}",
+        specJa: "⚠️ Vault-Sync: 本端末のバージョンを保護し、クラウドのバージョンを反映しました: {file}",
     },
     {
         key: "noticeConflictRemoteSaved",
-        specJa: "⚠️ Vault-Sync: クラウドの版を保護し、本端末の版を反映しました: {file}",
+        specJa: "⚠️ Vault-Sync: クラウドのバージョンを保護し、本端末のバージョンを反映しました: {file}",
     },
     {
         key: "noticeCheckOtherDevice",
@@ -695,7 +695,7 @@ const FORMAT_SPECS: FormatSpec[] = [
     },
     { key: "noticeFileRestored", specJa: "Vault-Sync: ファイルを復元しました" },
     { key: "noticeHistoryRestoreAs", specJa: "Vault-Sync: 別名で復元しました: {0}" },
-    { key: "noticeRevisionDeleted", specJa: "Vault-Sync: 版を削除しました" },
+    { key: "noticeRevisionDeleted", specJa: "Vault-Sync: バージョンを削除しました" },
     {
         key: "noticeAddonRequired",
         specJa: "⚠️ Vault-Sync: このVaultでは、本端末に未導入のアドオンを使用中です。設定 → アドオン から導入してください。同期を一時停止しています。",
@@ -706,7 +706,7 @@ const FORMAT_SPECS: FormatSpec[] = [
     },
     {
         key: "noticeAddonUpdateRequired",
-        specJa: "⚠️ Vault-Sync: 導入済みのアドオンは、本バージョンのVault-Syncに非対応の旧版です。最新パッケージをダウンロードし、設定 → アドオン から導入してください。同期を一時停止しています。",
+        specJa: "⚠️ Vault-Sync: 導入済みのアドオンは、本バージョンのVault-Syncに非対応の旧バージョンです。最新パッケージをダウンロードし、設定 → アドオン から導入してください。同期を一時停止しています。",
     },
 ];
 

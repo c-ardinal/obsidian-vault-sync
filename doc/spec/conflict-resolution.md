@@ -48,7 +48,7 @@
 
 ### 2.6 バイナリ競合 (C6)
 
-画像等のバイナリファイルは3-wayマージ不可。即座にConflictファイル（`Filename (Conflict YYYY-MM-DD).ext`）を作成しリモート版をPull。
+画像等のバイナリファイルは3-wayマージ不可。即座にConflictファイル（`Filename (Conflict YYYY-MM-DD).ext`）を作成しリモートバージョンをPull。
 
 ### 2.7 編集vs削除衝突 (C7)
 
@@ -260,7 +260,7 @@ Device Aがマージ結果をPushした際、そのインデックスの `ancest
 マージ不可能時のフォールバック。
 
 - ローカルファイルを `Filename (Conflict YYYY-MM-DD).ext` にリネーム
-- リモート版を元のファイル名でダウンロード
+- リモートバージョンを元のファイル名でダウンロード
 - ユーザーが手動で内容を統合する
 
 ## 7. 既知の限界事項
