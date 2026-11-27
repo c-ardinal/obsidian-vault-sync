@@ -151,6 +151,9 @@ export class SmartMergeStrategy implements IMergeStrategy {
                 return lines.filter((l) => !baseLines.has(l));
             };
             const localAddedLines = getUniqueLines(localNorm, baseNorm);
+            // A hunk of the other device that found no place is skipped by the atomic
+            // recovery below: its new lines must not vanish without a conflict copy.
+            const remoteAddedLines = getUniqueLines(remoteNorm, baseNorm);
             const countLines = (t: string) => {
                 const m = new Map<string, number>();
                 for (const raw of t.split("\n")) {
@@ -174,6 +177,9 @@ export class SmartMergeStrategy implements IMergeStrategy {
                 const merged = countLines(mergedText);
                 for (const line of localAddedLines) {
                     if (!merged.has(line)) return `Local line was lost: "${line.substring(0, 40)}..."`;
+                }
+                for (const line of remoteAddedLines) {
+                    if (!merged.has(line)) return `Remote line was lost: "${line.substring(0, 40)}..."`;
                 }
                 for (const [line, need] of keptLines) {
                     if ((merged.get(line) ?? 0) < need) return `Unchanged line was lost: "${line.substring(0, 40)}..."`;

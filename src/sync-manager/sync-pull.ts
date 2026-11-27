@@ -409,6 +409,10 @@ async function applyRemoteDeletion(ctx: SyncContext, path: string, decision: Pla
         delete ctx.localIndex[path];
         ctx.dirtyPaths.delete(path);
         clearDeleteIntent(ctx, path);
+        // A note under exactly this name is a new one, renamed onto the name after the
+        // deletion and never uploaded. Unmarked with the deleted note, it stayed on this
+        // device only.
+        if (ctx.vault.getFiles().some((f) => f.path === path)) ctx.dirtyPaths.set(path, Date.now());
         return true;
     }
     const file = ctx.vault.getAbstractFileByPath(path);
@@ -1170,30 +1174,25 @@ export async function pullViaChangesAPI(
             if (c.file?.path === ctx.pluginDataPath) remoteIndexChanged = true;
         }
 
-        const {
-            tasks,
-            completed: pageCompleted,
-            confirmedCount,
-            failed,
-        } = await processChangePage(
+        // Announced before the page is planned: planning renames notes apart too, and
+        // a note moved to "x (2).md" there took the name of a file of this very page
+        // not pulled yet. That file was then pulled over the note as an edit of it.
+        const release = announceIncoming(
             ctx,
-            changes.changes,
-            remoteIndex,
-            commData ?? { mergeLocks: {} },
+            changes.changes.flatMap((c) => (c.file?.path && !c.removed ? [c.file.path] : [])),
         );
-
-        if (tasks.length > 0) {
-            ctx.startActivity();
-            const release = announceIncoming(
-                ctx,
-                changes.changes.flatMap((c) => (c.file?.path && !c.removed ? [c.file.path] : [])),
-            );
-            try {
-                await runParallel(tasks, ctx.settings.concurrency);
-            } finally {
-                release();
+        let confirmedCount: number;
+        let failed: ChangedFile[];
+        try {
+            const page = await processChangePage(ctx, changes.changes, remoteIndex, commData ?? { mergeLocks: {} });
+            ({ confirmedCount, failed } = page);
+            if (page.tasks.length > 0) {
+                ctx.startActivity();
+                await runParallel(page.tasks, ctx.settings.concurrency);
+                totalCompleted += page.completed.count;
             }
-            totalCompleted += pageCompleted.count;
+        } finally {
+            release();
         }
 
         confirmedCountTotal += confirmedCount;
@@ -1238,19 +1237,23 @@ export async function pullViaChangesAPI(
         commData ??= await loadCommunication(ctx);
         await loadRemoteIndex();
         const retryTasks = retries.map((r) => async () => {
+            // Renamed or moved here and not pushed yet: the cloud still has the old
+            // name. Pulled after the push, under the name the note has here by then.
+            const heldAt = Object.entries(ctx.index).find(([, e]) => e.fileId === r.file.id && !!e.pendingMove)?.[0];
+            if (heldAt) return;
             let ok = false;
+            let file = r.file;
             try {
-                const meta = await ctx.adapter.getFileMetadataById(r.file.id, r.file.path);
-                const localPathForId = Object.entries(ctx.index).find(
-                    ([, e]) => e.fileId === r.file.id,
-                )?.[0];
+                // Where the note is listed here now: the stored path is the cloud's name
+                // when the change came in, which our own move (pushed since) has left.
+                // Dropped as stale, the other device's version was never pulled here.
+                const path = Object.entries(ctx.index).find(([, e]) => e.fileId === r.file.id)?.[0] ?? r.file.path;
+                const meta = await ctx.adapter.getFileMetadataById(r.file.id, path);
+                if (path !== file.path) file = { ...file, path };
                 if (!meta) {
                     ok = true; // gone remotely: its removal arrives as a change of its own
-                } else if (
-                    basename(meta.path) !== basename(r.file.path) ||
-                    (localPathForId && localPathForId !== r.file.path)
-                ) {
-                    ok = true; // renamed since: the stored path is stale, the rename is its own change
+                } else if (basename(meta.path) !== basename(path)) {
+                    ok = true; // renamed in the cloud since: that rename is its own change
                 } else if (exceedsDeviceSizeLimit(ctx, meta.size)) {
                     ok = true; // over this device's size limit: left out here
                 } else {
@@ -1258,27 +1261,27 @@ export async function pullViaChangesAPI(
                     // fresh changes): a lagging index's plainHash belongs to an older version,
                     // and matching it against our content declared "in sync" a file that
                     // another device had changed.
-                    const indexed = remoteIndex[r.file.path];
+                    const indexed = remoteIndex[file.path];
                     const remoteEntry =
                         indexed?.hash && meta.hash && indexed.hash.toLowerCase() === meta.hash.toLowerCase()
                             ? indexed
                             : undefined;
                     const item = {
-                        ...r.file,
+                        ...file,
                         hash: meta.hash,
                         size: meta.size,
                         mtime: meta.mtime,
                         ancestorHash: remoteEntry?.ancestorHash,
                         plainHash: remoteEntry?.plainHash,
                     };
-                    const localHash = ctx.localIndex[r.file.path]?.hash;
+                    const localHash = ctx.localIndex[file.path]?.hash;
                     if (localHash && meta.hash && localHash.toLowerCase() === meta.hash.toLowerCase()) {
                         ok = true;
                     } else {
-                        await ctx.log(`[Changes API] Retrying failed pull: ${r.file.path}`, "info");
+                        await ctx.log(`[Changes API] Retrying failed pull: ${file.path}`, "info");
                         ok = await pullFileSafely(ctx, item, "Changes API Retry");
                         if (ok) totalCompleted++;
-                        else if (ctx.localIndex[r.file.path]?.pendingConflict) ok = true;
+                        else if (ctx.localIndex[file.path]?.pendingConflict) ok = true;
                     }
                 }
             } catch {
@@ -1287,17 +1290,17 @@ export async function pullViaChangesAPI(
             if (pending.get(r.file.id) !== r) return; // superseded meanwhile
             // Another device is merging it: waiting is not a failed attempt (giving up
             // left the device without the note once the merge was done)
-            const waitedForLock = !ok && takePullLockSkip(ctx, r.file.path);
+            const waitedForLock = !ok && takePullLockSkip(ctx, file.path);
             if (ok) {
                 pending.delete(r.file.id);
             } else if (waitedForLock) {
-                pending.set(r.file.id, { file: r.file, attempts: r.attempts });
+                pending.set(r.file.id, { file, attempts: r.attempts });
             } else if (r.attempts + 1 < CHANGES_MAX_PULL_RETRIES) {
-                pending.set(r.file.id, { file: r.file, attempts: r.attempts + 1 });
+                pending.set(r.file.id, { file, attempts: r.attempts + 1 });
             } else {
                 pending.delete(r.file.id);
                 await ctx.log(
-                    `[Changes API] Giving up retrying ${r.file.path} after ${CHANGES_MAX_PULL_RETRIES} attempts.`,
+                    `[Changes API] Giving up retrying ${file.path} after ${CHANGES_MAX_PULL_RETRIES} attempts.`,
                     "warn",
                 );
             }
@@ -1825,6 +1828,35 @@ async function processChangePage(
                 }
             }
 
+            // Before the rename below: with the name still taken by our moved note, a
+            // rename of the cloud's note onto it was put off, and the note was then
+            // downloaded under the freed name next to its old one.
+            const heldByMove = ctx.index[cloudFile.path];
+            if (
+                heldByMove?.pendingMove &&
+                heldByMove.fileId &&
+                heldByMove.fileId !== cloudFile.id &&
+                (await ctx.vault.exists(cloudFile.path))
+            ) {
+                // We moved another note to this name here (not pushed yet) while a
+                // different note took the name in the cloud. Treating that note as an
+                // edit of ours turned ours into a conflict copy and lost its move.
+                // Give our note a free name; the push then moves it there.
+                const alt = await freeCollisionPath(ctx, cloudFile.path);
+                try {
+                    await renameLocal(ctx, cloudFile.path, alt);
+                    moveIndexEntry(ctx, cloudFile.path, alt);
+                    ctx.dirtyPaths.set(alt, ctx.dirtyPaths.get(alt) ?? Date.now());
+                    localIdToPath.set(heldByMove.fileId, alt);
+                    await ctx.log(
+                        `[Changes API] ${cloudFile.path} is now another note in the cloud. Moved the note renamed here to ${alt}.`,
+                        "warn",
+                    );
+                } catch (e) {
+                    await ctx.log(`[Changes API] Could not move ${cloudFile.path} to ${alt}: ${String(e)}`, "warn");
+                }
+            }
+
             // Remote rename of a file we know under another path
             if (localIdToPath.has(cloudFile.id)) {
                 const prevPathForId = pathListedFor(ctx, localIdToPath, cloudFile.id);
@@ -1881,12 +1913,27 @@ async function processChangePage(
                         delete ctx.index[oldPath];
                         delete ctx.localIndex[oldPath];
                         ctx.dirtyPaths.delete(oldPath);
+                        // Our deletion is given up with the entry. Left noted, it passed
+                        // for the deletion of whichever note took this name later: when
+                        // that one was deleted elsewhere, its file stayed here, unlisted.
+                        clearDeleteIntent(ctx, oldPath);
                         localIdToPath.delete(cloudFile.id);
                         await ctx.log(
                             `[Changes API] ${oldPath} was renamed to ${newPath} on another device after we deleted it here. Keeping their version.`,
                             "info",
                         );
                     } else if (localIndexEntry?.pendingMove) {
+                        // The cloud has it under a name our move does not start from: another
+                        // device renamed it meanwhile. Record where it is, so the push moves
+                        // this very file. A note moved here with its folder was left to the
+                        // folder's move, which no longer carries it: it stayed under the other
+                        // device's name in the cloud and under ours here.
+                        if (localIndexEntry.pendingMove.oldPath !== newPath) {
+                            localIndexEntry.pendingMove = { oldPath: newPath };
+                            if (ctx.localIndex[oldPath]?.pendingMove) {
+                                ctx.localIndex[oldPath].pendingMove = { oldPath: newPath };
+                            }
+                        }
                         // Still confirm our own upload (same as the "Sync confirmed" path
                         // below). Otherwise ancestorHash stays at an older version, and the
                         // next merge uses a stale base and reports a conflict that isn't one.
@@ -1916,6 +1963,19 @@ async function processChangePage(
                             `[Changes API] Remote Rename skipped: ${oldPath} -> ${newPath} (local has pending move/changes)`,
                             "debug",
                         );
+                        // The cloud name is our own move not pushed yet, but the content
+                        // is another device's newer version. This change is the only
+                        // notice of it (a folder move on Drive reports the folder, not
+                        // its notes): skipped for good, this device kept the old content.
+                        // Pulled once our move is pushed, under the name the note has here.
+                        const theirs = cloudFile.hash?.toLowerCase();
+                        if (
+                            theirs &&
+                            theirs !== localIndexEntry.hash?.toLowerCase() &&
+                            theirs !== localIndexEntry.ancestorHash?.toLowerCase()
+                        ) {
+                            failed.push({ ...cloudFile, path: oldPath });
+                        }
                         continue;
                     }
 
@@ -2005,6 +2065,9 @@ async function processChangePage(
                         !ctx.index[newPath] &&
                         !ctx.localIndex[newPath] &&
                         !(await ctx.vault.exists(oldPath)) &&
+                        // On Windows/macOS the file under this name can be another
+                        // synced note whose name differs in letter case only.
+                        !findPathCollision(ctx, newPath, cloudFile.id) &&
                         (await holdsSyncedContent(ctx, newPath, oldPath))
                     ) {
                         // The rename is already done here, only its index update was lost
@@ -2089,31 +2152,6 @@ async function processChangePage(
 
             // Skip if local index hash matches (already synced by this client).
             // Read after the rename above so a renamed entry is found under its new path.
-            const heldByMove = ctx.index[cloudFile.path];
-            if (
-                heldByMove?.pendingMove &&
-                heldByMove.fileId &&
-                heldByMove.fileId !== cloudFile.id &&
-                (await ctx.vault.exists(cloudFile.path))
-            ) {
-                // We moved another note to this name here (not pushed yet) while a
-                // different note took the name in the cloud. Treating that note as an
-                // edit of ours turned ours into a conflict copy and lost its move.
-                // Give our note a free name; the push then moves it there.
-                const alt = await freeCollisionPath(ctx, cloudFile.path);
-                try {
-                    await renameLocal(ctx, cloudFile.path, alt);
-                    moveIndexEntry(ctx, cloudFile.path, alt);
-                    ctx.dirtyPaths.set(alt, ctx.dirtyPaths.get(alt) ?? Date.now());
-                    localIdToPath.set(heldByMove.fileId, alt);
-                    await ctx.log(
-                        `[Changes API] ${cloudFile.path} is now another note in the cloud. Moved the note renamed here to ${alt}.`,
-                        "warn",
-                    );
-                } catch (e) {
-                    await ctx.log(`[Changes API] Could not move ${cloudFile.path} to ${alt}: ${String(e)}`, "warn");
-                }
-            }
             const localEntry = ctx.index[cloudFile.path];
 
             // Our entry for this name belongs to another cloud file (that one was moved
