@@ -18,7 +18,7 @@ Java 11 以上が必要。初回実行時に版数固定の `tla2tools.jar`（v1
 | 模型 | 対象 | 性質 | 設定と期待結果 |
 | --- | --- | --- | --- |
 | `Auth.tla` | トークン更新・サインアウト・サインイン（`auth-service.ts`、`credential-manager.ts`） | サインアウト後のトークン非復活、トークン非混在、単一実行、更新要求の完了（活性） | `Auth` 合格 / `AuthLegacy`（世代番号なし）違反 |
-| `Migration.tla` | アドオン用 Vault 変換（`migration-service.ts`）と他端末の同期 | 編集非消失、削除ファイル非復活（変換時、遅延送信分）、変換の認知（交換後に開始した同期周期が変換を検出）、変換後 Vault の非平文混入、変換完了（活性） | `Migration`（他 1 台、ファイル 2 件）合格 / `Migration3`（他 2 台、ファイル 1 件）合格 / `Migration3x2`（他 2 台、ファイル 2 件、版数 3、活性なし）合格 / `MigrationLocked`（他 2 台、うち 1 台はアドオン未導入で開始し、再ロック・パスワード変更あり、版数 3、活性なし）合格 / `MigrationNoBase`（変換時点の記録なし）違反 / `MigrationLateDelete`（削除記録との照合なし）違反 / `MigrationPR43`（削除未反映・旧フォルダ即時削除）違反 / `MigrationLegacy` 違反 / `MigrationNoFollow`（0.19.2、稼働中端末）違反 / `MigrationNoFollowRestart`（0.19.2、再起動後）違反 |
+| `Migration.tla` | アドオン用 Vault 変換（`migration-service.ts`）と他端末の同期 | 編集非消失、削除ファイル非復活（変換時、遅延送信分）、変換の認知（交換後に開始した同期周期が変換を検出）、変換後 Vault の非平文混入、変換完了（活性） | `Migration`（他 1 台、ファイル 2 件）合格 / `Migration3`（他 2 台、ファイル 1 件、活性なし）合格 / `Migration3x2`（他 2 台、ファイル 2 件、版数 3、活性なし）合格 / `MigrationLocked`（他 2 台、うち 1 台はアドオン未導入で開始し、再ロック・パスワード変更あり、版数 3、活性なし）合格 / `MigrationNoBase`（変換時点の記録なし）違反 / `MigrationLateDelete`（削除記録との照合なし）違反 / `MigrationPR43`（削除未反映・旧フォルダ即時削除）違反 / `MigrationLegacy` 違反 / `MigrationNoFollow`（0.19.2、稼働中端末）違反 / `MigrationNoFollowRestart`（0.19.2、再起動後）違反 |
 | `CloudRetry.tla` | 新規作成要求の再送（`http-client.ts`、`index.ts`、`path-resolver.ts`） | 二重作成なし、他端末項目の取違えなし、要求完了（活性） | `CloudRetry`（識別子照会）合格 / `CloudRetryBlind`（単純再送）違反 / `CloudRetryName`（名前照会）違反 |
 | `SyncProtocol.tla` | 比較交換なしの送信、送信後の上書き検査と修復、統合ロック（`sync-push.ts`、`overwrite-recovery.ts`、`state.ts`） | 編集非消失、静止時の収束、全端末の収束（活性）、ロック排他性 | `SyncProtocol` 合格 / `SyncProtocolNoLock`（3 端末、ロックなし）合格 / `SyncProtocolNoCheck`（上書き検査なし）違反 / `SyncProtocolLock`（ロック排他性）違反 |
 
@@ -39,4 +39,5 @@ Java 11 以上が必要。初回実行時に版数固定の `tla2tools.jar`（v1
 - Vault 変換の旧フォルダ保持時間（1 時間）は、移行ロック作成前に開始した他端末の同期周期が保持時間内に終了するという前提に依存する。端末記録が自端末のみの場合は、他端末不在と判断して交換直後に削除する。
 - 改名、フォルダ操作（`tests/sim/addon-conversion.test.ts` が対象）。版番号による抽象化ではファイルの同一性を表現不可能なため、改名の模型化は断念した（試行時の誤検出を精査する過程で、追従前の改名が複製になる不具合と、再保持したノートへ遅延削除を適用する不具合を実コードで確認し、修正済み）。保証範囲の一覧は `doc/spec/verification-coverage.md`。
 - 2 端末による変換の同時開始、変換端末の強制終了、変換端末の同期対象外ファイル（同上のシミュレーションが対象）。
+- 3 台構成（`Migration3`、`Migration3x2`、`MigrationLocked`）は安全性のみ検査する。活性（変換完了）は状態数の増加により 2 台構成（`Migration`）のみで検査する。
 - クラウド上での Vault フォルダの手動改名・削除（変換以外のフォルダ交換。同上のシミュレーションが対象）。
