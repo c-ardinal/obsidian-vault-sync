@@ -68,7 +68,7 @@ function createMockCtx(overrides: Partial<SyncContext> = {}): SyncContext {
         recentlyDeletedFromRemote: new Set(),
         settingsUpdated: false,
         isSpinning: false,
-        pluginDataPath: ".obsidian/plugins/obsidian-vault-sync/sync-index.json",
+        pluginDataPath: ".obsidian/plugins/cardinal-vault-syncer/sync-index.json",
         settings: { hasCompletedFirstSync: true },
 
         vault: {

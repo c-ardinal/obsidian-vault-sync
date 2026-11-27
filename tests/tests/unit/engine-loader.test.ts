@@ -149,7 +149,7 @@ function createMockVault(files: Record<string, string> = {}): IVaultOperations {
     };
 }
 
-const PLUGIN_PATH = ".obsidian/plugins/obsidian-vault-sync";
+const PLUGIN_PATH = ".obsidian/plugins/cardinal-vault-syncer";
 
 // ═══════════════════════════════════════════════════════════════════
 

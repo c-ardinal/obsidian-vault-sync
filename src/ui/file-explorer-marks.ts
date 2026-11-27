@@ -9,8 +9,8 @@ export interface FileMarksSource {
     subscribe(cb: () => void): () => void;
 }
 
-const PENDING = "vault-sync-mark-pending";
-const CONFLICT = "vault-sync-mark-conflict";
+const PENDING = "vault-syncer-mark-pending";
+const CONFLICT = "vault-syncer-mark-conflict";
 
 /** The file explorer's rows (internal API, guarded: nothing is marked if it changes) */
 interface ExplorerView {

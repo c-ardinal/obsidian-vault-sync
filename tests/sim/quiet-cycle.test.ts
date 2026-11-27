@@ -9,6 +9,7 @@ import { SimDevice } from "./sim-device";
 import { Rng } from "./rng";
 import { drive } from "./simulation";
 import { vaultLockPath } from "../../src/services/vault-lock-service";
+import { quietCycleFilter } from "../../src/ui/progress-math";
 
 const NET = { minLatencyMs: 1, maxLatencyMs: 5, failureRate: 0, lostResponseRate: 0 };
 
@@ -62,6 +63,27 @@ describe("quiet timer sync", () => {
     it("reads only the change feed when nothing changed anywhere", async () => {
         const { b, callsOf } = await setup();
         expect(await callsOf(b, "timer-sync")).toEqual(["getChanges"]);
+    });
+
+    it("stays out of the status display when nothing changed", async () => {
+        const { a, b, sync } = await setup();
+        const shown = quietCycleFilter();
+        const seen: Array<{ active: boolean; pulled: number }> = [];
+        const stop = b.sm.progress.subscribe((s) => {
+            const d = shown(s);
+            seen.push({ active: d.active, pulled: d.last?.pulled ?? 0 });
+        });
+        await sync(b, "timer-sync");
+        // The start of the cycle and its end both reached the display, neither as a running sync
+        expect(seen.length).toBeGreaterThan(1);
+        expect(seen.every((d) => !d.active && d.pulled === 0)).toBe(true);
+
+        // A note from another device: the result of the cycle is shown
+        await a.userEdit("note.md", "second");
+        await sync(a);
+        await sync(b, "timer-sync");
+        stop();
+        expect(seen[seen.length - 1]).toEqual({ active: false, pulled: 1 });
     });
 
     it("still checks the vault-lock on a sync the user starts", async () => {

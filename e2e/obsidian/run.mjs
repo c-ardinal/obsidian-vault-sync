@@ -9,7 +9,7 @@
  * sticking out of the screen.
  *
  *   OBSIDIAN_BIN   path to the unpacked Obsidian executable (see setup-obsidian.mjs)
- *   PLUGIN_DIR     built plugin (default: dist/cardinal-vault-sync)
+ *   PLUGIN_DIR     built plugin (default: dist/cardinal-vault-syncer)
  *   OUT_DIR        screenshots + report (default: test-results/e2e-obsidian)
  *   E2E_LANGS      comma separated UI languages (default: en,ja)
  *   ADDON_ZIP      optional add-on package (.zip): shows the install review screen, then
@@ -26,7 +26,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { chromium } from "playwright-core";
 
-const PLUGIN_DIR = resolve(process.env.PLUGIN_DIR || "dist/cardinal-vault-sync");
+const PLUGIN_DIR = resolve(process.env.PLUGIN_DIR || "dist/cardinal-vault-syncer");
 const OUT_DIR = resolve(process.env.OUT_DIR || "test-results/e2e-obsidian");
 const LANGS = (process.env.E2E_LANGS || "en,ja")
     .split(",")
@@ -195,7 +195,7 @@ async function openSettings(page) {
         async () => {
             for (const ctx of browser.contexts()) {
                 for (const p of ctx.pages()) {
-                    if (await p.$(".vault-sync-settings-container").catch(() => null)) return p;
+                    if (await p.$(".vault-syncer-settings-container").catch(() => null)) return p;
                 }
             }
             return null;
@@ -240,29 +240,29 @@ async function shot(page, lang, label, target, { keepNotices = false } = {}) {
 async function shotSettings(page, lang, label, target = ".modal.mod-settings") {
     await shot(page, lang, label, target);
     const overflow = await page.evaluate(() => {
-        const el = document.querySelector(".vault-sync-settings-container");
+        const el = document.querySelector(".vault-syncer-settings-container");
         return el ? el.scrollHeight - el.clientHeight : 0;
     });
     if (overflow > 40) {
         await page.evaluate(() => {
-            const el = document.querySelector(".vault-sync-settings-container");
+            const el = document.querySelector(".vault-syncer-settings-container");
             el.scrollTop = el.scrollHeight;
         });
         await sleep(200);
         await shot(page, lang, `${label}-bottom`, target);
         await page.evaluate(() => {
-            document.querySelector(".vault-sync-settings-container").scrollTop = 0;
+            document.querySelector(".vault-syncer-settings-container").scrollTop = 0;
         });
     }
 }
 
 const navNames = (page) =>
-    page.$$eval(".vault-sync-settings-nav-item .setting-item-name", (els) =>
+    page.$$eval(".vault-syncer-settings-nav-item .setting-item-name", (els) =>
         els.map((e) => e.textContent.trim()),
     );
 
 async function settingsText(page) {
-    return page.$eval(".vault-sync-settings-container", (el) => el.innerText);
+    return page.$eval(".vault-syncer-settings-container", (el) => el.innerText);
 }
 
 async function checkHierarchy(main, lang, { mobile = false } = {}) {
@@ -277,21 +277,21 @@ async function checkHierarchy(main, lang, { mobile = false } = {}) {
     check(
         lang,
         `${tag}: root has no back button`,
-        (await page.$$(".vault-sync-settings-back")).length === 0,
+        (await page.$$(".vault-syncer-settings-back")).length === 0,
     );
     await shotSettings(page, lang, `${tag}-root`, target);
 
     const leaked = [];
     for (let i = 0; i < names.length; i++) {
-        const items = await page.$$(".vault-sync-settings-nav-item");
+        const items = await page.$$(".vault-syncer-settings-nav-item");
         await items[i].click();
-        await page.waitForSelector(".vault-sync-settings-back", { timeout: 5000 });
+        await page.waitForSelector(".vault-syncer-settings-back", { timeout: 5000 });
         const heading = await page.$eval(
-            ".vault-sync-settings-container .setting-item-heading .setting-item-name",
+            ".vault-syncer-settings-container .setting-item-heading .setting-item-name",
             (el) => el.textContent.trim(),
         );
-        const rows = (await page.$$(".vault-sync-settings-page .setting-item")).length;
-        const scrollTop = await page.$eval(".vault-sync-settings-container", (el) => el.scrollTop);
+        const rows = (await page.$$(".vault-syncer-settings-page .setting-item")).length;
+        const scrollTop = await page.$eval(".vault-syncer-settings-container", (el) => el.scrollTop);
         check(
             lang,
             `${tag}: page "${names[i]}" opens with matching title`,
@@ -309,8 +309,8 @@ async function checkHierarchy(main, lang, { mobile = false } = {}) {
         if (BANNED_UI_WORDS.test(text)) leaked.push(names[i]);
         await shotSettings(page, lang, `${tag}-page${i + 1}`, target);
 
-        await page.click(".vault-sync-settings-back");
-        await page.waitForSelector(".vault-sync-settings-nav-item", {
+        await page.click(".vault-syncer-settings-back");
+        await page.waitForSelector(".vault-syncer-settings-nav-item", {
             timeout: 5000,
         });
         const back = await navNames(page);
@@ -328,11 +328,11 @@ async function checkHierarchy(main, lang, { mobile = false } = {}) {
     );
 
     // Search on the top page: matching settings with their controls, page list hidden
-    const searchInput = ".vault-sync-settings-search input";
+    const searchInput = ".vault-syncer-settings-search input";
     await page.fill(searchInput, lang === "ja" ? "削除" : "trash");
     await sleep(300);
-    const hits = (await page.$$(".vault-sync-settings-search-results .setting-item")).length;
-    const navHidden = await page.$eval(".vault-sync-settings-nav", (el) => el.offsetParent === null);
+    const hits = (await page.$$(".vault-syncer-settings-search-results .setting-item")).length;
+    const navHidden = await page.$eval(".vault-syncer-settings-nav", (el) => el.offsetParent === null);
     check(lang, `${tag}: settings search shows matches`, hits > 0 && navHidden, `${hits} hits, nav hidden=${navHidden}`);
     check(lang, `${tag}: settings search results name no add-on internals`, !BANNED_UI_WORDS.test(await settingsText(page)));
     await shotSettings(page, lang, `${tag}-search`, target);
@@ -341,7 +341,7 @@ async function checkHierarchy(main, lang, { mobile = false } = {}) {
     check(
         lang,
         `${tag}: settings search says when nothing matches`,
-        (await page.$$(".vault-sync-settings-search-none")).length === 1,
+        (await page.$$(".vault-syncer-settings-search-none")).length === 1,
     );
     await page.fill(searchInput, "");
     await sleep(300);
@@ -349,15 +349,15 @@ async function checkHierarchy(main, lang, { mobile = false } = {}) {
         lang,
         `${tag}: clearing the search shows the category list again`,
         (await navNames(page)).join("|") === names.join("|") &&
-            (await page.$$(".vault-sync-settings-search-results .setting-item")).length === 0,
+            (await page.$$(".vault-syncer-settings-search-results .setting-item")).length === 0,
     );
 
     if (!mobile) {
         // Keyboard: Enter on a focused row opens the page.
-        await page.focus(".vault-sync-settings-nav-item");
+        await page.focus(".vault-syncer-settings-nav-item");
         await page.keyboard.press("Enter");
         const kbd = await page
-            .waitForSelector(".vault-sync-settings-back", { timeout: 3000 })
+            .waitForSelector(".vault-syncer-settings-back", { timeout: 3000 })
             .catch(() => null);
         check(lang, `${tag}: Enter on a category opens it`, !!kbd);
 
@@ -367,8 +367,8 @@ async function checkHierarchy(main, lang, { mobile = false } = {}) {
         check(
             lang,
             `${tag}: reopening settings shows the category list`,
-            (await page.$$(".vault-sync-settings-nav-item")).length === names.length &&
-                (await page.$$(".vault-sync-settings-back")).length === 0,
+            (await page.$$(".vault-syncer-settings-nav-item")).length === names.length &&
+                (await page.$$(".vault-syncer-settings-back")).length === 0,
         );
     }
     await closeSettings(main);
@@ -391,7 +391,7 @@ async function visibleCloseButtons(page) {
         const out = [];
         for (const el of modal.querySelectorAll(
             // Obsidian's close control (.modal-close-button, or .modal-header-button on 1.15 mobile) and any plugin-made one.
-            ".modal-close-button, .modal-header-button, .vault-sync-close-btn, [aria-label='Close']",
+            ".modal-close-button, .modal-header-button, .vault-syncer-close-btn, [aria-label='Close']",
         )) {
             const cs = getComputedStyle(el);
             const r = el.getBoundingClientRect();
@@ -495,11 +495,11 @@ async function escape(page) {
  */
 async function checkSyncStatus(page, lang, { mobile = false } = {}) {
     const tag = mobile ? "mobile" : "desktop";
-    const panelSel = mobile ? ".vault-sync-status-sheet" : ".vault-sync-status-popover";
+    const panelSel = mobile ? ".vault-syncer-status-sheet" : ".vault-syncer-status-popover";
     const present = await page.evaluate(() => ({
-        item: !!document.querySelector(".status-bar .vault-sync-status-item"),
-        pill: !!document.querySelector(".vault-sync-status-pill"),
-        fab: !!document.querySelector(".vault-sync-mobile-fab"),
+        item: !!document.querySelector(".status-bar .vault-syncer-status-item"),
+        pill: !!document.querySelector(".vault-syncer-status-pill"),
+        fab: !!document.querySelector(".vault-syncer-mobile-fab"),
     }));
     if (mobile) {
         check(lang, `${tag}: status pill mounted, old indicator gone`, present.pill && !present.fab);
@@ -534,7 +534,7 @@ async function checkSyncStatus(page, lang, { mobile = false } = {}) {
     const statusText = () =>
         page.evaluate(
             (sel) => document.querySelector(sel)?.textContent ?? "",
-            mobile ? ".vault-sync-status-pill" : ".vault-sync-status-item",
+            mobile ? ".vault-syncer-status-pill" : ".vault-syncer-status-item",
         );
     const fits = () =>
         page.evaluate((sel) => {
@@ -581,10 +581,10 @@ async function checkSyncStatus(page, lang, { mobile = false } = {}) {
     if (!mobile) {
         // A real click on the status bar item must show the panel on screen (the
         // checks above open it through code, which missed a release-only CSS bug).
-        await page.click(".vault-sync-status-item");
+        await page.click(".vault-syncer-status-item");
         await sleep(300);
         const box = await page.evaluate(() => {
-            const el = document.querySelector(".vault-sync-status-popover");
+            const el = document.querySelector(".vault-syncer-status-popover");
             if (!el) return null;
             const r = el.getBoundingClientRect();
             return { top: r.top, bottom: r.bottom, h: r.height, vh: innerHeight };
@@ -595,7 +595,7 @@ async function checkSyncStatus(page, lang, { mobile = false } = {}) {
             !!box && box.h > 50 && box.top >= 0 && box.bottom <= box.vh,
             JSON.stringify(box),
         );
-        await page.click(".vault-sync-status-item");
+        await page.click(".vault-syncer-status-item");
         await sleep(200);
     }
 
@@ -650,7 +650,7 @@ async function checkSyncStatus(page, lang, { mobile = false } = {}) {
     `);
     await openPanel("finishing");
     const lastStep = await page.evaluate(
-        (sel) => document.querySelector(`${sel} .vault-sync-status-step:last-child`)?.className ?? "",
+        (sel) => document.querySelector(`${sel} .vault-syncer-status-step:last-child`)?.className ?? "",
         panelSel,
     );
     check(lang, `${tag}: the last step is current after the uploads`, /is-current/.test(lastStep), lastStep);
@@ -674,15 +674,15 @@ async function checkSyncStatus(page, lang, { mobile = false } = {}) {
     // The conflict count opens the resolver; "more" lists the plugin's other screens.
     const panelParts = await page.evaluate(
         (sel) => ({
-            conflictLink: !!document.querySelector(`${sel} a.vault-sync-status-link`),
-            more: !!document.querySelector(`${sel} .vault-sync-status-more`),
+            conflictLink: !!document.querySelector(`${sel} a.vault-syncer-status-link`),
+            more: !!document.querySelector(`${sel} .vault-syncer-status-more`),
         }),
         panelSel,
     );
     check(lang, `${tag}: status panel conflict count is a link`, panelParts.conflictLink);
     check(lang, `${tag}: status panel has a "more" button`, panelParts.more);
     if (panelParts.more) {
-        await page.click(`${panelSel} .vault-sync-status-more`);
+        await page.click(`${panelSel} .vault-syncer-status-more`);
         await page.waitForSelector(".menu", { timeout: 3000 }).catch(() => {});
         const menuItems = await page.$$eval(".menu .menu-item-title", (els) => els.map((e) => e.textContent.trim()));
         check(lang, `${tag}: "more" menu lists the screens`, menuItems.length >= 6, menuItems.join(" | "));
@@ -691,6 +691,27 @@ async function checkSyncStatus(page, lang, { mobile = false } = {}) {
         await sleep(200);
         if (!(await page.$(panelSel))) await openPanel();
     }
+    // A timer sync with nothing to transfer runs out of sight: the panel and the
+    // one-line display stay as they are until it ends (they flickered at each one).
+    const drawn = () =>
+        page.evaluate((sel) => document.querySelector(sel)?.innerHTML ?? "", panelSel);
+    const restPanel = await drawn();
+    const restLine = await statusText();
+    await tracker(`tr.begin("timer-sync");`);
+    await sleep(400);
+    const quietStart = (await drawn()) === restPanel && (await statusText()) === restLine;
+    await tracker(`tr.setPhase("finishing"); tr.emit(true);`);
+    await sleep(400);
+    const quietEnd = (await drawn()) === restPanel && (await statusText()) === restLine;
+    await tracker(`tr.finish("ok");`);
+    await sleep(300);
+    const afterQuiet = await statusText();
+    check(
+        lang,
+        `${tag}: a timer sync with nothing to transfer leaves the status display unchanged`,
+        quietStart && quietEnd && /Synced|同期済み|已同步|동기화됨/.test(afterQuiet),
+        `start=${quietStart} end=${quietEnd} after=${afterQuiet}`,
+    );
     await closePanel();
 
     // 4. Failed and offline.
@@ -737,8 +758,8 @@ async function checkSyncStatus(page, lang, { mobile = false } = {}) {
         p.settings.showSyncStatus = false;
         p.refreshSyncStatusView();
         const r = {
-            item: !!document.querySelector(".vault-sync-status-item, .vault-sync-status-pill"),
-            fab: !!document.querySelector(".vault-sync-mobile-fab"),
+            item: !!document.querySelector(".vault-syncer-status-item, .vault-syncer-status-pill"),
+            fab: !!document.querySelector(".vault-syncer-mobile-fab"),
         };
         p.settings.showSyncStatus = true;
         p.refreshSyncStatusView();
@@ -757,10 +778,10 @@ async function checkTransfers(page, lang, tag) {
     const info = await page.evaluate(() => {
         const m = document.querySelector(".mod-transfer-status-modal");
         return {
-            summary: !!m.querySelector(".vault-sync-xfer-summary .vault-sync-status-steps"),
-            queue: m.querySelectorAll(".mod-queue .vault-sync-xfer-row").length,
-            batches: m.querySelectorAll(".vault-sync-xfer-batch").length,
-            open: m.querySelectorAll(".vault-sync-xfer-batch.is-open").length,
+            summary: !!m.querySelector(".vault-syncer-xfer-summary .vault-syncer-status-steps"),
+            queue: m.querySelectorAll(".mod-queue .vault-syncer-xfer-row").length,
+            batches: m.querySelectorAll(".vault-syncer-xfer-batch").length,
+            open: m.querySelectorAll(".vault-syncer-xfer-batch.is-open").length,
         };
     });
     check(
@@ -770,51 +791,51 @@ async function checkTransfers(page, lang, tag) {
         JSON.stringify(info),
     );
     // Failed filter: only failed rows.
-    await page.selectOption("select.vault-sync-xfer-filter", "failed");
+    await page.selectOption("select.vault-syncer-xfer-filter", "failed");
     await sleep(300);
     const failedOnly = await page.evaluate(() => {
-        const rows = [...document.querySelectorAll(".mod-history .vault-sync-xfer-row")];
+        const rows = [...document.querySelectorAll(".mod-history .vault-syncer-xfer-row")];
         return rows.length > 0 && rows.every((r) => r.classList.contains("is-failed"));
     });
     check(lang, `${tag}: transfer history "failed" filter`, failedOnly);
     await shot(page, lang, `${tag}-scr-transfers-failed`);
-    await page.selectOption("select.vault-sync-xfer-filter", "all");
+    await page.selectOption("select.vault-syncer-xfer-filter", "all");
     await sleep(300);
     // Open a closed batch, then show the history part.
     await page
-        .locator(".vault-sync-xfer-batch:not(.is-open) .vault-sync-xfer-batch-head")
+        .locator(".vault-syncer-xfer-batch:not(.is-open) .vault-syncer-xfer-batch-head")
         .first()
         .click();
     await sleep(300);
     const opened = await page.evaluate(
-        () => document.querySelectorAll(".vault-sync-xfer-batch.is-open .vault-sync-xfer-row").length,
+        () => document.querySelectorAll(".vault-syncer-xfer-batch.is-open .vault-syncer-xfer-row").length,
     );
     check(lang, `${tag}: transfer history batch opens`, opened >= 2, `${opened} rows`);
     // Closing a batch hides its rows again.
     const visibleRows = () =>
         page.evaluate(
             () =>
-                [...document.querySelectorAll(".mod-history .vault-sync-xfer-row")].filter(
+                [...document.querySelectorAll(".mod-history .vault-syncer-xfer-row")].filter(
                     (r) => r.getBoundingClientRect().height > 0,
                 ).length,
         );
     const rowsOpen = await visibleRows();
-    await page.locator(".vault-sync-xfer-batch.is-open .vault-sync-xfer-batch-head").first().click();
+    await page.locator(".vault-syncer-xfer-batch.is-open .vault-syncer-xfer-batch-head").first().click();
     await sleep(300);
     const rowsClosed = await visibleRows();
     check(lang, `${tag}: transfer history batch closes`, rowsClosed < rowsOpen, `${rowsOpen} -> ${rowsClosed} rows`);
-    await page.locator(".vault-sync-xfer-batch:not(.is-open) .vault-sync-xfer-batch-head").first().click();
+    await page.locator(".vault-syncer-xfer-batch:not(.is-open) .vault-syncer-xfer-batch-head").first().click();
     await sleep(200);
     // Only the history scrolls: status and queue stay where they are.
     const scroll = await page.evaluate(() => {
         const m = document.querySelector(".mod-transfer-status-modal");
         const top = (sel) => Math.round(m.querySelector(sel).getBoundingClientRect().top);
-        const before = [top(".vault-sync-xfer-summary"), top(".mod-queue"), top(".mod-history .vault-sync-xfer-section-head")];
-        const outer = m.querySelector(".vault-sync-transfer-container");
-        const body = m.querySelector(".vault-sync-xfer-history-body");
+        const before = [top(".vault-syncer-xfer-summary"), top(".mod-queue"), top(".mod-history .vault-syncer-xfer-section-head")];
+        const outer = m.querySelector(".vault-syncer-transfer-container");
+        const body = m.querySelector(".vault-syncer-xfer-history-body");
         outer.scrollTop = 500;
         body.scrollTop = 500;
-        const after = [top(".vault-sync-xfer-summary"), top(".mod-queue"), top(".mod-history .vault-sync-xfer-section-head")];
+        const after = [top(".vault-syncer-xfer-summary"), top(".mod-queue"), top(".mod-history .vault-syncer-xfer-section-head")];
         return { before, after, outer: outer.scrollTop, body: body.scrollTop, room: body.scrollHeight - body.clientHeight };
     });
     check(
@@ -836,16 +857,16 @@ async function checkDisplaySettings(main, lang, { mobile = false } = {}) {
     const idx = names.findIndex((n) => /^(Display|表示|显示|표시)$/.test(n));
     check(lang, `${tag}: display settings page listed`, idx >= 0, names.join(" | "));
     if (idx < 0) return;
-    const items = await page.$$(".vault-sync-settings-nav-item");
+    const items = await page.$$(".vault-syncer-settings-nav-item");
     await items[idx].click();
-    await page.waitForSelector(".vault-sync-diff-preview", { timeout: 5000 });
+    await page.waitForSelector(".vault-syncer-diff-preview", { timeout: 5000 });
     const sizes = () =>
-        page.$$eval(".vault-sync-diff-preview-pane .diff-table", (els) =>
+        page.$$eval(".vault-syncer-diff-preview-pane .diff-table", (els) =>
             els.map((e) => getComputedStyle(e).fontSize),
         );
     const setSlider = (value) =>
         page.$eval(
-            ".vault-sync-settings-page input.slider",
+            ".vault-syncer-settings-page input.slider",
             (el, v) => {
                 el.value = v;
                 el.dispatchEvent(new Event("input", { bubbles: true }));
@@ -864,7 +885,7 @@ async function checkDisplaySettings(main, lang, { mobile = false } = {}) {
         `${before.join(",")} -> ${after.join(",")}`,
     );
     await page.evaluate(() =>
-        document.querySelector(".vault-sync-diff-preview")?.scrollIntoView({ block: "center" }),
+        document.querySelector(".vault-syncer-diff-preview")?.scrollIntoView({ block: "center" }),
     );
     await sleep(300);
     await shot(page, lang, `${tag}-settings-display`);
@@ -892,15 +913,15 @@ async function checkScopeAndMassChange(main, lang, { mobile = false } = {}) {
     const idx = names.findIndex((n) => /^(Sync [Ss]cope|同期範囲|同步范围|동기화 범위)$/.test(n));
     check(lang, `${tag}: sync scope page listed`, idx >= 0, names.join(" | "));
     if (idx >= 0) {
-        await (await page.$$(".vault-sync-settings-nav-item"))[idx].click();
-        await page.waitForSelector(".vault-sync-settings-back", { timeout: 5000 });
+        await (await page.$$(".vault-syncer-settings-nav-item"))[idx].click();
+        await page.waitForSelector(".vault-syncer-settings-back", { timeout: 5000 });
         const text = await settingsText(page);
         const suffix = mobile ? /(mobile|モバイル|移动端|모바일)/ : /\(PC\)|（PC）/;
         check(lang, `${tag}: own-platform .obsidian toggles shown`, suffix.test(text));
         const scrollTo = (re) =>
             page.evaluate((src) => {
                 const r = new RegExp(src);
-                [...document.querySelectorAll(".vault-sync-settings-page .setting-item")]
+                [...document.querySelectorAll(".vault-syncer-settings-page .setting-item")]
                     .find((e) => r.test(e.querySelector(".setting-item-name")?.textContent ?? ""))
                     ?.scrollIntoView({ block: "start" });
             }, re);
@@ -921,7 +942,7 @@ async function checkScopeAndMassChange(main, lang, { mobile = false } = {}) {
         for (let i = 1; i <= 24; i++) changes.push({ action: "overwrite-remote", path: `Notes/note-${i}.md`, kind: "file" });
         void p.syncManager.planGuard.review({ step: "push", changes });
     }, PLUGIN_ID);
-    await modalOpen(main, ".vault-sync-mass-delete-list", "mass change");
+    await modalOpen(main, ".vault-syncer-mass-delete-list", "mass change");
     await shotModal(main, lang, tag, "scr-mass-overwrite", "mass overwrite question");
     await escape(main);
     await main.evaluate((id) => {
@@ -952,9 +973,9 @@ async function checkProtectionAndNumbers(main, lang, { mobile = false } = {}) {
     );
     check(lang, `${tag}: data protection page listed`, prot >= 0, names.join(" | "));
     if (prot >= 0) {
-        await (await page.$$(".vault-sync-settings-nav-item"))[prot].click();
-        await page.waitForSelector(".vault-sync-settings-back", { timeout: 5000 });
-        const firstRows = await page.$$eval(".vault-sync-settings-page .setting-item:not(.setting-item-heading)", (els) =>
+        await (await page.$$(".vault-syncer-settings-nav-item"))[prot].click();
+        await page.waitForSelector(".vault-syncer-settings-back", { timeout: 5000 });
+        const firstRows = await page.$$eval(".vault-syncer-settings-page .setting-item:not(.setting-item-heading)", (els) =>
             els.slice(0, 3).map((e) => !!e.querySelector("button")),
         );
         check(
@@ -964,23 +985,23 @@ async function checkProtectionAndNumbers(main, lang, { mobile = false } = {}) {
             JSON.stringify(firstRows),
         );
         await shot(page, lang, `${tag}-settings-protection`);
-        await page.click(".vault-sync-settings-back");
+        await page.click(".vault-syncer-settings-back");
         await sleep(300);
     }
     names = await navNames(page);
     const tr = names.findIndex((n) => /^(Transfers|転送|传输|전송)$/.test(n));
     check(lang, `${tag}: transfer page listed`, tr >= 0, names.join(" | "));
     if (tr >= 0) {
-        await (await page.$$(".vault-sync-settings-nav-item"))[tr].click();
-        await page.waitForSelector(".vault-sync-settings-back", { timeout: 5000 });
-        const input = page.locator(".vault-sync-settings-page .vault-sync-number-setting input").first();
+        await (await page.$$(".vault-syncer-settings-nav-item"))[tr].click();
+        await page.waitForSelector(".vault-syncer-settings-back", { timeout: 5000 });
+        const input = page.locator(".vault-syncer-settings-page .vault-syncer-number-setting input").first();
         await input.fill("50");
         await input.press("Enter");
         await sleep(300);
         // The settings may be their own window: read the field there, the value in the app
         const r = await page.evaluate(() => {
-            const el = document.querySelector(".vault-sync-settings-page .vault-sync-number-setting input");
-            const hint = document.querySelector(".vault-sync-settings-page .vault-sync-number-hint");
+            const el = document.querySelector(".vault-syncer-settings-page .vault-syncer-number-setting input");
+            const hint = document.querySelector(".vault-syncer-settings-page .vault-syncer-number-hint");
             return { shown: el?.value, flagged: hint?.classList.contains("is-error") };
         });
         r.saved = await main.evaluate((id) => window.app.plugins.plugins[id].settings.concurrency, PLUGIN_ID);
@@ -992,15 +1013,15 @@ async function checkProtectionAndNumbers(main, lang, { mobile = false } = {}) {
         );
         await shot(page, lang, `${tag}-settings-number-clamped`);
         const resetShown = await page.evaluate(() => {
-            const b = document.querySelector(".vault-sync-settings-page .vault-sync-number-setting .vault-sync-reset-default");
+            const b = document.querySelector(".vault-syncer-settings-page .vault-syncer-number-setting .vault-syncer-reset-default");
             return !!b && b.style.display !== "none";
         });
         check(lang, `${tag}: changed number offers "restore default"`, resetShown);
-        await page.click(".vault-sync-settings-page .vault-sync-number-setting .vault-sync-reset-default");
+        await page.click(".vault-syncer-settings-page .vault-syncer-number-setting .vault-syncer-reset-default");
         await sleep(300);
         const afterReset = await main.evaluate((id) => window.app.plugins.plugins[id].settings.concurrency, PLUGIN_ID);
         check(lang, `${tag}: "restore default" sets the default`, afterReset === 5, String(afterReset));
-        await page.click(".vault-sync-settings-back");
+        await page.click(".vault-syncer-settings-back");
         await sleep(300);
     }
     // Triggers page: Obsidian headings (no uppercase), folded details, no "Trigger:" prefix
@@ -1008,20 +1029,20 @@ async function checkProtectionAndNumbers(main, lang, { mobile = false } = {}) {
     const trg = names.findIndex((n) => /^(Sync triggers|同期トリガー|同步触发|동기화 트리거)/.test(n));
     check(lang, `${tag}: triggers page listed`, trg >= 0, names.join(" | "));
     if (trg >= 0) {
-        await (await page.$$(".vault-sync-settings-nav-item"))[trg].click();
-        await page.waitForSelector(".vault-sync-settings-back", { timeout: 5000 });
+        await (await page.$$(".vault-syncer-settings-nav-item"))[trg].click();
+        await page.waitForSelector(".vault-syncer-settings-back", { timeout: 5000 });
         const t = await page.evaluate(() => {
-            const pageEl = document.querySelector(".vault-sync-settings-page");
-            const heads = [...pageEl.querySelectorAll(".vault-sync-subheader-group > .setting-item-heading")];
+            const pageEl = document.querySelector(".vault-syncer-settings-page");
+            const heads = [...pageEl.querySelectorAll(".vault-syncer-subheader-group > .setting-item-heading")];
             const names = [...pageEl.querySelectorAll(".setting-item:not(.setting-item-heading) .setting-item-name")].map(
                 (e) => e.textContent.trim(),
             );
             return {
                 heads: heads.length,
                 upper: heads.some((h) => getComputedStyle(h.querySelector(".setting-item-name")).textTransform === "uppercase"),
-                details: pageEl.querySelectorAll("details.vault-sync-setting-detail").length,
+                details: pageEl.querySelectorAll("details.vault-syncer-setting-detail").length,
                 prefixed: names.filter((n) => /^(Trigger:|トリガー:)/.test(n)),
-                hint: pageEl.querySelector(".vault-sync-number-hint")?.textContent ?? "",
+                hint: pageEl.querySelector(".vault-syncer-number-hint")?.textContent ?? "",
             };
         });
         check(
@@ -1032,11 +1053,11 @@ async function checkProtectionAndNumbers(main, lang, { mobile = false } = {}) {
         );
         check(lang, `${tag}: number range reads "default first"`, /^(Default|既定) /.test(t.hint), t.hint);
         await page.evaluate(() => {
-            const d = document.querySelector(".vault-sync-settings-page details.vault-sync-setting-detail");
+            const d = document.querySelector(".vault-syncer-settings-page details.vault-syncer-setting-detail");
             if (d) d.open = true;
         });
         await shot(page, lang, `${tag}-settings-triggers`);
-        await page.click(".vault-sync-settings-back");
+        await page.click(".vault-syncer-settings-back");
         await sleep(300);
     }
     // Obsidian's own settings search lists Vault Syncer rows (Obsidian 1.13+)
@@ -1102,23 +1123,32 @@ async function checkScreens(page, lang, { mobile = false } = {}) {
     // History / diff viewer.
     await cmd(page, "dev-demo-history");
     await modalOpen(page, ".mod-history-modal");
-    await page.waitForSelector(".vault-sync-revision-item", { timeout: 8000 }).catch(() => {});
+    await page.waitForSelector(".vault-syncer-revision-item", { timeout: 8000 }).catch(() => {});
     if (!mobile) {
         await page
-            .locator(".vault-sync-revision-item")
+            .locator(".vault-syncer-revision-item")
             .first()
             .click()
             .catch(() => {});
     }
     await page.waitForSelector(".diff-table", { timeout: 8000 }).catch(() => {});
     await sleep(500);
+    // Versions made within one minute must be told apart in the "compare with" list.
+    const compareOptions = await page.$$eval(".mod-history-modal select option", (els) => els.map((e) => e.textContent));
+    const timed = compareOptions.filter((o) => /\d{1,2}:\d{2}/.test(o));
+    check(
+        lang,
+        `${tag}: history "compare with" times show seconds`,
+        timed.length > 0 && timed.every((o) => /\d{1,2}:\d{2}:\d{2}/.test(o)),
+        compareOptions.join(" | "),
+    );
     await shotModal(page, lang, tag, "scr-history", "history modal");
     if (mobile) {
-        await page.click(".vault-sync-history-toggle-btn").catch(() => {});
+        await page.click(".vault-syncer-history-toggle-btn").catch(() => {});
         await sleep(500);
         await shot(page, lang, `${tag}-scr-history-drawer`);
         await page
-            .locator(".vault-sync-revision-item")
+            .locator(".vault-syncer-revision-item")
             .nth(1)
             .click()
             .catch(() => {});
@@ -1128,7 +1158,7 @@ async function checkScreens(page, lang, { mobile = false } = {}) {
     // Split diff view.
     const splitBtn = page
         .locator(
-            ".vault-sync-revision-control-row .clickable-icon, .vault-sync-revision-control-row button",
+            ".vault-syncer-revision-control-row .clickable-icon, .vault-syncer-revision-control-row button",
         )
         .filter({
             has: page.locator("svg.lucide-rows, svg.lucide-rows-2, svg.svg-icon.lucide-rows"),
@@ -1145,9 +1175,9 @@ async function checkScreens(page, lang, { mobile = false } = {}) {
 
     // "Restore as" prompt, empty and with an error.
     await cmd(page, "dev-demo-prompt-modal");
-    await modalOpen(page, ".vault-sync-prompt-input");
+    await modalOpen(page, ".vault-syncer-prompt-input");
     await shotModal(page, lang, tag, "scr-restore-as", "restore-as dialog");
-    await page.fill(".vault-sync-prompt-input", "Notes/existing.md");
+    await page.fill(".vault-syncer-prompt-input", "Notes/existing.md");
     await page.keyboard.press("Enter");
     await sleep(500);
     await shot(page, lang, `${tag}-scr-restore-as-error`);
@@ -1175,11 +1205,11 @@ async function checkScreens(page, lang, { mobile = false } = {}) {
         await v.create(copy, `# Plan\n\nGoal: ship on Thursday after review\n\n${shared}\n\nOwner: this device\nNotes: added here\n`);
     });
     await cmd(page, "resolve-conflicts");
-    await modalOpen(page, ".vault-sync-conflict-chunks");
+    await modalOpen(page, ".vault-syncer-conflict-chunks");
     await shotModal(page, lang, tag, "scr-conflict-resolve", "conflict resolve modal");
-    await page.locator(".vault-sync-conflict-choices button").nth(2).click();
+    await page.locator(".vault-syncer-conflict-choices button").nth(2).click();
     await sleep(300);
-    const merged = await page.$eval(".vault-sync-conflict-result", (el) => el.value);
+    const merged = await page.$eval(".vault-syncer-conflict-result", (el) => el.value);
     check(
         lang,
         `${tag}: conflict result takes both sides`,
@@ -1187,7 +1217,7 @@ async function checkScreens(page, lang, { mobile = false } = {}) {
         merged.slice(0, 120),
     );
     await shot(page, lang, `${tag}-scr-conflict-resolve-both`);
-    await page.locator(".vault-sync-conflict-buttons button.mod-cta").click();
+    await page.locator(".vault-syncer-conflict-buttons button.mod-cta").click();
     await sleep(800);
     const after = await page.evaluate(async () => {
         const v = window.app.vault;
@@ -1232,12 +1262,12 @@ async function checkScreens(page, lang, { mobile = false } = {}) {
         sm.forgetDevice = async () => {};
     }, PLUGIN_ID);
     await cmd(page, "show-devices");
-    await modalOpen(page, ".vault-sync-activity-list");
+    await modalOpen(page, ".vault-syncer-activity-list");
     await shotModal(page, lang, tag, "scr-devices", "devices modal");
-    const rows = await page.$$eval(".vault-sync-activity-row", (els) => els.length);
+    const rows = await page.$$eval(".vault-syncer-activity-row", (els) => els.length);
     check(lang, `${tag}: devices modal lists all changes`, rows === 5, `rows=${rows}`);
     // Every note paragraph shows all its lines (none is squeezed by the modal layout)
-    const clipped = await page.$$eval(".vault-sync-devices-note", (els) =>
+    const clipped = await page.$$eval(".vault-syncer-devices-note", (els) =>
         els.filter((e) => e.scrollHeight > e.clientHeight + 1).map((e) => e.textContent.slice(0, 30)),
     );
     check(lang, `${tag}: devices modal texts are not cut`, clipped.length === 0, clipped.join(" / "));
@@ -1245,15 +1275,15 @@ async function checkScreens(page, lang, { mobile = false } = {}) {
 
     // Diagnostic info: the text is built, and nothing private or add-on specific shows
     await cmd(page, "copy-diagnostics");
-    await modalOpen(page, ".vault-sync-diagnostics-text");
+    await modalOpen(page, ".vault-syncer-diagnostics-text");
     await page
-        .waitForFunction(() => document.querySelector(".vault-sync-diagnostics-text")?.value.includes("### Settings"), null, { timeout: 5000 })
+        .waitForFunction(() => document.querySelector(".vault-syncer-diagnostics-text")?.value.includes("### Settings"), null, { timeout: 5000 })
         .catch(() => {});
     await shotModal(page, lang, tag, "scr-diagnostics", "diagnostics modal");
-    const diag = await page.$eval(".vault-sync-diagnostics-text", (e) => e.value);
+    const diag = await page.$eval(".vault-syncer-diagnostics-text", (e) => e.value);
     check(lang, `${tag}: diagnostics text is built`, diag.includes("## Vault Syncer diagnostics") && diag.includes("### Settings"), diag.slice(0, 80));
     check(lang, `${tag}: diagnostics hide private settings`, !/encryptionSecret|e2ee|clientSecret|token/i.test(diag.split("### Log")[0]), "");
-    const diagClipped = await page.$$eval(".vault-sync-diagnostics-note, .vault-sync-diagnostics-modal .setting-item-description", (els) =>
+    const diagClipped = await page.$$eval(".vault-syncer-diagnostics-note, .vault-syncer-diagnostics-modal .setting-item-description", (els) =>
         els.filter((e) => e.scrollHeight > e.clientHeight + 1).map((e) => e.textContent.slice(0, 30)),
     );
     check(lang, `${tag}: diagnostics texts are not cut`, diagClipped.length === 0, diagClipped.join(" / "));
@@ -1266,7 +1296,7 @@ async function checkScreens(page, lang, { mobile = false } = {}) {
             return null;
         };
     });
-    await page.click(".vault-sync-diagnostics-modal .modal-button-container .mod-cta");
+    await page.click(".vault-syncer-diagnostics-modal .modal-button-container .mod-cta");
     await sleep(300);
     const opened = await page.evaluate(() => {
         const u = window.__openedUrl;
@@ -1277,7 +1307,7 @@ async function checkScreens(page, lang, { mobile = false } = {}) {
     check(
         lang,
         `${tag}: report opens the new-issue page with the diagnostics`,
-        !!opened && opened.startsWith("https://github.com/c-ardinal/obsidian-vault-sync/issues/new?") && openedBody.includes("## Vault Syncer diagnostics") && opened.length <= 7500,
+        !!opened && opened.startsWith("https://github.com/c-ardinal/obsidian-vault-syncer/issues/new?") && openedBody.includes("## Vault Syncer diagnostics") && opened.length <= 7500,
         opened ? `length=${opened.length}` : "not opened",
     );
     await escape(page);
@@ -1306,19 +1336,19 @@ async function checkScreens(page, lang, { mobile = false } = {}) {
         };
     }, PLUGIN_ID);
     await cmd(page, "restore-to-point-in-time");
-    await modalOpen(page, ".vault-sync-pit-folder");
+    await modalOpen(page, ".vault-syncer-pit-folder");
     await shotModal(page, lang, tag, "scr-pit-form", "point-in-time form");
-    await page.fill(".vault-sync-pit-folder", "Notes");
-    await page.click(".vault-sync-pit-modal .modal-button-container .mod-cta");
-    await page.waitForSelector(".vault-sync-pit-summary", { timeout: 5000 }).catch(() => {});
+    await page.fill(".vault-syncer-pit-folder", "Notes");
+    await page.click(".vault-syncer-pit-modal .modal-button-container .mod-cta");
+    await page.waitForSelector(".vault-syncer-pit-summary", { timeout: 5000 }).catch(() => {});
     await shotModal(page, lang, tag, "scr-pit-plan", "point-in-time plan");
-    const pitRows = (await page.$$(".vault-sync-pit-row")).length;
+    const pitRows = (await page.$$(".vault-syncer-pit-row")).length;
     check(lang, `${tag}: restore plan lists the files to change`, pitRows === 3, `rows=${pitRows}`);
-    const pitClipped = await page.$$eval(".vault-sync-pit-note, .vault-sync-pit-modal .setting-item-description", (els) =>
+    const pitClipped = await page.$$eval(".vault-syncer-pit-note, .vault-syncer-pit-modal .setting-item-description", (els) =>
         els.filter((e) => e.scrollHeight > e.clientHeight + 1).map((e) => e.textContent.slice(0, 30)),
     );
     check(lang, `${tag}: restore texts are not cut`, pitClipped.length === 0, pitClipped.join(" / "));
-    await page.click(".vault-sync-pit-modal .modal-button-container .mod-cta");
+    await page.click(".vault-syncer-pit-modal .modal-button-container .mod-cta");
     await sleep(400);
     const pitApplied = await page.evaluate(() => window.__pitApplied);
     check(lang, `${tag}: restore runs, keeping files created after`, pitApplied === false, String(pitApplied));
@@ -1326,13 +1356,13 @@ async function checkScreens(page, lang, { mobile = false } = {}) {
 
     // Add-on install (and, when a package is given, its terms review).
     await cmd(page, "install-addon");
-    await modalOpen(page, ".vault-sync-addon-install");
+    await modalOpen(page, ".vault-syncer-addon-install");
     await shotModal(page, lang, tag, "scr-addon-install", "add-on install modal");
     if (process.env.ADDON_ZIP) {
         await page
-            .setInputFiles(".vault-sync-addon-install input[type=file]", process.env.ADDON_ZIP)
+            .setInputFiles(".vault-syncer-addon-install input[type=file]", process.env.ADDON_ZIP)
             .catch((e) => check(lang, `${tag}: add-on package picked`, false, String(e)));
-        await page.waitForSelector(".vault-sync-addon-terms", { timeout: 10000 }).catch(() => {});
+        await page.waitForSelector(".vault-syncer-addon-terms", { timeout: 10000 }).catch(() => {});
         await sleep(800);
         await shot(page, lang, `${tag}-scr-addon-terms`);
         await page.evaluate(() => {
@@ -1348,39 +1378,39 @@ async function checkScreens(page, lang, { mobile = false } = {}) {
 
     // Exclusion patterns (opened from the settings, shown here as a dialog).
     const sp = await openSettings(page);
-    const scopeName = await sp.$$eval(".vault-sync-settings-nav-item .setting-item-name", (els) =>
+    const scopeName = await sp.$$eval(".vault-syncer-settings-nav-item .setting-item-name", (els) =>
         els.map((e) => e.textContent.trim()),
     );
-    const items = await sp.$$(".vault-sync-settings-nav-item");
+    const items = await sp.$$(".vault-syncer-settings-nav-item");
     // Sync scope is the third category.
     if (items[2]) {
         await items[2].click();
-        await sp.waitForSelector(".vault-sync-settings-back", { timeout: 5000 });
+        await sp.waitForSelector(".vault-syncer-settings-back", { timeout: 5000 });
         const btn = sp
-            .locator(".vault-sync-settings-page button")
+            .locator(".vault-syncer-settings-page button")
             .filter({ hasText: /Configure|Edit|設定|編集|管理|配置|编辑|설정|편집/ })
             .first();
         if (await btn.count()) {
             await btn.click();
-            await modalOpen(sp, ".vault-sync-exclusion-modal");
+            await modalOpen(sp, ".vault-syncer-exclusion-modal");
             await shotModal(sp, lang, tag, "scr-exclusion", "exclusion modal");
-            await sp.fill(".vault-sync-exclusion-add-input", "Welc");
+            await sp.fill(".vault-syncer-exclusion-add-input", "Welc");
             await sleep(500);
             await shot(sp, lang, `${tag}-scr-exclusion-typing`);
             await escape(sp);
 
             // The list for this device only: its own note, no toggle-managed rows,
             // and the patterns kept in this device's settings
-            const buttons = sp.locator(".vault-sync-settings-page button").filter({ hasText: /Configure|Edit|設定|編集|管理|配置|编辑|설정|편집/ });
+            const buttons = sp.locator(".vault-syncer-settings-page button").filter({ hasText: /Configure|Edit|設定|編集|管理|配置|编辑|설정|편집/ });
             if ((await buttons.count()) >= 2) {
                 await buttons.nth(1).click();
-                await modalOpen(sp, ".vault-sync-exclusion-modal");
+                await modalOpen(sp, ".vault-syncer-exclusion-modal");
                 const info = await sp.evaluate(() => {
-                    const m = document.querySelector(".vault-sync-exclusion-modal");
+                    const m = document.querySelector(".vault-syncer-exclusion-modal");
                     return {
                         title: m?.querySelector(".modal-title")?.textContent ?? "",
-                        note: m?.querySelector(".vault-sync-exclusion-note")?.textContent ?? "",
-                        managed: m?.querySelectorAll(".vault-sync-exclusion-item-managed").length ?? -1,
+                        note: m?.querySelector(".vault-syncer-exclusion-note")?.textContent ?? "",
+                        managed: m?.querySelectorAll(".vault-syncer-exclusion-item-managed").length ?? -1,
                     };
                 });
                 check(
@@ -1389,8 +1419,8 @@ async function checkScreens(page, lang, { mobile = false } = {}) {
                     /PC/.test(info.title) && info.note.length > 0 && info.managed === 0,
                     JSON.stringify(info),
                 );
-                await sp.fill(".vault-sync-exclusion-add-input", "Archive/**");
-                await sp.press(".vault-sync-exclusion-add-input", "Enter");
+                await sp.fill(".vault-syncer-exclusion-add-input", "Archive/**");
+                await sp.press(".vault-syncer-exclusion-add-input", "Enter");
                 await sleep(300);
                 await shotModal(sp, lang, tag, "scr-device-exclusion", "device exclusion modal");
                 const saved = await page.evaluate((id) => {
@@ -1526,28 +1556,28 @@ async function checkAddonPages(main, lang, { mobile = false } = {}) {
     const target = !mobile && (await page.$(".modal.mod-settings")) ? ".modal.mod-settings" : undefined;
     const addonTitle = await main.evaluate((id) => window.app.plugins.plugins[id].t("addonSectionTitle"), PLUGIN_ID);
     const names = await navNames(page);
-    const items = await page.$$(".vault-sync-settings-nav-item");
+    const items = await page.$$(".vault-syncer-settings-nav-item");
     await items[names.indexOf(addonTitle)].click();
-    await page.waitForSelector(".vault-sync-settings-back", { timeout: 5000 });
+    await page.waitForSelector(".vault-syncer-settings-back", { timeout: 5000 });
     check(
         lang,
         `${tag}: add-on list has no add-on page before install`,
-        (await page.$$(".vault-sync-addon-page-row")).length === 0,
+        (await page.$$(".vault-syncer-addon-page-row")).length === 0,
     );
 
     // Install through the button on the add-on page
-    await page.locator(".vault-sync-settings-page .setting-item button").first().click();
-    await modalOpen(page, ".vault-sync-addon-install");
-    await page.setInputFiles(".vault-sync-addon-install input[type=file]", process.env.ADDON_ZIP);
-    await page.waitForSelector(".vault-sync-addon-terms", { timeout: 10000 });
-    await page.locator(".vault-sync-addon-install .checkbox-container").last().click();
-    await page.locator(".vault-sync-addon-install button.mod-cta").last().click();
+    await page.locator(".vault-syncer-settings-page .setting-item button").first().click();
+    await modalOpen(page, ".vault-syncer-addon-install");
+    await page.setInputFiles(".vault-syncer-addon-install input[type=file]", process.env.ADDON_ZIP);
+    await page.waitForSelector(".vault-syncer-addon-terms", { timeout: 10000 });
+    await page.locator(".vault-syncer-addon-install .checkbox-container").last().click();
+    await page.locator(".vault-syncer-addon-install button.mod-cta").last().click();
     // The install dialog closes and the settings move on to the add-on's own page
-    await page.waitForSelector(".vault-sync-addon-page", { timeout: 10000 }).catch(() => {});
+    await page.waitForSelector(".vault-syncer-addon-page", { timeout: 10000 }).catch(() => {});
     // Phone dialogs slide out: wait until the install dialog is really gone
-    await page.waitForSelector(".vault-sync-addon-install", { state: "detached", timeout: 5000 }).catch(() => {});
+    await page.waitForSelector(".vault-syncer-addon-install", { state: "detached", timeout: 5000 }).catch(() => {});
     await sleep(300);
-    const onPage = await page.$(".vault-sync-addon-page");
+    const onPage = await page.$(".vault-syncer-addon-page");
     check(lang, `${tag}: after install the add-on page opens by itself`, !!onPage);
     if (!onPage) {
         await shot(page, lang, `${tag}-addon-install-error`);
@@ -1556,9 +1586,9 @@ async function checkAddonPages(main, lang, { mobile = false } = {}) {
     const state = () =>
         page.evaluate(() => ({
             title: document
-                .querySelector(".vault-sync-settings-page-title .setting-item-name")
+                .querySelector(".vault-syncer-settings-page-title .setting-item-name")
                 ?.textContent.trim(),
-            rows: [...document.querySelectorAll(".vault-sync-addon-page .setting-item")].map((r) => ({
+            rows: [...document.querySelectorAll(".vault-syncer-addon-page .setting-item")].map((r) => ({
                 name: r.querySelector(".setting-item-name")?.textContent.trim() ?? "",
                 button: r.querySelector("button")?.textContent.trim() ?? null,
                 cta: !!r.querySelector("button.mod-cta"),
@@ -1578,7 +1608,7 @@ async function checkAddonPages(main, lang, { mobile = false } = {}) {
 
     // Run the action from its button: the add-on's dialog opens over the settings
     const modalsBefore = await page.$$eval(".modal-container", (els) => els.length);
-    await page.locator(".vault-sync-addon-page button.mod-cta").first().click();
+    await page.locator(".vault-syncer-addon-page button.mod-cta").first().click();
     await sleep(800);
     const modalsAfter = await page.$$eval(".modal-container", (els) => els.length);
     check(lang, `${tag}: start action opens the add-on's dialog`, modalsAfter > modalsBefore, `${modalsBefore} -> ${modalsAfter}`);
@@ -1620,30 +1650,30 @@ async function checkAddonPages(main, lang, { mobile = false } = {}) {
     await shotSettings(page, lang, `${tag}-addon-page-locked`, target);
 
     // Back goes to the add-on list, which now lists the page
-    await page.click(".vault-sync-settings-back");
-    await page.waitForSelector(".vault-sync-addon-page-row", { timeout: 5000 }).catch(() => {});
+    await page.click(".vault-syncer-settings-back");
+    await page.waitForSelector(".vault-syncer-addon-page-row", { timeout: 5000 }).catch(() => {});
     const rowName = await page
-        .$eval(".vault-sync-addon-page-row .setting-item-name", (e) => e.textContent.trim())
+        .$eval(".vault-syncer-addon-page-row .setting-item-name", (e) => e.textContent.trim())
         .catch(() => null);
     check(lang, `${tag}: add-on list shows the add-on page`, rowName === st.title, String(rowName));
     await shotSettings(page, lang, `${tag}-addon-list`, target);
 
     // Search finds the add-on's rows and leads to its page
-    await page.click(".vault-sync-settings-back");
-    await page.waitForSelector(".vault-sync-settings-search input", { timeout: 5000 });
+    await page.click(".vault-syncer-settings-back");
+    await page.waitForSelector(".vault-syncer-settings-search input", { timeout: 5000 });
     const word = locked[1].name;
-    await page.fill(".vault-sync-settings-search input", word);
+    await page.fill(".vault-syncer-settings-search input", word);
     await sleep(400);
-    const groups = await page.$$eval(".vault-sync-settings-search-group", (els) =>
+    const groups = await page.$$eval(".vault-syncer-settings-search-group", (els) =>
         els.map((e) => e.textContent.trim()),
     );
     const hit = groups.find((g) => g.startsWith(addonTitle) && g.includes(st.title));
     check(lang, `${tag}: search finds the add-on page rows`, !!hit, `"${word}" -> ${groups.join(" | ")}`);
     await shotSettings(page, lang, `${tag}-addon-search`, target);
     if (hit) {
-        await page.locator(".vault-sync-settings-search-group a").filter({ hasText: st.title }).first().click();
+        await page.locator(".vault-syncer-settings-search-group a").filter({ hasText: st.title }).first().click();
         await sleep(300);
-        check(lang, `${tag}: search group opens the add-on page`, !!(await page.$(".vault-sync-addon-page")));
+        check(lang, `${tag}: search group opens the add-on page`, !!(await page.$(".vault-syncer-addon-page")));
     }
 
     // Clean up: back to the plain plugin
@@ -1653,7 +1683,7 @@ async function checkAddonPages(main, lang, { mobile = false } = {}) {
         return p.removeAddon();
     }, PLUGIN_ID);
     await sleep(300);
-    check(lang, `${tag}: add-on removed again`, removed && (await page.$$(".vault-sync-addon-page")).length === 0);
+    check(lang, `${tag}: add-on removed again`, removed && (await page.$$(".vault-syncer-addon-page")).length === 0);
     await closeSettings(main);
     await closeModals(main);
 }
@@ -1673,9 +1703,9 @@ async function checkNewFeatures(page, lang, { mobile = false } = {}) {
 
     // Sync check, signed out: asks for the log-in, changes nothing
     await cmd(page, "verify-sync");
-    await modalOpen(page, ".vault-sync-verify-modal");
+    await modalOpen(page, ".vault-syncer-verify-modal");
     await sleep(1500);
-    const signedOut = await page.$eval(".vault-sync-verify-modal .modal-content", (e) => e.textContent);
+    const signedOut = await page.$eval(".vault-syncer-verify-modal .modal-content", (e) => e.textContent);
     check(lang, `${tag}: sync check asks for the log-in when signed out`, /log in|ログイン|登录|로그인/i.test(signedOut), signedOut.slice(0, 80));
     await shotModal(page, lang, tag, "scr-verify-signed-out", "sync check (signed out)");
     await escape(page);
@@ -1688,18 +1718,39 @@ async function checkNewFeatures(page, lang, { mobile = false } = {}) {
             onProgress({ stage: "listing" });
             const total = 1840, bytesTotal = 92_000_000;
             const step = (done) => onProgress({ stage: "comparing", done, total, bytesDone: bytesTotal * done / total, bytesTotal });
-            setTimeout(() => step(0), 300);
-            setTimeout(() => step(772), 2600);
+            setTimeout(() => step(0), 2300);
+            setTimeout(() => step(772), 4600);
             window.__verifyEnd = () => resolve({ checkedAt: Date.now(), matching: total, pending: 0, differences: [] });
         });`);
     await cmd(page, "verify-sync");
-    await modalOpen(page, ".vault-sync-verify-modal");
+    await modalOpen(page, ".vault-syncer-verify-modal");
     await sleep(150);
-    const listing = await page.$eval(".vault-sync-verify-progress", (e) => e.textContent);
-    await sleep(2900);
+    // Listing the cloud has no measure: a moving mark and the time taken so far.
+    const listingState = () =>
+        page.evaluate(() => {
+            const fill = document.querySelector(".vault-syncer-verify-bar .vault-syncer-status-bar-fill");
+            return {
+                text: document.querySelector(".vault-syncer-verify-progress")?.textContent ?? "",
+                mark: !!fill?.classList.contains("is-indeterminate"),
+                moving: fill ? getComputedStyle(fill).animationName !== "none" : false,
+                width: fill ? Math.round(fill.getBoundingClientRect().width) : 0,
+            };
+        });
+    const listingA = await listingState();
+    const listing = listingA.text;
+    await shotModal(page, lang, tag, "scr-verify-listing", "sync check (listing)");
+    await sleep(1300);
+    const listingB = await listingState();
+    check(
+        lang,
+        `${tag}: sync check shows a moving mark and the time taken while it lists the cloud`,
+        listingA.mark && listingA.moving && listingA.width > 0 && listingB.mark && listingA.text !== listingB.text,
+        `${JSON.stringify(listingA)} | ${JSON.stringify(listingB)}`,
+    );
+    await sleep(3500);
     const running = await page.evaluate(() => ({
-        text: document.querySelector(".vault-sync-verify-progress")?.textContent ?? "",
-        bar: document.querySelector(".vault-sync-verify-bar .vault-sync-status-bar-fill")?.style.width ?? "",
+        text: document.querySelector(".vault-syncer-verify-progress")?.textContent ?? "",
+        bar: document.querySelector(".vault-syncer-verify-bar .vault-syncer-status-bar-fill")?.style.width ?? "",
     }));
     check(
         lang,
@@ -1725,10 +1776,10 @@ async function checkNewFeatures(page, lang, { mobile = false } = {}) {
             ],
         });`);
     await cmd(page, "verify-sync");
-    await modalOpen(page, ".vault-sync-verify-group");
-    await page.$$eval(".vault-sync-verify-group", (els) => els.forEach((e) => (e.open = true)));
+    await modalOpen(page, ".vault-syncer-verify-group");
+    await page.$$eval(".vault-syncer-verify-group", (els) => els.forEach((e) => (e.open = true)));
     await sleep(300);
-    const groups = await page.$$eval(".vault-sync-verify-group summary", (els) => els.map((e) => e.textContent));
+    const groups = await page.$$eval(".vault-syncer-verify-group summary", (els) => els.map((e) => e.textContent));
     check(lang, `${tag}: sync check lists each kind of difference`, groups.length === 4, groups.join(" | "));
     await shotModal(page, lang, tag, "scr-verify-report", "sync check (report)");
     await escape(page);
@@ -1761,21 +1812,21 @@ async function checkNewFeatures(page, lang, { mobile = false } = {}) {
     const names = await navNames(sp);
     const prot = names.findIndex((n) => /^(Data protection and restore|データ保護・復元|数据保护与恢复|데이터 보호·복원)$/.test(n));
     if (prot >= 0) {
-        await (await sp.$$(".vault-sync-settings-nav-item"))[prot].click();
-        await sp.waitForSelector(".vault-sync-settings-back", { timeout: 5000 });
-        const row = sp.locator(".vault-sync-settings-page .setting-item").filter({ hasText: /15\.0 GB/ });
+        await (await sp.$$(".vault-syncer-settings-nav-item"))[prot].click();
+        await sp.waitForSelector(".vault-syncer-settings-back", { timeout: 5000 });
+        const row = sp.locator(".vault-syncer-settings-page .setting-item").filter({ hasText: /15\.0 GB/ });
         check(lang, `${tag}: storage line shows the account's use`, (await row.count()) === 1, "");
         if (await row.count()) await row.first().scrollIntoViewIfNeeded();
         await sleep(300);
         await shot(sp, lang, `${tag}-settings-storage`);
-        await sp.click(".vault-sync-settings-back");
+        await sp.click(".vault-syncer-settings-back");
         await sleep(300);
     }
     const tr = (await navNames(sp)).findIndex((n) => /^(Transfers|転送|传输|전송)$/.test(n));
     if (tr >= 0) {
-        await (await sp.$$(".vault-sync-settings-nav-item"))[tr].click();
-        await sp.waitForSelector(".vault-sync-settings-back", { timeout: 5000 });
-        const toggles = await sp.$$eval(".vault-sync-settings-page .setting-item .checkbox-container", (els) => els.length);
+        await (await sp.$$(".vault-syncer-settings-nav-item"))[tr].click();
+        await sp.waitForSelector(".vault-syncer-settings-back", { timeout: 5000 });
+        const toggles = await sp.$$eval(".vault-syncer-settings-page .setting-item .checkbox-container", (els) => els.length);
         check(lang, `${tag}: transfer page has the two deferral switches`, toggles >= 2, `toggles=${toggles}`);
         await shot(sp, lang, `${tag}-settings-transfer-defer`);
     }
@@ -1793,7 +1844,7 @@ async function checkNewFeatures(page, lang, { mobile = false } = {}) {
         }, copy);
         await sleep(1200);
         await plugin(`p.fileMarks.refresh();`);
-        const marks = await page.$$eval(".nav-file-title.vault-sync-mark-pending, .nav-file-title.vault-sync-mark-conflict", (els) =>
+        const marks = await page.$$eval(".nav-file-title.vault-syncer-mark-pending, .nav-file-title.vault-syncer-mark-conflict", (els) =>
             els.map((e) => e.className),
         );
         check(lang, `${tag}: file explorer marks the waiting file and the conflict copy`, marks.length === 2, marks.join(" | "));
@@ -1806,7 +1857,7 @@ async function checkNewFeatures(page, lang, { mobile = false } = {}) {
             const file = window.app.vault.getAbstractFileByPath(f);
             if (file) await window.app.fileManager.trashFile(file);
         }, copy);
-        const left = await page.$$eval(".vault-sync-mark-pending, .vault-sync-mark-conflict", (els) => els.length);
+        const left = await page.$$eval(".vault-syncer-mark-pending, .vault-syncer-mark-conflict", (els) => els.length);
         check(lang, `${tag}: marks are gone when turned off`, left === 0, `left=${left}`);
     }
 }

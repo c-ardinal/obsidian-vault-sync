@@ -25,7 +25,7 @@ import { DeviceSimulator } from "../../helpers/device-simulator";
 import { isManagedSeparately as managedSeparately, PLUGIN_DIR as SYNC_PLUGIN_DIR } from "../../../src/sync-manager/file-utils";
 import { REMOTE_FILES } from "../../../src/sync-manager/remote-layout";
 
-const PLUGIN_DIR = ".obsidian/plugins/obsidian-vault-sync";
+const PLUGIN_DIR = ".obsidian/plugins/cardinal-vault-syncer";
 const SYNC_INDEX_PATH = `${PLUGIN_DIR}/sync-index.json`;
 
 const DEFAULT_SETTINGS: SyncManagerSettings = {

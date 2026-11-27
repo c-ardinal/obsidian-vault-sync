@@ -45,38 +45,38 @@ describe("DrivePathResolver", () => {
 
     beforeEach(() => {
         http = createMockHttp();
-        resolver = new DrivePathResolver(http as any, "TestVault", "ObsidianVaultSync");
+        resolver = new DrivePathResolver(http as any, "TestVault", "ObsidianVaultSyncer");
     });
 
     describe("validateRootFolder", () => {
         it("should return default for empty string", () => {
             const r = new DrivePathResolver(http as any, "V", "");
-            expect(r.rootFolder).toBe("ObsidianVaultSync");
+            expect(r.rootFolder).toBe("ObsidianVaultSyncer");
         });
 
         it("should return default for whitespace-only", () => {
             const r = new DrivePathResolver(http as any, "V", "   ");
-            expect(r.rootFolder).toBe("ObsidianVaultSync");
+            expect(r.rootFolder).toBe("ObsidianVaultSyncer");
         });
 
         it("should return default for path starting with /", () => {
             const r = new DrivePathResolver(http as any, "V", "/foo");
-            expect(r.rootFolder).toBe("ObsidianVaultSync");
+            expect(r.rootFolder).toBe("ObsidianVaultSyncer");
         });
 
         it("should return default for path with backslash", () => {
             const r = new DrivePathResolver(http as any, "V", "foo\\bar");
-            expect(r.rootFolder).toBe("ObsidianVaultSync");
+            expect(r.rootFolder).toBe("ObsidianVaultSyncer");
         });
 
         it("should return default for name exceeding 255 chars", () => {
             const r = new DrivePathResolver(http as any, "V", "a".repeat(256));
-            expect(r.rootFolder).toBe("ObsidianVaultSync");
+            expect(r.rootFolder).toBe("ObsidianVaultSyncer");
         });
 
         it("should return default for name with illegal characters", () => {
             const r = new DrivePathResolver(http as any, "V", 'bad<name');
-            expect(r.rootFolder).toBe("ObsidianVaultSync");
+            expect(r.rootFolder).toBe("ObsidianVaultSyncer");
         });
 
         it("should accept valid folder name", () => {
@@ -94,7 +94,7 @@ describe("DrivePathResolver", () => {
         it("should find existing app root and vault root", async () => {
             // First call: search app root
             http.fetchWithAuth
-                .mockResolvedValueOnce(jsonResponse({ files: [{ id: "app-root-1", name: "ObsidianVaultSync" }] }))
+                .mockResolvedValueOnce(jsonResponse({ files: [{ id: "app-root-1", name: "ObsidianVaultSyncer" }] }))
                 // Second call: search vault folder
                 .mockResolvedValueOnce(jsonResponse({ files: [{ id: "vault-1", name: "TestVault", modifiedTime: "2025-01-01T00:00:00Z" }] }));
 
@@ -441,7 +441,7 @@ describe("DrivePathResolver", () => {
             resolver.appRootId = "keep";
             resolver.vaultRootId = "keep-vault";
 
-            resolver.updateConfig("TestVault", "ObsidianVaultSync");
+            resolver.updateConfig("TestVault", "ObsidianVaultSyncer");
 
             expect(resolver.appRootId).toBe("keep");
             expect(resolver.vaultRootId).toBe("keep-vault");

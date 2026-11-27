@@ -27,14 +27,14 @@ export class PromptModal extends Modal {
         inputSetting.addText((text) => {
             textComp = text;
             text.setValue(this.defaultValue);
-            text.inputEl.addClass("vault-sync-prompt-input");
+            text.inputEl.addClass("vault-syncer-prompt-input");
 
             text.onChange(async (val) => {
                 await this.validate(val);
             });
         });
 
-        this.errorEl = contentEl.createDiv({ cls: "vault-sync-prompt-error" });
+        this.errorEl = contentEl.createDiv({ cls: "vault-syncer-prompt-error" });
 
         new Setting(contentEl)
             .addButton((btn) => {

@@ -6,7 +6,7 @@ import { RevisionCache } from "../../src/services/revision-cache";
 import { BackgroundTransferQueue } from "../../src/sync-manager/background-transfer";
 import type { INotificationService } from "../../src/services/notification-service";
 
-const PLUGIN_DIR = ".obsidian/plugins/obsidian-vault-sync";
+const PLUGIN_DIR = ".obsidian/plugins/cardinal-vault-syncer";
 const SYNC_INDEX_PATH = `${PLUGIN_DIR}/sync-index.json`;
 const LOCAL_INDEX_PATH = `${PLUGIN_DIR}/local-index.json`;
 

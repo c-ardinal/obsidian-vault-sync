@@ -1,6 +1,6 @@
 $DEST_PATHS = @(
-    "C:\_Workspace\obsidian\PluginTest\.obsidian\plugins\obsidian-vault-sync",
-    "C:\_Workspace\obsidian\Dreamlands\.obsidian\plugins\obsidian-vault-sync"
+    "C:\_Workspace\obsidian\PluginTest\.obsidian\plugins\cardinal-vault-syncer",
+    "C:\_Workspace\obsidian\Dreamlands\.obsidian\plugins\cardinal-vault-syncer"
 )
 
 Write-Host "=== STARTING TESTS ===" -ForegroundColor Cyan
@@ -35,6 +35,6 @@ foreach ($path in $DEST_PATHS) {
         New-Item -ItemType Directory -Force -Path $path | Out-Null
     }
 
-    Copy-Item -Path ".\dist\obsidian-vault-sync\*" -Destination $path -Recurse -Force
+    Copy-Item -Path ".\dist\cardinal-vault-syncer\*" -Destination $path -Recurse -Force
     Write-Host "COPY DONE to: $path" -ForegroundColor Green
 }

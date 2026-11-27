@@ -65,7 +65,7 @@ export class ConflictResolveModal extends Modal {
     ) {
         super(app);
         this.vault = obsidianConflictVault(app);
-        this.modalEl.addClass("vault-sync-conflict-modal");
+        this.modalEl.addClass("vault-syncer-conflict-modal");
     }
 
     onOpen(): void {
@@ -80,7 +80,7 @@ export class ConflictResolveModal extends Modal {
             return;
         }
         this.setTitle(t("conflictResolveTitle"));
-        contentEl.createEl("p", { cls: "vault-sync-conflict-path", text: parsed.originalPath });
+        contentEl.createEl("p", { cls: "vault-syncer-conflict-path", text: parsed.originalPath });
 
         let local: string | null;
         let remote: string | null = "";
@@ -117,9 +117,9 @@ export class ConflictResolveModal extends Modal {
 
         if (differing > 0) this.renderChunks(contentEl);
 
-        new Setting(contentEl).setName(t("conflictResolveResult")).setHeading().settingEl.addClass("vault-sync-modal-heading");
-        contentEl.createDiv({ cls: "vault-sync-conflict-hint", text: t("conflictResolveResultDesc") });
-        this.resultEl = contentEl.createDiv().createEl("textarea", { cls: "vault-sync-conflict-result" });
+        new Setting(contentEl).setName(t("conflictResolveResult")).setHeading().settingEl.addClass("vault-syncer-modal-heading");
+        contentEl.createDiv({ cls: "vault-syncer-conflict-hint", text: t("conflictResolveResultDesc") });
+        this.resultEl = contentEl.createDiv().createEl("textarea", { cls: "vault-syncer-conflict-result" });
         this.resultEl.rows = Platform.isPhone ? 8 : 12;
         this.resultEl.spellcheck = false;
         this.refreshResult();
@@ -128,7 +128,7 @@ export class ConflictResolveModal extends Modal {
     }
 
     private renderChunks(parent: HTMLElement): void {
-        const list = parent.createDiv({ cls: "vault-sync-conflict-chunks" });
+        const list = parent.createDiv({ cls: "vault-syncer-conflict-chunks" });
         let d = 0;
         this.chunks.forEach((chunk, i) => {
             if (chunk.kind === "same") {
@@ -136,11 +136,11 @@ export class ConflictResolveModal extends Modal {
                 return;
             }
             const index = d++;
-            const box = list.createDiv({ cls: "vault-sync-conflict-chunk" });
-            const panes = box.createDiv({ cls: "vault-sync-conflict-panes" });
+            const box = list.createDiv({ cls: "vault-syncer-conflict-chunk" });
+            const panes = box.createDiv({ cls: "vault-syncer-conflict-panes" });
             const pane = (label: string, lines: string[]) => {
-                const el = panes.createDiv({ cls: "vault-sync-conflict-pane" });
-                el.createDiv({ cls: "vault-sync-conflict-pane-label", text: label });
+                const el = panes.createDiv({ cls: "vault-syncer-conflict-pane" });
+                el.createDiv({ cls: "vault-syncer-conflict-pane-label", text: label });
                 el.createEl("pre", { text: lines.length > 0 ? lines.join("") : t("conflictResolveNoLines") });
             };
             pane(t("conflictResolveLocal"), chunk.local);
@@ -151,7 +151,7 @@ export class ConflictResolveModal extends Modal {
                 { choice: "remote", label: "conflictResolveUseRemote" },
                 { choice: "both", label: "conflictResolveUseBoth" },
             ];
-            const row = box.createDiv({ cls: "vault-sync-conflict-choices" });
+            const row = box.createDiv({ cls: "vault-syncer-conflict-choices" });
             const buttons: HTMLButtonElement[] = [];
             for (const o of options) {
                 const btn = row.createEl("button", { text: t(o.label) });
@@ -170,14 +170,14 @@ export class ConflictResolveModal extends Modal {
     private renderSame(parent: HTMLElement, lines: string[], first: boolean, last: boolean): void {
         const head = first ? 0 : CONTEXT_LINES;
         const tail = last ? 0 : CONTEXT_LINES;
-        const el = parent.createDiv({ cls: "vault-sync-conflict-same" });
+        const el = parent.createDiv({ cls: "vault-syncer-conflict-same" });
         if (lines.length <= head + tail + 1) {
             el.createEl("pre", { text: lines.join("") });
             return;
         }
         if (head > 0) el.createEl("pre", { text: lines.slice(0, head).join("") });
         el.createDiv({
-            cls: "vault-sync-conflict-fold",
+            cls: "vault-syncer-conflict-fold",
             text: fill(t("conflictResolveSameLines"), lines.length - head - tail),
         });
         if (tail > 0) el.createEl("pre", { text: lines.slice(lines.length - tail).join("") });
@@ -188,7 +188,7 @@ export class ConflictResolveModal extends Modal {
     }
 
     private renderButtons(text: boolean): void {
-        const row = this.contentEl.createDiv({ cls: "modal-button-container vault-sync-conflict-buttons" });
+        const row = this.contentEl.createDiv({ cls: "modal-button-container vault-syncer-conflict-buttons" });
         const button = (label: string, onClick: () => void, cta = false) => {
             const btn = row.createEl("button", { text: t(label) });
             if (cta) btn.addClass("mod-cta");

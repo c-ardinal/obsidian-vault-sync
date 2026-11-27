@@ -99,7 +99,7 @@ describe("SecureStorage", () => {
 
         it("should create secretId with vault hash", () => {
             const vaultHash = (storage as any).vaultHash;
-            expect((storage as any).secretId).toBe(`vault-sync-creds-${vaultHash}`);
+            expect((storage as any).secretId).toBe(`vault-syncer-creds-${vaultHash}`);
         });
     });
 
@@ -604,7 +604,7 @@ describe("SecureStorage", () => {
             await (storage as any).setExtraSecret("api-key", "secret-value");
 
             const vaultHash = (storage as any).vaultHash;
-            const secretId = `vault-sync-api-key-${vaultHash}`;
+            const secretId = `vault-syncer-api-key-${vaultHash}`;
             expect(app.secretStorage.getSecret(secretId)).toBe("secret-value");
         });
 
@@ -653,7 +653,7 @@ describe("SecureStorage", () => {
         it("should remove extra secret from SecretStorage", async () => {
             await (storage as any).setExtraSecret("api-key", "secret-value");
             const vaultHash = (storage as any).vaultHash;
-            const secretId = `vault-sync-api-key-${vaultHash}`;
+            const secretId = `vault-syncer-api-key-${vaultHash}`;
             expect(app.secretStorage.getSecret(secretId)).toBe("secret-value");
 
             await (storage as any).removeExtraSecret("api-key");
@@ -673,8 +673,8 @@ describe("SecureStorage", () => {
             await (storage as any).setExtraSecret("type-b", "value-b");
 
             const vaultHash = (storage as any).vaultHash;
-            const idA = `vault-sync-type-a-${vaultHash}`;
-            const idB = `vault-sync-type-b-${vaultHash}`;
+            const idA = `vault-syncer-type-a-${vaultHash}`;
+            const idB = `vault-syncer-type-b-${vaultHash}`;
 
             expect(app.secretStorage.getSecret(idA)).toBe("value-a");
             expect(app.secretStorage.getSecret(idB)).toBe("value-b");

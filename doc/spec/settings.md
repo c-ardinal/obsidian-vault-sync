@@ -69,7 +69,7 @@
 
 | 設定キー          | 型     | デフォルト            | 説明                             |
 | :---------------- | :----- | :-------------------- | :------------------------------- |
-| `cloudRootFolder` | string | `"ObsidianVaultSync"` | Google Drive上のルートフォルダ名 |
+| `cloudRootFolder` | string | `"ObsidianVaultSyncer"` | Google Drive上のルートフォルダ名 |
 
 ### 1.8 除外パターン
 
@@ -104,14 +104,14 @@
 
 ### 2.2 本プラグインの同期除外
 
-`syncCommunityPlugins` が ON の際も、本プラグイン自体（`obsidian-vault-sync/`）のバイナリやランタイムデータは同期対象外とする。プラグイン設定のみ `data/flexible/open-data.json` を通じて同期可能。
+`syncCommunityPlugins` が ON の際も、本プラグイン自体（`cardinal-vault-syncer/`）のバイナリやランタイムデータは同期対象外とする。プラグイン設定のみ `data/flexible/open-data.json` を通じて同期可能。
 
 ## 3. データディレクトリ構造
 
 プラグインフォルダ内のデータ配置規則。
 
 ```
-.obsidian/plugins/obsidian-vault-sync/
+.obsidian/plugins/cardinal-vault-syncer/
   ├── data.json              ← プラグイン設定
   ├── data/
   │   ├── local/             ← 同期対象外（デバイス固有）
@@ -129,6 +129,6 @@
 | カテゴリ                 | 対象                                                   |
 | :----------------------- | :----------------------------------------------------- |
 | プラグイン内部           | `data/local/`, `logs/`, `cache/`                       |
-| システムファイル         | `.DS_Store`, `Thumbs.db`, `_VaultSync_Orphans/`        |
+| システムファイル         | `.DS_Store`, `Thumbs.db`, `_VaultSyncer_Orphans/`        |
 | Obsidian一時ファイル     | `indexedDB/`, `backups/`, `.trash/`                    |
 | ルート直下ドットファイル | `.git` 等（`.obsidian` は除く、`syncDotfiles` で制御） |

@@ -16,6 +16,7 @@ import type { SyncProgressSnapshot } from "../sync-manager/sync-progress";
 import { TRANSFER_MAX_RETRIES } from "../sync-manager/constants";
 import { basename, dirname } from "../utils/path";
 import { formatBytes, formatClock, renderSyncPanel } from "./sync-status-view";
+import { quietCycleFilter } from "./progress-math";
 import {
     groupHistory,
     type HistoryBatch,
@@ -65,14 +66,15 @@ export class TransferStatusModal extends Modal {
         // Title goes in Obsidian's own modal header, next to its close button.
         this.setTitle(this.t("transferTitle"));
 
-        const root = this.contentEl.createDiv({ cls: "vault-sync-transfer-container" });
-        this.summaryEl = root.createDiv({ cls: "vault-sync-status-panel vault-sync-xfer-summary" });
-        this.queueEl = root.createDiv({ cls: "vault-sync-xfer-section mod-queue" });
-        this.historyEl = root.createDiv({ cls: "vault-sync-xfer-section mod-history" });
+        const root = this.contentEl.createDiv({ cls: "vault-syncer-transfer-container" });
+        this.summaryEl = root.createDiv({ cls: "vault-syncer-status-panel vault-syncer-xfer-summary" });
+        this.queueEl = root.createDiv({ cls: "vault-syncer-xfer-section mod-queue" });
+        this.historyEl = root.createDiv({ cls: "vault-syncer-xfer-section mod-history" });
 
         const progress = this.syncManager.progress;
         if (progress) {
-            this.unsubscribe = progress.subscribe((s) => this.renderSummary(s));
+            const shown = quietCycleFilter();
+            this.unsubscribe = progress.subscribe((s) => this.renderSummary(shown(s)));
         } else {
             this.summaryEl.remove();
             this.summaryEl = null;
@@ -153,11 +155,11 @@ export class TransferStatusModal extends Modal {
         if (!el) return;
         const t = this.t;
         el.empty();
-        const header = el.createDiv({ cls: "vault-sync-xfer-section-head" });
-        const title = header.createDiv({ cls: "vault-sync-xfer-section-title" });
+        const header = el.createDiv({ cls: "vault-syncer-xfer-section-head" });
+        const title = header.createDiv({ cls: "vault-syncer-xfer-section-title" });
         title.createSpan({ text: t("transferQueueTitle") });
         if (active.length > 0) {
-            title.createSpan({ cls: "vault-sync-xfer-muted", text: ` ${active.length}` });
+            title.createSpan({ cls: "vault-syncer-xfer-muted", text: ` ${active.length}` });
         }
         // Only background transfers can be cancelled (inline ones belong to the running sync).
         if (active.some((i) => !i.id.startsWith("inline-"))) {
@@ -169,15 +171,15 @@ export class TransferStatusModal extends Modal {
         }
 
         // A fixed-height area that scrolls by itself: the history below never moves.
-        const body = el.createDiv({ cls: "vault-sync-xfer-queue-body" });
+        const body = el.createDiv({ cls: "vault-syncer-xfer-queue-body" });
         if (active.length === 0) {
-            body.createDiv({ cls: "vault-sync-xfer-empty", text: t("transferNoActive") });
+            body.createDiv({ cls: "vault-syncer-xfer-empty", text: t("transferNoActive") });
             return;
         }
         const deferred = this.syncManager.getTransferDeferReason?.();
         if (deferred) {
             body.createDiv({
-                cls: "vault-sync-xfer-muted vault-sync-xfer-deferred",
+                cls: "vault-syncer-xfer-muted vault-syncer-xfer-deferred",
                 text: t(deferred === "cellular" ? "transferDeferredCellular" : "transferDeferredLowBattery"),
             });
         }
@@ -185,11 +187,11 @@ export class TransferStatusModal extends Modal {
         const sorted = [...active].sort(
             (a, b) => Number(b.status === "active") - Number(a.status === "active"),
         );
-        const list = body.createDiv({ cls: "vault-sync-xfer-list" });
+        const list = body.createDiv({ cls: "vault-syncer-xfer-list" });
         for (const item of sorted.slice(0, QUEUE_VISIBLE)) this.renderQueueRow(list, item);
         if (sorted.length > QUEUE_VISIBLE) {
             body.createDiv({
-                cls: "vault-sync-xfer-more",
+                cls: "vault-syncer-xfer-more",
                 text: t("transferMore").replace("{0}", String(sorted.length - QUEUE_VISIBLE)),
             });
         }
@@ -198,15 +200,15 @@ export class TransferStatusModal extends Modal {
     private renderQueueRow(list: HTMLElement, item: TransferItem): void {
         const t = this.t;
         const row = list.createDiv({
-            cls: `vault-sync-xfer-row mod-${item.direction} ${item.status === "active" ? "is-active" : "is-waiting"}`,
+            cls: `vault-syncer-xfer-row mod-${item.direction} ${item.status === "active" ? "is-active" : "is-waiting"}`,
         });
         this.dirIcon(row, item.direction);
         this.fileCell(row, item.path);
-        const meta = row.createDiv({ cls: "vault-sync-xfer-meta" });
-        meta.createSpan({ cls: "vault-sync-xfer-size", text: formatBytes(item.size) });
-        const status = meta.createSpan({ cls: "vault-sync-xfer-state" });
+        const meta = row.createDiv({ cls: "vault-syncer-xfer-meta" });
+        meta.createSpan({ cls: "vault-syncer-xfer-size", text: formatBytes(item.size) });
+        const status = meta.createSpan({ cls: "vault-syncer-xfer-state" });
         if (item.status === "active") {
-            status.createSpan({ cls: "vault-sync-spinner" });
+            status.createSpan({ cls: "vault-syncer-spinner" });
             status.createSpan({ text: t("transferActive") });
         } else if (item.retryCount > 0) {
             status.addClass("mod-warn");
@@ -224,11 +226,11 @@ export class TransferStatusModal extends Modal {
         const el = this.historyEl;
         if (!el) return;
         const t = this.t;
-        const savedTop = el.querySelector(".vault-sync-xfer-history-body")?.scrollTop ?? 0;
+        const savedTop = el.querySelector(".vault-syncer-xfer-history-body")?.scrollTop ?? 0;
         el.empty();
 
-        const header = el.createDiv({ cls: "vault-sync-xfer-section-head" });
-        header.createDiv({ cls: "vault-sync-xfer-section-title", text: t("transferHistorySection") });
+        const header = el.createDiv({ cls: "vault-syncer-xfer-section-head" });
+        header.createDiv({ cls: "vault-syncer-xfer-section-title", text: t("transferHistorySection") });
 
         // Filter (Obsidian's own dropdown)
         const failedCount = history.filter((r) => r.status === "failed").length;
@@ -243,24 +245,24 @@ export class TransferStatusModal extends Modal {
                 this.historySig = "";
                 this.refreshLists(false);
             });
-        filter.selectEl.addClass("vault-sync-xfer-filter");
+        filter.selectEl.addClass("vault-syncer-xfer-filter");
         filter.selectEl.setAttribute("aria-label", t("transferHistorySection"));
 
         // The only part of the screen that scrolls
-        const body = el.createDiv({ cls: "vault-sync-xfer-history-body" });
+        const body = el.createDiv({ cls: "vault-syncer-xfer-history-body" });
         const days = groupHistory(history, this.filter, Date.now());
         if (days.length === 0) {
             body.createDiv({
-                cls: "vault-sync-xfer-empty",
+                cls: "vault-syncer-xfer-empty",
                 text: history.length === 0 ? t("transferNoHistory") : t("transferNoMatch"),
             });
             return;
         }
         let first = true;
         for (const day of days) {
-            const dayEl = body.createDiv({ cls: "vault-sync-xfer-day" });
+            const dayEl = body.createDiv({ cls: "vault-syncer-xfer-day" });
             dayEl.createDiv({
-                cls: "vault-sync-xfer-day-label",
+                cls: "vault-syncer-xfer-day-label",
                 text:
                     day.kind === "today"
                         ? t("transferToday")
@@ -279,21 +281,21 @@ export class TransferStatusModal extends Modal {
     private renderBatch(parent: HTMLElement, batch: HistoryBatch, newest: boolean): void {
         const t = this.t;
         const open = this.batchOpen.get(batch.key) ?? (newest || batch.failed > 0);
-        const box = parent.createDiv({ cls: "vault-sync-xfer-batch" });
+        const box = parent.createDiv({ cls: "vault-syncer-xfer-batch" });
         if (open) box.addClass("is-open");
         if (batch.failed > 0) box.addClass("has-failed");
 
         const head = box.createEl("button", {
-            cls: "vault-sync-xfer-batch-head",
+            cls: "vault-syncer-xfer-batch-head",
             attr: { "aria-expanded": String(open) },
         });
-        setIcon(head.createSpan({ cls: "vault-sync-xfer-chevron" }), "chevron-right");
+        setIcon(head.createSpan({ cls: "vault-syncer-xfer-chevron" }), "chevron-right");
         const time =
             batch.end - batch.start >= 60_000
                 ? `${formatClock(batch.start)}–${formatClock(batch.end)}`
                 : formatClock(batch.end);
-        head.createSpan({ cls: "vault-sync-xfer-batch-time", text: time });
-        const counts = head.createSpan({ cls: "vault-sync-xfer-batch-counts" });
+        head.createSpan({ cls: "vault-syncer-xfer-batch-time", text: time });
+        const counts = head.createSpan({ cls: "vault-syncer-xfer-batch-counts" });
         const parts: string[] = [];
         if (batch.pulls > 0) parts.push(`${t("transferFilterPull")} ${batch.pulls}`);
         if (batch.pushes > 0) parts.push(`${t("transferFilterPush")} ${batch.pushes}`);
@@ -305,36 +307,36 @@ export class TransferStatusModal extends Modal {
             });
         }
         if (batch.bytes > 0) {
-            head.createSpan({ cls: "vault-sync-xfer-size", text: formatBytes(batch.bytes) });
+            head.createSpan({ cls: "vault-syncer-xfer-size", text: formatBytes(batch.bytes) });
         }
         head.addEventListener("click", () => {
             const next = !box.hasClass("is-open");
             this.batchOpen.set(batch.key, next);
             box.toggleClass("is-open", next);
             head.setAttribute("aria-expanded", String(next));
-            if (next && !box.querySelector(".vault-sync-xfer-list")) this.renderBatchRows(box, batch);
+            if (next && !box.querySelector(".vault-syncer-xfer-list")) this.renderBatchRows(box, batch);
         });
         if (open) this.renderBatchRows(box, batch);
     }
 
     private renderBatchRows(box: HTMLElement, batch: HistoryBatch): void {
         const t = this.t;
-        const list = box.createDiv({ cls: "vault-sync-xfer-list" });
+        const list = box.createDiv({ cls: "vault-syncer-xfer-list" });
         for (const r of batch.records) {
-            const row = list.createDiv({ cls: `vault-sync-xfer-row mod-${r.direction} is-${r.status}` });
+            const row = list.createDiv({ cls: `vault-syncer-xfer-row mod-${r.direction} is-${r.status}` });
             this.dirIcon(row, r.direction);
             const file = this.fileCell(row, r.path);
-            if (r.error) file.createDiv({ cls: "vault-sync-xfer-error", text: r.error });
-            const meta = row.createDiv({ cls: "vault-sync-xfer-meta" });
-            meta.createSpan({ cls: "vault-sync-xfer-size", text: formatBytes(r.size) });
+            if (r.error) file.createDiv({ cls: "vault-syncer-xfer-error", text: r.error });
+            const meta = row.createDiv({ cls: "vault-syncer-xfer-meta" });
+            meta.createSpan({ cls: "vault-syncer-xfer-size", text: formatBytes(r.size) });
             if (r.status !== "completed") {
                 meta.createSpan({
-                    cls: `vault-sync-xfer-result is-${r.status}`,
+                    cls: `vault-syncer-xfer-result is-${r.status}`,
                     text: r.status === "failed" ? t("transferFailed") : t("transferCancelled"),
                 });
             }
             meta.createSpan({
-                cls: "vault-sync-xfer-time",
+                cls: "vault-syncer-xfer-time",
                 text: formatMoment(r.completedAt, "LTS"),
             });
         }
@@ -344,7 +346,7 @@ export class TransferStatusModal extends Modal {
 
     private dirIcon(row: HTMLElement, direction: "push" | "pull"): void {
         const icon = row.createDiv({
-            cls: "vault-sync-xfer-icon",
+            cls: "vault-syncer-xfer-icon",
             attr: {
                 "aria-label": direction === "push" ? this.t("transferPush") : this.t("transferPull"),
             },
@@ -353,11 +355,11 @@ export class TransferStatusModal extends Modal {
     }
 
     private fileCell(row: HTMLElement, path: string): HTMLElement {
-        const cell = row.createDiv({ cls: "vault-sync-xfer-file", attr: { title: path } });
-        const line = cell.createDiv({ cls: "vault-sync-xfer-file-line" });
-        line.createSpan({ cls: "vault-sync-xfer-name", text: basename(path) });
+        const cell = row.createDiv({ cls: "vault-syncer-xfer-file", attr: { title: path } });
+        const line = cell.createDiv({ cls: "vault-syncer-xfer-file-line" });
+        line.createSpan({ cls: "vault-syncer-xfer-name", text: basename(path) });
         const dir = dirname(path);
-        if (dir) line.createSpan({ cls: "vault-sync-xfer-dir", text: dir });
+        if (dir) line.createSpan({ cls: "vault-syncer-xfer-dir", text: dir });
         return cell;
     }
 }

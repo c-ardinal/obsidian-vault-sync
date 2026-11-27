@@ -1,5 +1,5 @@
 {
-    "name": "vault-sync-obsidian-review",
+    "name": "vault-syncer-obsidian-review",
     "private": true,
     "description": "Runs the Obsidian community directory's lint rules (eslint-plugin-obsidianmd) on the plugin. Kept apart from the root package because the root's ajv override breaks ESLint.",
     "type": "module",

@@ -103,7 +103,7 @@ function createMockCtx(): SyncContext & {
         dirtyPaths: new Map(),
         syncingPaths: new Set(),
         recentlyDeletedFromRemote: new Set(),
-        pluginDataPath: ".obsidian/plugins/obsidian-vault-sync/sync-index.json",
+        pluginDataPath: ".obsidian/plugins/cardinal-vault-syncer/sync-index.json",
         e2eeEnabled: false,
         log: vi.fn(),
         _files: files,
@@ -649,7 +649,7 @@ describe("scanObsidianChanges - Folder Handling", () => {
     });
 
     it("should skip paths managed separately in cleanup phase", async () => {
-        const path = ".obsidian/plugins/obsidian-vault-sync/data/remote/sync-index.json";
+        const path = ".obsidian/plugins/cardinal-vault-syncer/data/remote/sync-index.json";
         
         // Add to localIndex (no remote entry)
         ctx.localIndex[path] = {

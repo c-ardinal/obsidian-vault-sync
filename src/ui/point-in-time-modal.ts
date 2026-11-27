@@ -87,7 +87,7 @@ export class PointInTimeModal extends Modal {
     ) {
         super(app);
         this.folder = folder;
-        this.modalEl.addClass("vault-sync-pit-modal");
+        this.modalEl.addClass("vault-syncer-pit-modal");
     }
 
     onOpen(): void {
@@ -103,7 +103,7 @@ export class PointInTimeModal extends Modal {
     private renderForm(): void {
         const { contentEl } = this;
         contentEl.empty();
-        contentEl.createEl("p", { cls: "vault-sync-pit-note", text: t("pitIntro") });
+        contentEl.createEl("p", { cls: "vault-syncer-pit-note", text: t("pitIntro") });
 
         new Setting(contentEl)
             .setName(t("pitFolder"))
@@ -112,13 +112,13 @@ export class PointInTimeModal extends Modal {
                 text.setPlaceholder(t("pitFolderPlaceholder"))
                     .setValue(this.folder)
                     .onChange((v) => (this.folder = v));
-                text.inputEl.addClass("vault-sync-pit-folder");
+                text.inputEl.addClass("vault-syncer-pit-folder");
                 new FolderSuggest(this.app, text.inputEl, (path) => (this.folder = path));
             });
 
         new Setting(contentEl).setName(t("pitTime")).addText((text) => {
             text.inputEl.type = "datetime-local";
-            text.inputEl.addClass("vault-sync-pit-time");
+            text.inputEl.addClass("vault-syncer-pit-time");
             text.setValue(toLocalInput(this.time)).onChange((v) => {
                 const ms = new Date(v).getTime();
                 if (Number.isFinite(ms)) this.time = ms;
@@ -130,7 +130,7 @@ export class PointInTimeModal extends Modal {
             .setDesc(t("pitRemoveCreatedDesc"))
             .addToggle((toggle) => toggle.setValue(this.removeCreatedAfter).onChange((v) => (this.removeCreatedAfter = v)));
 
-        contentEl.createEl("p", { cls: "vault-sync-pit-note", text: t("pitLimits") });
+        contentEl.createEl("p", { cls: "vault-syncer-pit-note", text: t("pitLimits") });
 
         const row = contentEl.createDiv({ cls: "modal-button-container" });
         row.createEl("button", { cls: "mod-cta", text: t("pitCheck") }).addEventListener("click", () => {
@@ -146,7 +146,7 @@ export class PointInTimeModal extends Modal {
         const { contentEl } = this;
         contentEl.empty();
         this.signal = { aborted: false };
-        const status = contentEl.createEl("p", { cls: "vault-sync-pit-progress", text: t("remoteTrashLoading") });
+        const status = contentEl.createEl("p", { cls: "vault-syncer-pit-progress", text: t("remoteTrashLoading") });
         const row = contentEl.createDiv({ cls: "modal-button-container" });
         row.createEl("button", { text: t("confirmCancel") }).addEventListener("click", () => {
             this.signal.aborted = true;
@@ -171,15 +171,15 @@ export class PointInTimeModal extends Modal {
         const counts = countByAction(plan);
         const when = formatDateTime(plan.time);
         contentEl.createEl("p", {
-            cls: "vault-sync-pit-note",
+            cls: "vault-syncer-pit-note",
             text: fill(t("pitPlanIntro"), { folder: plan.folder || t("pitWholeVault"), time: when }),
         });
 
-        const summary = contentEl.createDiv({ cls: "vault-sync-pit-summary" });
+        const summary = contentEl.createDiv({ cls: "vault-syncer-pit-summary" });
         const line = (action: RestoreAction, extra = "") => {
-            const el = summary.createDiv({ cls: `vault-sync-pit-count mod-${action}` });
+            const el = summary.createDiv({ cls: `vault-syncer-pit-count mod-${action}` });
             el.createSpan({ text: t(ACTION_LABELS[action]) });
-            el.createSpan({ cls: "vault-sync-pit-count-n", text: `${counts[action]}${extra}` });
+            el.createSpan({ cls: "vault-syncer-pit-count-n", text: `${counts[action]}${extra}` });
         };
         line("restore");
         line("recreate");
@@ -189,14 +189,14 @@ export class PointInTimeModal extends Modal {
 
         const shown = plan.entries.filter((e) => e.action !== "unchanged");
         if (shown.length > 0) {
-            const list = contentEl.createDiv({ cls: "vault-sync-pit-list" });
+            const list = contentEl.createDiv({ cls: "vault-syncer-pit-list" });
             for (const e of shown.slice(0, LIST_LIMIT)) {
-                const rowEl = list.createDiv({ cls: "vault-sync-pit-row" });
-                rowEl.createSpan({ cls: `vault-sync-pit-tag mod-${e.action}`, text: t(ACTION_LABELS[e.action]) });
-                rowEl.createSpan({ cls: "vault-sync-pit-path", text: e.path });
+                const rowEl = list.createDiv({ cls: "vault-syncer-pit-row" });
+                rowEl.createSpan({ cls: `vault-syncer-pit-tag mod-${e.action}`, text: t(ACTION_LABELS[e.action]) });
+                rowEl.createSpan({ cls: "vault-syncer-pit-path", text: e.path });
             }
             if (shown.length > LIST_LIMIT) {
-                list.createDiv({ cls: "vault-sync-pit-note", text: fill(t("pitMore"), { n: shown.length - LIST_LIMIT }) });
+                list.createDiv({ cls: "vault-syncer-pit-note", text: fill(t("pitMore"), { n: shown.length - LIST_LIMIT }) });
             }
         }
 
@@ -214,7 +214,7 @@ export class PointInTimeModal extends Modal {
     private async apply(plan: RestorePlan): Promise<void> {
         const { contentEl } = this;
         contentEl.empty();
-        const status = contentEl.createEl("p", { cls: "vault-sync-pit-progress", text: t("remoteTrashLoading") });
+        const status = contentEl.createEl("p", { cls: "vault-syncer-pit-progress", text: t("remoteTrashLoading") });
         const result = await this.source.applyPointInTimeRestore(plan, {
             removeCreatedAfter: this.removeCreatedAfter,
             remove: async (path) => {

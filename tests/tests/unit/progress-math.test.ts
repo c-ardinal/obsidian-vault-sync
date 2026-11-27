@@ -14,7 +14,13 @@
  *   転送完了後も同一サイクル中は保持、次サイクルの開始で消去
  */
 import { describe, it, expect } from "vitest";
-import { stepFraction, transferLabel, TRANSFER_NAME_MAX, verifyEstimate } from "../../../src/ui/progress-math";
+import {
+    quietCycleFilter,
+    stepFraction,
+    transferLabel,
+    TRANSFER_NAME_MAX,
+    verifyEstimate,
+} from "../../../src/ui/progress-math";
 import { SyncProgressTracker } from "../../../src/sync-manager/sync-progress";
 
 describe("verifyEstimate", () => {
@@ -106,5 +112,70 @@ describe("transferLabel", () => {
 
     it("keeps a file that is named only by its extension", () => {
         expect(transferLabel({ recent: { path: ".md", direction: "push" } })).toBe("↑ .md");
+    });
+});
+
+describe("quietCycleFilter", () => {
+    const finishedCycle = (tr: SyncProgressTracker) => {
+        tr.begin("manual-sync");
+        tr.plan("pull", [{ path: "a.md" }]);
+        tr.fileFinished("pull", "a.md");
+        tr.finish("ok");
+    };
+
+    it("keeps the display unchanged while a timer sync has nothing to transfer", () => {
+        let now = 1000;
+        const tr = new SyncProgressTracker(() => now);
+        const shown = quietCycleFilter();
+        finishedCycle(tr);
+        const before = shown(tr.snapshot());
+        expect(before.active).toBe(false);
+
+        now = 5000;
+        tr.begin("timer-sync");
+        expect(shown(tr.snapshot())).toBe(before);
+        tr.setPhase("finishing");
+        expect(shown(tr.snapshot())).toBe(before);
+
+        now = 6000;
+        tr.finish("ok");
+        const after = shown(tr.snapshot());
+        expect(after.active).toBe(false);
+        expect(after.last?.finishedAt).toBe(6000);
+    });
+
+    it("shows a timer sync from the moment it has a file to transfer", () => {
+        const tr = new SyncProgressTracker(() => 0);
+        const shown = quietCycleFilter();
+        finishedCycle(tr);
+        shown(tr.snapshot());
+        tr.begin("timer-sync");
+        expect(shown(tr.snapshot()).active).toBe(false);
+        tr.plan("push", [{ path: "x.md" }]);
+        const s = shown(tr.snapshot());
+        expect(s.active).toBe(true);
+        expect(s.phase).toBe("pushing");
+    });
+
+    it("shows a sync the user started from its start", () => {
+        const tr = new SyncProgressTracker(() => 0);
+        const shown = quietCycleFilter();
+        for (const trigger of ["manual-sync", "startup-sync", "initial-sync", "full-scan"]) {
+            tr.begin(trigger);
+            expect(shown(tr.snapshot()).active).toBe(true);
+            tr.finish("ok");
+        }
+    });
+
+    it("shows a failed quiet sync once it has ended", () => {
+        const tr = new SyncProgressTracker(() => 0);
+        const shown = quietCycleFilter();
+        tr.begin("timer-sync");
+        // A display opened during the cycle has nothing earlier to keep: it shows rest.
+        const during = shown(tr.snapshot());
+        expect(during.active).toBe(false);
+        expect(during.phase).toBe("idle");
+        tr.finish("offline");
+        expect(shown(tr.snapshot()).last?.outcome).toBe("offline");
     });
 });

@@ -200,7 +200,7 @@ export interface CloudAdapter {
     reset(): void;
 
     /**
-     * Get the ID of the shared application root folder (e.g. 'ObsidianVaultSync')
+     * Get the ID of the shared application root folder (e.g. 'ObsidianVaultSyncer')
      */
     getAppRootId(): Promise<string>;
 

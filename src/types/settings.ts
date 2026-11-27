@@ -12,7 +12,7 @@ export interface TriggerSettings {
     onLayoutChangeDelaySec: number;
 }
 
-export interface VaultSyncSettings {
+export interface VaultSyncerSettings {
     // Sync Triggers Strategy
     triggerConfigStrategy: "unified" | "per-platform";
     unifiedTriggers: TriggerSettings;
@@ -81,7 +81,7 @@ export interface VaultSyncSettings {
 
     // Sync Scope Options
     syncAppearance: boolean; // .obsidian/themes, snippets, etc.
-    syncCommunityPlugins: boolean; // .obsidian/plugins (excluding vault-sync)
+    syncCommunityPlugins: boolean; // .obsidian/plugins (excluding this plugin)
     syncCoreConfig: boolean; // .obsidian/app.json, hotkeys.json, etc.
     syncImagesAndMedia: boolean; // Images, Audio, Video, PDF
     syncDotfiles: boolean; // .git, .trash, etc. (Default: false)

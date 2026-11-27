@@ -74,7 +74,7 @@ export class CredentialManager {
                     tokenExpiresAt,
                 );
                 await syncManager.notify("noticeAuthSuccess");
-                window.localStorage.removeItem("vault-sync-state");
+                window.localStorage.removeItem("vault-syncer-state");
                 syncManager.requestSmartSync("manual-sync").catch(() => {});
             } catch (e) {
                 await syncManager.notify(
@@ -95,8 +95,8 @@ export class CredentialManager {
                     tokens.tokenExpiresAt,
                 );
                 await syncManager.notify("noticeAuthSuccess");
-                window.localStorage.removeItem("vault-sync-verifier");
-                window.localStorage.removeItem("vault-sync-state");
+                window.localStorage.removeItem("vault-syncer-verifier");
+                window.localStorage.removeItem("vault-syncer-state");
                 syncManager.requestSmartSync("manual-sync").catch(() => {});
             } catch (e) {
                 await syncManager.notify(

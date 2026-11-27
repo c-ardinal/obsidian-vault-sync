@@ -20,13 +20,13 @@ export class DiagnosticsModal extends Modal {
         private readonly issueTitle = "",
     ) {
         super(app);
-        this.modalEl.addClass("vault-sync-diagnostics-modal");
+        this.modalEl.addClass("vault-syncer-diagnostics-modal");
     }
 
     onOpen(): void {
         const { contentEl } = this;
         this.setTitle(t("diagnosticsTitle"));
-        contentEl.createEl("p", { cls: "vault-sync-diagnostics-note", text: t("diagnosticsIntro") });
+        contentEl.createEl("p", { cls: "vault-syncer-diagnostics-note", text: t("diagnosticsIntro") });
 
         new Setting(contentEl)
             .setName(t("diagnosticsIncludeLog"))
@@ -38,13 +38,13 @@ export class DiagnosticsModal extends Modal {
                 }),
             );
 
-        this.textEl = contentEl.createDiv().createEl("textarea", { cls: "vault-sync-diagnostics-text" });
+        this.textEl = contentEl.createDiv().createEl("textarea", { cls: "vault-syncer-diagnostics-text" });
         this.textEl.readOnly = true;
         this.textEl.spellcheck = false;
         this.textEl.rows = Platform.isPhone ? 10 : 16;
         this.textEl.setAttr("aria-label", t("diagnosticsTitle"));
 
-        contentEl.createEl("p", { cls: "vault-sync-diagnostics-note", text: t("diagnosticsReportDesc") });
+        contentEl.createEl("p", { cls: "vault-syncer-diagnostics-note", text: t("diagnosticsReportDesc") });
 
         const row = contentEl.createDiv({ cls: "modal-button-container" });
         row.createEl("button", { text: t("diagnosticsCopy") }).addEventListener("click", () => void this.copy());

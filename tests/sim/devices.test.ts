@@ -93,7 +93,7 @@ describe("device records", () => {
         for (const dev of [a, b]) {
             expect(Object.keys((dev.sm as any).index).filter((p) => p.includes("/devices/"))).toEqual([]);
         }
-        expect(cloud.store.getCloudContent(`.obsidian/plugins/obsidian-vault-sync/data/remote/devices/${b.sm.thisDeviceId}.json`)).not.toBeNull();
+        expect(cloud.store.getCloudContent(`.obsidian/plugins/cardinal-vault-syncer/data/remote/devices/${b.sm.thisDeviceId}.json`)).not.toBeNull();
     });
 
     it("a renamed device shows its new name, and a forgotten device comes back when it syncs", async () => {

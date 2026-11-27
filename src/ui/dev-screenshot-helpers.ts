@@ -243,7 +243,7 @@ const DEMO_TRANSFER_HISTORY: TransferRecord[] = [
     {
         id: "tr_h4",
         direction: "pull",
-        path: configPath("plugins/vault-sync/data.json"),
+        path: configPath("plugins/cardinal-vault-syncer/data.json"),
         size: 1200,
         status: "completed",
         startedAt: now - 1000 * 60 * 30,
@@ -445,16 +445,16 @@ export function startDemoSyncAnimation(
 
     for (const t of targets) {
         setIcon(t.el, "sync");
-        t.el.addClass("vault-sync-spinning");
-        if (t.el.classList.contains("vault-sync-mobile-fab")) {
+        t.el.addClass("vault-syncer-spinning");
+        if (t.el.classList.contains("vault-syncer-mobile-fab")) {
             t.el.addClass("is-active");
         }
     }
 
     window.setTimeout(() => {
         for (const t of targets) {
-            t.el.removeClass("vault-sync-spinning");
-            if (t.el.classList.contains("vault-sync-mobile-fab")) {
+            t.el.removeClass("vault-syncer-spinning");
+            if (t.el.classList.contains("vault-syncer-mobile-fab")) {
                 t.el.removeClass("is-active");
             }
             setIcon(t.el, t.originalIcon);

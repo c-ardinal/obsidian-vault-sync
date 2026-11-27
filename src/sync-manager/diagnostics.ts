@@ -109,7 +109,7 @@ export function formatDiagnostics(s: DiagnosticsSnapshot, log: string[] | null, 
 }
 
 /** New-issue page of the plugin's repository */
-export const ISSUE_URL = "https://github.com/c-ardinal/obsidian-vault-sync/issues/new";
+export const ISSUE_URL = "https://github.com/c-ardinal/obsidian-vault-syncer/issues/new";
 /** Longest link GitHub opens reliably (about 8 KB; kept below it) */
 export const MAX_ISSUE_URL = 7500;
 

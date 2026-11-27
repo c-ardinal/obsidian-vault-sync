@@ -61,7 +61,7 @@ export class RemoteTrashModal extends Modal {
         }
         status.remove();
 
-        const list = contentEl.createDiv({ cls: "vault-sync-remote-trash-list" });
+        const list = contentEl.createDiv({ cls: "vault-syncer-remote-trash-list" });
         for (const file of files) this.renderRow(list, file);
     }
 

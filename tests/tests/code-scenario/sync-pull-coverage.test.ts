@@ -178,7 +178,7 @@ describe("smartPull comprehensive coverage", () => {
             }
         });
         const uploaded = await cloud.uploadFile(
-            ".obsidian/plugins/obsidian-vault-sync/sync-index.json",
+            ".obsidian/plugins/cardinal-vault-syncer/sync-index.json",
             new TextEncoder().encode(indexContent).buffer as ArrayBuffer,
             Date.now()
         );
@@ -251,7 +251,7 @@ describe("smartPull comprehensive coverage", () => {
         // Upload a forbidden directory
         const forbiddenContent = "forbidden data";
         await cloud.uploadFile(
-            ".obsidian/plugins/obsidian-vault-sync/device-logs/log.txt",
+            ".obsidian/plugins/cardinal-vault-syncer/device-logs/log.txt",
             new TextEncoder().encode(forbiddenContent).buffer as ArrayBuffer,
             Date.now()
         );

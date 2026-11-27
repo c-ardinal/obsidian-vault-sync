@@ -9,7 +9,7 @@ import { isValidCloudRootFolder } from "../../../src/utils/cloud-root";
 
 describe("isValidCloudRootFolder", () => {
     it("accepts plain folder names", () => {
-        expect(isValidCloudRootFolder("ObsidianVaultSync")).toBe(true);
+        expect(isValidCloudRootFolder("ObsidianVaultSyncer")).toBe(true);
         expect(isValidCloudRootFolder("My Vault 2")).toBe(true);
     });
 
