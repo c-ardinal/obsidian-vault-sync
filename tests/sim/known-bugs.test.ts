@@ -1105,6 +1105,13 @@ const FIXED_REGRESSIONS: Case[] = [
         config: { seed: 2259, ...CHAOS, driveServer: true },
         expect: [],
     },
+    {
+        title: "chaos: a merge that cannot place the other device's hunk does not drop its new lines",
+        symptom:
+            "A note recreated under a deleted note's name lost its first line when a third device merged it: the note was gone",
+        config: { seed: 3007, ...CHAOS },
+        expect: [],
+    },
 ];
 
 function configOf(c: Case, name: string): SimConfig {
