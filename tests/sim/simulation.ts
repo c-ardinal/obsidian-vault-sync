@@ -827,6 +827,10 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
                     if (calls.some((c) => c.outcome === "ok" && c.method === "uploadFile" && c.arg.endsWith("/sync-index.json"))) {
                         changed = true;
                     }
+                    // Listing the folders a change page reported (Drive: have their notes
+                    // moved with them?) is catching up as well. A sync that lists folders
+                    // every time never gets quiet and fails as NO_CONVERGE.
+                    if (calls.some((c) => c.outcome === "ok" && c.method === "listFiles")) changed = true;
                     // Still holding work back (a missing file waits a few seconds for a
                     // late rename event): not quiet yet.
                     if ((d.describe() as { dirtyPaths: string[] }).dirtyPaths.length > 0) changed = true;

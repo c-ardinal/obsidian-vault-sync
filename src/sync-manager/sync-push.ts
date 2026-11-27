@@ -907,10 +907,11 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                 `[Smart Push] Move API failed for ${path}, falling back to re-upload: ${String(e)}`,
                                 "warn",
                             );
-                            delete indexEntry.pendingMove;
-                            if (ctx.localIndex[path]) {
-                                delete ctx.localIndex[path].pendingMove;
-                            }
+                            // Gone from the cloud (deleted on another device): the upload
+                            // below makes a new file. With the entry kept, it went to the
+                            // deleted file's id and failed on every sync from then on.
+                            delete ctx.index[path];
+                            delete ctx.localIndex[path];
                         }
                     }
 
