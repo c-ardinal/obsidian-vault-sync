@@ -221,7 +221,7 @@ describe("VaultLockService", () => {
     describe("renameFolder", () => {
         it("should delegate to adapter.moveFile", async () => {
             await svc.renameFolder("folder123", "NewName");
-            expect(adapter.moveFile).toHaveBeenCalledWith("folder123", "NewName", null);
+            expect(adapter.moveFile).toHaveBeenCalledWith("folder123", "NewName", null, "outside");
         });
     });
 });

@@ -13,6 +13,8 @@ import {
 import { freeConflictCopyPath } from "../sync-manager/conflict-resolution";
 import { markDeleted, saveIndex, saveLocalIndex } from "../sync-manager/state";
 import { SyncContext } from "../sync-manager/context";
+import { listDevices } from "../sync-manager/device-registry";
+import { restoreKnownVaultRoot } from "../sync-manager/vault-folder";
 
 interface MigrationProgress {
     current: number;
@@ -461,6 +463,7 @@ export class MigrationService {
             );
             await this.ctx.log(`[Migration] Deleted backup folder: ${rec.backupName}`, "info");
             await this.savePendingCleanup(null);
+            await this.ctx.notify("noticeBackupDeleted");
         } catch (e) {
             await this.ctx.log(`[Migration] Backup folder cleanup failed (retried later): ${String(e)}`, "warn");
         } finally {
@@ -507,6 +510,9 @@ export class MigrationService {
         ).buffer;
         await tempEncryptedAdapter.uploadFile(this.ctx.pluginDataPath, indexContent, Date.now());
 
+        const soleDevice = await this.isSoleDevice();
+        let backupKept = false;
+
         // Atomic folder swap with recovery
         const backupName = `${vaultName}-Backup-${new Date().toISOString().replace(/[:.]/g, "-")}`;
 
@@ -542,25 +548,49 @@ export class MigrationService {
             throw error; // Re-throw to signal migration failure
         }
 
-        // The old folder is deleted later (finishBackupCleanup): a sync another
-        // device started before the migration lock existed may still push into it
+        // No other device syncs this vault: nothing can still be pushed into the
+        // old folder, so it is deleted at once. Otherwise it is deleted later
+        // (finishBackupCleanup): a sync another device started before the
+        // migration lock existed may still push into it.
         if (originalId) {
-            try {
-                await this.savePendingCleanup({
-                    backupName,
-                    backupId: originalId,
-                    notBefore: Date.now() + BACKUP_CLEANUP_GRACE_MS,
-                    scan: this.scan,
-                    base: this.scanBase,
-                });
-            } catch (e) {
-                await this.ctx.log(`[Migration] Could not record the backup folder for cleanup: ${String(e)}`, "warn");
+            let deleted = false;
+            if (soleDevice) {
+                try {
+                    await remoteDeletionOf(this.ctx).remove(
+                        this.baseAdapter,
+                        { id: originalId, path: backupName, kind: "folder" },
+                        "maintenance",
+                    );
+                    deleted = true;
+                    await this.ctx.log(`[Migration] Deleted backup folder: ${backupName}`, "info");
+                } catch (e) {
+                    await this.ctx.log(
+                        `[Migration] Backup folder could not be deleted now (retried at the next sync): ${String(e)}`,
+                        "warn",
+                    );
+                }
+            }
+            if (!deleted) {
+                try {
+                    await this.savePendingCleanup({
+                        backupName,
+                        backupId: originalId,
+                        notBefore: soleDevice ? Date.now() : Date.now() + BACKUP_CLEANUP_GRACE_MS,
+                        scan: this.scan,
+                        base: this.scanBase,
+                    });
+                    backupKept = !soleDevice;
+                } catch (e) {
+                    await this.ctx.log(`[Migration] Could not record the backup folder for cleanup: ${String(e)}`, "warn");
+                }
             }
         }
 
         // 6. Reset adapter caches to force re-discovery of the new vaultRootId
         // This is CRITICAL to prevent syncing into the Backup folder (which has the old ID)
         this.baseAdapter.reset();
+        // The indexes were rewritten for the new folder file by file (uploadConverted)
+        restoreKnownVaultRoot(this.ctx, tempId);
 
         await saveLocalIndex(this.ctx);
         await saveIndex(this.ctx);
@@ -571,6 +601,31 @@ export class MigrationService {
         this.ctx.syncState = "IDLE";
         this.isMigrating = false;
         this.currentProgress = null;
+        // Otherwise the folder left on the cloud looks like a failed deletion
+        if (backupKept) await this.ctx.notify("noticeBackupKept");
+    }
+
+    /**
+     * True when the device records on the cloud show no device but this one.
+     * Every device writes its record at the first sync of a session, so a device
+     * that could still be pushing has one. Unknown (records unreadable) counts
+     * as "others exist".
+     */
+    private async isSoleDevice(): Promise<boolean> {
+        try {
+            const records = await listDevices({
+                adapter: this.baseAdapter,
+                vault: this.ctx.vault,
+                pluginDir: this.ctx.pluginDir,
+                deviceId: this.ctx.deviceId,
+                log: this.ctx.log,
+            });
+            // No record at all tells nothing: only this device's own record, alone, does
+            return records.length > 0 && records.every((r) => r.id === this.ctx.deviceId);
+        } catch (e) {
+            await this.ctx.log(`[Migration] Device records could not be read: ${String(e)}`, "warn");
+            return false;
+        }
     }
 
     async cancelMigration(): Promise<void> {

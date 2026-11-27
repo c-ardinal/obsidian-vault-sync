@@ -67,6 +67,14 @@ export const GOOGLE_DRIVE_CAPABILITIES: CloudCapabilities = Object.freeze({
     conditionalWrite: false, // Drive offers no compare-and-set on content
 });
 
+/** The cloud folder this adapter worked in is no longer the vault's folder */
+export class VaultFolderReplacedError extends Error {
+    constructor() {
+        super("The cloud vault folder was replaced on another device. The next sync continues in the new folder.");
+        this.name = "VaultFolderReplacedError";
+    }
+}
+
 export class GoogleDriveAdapter implements OAuthCloudAdapter {
     name = "Google Drive";
 
@@ -185,8 +193,19 @@ export class GoogleDriveAdapter implements OAuthCloudAdapter {
     async getAppRootId(): Promise<string> {
         return this.pathResolver.getAppRootId();
     }
+    /** Set when the change feed showed the vault folder renamed, moved or deleted */
+    private rootStale = false;
+
+    async getVaultRootId(): Promise<string> {
+        if (this.rootStale) {
+            this.pathResolver.reset();
+            this.rootStale = false;
+        }
+        return this.pathResolver.ensureRootFolders();
+    }
     reset() {
         this.pathResolver.reset();
+        this.rootStale = false;
     }
     async createFolder(name: string, parentId?: string): Promise<string> {
         return this.pathResolver.createFolder(name, parentId);
@@ -294,20 +313,13 @@ export class GoogleDriveAdapter implements OAuthCloudAdapter {
         // Handle deleted/trashed files as null
         if (!file.id || file.trashed) return null;
 
-        // Report the CURRENT path. Echoing knownPath back hid renames made by other
-        // devices from every caller that compares paths.
-        let path = knownPath || file.name;
-        if (knownPath && basename(knownPath) !== file.name) {
-            path = file.name;
-            if (file.parents?.[0]) {
-                try {
-                    const parentPath = await this.pathResolver.resolveFullPath(file.parents[0]);
-                    path = parentPath ? `${parentPath}/${file.name}` : file.name;
-                } catch {
-                    /* keep the bare name: still signals the rename */
-                }
-            }
-        }
+        // Report where the file IS, never where the caller believes it to be. A file
+        // id stays valid after its folder left the vault (a converted vault is a new
+        // folder; the old one is kept as a backup): answering with knownPath made
+        // such a file look like a note of this vault, and the sync then renamed and
+        // moved it INTO the vault. Outside the vault means "no such file here".
+        const path = await this.pathInVault(file);
+        if (path === null) return null;
 
         return {
             id: file.id,
@@ -317,6 +329,20 @@ export class GoogleDriveAdapter implements OAuthCloudAdapter {
             kind: file.mimeType === "application/vnd.google-apps.folder" ? "folder" : "file",
             hash: file.md5Checksum,
         };
+    }
+
+    /** The file's path inside the vault folder, or null when it lies outside of it */
+    private async pathInVault(file: DriveFile): Promise<string | null> {
+        const parentId = file.parents?.[0];
+        if (!parentId) return null;
+        try {
+            const parentPath = await this.pathResolver.resolveFullPath(parentId);
+            return parentPath ? `${parentPath}/${file.name}` : file.name;
+        } catch (e) {
+            // A transient failure must not look like "gone"
+            if (!isUnreachableFromVault(e)) throw e;
+            return null;
+        }
     }
 
     async downloadFile(fileId: string): Promise<ArrayBuffer> {
@@ -564,6 +590,7 @@ export class GoogleDriveAdapter implements OAuthCloudAdapter {
         fileId: string,
         newName: string,
         newParentPath: string | null,
+        origin: "vault" | "outside" = "vault",
     ): Promise<CloudFile> {
         // 1. 現在のファイルの親フォルダを取得
         const currentMeta = await this.http.fetchWithAuth(
@@ -571,6 +598,11 @@ export class GoogleDriveAdapter implements OAuthCloudAdapter {
         );
         const currentFile = (await currentMeta.json()) as DriveFile;
         const oldParentId = currentFile.parents?.[0];
+        // Only a file of this vault may be renamed or moved: an id from a folder that
+        // is no longer the vault must never be pulled into it
+        if (origin === "vault" && (await this.pathInVault(currentFile)) === null) {
+            throw new CloudError(`File ${fileId} is not in this vault: not moved`, "not-found");
+        }
 
         // 2. 新しい親フォルダの ID を解決（パスが変わる場合のみ）
         let newParentId: string | null = null;
@@ -690,6 +722,29 @@ export class GoogleDriveAdapter implements OAuthCloudAdapter {
             `https://www.googleapis.com/drive/v3/changes?pageToken=${pageToken}&pageSize=1000&fields=${fields}`,
         );
         const data = (await response.json()) as DriveChangeList;
+        // The vault folder itself was renamed, moved or deleted (another device
+        // converted the vault and swapped a new folder in under its name): the
+        // folder id held here is no longer the vault. Nothing of this page may be
+        // applied with it; the next sync resolves the folder anew.
+        const root = this.pathResolver.vaultRootId;
+        const appRoot = this.pathResolver.appRootId;
+        const rootGone = (data.changes || []).some(
+            (c) =>
+                !!root &&
+                c.fileId === root &&
+                (c.removed ||
+                    !c.file ||
+                    c.file.trashed ||
+                    c.file.name !== this.vaultName ||
+                    (!!appRoot && !!c.file.parents && !c.file.parents.includes(appRoot))),
+        );
+        if (rootGone) {
+            // The folder is looked up again where a sync starts (getVaultRootId),
+            // never in the middle of one: its indexes describe the old folder
+            this.rootStale = true;
+            throw new VaultFolderReplacedError();
+        }
+
         // A folder in this page was renamed, moved or deleted: paths cached from it
         // are stale for every item below it (their own changes are not listed)
         if ((data.changes || []).some((c) => c.file?.mimeType === "application/vnd.google-apps.folder")) {

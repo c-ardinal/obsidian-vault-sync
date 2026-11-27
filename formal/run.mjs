@@ -28,6 +28,8 @@ const RUNS = [
     { spec: "Migration", cfg: "Migration", expect: "pass" },
     { spec: "Migration", cfg: "MigrationPR43", expect: ["NoResurrection", "NoLostEdit"] },
     { spec: "Migration", cfg: "MigrationLegacy", expect: ["NoLostEdit", "NoResurrection"] },
+    { spec: "Migration", cfg: "MigrationNoFollow", expect: ["SeesConversion"] },
+    { spec: "Migration", cfg: "MigrationNoFollowRestart", expect: ["VaultEncrypted"] },
     { spec: "CloudRetry", cfg: "CloudRetry", expect: "pass" },
     { spec: "CloudRetry", cfg: "CloudRetryBlind", expect: ["NoDuplicate"] },
     { spec: "CloudRetry", cfg: "CloudRetryName", expect: ["OwnResult"] },

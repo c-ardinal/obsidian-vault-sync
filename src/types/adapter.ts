@@ -164,7 +164,18 @@ export interface CloudAdapter {
      *                       - "folder/sub": move to specific subfolder
      * @returns Updated CloudFile metadata
      */
-    moveFile(fileId: string, newName: string, newParentPath: string | null): Promise<CloudFile>;
+    /**
+     * @param origin "vault" (default): the file must lie in the vault folder now,
+     *   otherwise the call fails. A file id outlives its folder's time as the vault
+     *   (a converted vault is a new folder), and such a file must never be moved in.
+     *   "outside": the file is brought in on purpose (restore from the trash folder).
+     */
+    moveFile(
+        fileId: string,
+        newName: string,
+        newParentPath: string | null,
+        origin?: "vault" | "outside",
+    ): Promise<CloudFile>;
     /**
      * Copy a file on the cloud side (nothing is downloaded) into a folder of this
      * adapter's tree; missing folders are created. The source may be in another
@@ -198,6 +209,14 @@ export interface CloudAdapter {
      * Used after administrative operations like renames.
      */
     reset(): void;
+
+    /**
+     * Cloud id of the vault's own folder, on clouds that address folders by id.
+     * It changes when the folder is replaced by another one of the same name
+     * (a vault conversion on another device): file ids known so far then
+     * belong to the old folder.
+     */
+    getVaultRootId?(): Promise<string>;
 
     /**
      * Get the ID of the shared application root folder (e.g. 'ObsidianVaultSyncer')

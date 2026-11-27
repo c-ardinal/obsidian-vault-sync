@@ -75,6 +75,8 @@ export interface SyncFlags {
     /** Read through content-identity.ts in the sync code, not directly */
     e2eeEnabled: boolean;
     e2eeLocked: boolean;
+    /** Reads the vault-lock of the cloud folder in use (absent in narrow test contexts) */
+    vaultLockService?: { checkForLockFile(): Promise<boolean> };
     /** The file system treats NFC and NFD names as one file (macOS / iOS) */
     unicodeInsensitiveFs?: boolean;
     /** The file system treats "Note.md" and "note.md" as one file (Windows / macOS / iOS / Android) */

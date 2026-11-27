@@ -24,7 +24,9 @@
 | 通知キー                                                                  | 理由                                                                     |
 | :------------------------------------------------------------------------ | :----------------------------------------------------------------------- |
 | `noticeConflictSaved` / `noticeConflictRemoteSaved` / `noticeCheckOtherDevice` | 競合ファイルは同期対象外で他デバイスから不可視。本通知が唯一の認知手段 |
-| `noticeAddonRequired` / `noticeAddonUpdateRequired` / `noticeEngineVerifyFailed` / `noticeVaultLocked` | 利用者の操作まで同期が停止する状態                                       |
+| `noticeAddonRequired` / `noticeAddonUpdateRequired` / `noticeEngineVerifyFailed` / `noticeVaultLocked` / `noticeE2EEAutoEnabled` | 利用者の操作まで同期が停止する状態                                       |
+| `noticeBackupKept` / `noticeBackupDeleted` | 変換前の旧フォルダがクラウド上に一定時間残存。保持中と削除完了の認知手段 |
+| `e2eeUnlockFailed` / `noticeMigrationFailed` | アドオン画面上の利用者操作に対する失敗結果。無表示では失敗を認知不可能 |
 | `noticeNameNotSupported` | 本端末のOS（Windows / Android）で使用不可能なファイル名のクラウド上ファイルは本端末に未保存。本通知が唯一の認知手段（ファイル単位で起動中1回のみ） |
 
 `noticeConflictSaved` は手動消去まで表示を継続し、押下で競合ファイルを表示する。

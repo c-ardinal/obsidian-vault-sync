@@ -177,7 +177,7 @@ export async function restoreFromTrash(adapter: CloudAdapter, file: TrashedFile)
     }
     const { dir, name } = splitPath(path);
     await base.ensureFoldersExist(dir ? [dir] : []);
-    await base.moveFile(file.id, name, dir);
+    await base.moveFile(file.id, name, dir, "outside");
     return path;
 }
 

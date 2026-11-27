@@ -91,6 +91,7 @@ export class VaultLockService {
     }
 
     async renameFolder(id: string, newName: string): Promise<void> {
-        await this.baseAdapter.moveFile(id, newName, null);
+        // The vault folder itself (and its siblings) lie next to the vault, not in it
+        await this.baseAdapter.moveFile(id, newName, null, "outside");
     }
 }

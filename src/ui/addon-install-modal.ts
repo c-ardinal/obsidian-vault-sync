@@ -134,14 +134,30 @@ export class AddonInstallModal extends Modal {
         const description = pickLocalized(pkg.manifest.description, lang);
         if (description) el.createEl("p", { text: description });
 
-        const termsEl = el.createDiv({ cls: "vault-syncer-addon-terms markdown-rendered" });
-        await MarkdownRenderer.render(
-            this.app,
-            pickLocalized(pkg.terms, lang),
-            termsEl,
-            "",
-            this.renderer,
-        );
+        // The terms open in the UI language; every language in the package can be chosen
+        const termsLangs = Object.keys(pkg.terms);
+        let termsLang = lang in pkg.terms ? lang : "en" in pkg.terms ? "en" : termsLangs[0];
+        let termsEl: HTMLElement | null = null;
+        const renderTerms = async (): Promise<void> => {
+            if (!termsEl) return;
+            termsEl.empty();
+            await MarkdownRenderer.render(this.app, pkg.terms[termsLang] ?? "", termsEl, "", this.renderer);
+            termsEl.scrollTop = 0;
+        };
+        if (termsLangs.length > 1) {
+            new Setting(el)
+                .setName(t("addonTermsLanguage"))
+                .addDropdown((dropdown) => {
+                    for (const code of termsLangs) dropdown.addOption(code, languageName(code));
+                    dropdown.setValue(termsLang).onChange((value) => {
+                        termsLang = value;
+                        void renderTerms();
+                    });
+                })
+                .settingEl.addClass("vault-syncer-addon-terms-language");
+        }
+        termsEl = el.createDiv({ cls: "vault-syncer-addon-terms markdown-rendered" });
+        await renderTerms();
 
         let agreed = false;
         let installButton: HTMLButtonElement | null = null;
@@ -175,5 +191,14 @@ export class AddonInstallModal extends Modal {
                     if (this.pickButton) this.pickButton.disabled = false;
                 });
         });
+    }
+}
+
+/** A language's own name ("日本語"), or its code when the runtime does not know it. */
+function languageName(code: string): string {
+    try {
+        return new Intl.DisplayNames([code], { type: "language" }).of(code) ?? code;
+    } catch {
+        return code;
     }
 }

@@ -4,7 +4,9 @@ import type { SyncContext } from "./context";
 import type { SyncState } from "./types";
 import { ALWAYS_SHOW_ACTIVITY, TRIGGER_PRIORITY } from "./notification-matrix";
 import { getLocalFiles, shouldIgnore } from "./file-utils";
-import { saveIndex, beginSyncCycle, endSyncCycle } from "./state";
+import { saveIndex, saveLocalIndex, beginSyncCycle, endSyncCycle } from "./state";
+import { followVaultFolder, isVaultFolderRestart, knownVaultRootOf, VaultConvertedError } from "./vault-folder";
+import { downloadRemoteIndex } from "./sync-helpers";
 import {
     SYNC_POST_PUSH_PULL_MAX_RETRIES,
     SCAN_FULL_SCAN_CHUNK_SIZE,
@@ -139,6 +141,30 @@ export async function executeSmartSync(ctx: SyncContext, scanVault: boolean): Pr
             await ctx.adapter.initialize();
         }
 
+        // Before anything else reads the indexes: they may describe a vault
+        // folder another device has replaced meanwhile
+        const knownRoot = knownVaultRootOf(ctx);
+        const folderReplaced = await followVaultFolder(
+            ctx,
+            async () => {
+                const meta = await ctx.adapter.getFileMetadata(ctx.pluginDataPath);
+                return meta ? await downloadRemoteIndex(ctx, meta.id) : {};
+            },
+            async () => {
+                // The new folder is a converted vault this device has not unlocked:
+                // its files cannot be read as they are. The sync stops here, and the
+                // check before the next sync finds the vault-lock and asks for it.
+                if (!ctx.e2eeEnabled && (await ctx.vaultLockService?.checkForLockFile())) {
+                    throw new VaultConvertedError();
+                }
+            },
+        );
+        if (folderReplaced) {
+            await saveIndex(ctx);
+            scanVault = true;
+        }
+        if (folderReplaced || knownVaultRootOf(ctx) !== knownRoot) await saveLocalIndex(ctx, true);
+
         if ((await migratePlainHashes(ctx)) > 0) await saveIndex(ctx);
 
         if (!(await prepareFirstSync(ctx))) {
@@ -190,6 +216,12 @@ export async function executeSmartSync(ctx: SyncContext, scanVault: boolean): Pr
         await ctx.log("=== SMART SYNC COMPLETED ===", "info");
         ctx.progress?.finish("ok");
     } catch (e) {
+        if (isVaultFolderRestart(e)) {
+            // Not a failure: the caller starts over with the new vault folder
+            await ctx.log(`Smart Sync stopped: ${e instanceof Error ? e.message : String(e)}`, "system");
+            ctx.progress?.finish("ok");
+            throw e;
+        }
         await ctx.log(`Smart Sync failed: ${String(e)}`, "error");
         const notice = syncErrorNotice(e);
         ctx.progress?.finish(

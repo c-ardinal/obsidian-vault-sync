@@ -21,11 +21,24 @@
 (* CatchUp (A's scan before the swap, PR #43), CatchUpDeletes (the scan    *)
 (* also carries over B's deletions), DeferCleanup (the backup is deleted  *)
 (* only after a later re-scan, once B's cycles that started before the    *)
-(* swap have ended).                                                       *)
+(* swap have ended), FollowFolder (a device whose index belongs to the old *)
+(* folder notices the swap at its next cycle and re-bases the index onto   *)
+(* the new folder; 0.19.3).                                                *)
+(*                                                                         *)
+(* A cloud folder is held by id, and so is every file of the index. The    *)
+(* swap gives the vault a NEW folder with new file ids. Until 0.19.3 the   *)
+(* model let B "re-sync with the converted vault" by comparing versions    *)
+(* per path, as if B looked at the new folder with an index that fits it.  *)
+(* The code did neither: a running B kept the old folder (no vault-lock    *)
+(* in it, migration.lock for ever: every cycle skipped), and after a       *)
+(* restart its index still named the old folder's files, so each file of   *)
+(* the vault looked like an unrelated note of the same name: the vault's   *)
+(* copy was renamed aside and B's plaintext file moved into the vault.     *)
+(* bFolder, bBlind and plainIn model that.                                 *)
 (***************************************************************************)
 EXTENDS Naturals, FiniteSets
 
-CONSTANTS Files, Absent, MaxVer, Gate, CatchUp, CatchUpDeletes, DeferCleanup
+CONSTANTS Files, Absent, MaxVer, Gate, CatchUp, CatchUpDeletes, DeferCleanup, FollowFolder
 
 VARIABLES
     phase,      \* A: "idle" "locked" "uploaded" "caughtup" "swapped" "done"
@@ -38,11 +51,17 @@ VARIABLES
     conflicts,  \* versions kept as conflict copies
     aLocal, aSynced, converted, uploaded, aEdited,
     bLocal, bBase, bMode, bStartedBeforeSwap, bDeleted,
-    heads, nextVer
+    heads, nextVer,
+    bFolder,    \* the folder B holds by id: "old" or "new"
+    bBlind,     \* a cycle of B began after the swap without noticing it
+    plainIn     \* files of the vault replaced by B's plaintext file of the old folder
+
+\* B's view of the folder swap
+bView == <<bFolder, bBlind, plainIn>>
 
 vars == <<phase, lockFile, vaultLock, old, oldAtScan, oldExists, temp, conflicts,
           aLocal, aSynced, converted, uploaded, aEdited,
-          bLocal, bBase, bMode, bStartedBeforeSwap, bDeleted, heads, nextVer>>
+          bLocal, bBase, bMode, bStartedBeforeSwap, bDeleted, heads, nextVer, bView>>
 
 Ver == 0..MaxVer
 Val == Ver \cup {Absent}
@@ -62,6 +81,7 @@ Init ==
     /\ bMode = "idle" /\ bStartedBeforeSwap = FALSE /\ bDeleted = {}
     /\ heads = Range(InitVer)
     /\ nextVer = Cardinality(Files)
+    /\ bFolder = "old" /\ bBlind = FALSE /\ plainIn = {}
 
 NewVer == nextVer < MaxVer
 
@@ -179,12 +199,22 @@ BDelete(f) ==
     /\ UNCHANGED <<phase, lockFile, vaultLock, old, oldAtScan, oldExists, temp, conflicts, aLocal, aSynced,
                    converted, uploaded, aEdited, bBase, bMode, bStartedBeforeSwap, bDeleted, nextVer>>
 
-\* A cycle checks the locks once, at its start
+\* A cycle checks the locks once, at its start, in the folder it holds.
+\* The vault-lock is in the new folder only. FollowFolder: the swap is seen
+\* (migration.lock in the old folder, or the folder's change in the change
+\* feed) and the vault folder is looked up again. A folder that is gone is
+\* looked up again by every version.
 BStartCycle ==
+    LET folder == IF (FollowFolder /\ vaultLock) \/ ~oldExists THEN "new" ELSE bFolder
+        sees == vaultLock /\ folder = "new"
+    IN
     /\ bMode = "idle"
-    /\ bMode' = IF vaultLock THEN "resync"
+    /\ bFolder' = folder
+    /\ bMode' = IF sees THEN "resync"
                 ELSE IF Gate /\ lockFile THEN "idle" ELSE "pushing"
+    /\ bBlind' = (bBlind \/ (vaultLock /\ ~sees))
     /\ (Gate /\ lockFile /\ ~vaultLock) => FALSE   \* a gated cycle does nothing
+    /\ UNCHANGED plainIn
     /\ UNCHANGED <<phase, lockFile, vaultLock, old, oldAtScan, oldExists, temp, conflicts, aLocal, aSynced,
                    converted, uploaded, aEdited, bLocal, bBase, bStartedBeforeSwap, bDeleted, heads, nextVer>>
 
@@ -211,6 +241,9 @@ BEndCycle ==
 \* kept as a conflict copy
 BResync(f) ==
     /\ bMode = "resync"
+    \* B's index fits the vault folder: re-based (FollowFolder), or its old files
+    \* are gone and every entry counts as new
+    /\ FollowFolder \/ ~oldExists
     /\ \/ /\ bLocal[f] = bBase[f] /\ temp[f] # bBase[f]
           /\ bLocal' = [bLocal EXCEPT ![f] = temp[f]]
           /\ bBase' = [bBase EXCEPT ![f] = temp[f]]
@@ -227,17 +260,46 @@ BResync(f) ==
     /\ UNCHANGED <<phase, lockFile, vaultLock, old, oldAtScan, oldExists, aLocal, aSynced, converted, uploaded,
                    aEdited, bMode, bStartedBeforeSwap, bDeleted, heads, nextVer>>
 
+\* The app is started again: the vault folder is looked up by name
+BRestart ==
+    /\ bMode = "idle" /\ bFolder = "old" /\ vaultLock
+    /\ bFolder' = "new"
+    /\ UNCHANGED <<bBlind, plainIn>>
+    /\ UNCHANGED <<phase, lockFile, vaultLock, old, oldAtScan, oldExists, temp, conflicts, aLocal, aSynced,
+                   converted, uploaded, aEdited, bLocal, bBase, bMode, bStartedBeforeSwap, bDeleted, heads, nextVer>>
+
+\* Without FollowFolder: B's index names the file of the OLD folder. The
+\* vault's file of that name has another id, so it is taken for an unrelated
+\* note of the same name: it is renamed aside ("name (2)", kept), and B's
+\* plaintext file is moved from the old folder into the vault.
+BResyncStale(f) ==
+    /\ ~FollowFolder /\ bMode = "resync" /\ oldExists
+    /\ old[f] # Absent /\ temp[f] # Absent /\ f \notin plainIn
+    /\ conflicts' = conflicts \cup {temp[f]}
+    /\ temp' = [temp EXCEPT ![f] = old[f]]
+    /\ bBase' = [bBase EXCEPT ![f] = old[f]]
+    /\ plainIn' = plainIn \cup {f}
+    /\ UNCHANGED <<bFolder, bBlind>>
+    /\ UNCHANGED <<phase, lockFile, vaultLock, old, oldAtScan, oldExists, aLocal, aSynced, converted, uploaded,
+                   aEdited, bLocal, bMode, bStartedBeforeSwap, bDeleted, heads, nextVer>>
+
 -----------------------------------------------------------------------------
 
+\* The actions that do not touch B's view of the swap
+Keep(A) == A /\ UNCHANGED bView
+
+AConverts == Keep(StartMigration \/ UploadDone \/ CatchUpStep \/ Swap \/ DeleteBackupNow \/ DeferredCleanup)
+
 Next ==
-    \/ StartMigration \/ UploadDone \/ CatchUpStep \/ Swap \/ DeleteBackupNow \/ DeferredCleanup
-    \/ \E f \in Files : AEdit(f) \/ Upload(f) \/ BEdit(f) \/ BDelete(f) \/ BPush(f) \/ BResync(f)
-    \/ BStartCycle \/ BEndCycle
+    \/ AConverts
+    \/ \E f \in Files : Keep(AEdit(f) \/ Upload(f) \/ BEdit(f) \/ BDelete(f) \/ BPush(f) \/ BResync(f))
+    \/ Keep(BEndCycle)
+    \/ BStartCycle \/ BRestart \/ \E f \in Files : BResyncStale(f)
 
 Spec == Init /\ [][Next]_vars
-    /\ WF_vars(StartMigration \/ UploadDone \/ CatchUpStep \/ Swap \/ DeleteBackupNow \/ DeferredCleanup)
-    /\ WF_vars(\E f \in Files : Upload(f))
-    /\ WF_vars(BEndCycle)
+    /\ WF_vars(AConverts)
+    /\ WF_vars(\E f \in Files : Keep(Upload(f)))
+    /\ WF_vars(Keep(BEndCycle))
 
 -----------------------------------------------------------------------------
 (* Safety *)
@@ -251,6 +313,13 @@ NoLostEdit == heads \subseteq Kept
 \* A note B deleted (and synced) does not come back unless A edited it
 NoResurrection ==
     phase = "done" => \A f \in bDeleted : f \in aEdited \/ temp[f] = Absent
+
+\* A cycle that begins after the swap notices the conversion (and stops for
+\* the password) instead of skipping or pushing into the old folder
+SeesConversion == ~bBlind
+
+\* Nothing but converted files in the converted vault
+VaultEncrypted == plainIn = {}
 
 \* Liveness: the conversion always finishes
 ConversionFinishes == phase = "locked" ~> phase = "done"

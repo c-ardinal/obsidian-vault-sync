@@ -163,6 +163,8 @@ describe("Bug 1: E2EE auto-detection in requestSmartSync", () => {
         );
         sm(device).cryptoEngine = { isUnlocked: () => false } as any;
         sm(device).onSaveSettings = async () => {};
+        let prompts = 0;
+        sm(device).onVaultAccessRequired = async () => void prompts++;
 
         const notifications: string[] = [];
         sm(device).notify = async (key: string) => {
@@ -171,9 +173,14 @@ describe("Bug 1: E2EE auto-detection in requestSmartSync", () => {
 
         await device.syncManager.requestSmartSync("manual-sync");
 
-        expect(notifications).toContain("noticeE2EEAutoEnabled");
-        expect(notifications).toContain("noticeVaultLocked");
-        expect(notifications).not.toContain("noticeAddonRequired");
+        // One notice (it says that sync is stopped), and the password dialog at once
+        expect(notifications).toEqual(["noticeE2EEAutoEnabled"]);
+        expect(prompts).toBe(1);
+
+        // Still locked at the next sync the user asks for: said again, not asked again
+        await device.syncManager.requestSmartSync("manual-sync");
+        expect(notifications).toEqual(["noticeE2EEAutoEnabled", "noticeVaultLocked"]);
+        expect(prompts).toBe(1);
     });
 });
 

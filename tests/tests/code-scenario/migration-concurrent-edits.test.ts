@@ -16,6 +16,7 @@
  * - 変換中に他端末が削除したファイル: 移行端末が未編集なら変換後の Vault とローカルから削除（復活させない）
  * - 読込後（フォルダ交換直前）に他端末が旧フォルダへ送信した編集: 旧フォルダは猶予時間まで保持し、
  *   その後の同期前処理で取込後に削除（未編集なら採用、移行端末も編集済みなら競合コピー）
+ * - 旧フォルダの保持中と削除完了を通知。端末記録が自端末のみの場合は交換直後に即時削除
  */
 
 import { describe, it, expect, vi, afterEach } from "vitest";
@@ -26,6 +27,7 @@ import type { CloudAdapter, CloudFile } from "../../../src/types/adapter";
 import { md5 } from "../../../src/utils/md5";
 import { hashContent } from "../../../src/sync-manager/file-utils";
 import { createMockEngine } from "../../helpers/mock-crypto-engine";
+import { DEVICE_DIR } from "../../../src/sync-manager/device-registry";
 
 const enc = (s: string) => new TextEncoder().encode(s).buffer as ArrayBuffer;
 const dec = (b: ArrayBuffer) => new TextDecoder().decode(b);
@@ -329,6 +331,44 @@ describe("Pushes into the old folder after the catch-up read it", () => {
         await t.svc.finishBackupCleanup();
         expect(t.drive.backupName()).toBeDefined();
         expect(t.localText("a.md")).toBe("v1");
+    });
+
+    /** The record a device leaves on the cloud at each sync */
+    const deviceRecord = (t: Awaited<ReturnType<typeof setup>>, id: string) =>
+        t.drive.write(VAULT, `.obsidian/plugins/x/${DEVICE_DIR}/${id}.json`, JSON.stringify({ id, name: id, lastSyncAt: 1 }));
+    const notices = (t: Awaited<ReturnType<typeof setup>>) =>
+        (t.ctx.notify as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0] as string);
+
+    it("says that the old folder is kept while another device syncs the vault", async () => {
+        vi.useFakeTimers({ toFake: ["Date"] });
+        const t = await setup({ "a.md": "v1" });
+        deviceRecord(t, "device-A");
+        deviceRecord(t, "device-B");
+        await t.run();
+        expect(t.drive.backupName()).toBeDefined();
+        expect(notices(t)).toContain("noticeBackupKept");
+        // ... and when it is gone
+        vi.setSystemTime(Date.now() + 2 * HOUR);
+        await t.svc.finishBackupCleanup();
+        expect(t.drive.backupName()).toBeUndefined();
+        expect(notices(t)).toContain("noticeBackupDeleted");
+    });
+
+    it("keeps the old folder when the device records tell nothing", async () => {
+        const t = await setup({ "a.md": "v1" });
+        await t.run();
+        expect(t.drive.backupName()).toBeDefined();
+        expect(notices(t)).toContain("noticeBackupKept");
+    });
+
+    it("deletes the old folder at once when no other device syncs the vault", async () => {
+        const t = await setup({ "a.md": "v1" });
+        deviceRecord(t, "device-A");
+        await t.run();
+        expect(t.drive.backupName()).toBeUndefined();
+        expect(notices(t)).not.toContain("noticeBackupKept");
+        expect(t.local.has(".obsidian/plugins/x/data/local/migration-backup.json")).toBe(false);
+        expect((await t.converted())["a.md"]).toBe("v1");
     });
 
     it("takes a late edit from the old folder, then deletes it", async () => {

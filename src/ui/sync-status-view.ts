@@ -296,6 +296,11 @@ export class SyncStatusView {
 
     // --- shared ---
 
+    /** Redraw with the last snapshot: the sign-in state is not part of it. */
+    refresh(): void {
+        if (this.snap) this.update(this.snap);
+    }
+
     private update(s: SyncProgressSnapshot): void {
         const prev = this.snap;
         this.snap = s;

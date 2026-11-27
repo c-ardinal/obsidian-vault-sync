@@ -143,8 +143,9 @@ export class EncryptedAdapter implements CloudAdapter {
         fileId: string,
         newName: string,
         newParentPath: string | null,
+        origin?: "vault" | "outside",
     ): Promise<CloudFile> {
-        return this.baseAdapter.moveFile(fileId, newName, newParentPath);
+        return this.baseAdapter.moveFile(fileId, newName, newParentPath, origin);
     }
 
     /** Stored bytes are copied as they are, so the copy stays readable with the same key */
@@ -230,6 +231,11 @@ export class EncryptedAdapter implements CloudAdapter {
 
     async getAppRootId(): Promise<string> {
         return this.baseAdapter.getAppRootId();
+    }
+
+    get getVaultRootId(): CloudAdapter["getVaultRootId"] {
+        const base = this.baseAdapter;
+        return base.getVaultRootId ? () => base.getVaultRootId!() : undefined;
     }
 
     cloneWithNewVaultName(newVaultName: string): CloudAdapter {

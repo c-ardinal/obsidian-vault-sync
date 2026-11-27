@@ -763,13 +763,13 @@ describe("EncryptedAdapter", () => {
 
             const result = await adapter.moveFile("file-1", "newname.md", "folder");
 
-            expect(baseAdapter.moveFile).toHaveBeenCalledWith("file-1", "newname.md", "folder");
+            expect(baseAdapter.moveFile).toHaveBeenCalledWith("file-1", "newname.md", "folder", undefined);
             expect(result).toEqual(mockResult);
         });
 
         it("should handle null newParentPath", async () => {
             await adapter.moveFile("file-1", "newname.md", null);
-            expect(baseAdapter.moveFile).toHaveBeenCalledWith("file-1", "newname.md", null);
+            expect(baseAdapter.moveFile).toHaveBeenCalledWith("file-1", "newname.md", null, undefined);
         });
     });
 

@@ -146,11 +146,57 @@ describe("GoogleDriveAdapter", () => {
                 size: "512",
                 md5Checksum: "def456",
                 trashed: false,
+                parents: ["notes-id"],
             }));
+            pathResolver.resolveFullPath.mockResolvedValueOnce("notes");
 
             const result = await adapter.getFileMetadataById("file-456", "notes/found.md");
             expect(result!.id).toBe("file-456");
             expect(result!.path).toBe("notes/found.md");
+        });
+
+        it("reports where the file is, not where the caller believes it to be", async () => {
+            mockFetch.mockResolvedValueOnce(jsonResponse({
+                id: "file-456", name: "found.md", mimeType: "text/plain",
+                modifiedTime: "2026-02-01T00:00:00Z", size: "512", trashed: false, parents: ["other-id"],
+            }));
+            pathResolver.resolveFullPath.mockResolvedValueOnce("other");
+
+            const result = await adapter.getFileMetadataById("file-456", "notes/found.md");
+            expect(result!.path).toBe("other/found.md");
+        });
+
+        it("knows no file whose folder is not part of the vault (the folder of a converted vault)", async () => {
+            mockFetch.mockResolvedValueOnce(jsonResponse({
+                id: "file-456", name: "found.md", mimeType: "text/plain",
+                modifiedTime: "2026-02-01T00:00:00Z", size: "512", trashed: false, parents: ["old-vault-id"],
+            }));
+            // The old vault folder hangs under the app root, next to the vault
+            pathResolver.resolveFullPath.mockRejectedValueOnce(new Error("File is outside the vault root"));
+
+            expect(await adapter.getFileMetadataById("file-456", "found.md")).toBeNull();
+        });
+
+        it("does not move a file of another folder into the vault", async () => {
+            mockFetch.mockResolvedValueOnce(jsonResponse({
+                id: "file-456", name: "found.md", modifiedTime: "2026-02-01T00:00:00Z", size: "512", parents: ["old-vault-id"],
+            }));
+            pathResolver.resolveFullPath.mockRejectedValueOnce(new Error("File is outside the vault root"));
+            const calls = mockFetch.mock.calls.length;
+
+            await expect(adapter.moveFile("file-456", "found (2).md", "")).rejects.toThrow(/not in this vault/);
+            // The one read, no PATCH
+            expect(mockFetch.mock.calls.length).toBe(calls + 1);
+        });
+
+        it("does not take a failed lookup of the folder for a missing file", async () => {
+            mockFetch.mockResolvedValueOnce(jsonResponse({
+                id: "file-456", name: "found.md", mimeType: "text/plain",
+                modifiedTime: "2026-02-01T00:00:00Z", size: "512", trashed: false, parents: ["notes-id"],
+            }));
+            pathResolver.resolveFullPath.mockRejectedValueOnce(Object.assign(new Error("Service unavailable"), { status: 503 }));
+
+            await expect(adapter.getFileMetadataById("file-456", "notes/found.md")).rejects.toThrow(/unavailable/);
         });
 
         it("should return null for trashed files", async () => {
