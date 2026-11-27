@@ -14,7 +14,8 @@ import { freeConflictCopyPath } from "../sync-manager/conflict-resolution";
 import { markDeleted, saveIndex, saveLocalIndex } from "../sync-manager/state";
 import { SyncContext } from "../sync-manager/context";
 import { listDevices } from "../sync-manager/device-registry";
-import { restoreKnownVaultRoot } from "../sync-manager/vault-folder";
+import { conversionBaseOf, restoreKnownVaultRoot } from "../sync-manager/vault-folder";
+import { REMOTE_FILES } from "../sync-manager/remote-layout";
 
 interface MigrationProgress {
     current: number;
@@ -509,6 +510,13 @@ export class MigrationService {
             JSON.stringify({ index: this.ctx.index }),
         ).buffer;
         await tempEncryptedAdapter.uploadFile(this.ctx.pluginDataPath, indexContent, Date.now());
+        // What the converted vault holds at the swap: a device that follows later
+        // tells by it a note deleted here afterwards from one that never arrived
+        await tempEncryptedAdapter.uploadFile(
+            `${this.ctx.pluginDir}/${REMOTE_FILES.conversionBase}`,
+            new TextEncoder().encode(JSON.stringify({ paths: conversionBaseOf(this.ctx.index) })).buffer,
+            Date.now(),
+        );
 
         const soleDevice = await this.isSoleDevice();
         let backupKept = false;

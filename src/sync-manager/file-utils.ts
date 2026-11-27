@@ -38,6 +38,7 @@ export const INTERNAL_REMOTE_MANAGED: string[] = [
     REMOTE_FILES.rawIndex,
     REMOTE_FILES.communication,
     REMOTE_FILES.vaultLock,
+    REMOTE_FILES.conversionBase,
     "migration.lock",
 ];
 

@@ -21,6 +21,8 @@ export const REMOTE_FILES = {
     rawIndex: `${REMOTE_DATA_DIR}/sync-index_raw.json`,
     communication: `${REMOTE_DATA_DIR}/communication.json`,
     vaultLock: `${REMOTE_DATA_DIR}/vault-lock.vault`,
+    /** What a converted vault held when it replaced the old folder (vault-folder.ts) */
+    conversionBase: `${REMOTE_DATA_DIR}/conversion-base.json`,
 } as const;
 
 /**

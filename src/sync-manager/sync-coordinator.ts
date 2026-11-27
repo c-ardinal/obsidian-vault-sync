@@ -5,7 +5,9 @@ import type { SyncState } from "./types";
 import { ALWAYS_SHOW_ACTIVITY, TRIGGER_PRIORITY } from "./notification-matrix";
 import { getLocalFiles, shouldIgnore } from "./file-utils";
 import { saveIndex, saveLocalIndex, beginSyncCycle, endSyncCycle } from "./state";
-import { followVaultFolder, isVaultFolderRestart, knownVaultRootOf, VaultConvertedError } from "./vault-folder";
+import { followVaultFolder, isVaultFolderRestart, knownVaultRootOf, parseConversionBase, VaultConvertedError } from "./vault-folder";
+import { REMOTE_FILES } from "./remote-layout";
+import { hashContent } from "./file-utils";
 import { downloadRemoteIndex } from "./sync-helpers";
 import {
     SYNC_POST_PUSH_PULL_MAX_RETRIES,
@@ -157,6 +159,15 @@ export async function executeSmartSync(ctx: SyncContext, scanVault: boolean): Pr
                 if (!ctx.e2eeEnabled && (await ctx.vaultLockService?.checkForLockFile())) {
                     throw new VaultConvertedError();
                 }
+            },
+            async () => {
+                const meta = await ctx.adapter.getFileMetadata(`${ctx.pluginDir}/${REMOTE_FILES.conversionBase}`);
+                if (!meta) return {};
+                return parseConversionBase(new TextDecoder().decode(await ctx.adapter.downloadFile(meta.id)));
+            },
+            async (path) => {
+                if (!(await ctx.vault.exists(path))) return undefined;
+                return hashContent(await ctx.vault.readBinary(path));
             },
         );
         if (folderReplaced) {

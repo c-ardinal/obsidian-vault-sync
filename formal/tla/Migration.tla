@@ -35,10 +35,14 @@
 (* the vault looked like an unrelated note of the same name: the vault's   *)
 (* copy was renamed aside and B's plaintext file moved into the vault.     *)
 (* bFolder, bBlind and plainIn model that.                                 *)
+(*                                                                         *)
+(* "B" stands for every device of the set Others: each has its own files,  *)
+(* base, cycle state and folder, so the devices follow the swap at         *)
+(* different times and also see each other's changes (BPull).              *)
 (***************************************************************************)
 EXTENDS Naturals, FiniteSets
 
-CONSTANTS Files, Absent, MaxVer, Gate, CatchUp, CatchUpDeletes, DeferCleanup, FollowFolder
+CONSTANTS Files, Others, Absent, MaxVer, Gate, CatchUp, CatchUpDeletes, DeferCleanup, FollowFolder, UseConvBase
 
 VARIABLES
     phase,      \* A: "idle" "locked" "uploaded" "caughtup" "swapped" "done"
@@ -50,18 +54,20 @@ VARIABLES
     temp,       \* the converted vault
     conflicts,  \* versions kept as conflict copies
     aLocal, aSynced, converted, uploaded, aEdited,
-    bLocal, bBase, bMode, bStartedBeforeSwap, bDeleted,
+    bLocal, bBase, bMode, bStartedBeforeSwap,
+    bDeleted,   \* versions a device deleted and synced
     heads, nextVer,
     bFolder,    \* the folder B holds by id: "old" or "new"
     bBlind,     \* a cycle of B began after the swap without noticing it
-    plainIn     \* files of the vault replaced by B's plaintext file of the old folder
+    plainIn,    \* files of the vault replaced by B's plaintext file of the old folder
+    convBase    \* what the converted vault held at the swap (conversion-base.json)
 
 \* B's view of the folder swap
 bView == <<bFolder, bBlind, plainIn>>
 
 vars == <<phase, lockFile, vaultLock, old, oldAtScan, oldExists, temp, conflicts,
           aLocal, aSynced, converted, uploaded, aEdited,
-          bLocal, bBase, bMode, bStartedBeforeSwap, bDeleted, heads, nextVer, bView>>
+          bLocal, bBase, bMode, bStartedBeforeSwap, bDeleted, heads, nextVer, bView, convBase>>
 
 Ver == 0..MaxVer
 Val == Ver \cup {Absent}
@@ -77,11 +83,12 @@ Init ==
     /\ conflicts = {}
     /\ aLocal = InitVer /\ aSynced = InitVer
     /\ converted = [f \in Files |-> Absent] /\ uploaded = {} /\ aEdited = {}
-    /\ bLocal = InitVer /\ bBase = InitVer
-    /\ bMode = "idle" /\ bStartedBeforeSwap = FALSE /\ bDeleted = {}
+    /\ bLocal = [d \in Others |-> InitVer] /\ bBase = [d \in Others |-> InitVer]
+    /\ bMode = [d \in Others |-> "idle"] /\ bStartedBeforeSwap = [d \in Others |-> FALSE] /\ bDeleted = {}
     /\ heads = Range(InitVer)
     /\ nextVer = Cardinality(Files)
-    /\ bFolder = "old" /\ bBlind = FALSE /\ plainIn = {}
+    /\ bFolder = [d \in Others |-> "old"] /\ bBlind = FALSE /\ plainIn = {}
+    /\ convBase = [f \in Files |-> Absent]
 
 NewVer == nextVer < MaxVer
 
@@ -157,7 +164,7 @@ Swap ==
     /\ phase = "caughtup"
     /\ phase' = "swapped" /\ vaultLock' = TRUE
     /\ aSynced' = converted
-    /\ bStartedBeforeSwap' = (bMode = "pushing")
+    /\ bStartedBeforeSwap' = [d \in Others |-> bMode[d] = "pushing"]
     /\ UNCHANGED <<lockFile, old, oldAtScan, oldExists, temp, conflicts, aLocal, converted, uploaded,
                    aEdited, bLocal, bBase, bMode, bDeleted, heads, nextVer>>
 
@@ -173,29 +180,30 @@ DeleteBackupNow ==
 \* changed since the first scan, then delete it
 DeferredCleanup ==
     /\ DeferCleanup /\ phase = "swapped"
-    /\ ~(bStartedBeforeSwap /\ bMode = "pushing")
+    /\ \A d \in Others : ~(bStartedBeforeSwap[d] /\ bMode[d] = "pushing")
     /\ phase' = "done" /\ oldExists' = FALSE /\ lockFile' = FALSE
     /\ DoCatchUp(old, oldAtScan)
     /\ UNCHANGED <<vaultLock, old, oldAtScan, aSynced, uploaded, aEdited,
                    bLocal, bBase, bMode, bStartedBeforeSwap, bDeleted, heads, nextVer>>
 
 -----------------------------------------------------------------------------
-(* Device B *)
+(* The other devices *)
 
-\* (an edit of a deleted note creates it again: no longer "deleted by B")
-BEdit(f) ==
+\* (an edit of a deleted note creates it again: no longer "deleted")
+BEdit(d, f) ==
     /\ NewVer
-    /\ bLocal' = [bLocal EXCEPT ![f] = nextVer]
-    /\ heads' = (heads \ {bLocal[f]}) \cup {nextVer}
+    /\ bLocal' = [bLocal EXCEPT ![d][f] = nextVer]
+    /\ heads' = (heads \ {bLocal[d][f]}) \cup {nextVer}
     /\ nextVer' = nextVer + 1
-    /\ bDeleted' = bDeleted \ {f}
     /\ UNCHANGED <<phase, lockFile, vaultLock, old, oldAtScan, oldExists, temp, conflicts, aLocal, aSynced,
-                   converted, uploaded, aEdited, bBase, bMode, bStartedBeforeSwap>>
+                   converted, uploaded, aEdited, bBase, bMode, bStartedBeforeSwap, bDeleted>>
 
-BDelete(f) ==
-    /\ bLocal[f] # Absent
-    /\ bLocal' = [bLocal EXCEPT ![f] = Absent]
-    /\ heads' = heads \ {bLocal[f]}
+\* A deletion of a version another device has replaced meanwhile is not the
+\* user's word on that newer version: only the deleted version leaves `heads`
+BDelete(d, f) ==
+    /\ bLocal[d][f] # Absent
+    /\ bLocal' = [bLocal EXCEPT ![d][f] = Absent]
+    /\ heads' = heads \ {bLocal[d][f]}
     /\ UNCHANGED <<phase, lockFile, vaultLock, old, oldAtScan, oldExists, temp, conflicts, aLocal, aSynced,
                    converted, uploaded, aEdited, bBase, bMode, bStartedBeforeSwap, bDeleted, nextVer>>
 
@@ -204,115 +212,154 @@ BDelete(f) ==
 \* (migration.lock in the old folder, or the folder's change in the change
 \* feed) and the vault folder is looked up again. A folder that is gone is
 \* looked up again by every version.
-BStartCycle ==
-    LET folder == IF (FollowFolder /\ vaultLock) \/ ~oldExists THEN "new" ELSE bFolder
+BStartCycle(d) ==
+    LET folder == IF (FollowFolder /\ vaultLock) \/ ~oldExists THEN "new" ELSE bFolder[d]
         sees == vaultLock /\ folder = "new"
     IN
-    /\ bMode = "idle"
-    /\ bFolder' = folder
-    /\ bMode' = IF sees THEN "resync"
-                ELSE IF Gate /\ lockFile THEN "idle" ELSE "pushing"
+    /\ bMode[d] = "idle"
+    /\ bFolder' = [bFolder EXCEPT ![d] = folder]
+    /\ bMode' = [bMode EXCEPT ![d] = IF sees THEN "resync"
+                                      ELSE IF Gate /\ lockFile THEN "idle" ELSE "pushing"]
     /\ bBlind' = (bBlind \/ (vaultLock /\ ~sees))
     /\ (Gate /\ lockFile /\ ~vaultLock) => FALSE   \* a gated cycle does nothing
-    /\ UNCHANGED plainIn
+    /\ UNCHANGED <<plainIn, convBase>>
     /\ UNCHANGED <<phase, lockFile, vaultLock, old, oldAtScan, oldExists, temp, conflicts, aLocal, aSynced,
                    converted, uploaded, aEdited, bLocal, bBase, bStartedBeforeSwap, bDeleted, heads, nextVer>>
 
 \* Push a local change into the old folder (by id), if the cloud copy is
-\* still the one B based it on (otherwise B would merge first; not modelled)
-BPush(f) ==
-    /\ bMode = "pushing" /\ oldExists
-    /\ bLocal[f] # bBase[f] /\ old[f] = bBase[f]
-    /\ old' = [old EXCEPT ![f] = bLocal[f]]
-    /\ bBase' = [bBase EXCEPT ![f] = bLocal[f]]
-    /\ bDeleted' = IF bLocal[f] = Absent THEN bDeleted \cup {f} ELSE bDeleted \ {f}
+\* still the one the device based it on (otherwise it merges first; not modelled)
+BPush(d, f) ==
+    /\ bMode[d] = "pushing" /\ oldExists
+    /\ bLocal[d][f] # bBase[d][f] /\ old[f] = bBase[d][f]
+    /\ old' = [old EXCEPT ![f] = bLocal[d][f]]
+    /\ bBase' = [bBase EXCEPT ![d][f] = bLocal[d][f]]
+    /\ bDeleted' = IF bLocal[d][f] = Absent THEN bDeleted \cup {old[f]} ELSE bDeleted
     /\ UNCHANGED <<phase, lockFile, vaultLock, oldAtScan, oldExists, temp, conflicts, aLocal, aSynced,
                    converted, uploaded, aEdited, bLocal, bMode, bStartedBeforeSwap, heads, nextVer>>
 
-BEndCycle ==
-    /\ bMode = "pushing"
-    /\ bMode' = "idle"
+\* Take another device's change from the old folder (untouched here)
+BPull(d, f) ==
+    /\ bMode[d] = "pushing" /\ oldExists
+    /\ bLocal[d][f] = bBase[d][f] /\ old[f] # bBase[d][f]
+    /\ bLocal' = [bLocal EXCEPT ![d][f] = old[f]]
+    /\ bBase' = [bBase EXCEPT ![d][f] = old[f]]
+    /\ UNCHANGED <<phase, lockFile, vaultLock, old, oldAtScan, oldExists, temp, conflicts, aLocal, aSynced,
+                   converted, uploaded, aEdited, bMode, bStartedBeforeSwap, bDeleted, heads, nextVer>>
+
+BEndCycle(d) ==
+    /\ bMode[d] \in {"pushing", "resync"}
+    /\ bMode' = [bMode EXCEPT ![d] = "idle"]
     /\ UNCHANGED <<phase, lockFile, vaultLock, old, oldAtScan, oldExists, temp, conflicts, aLocal, aSynced,
                    converted, uploaded, aEdited, bLocal, bBase, bStartedBeforeSwap, bDeleted, heads, nextVer>>
 
-\* After the conversion B syncs one file with the converted vault: an
+\* After the conversion a device syncs one file with the converted vault: an
 \* unchanged local file takes the cloud's version; a local change goes up,
-\* or, when the cloud changed too, the cloud's version is taken and B's is
-\* kept as a conflict copy
-BResync(f) ==
-    /\ bMode = "resync"
-    \* B's index fits the vault folder: re-based (FollowFolder), or its old files
+\* or, when the cloud changed too, the cloud's version is taken and the
+\* device's own is kept as a conflict copy
+BResync(d, f) ==
+    /\ bMode[d] = "resync"
+    \* The index fits the vault folder: re-based (FollowFolder), or its old files
     \* are gone and every entry counts as new
     /\ FollowFolder \/ ~oldExists
-    /\ \/ /\ bLocal[f] = bBase[f] /\ temp[f] # bBase[f]
-          /\ bLocal' = [bLocal EXCEPT ![f] = temp[f]]
-          /\ bBase' = [bBase EXCEPT ![f] = temp[f]]
-          /\ UNCHANGED <<temp, conflicts>>
-       \/ /\ bLocal[f] # bBase[f] /\ temp[f] = bBase[f]
-          /\ temp' = [temp EXCEPT ![f] = bLocal[f]]
-          /\ bBase' = [bBase EXCEPT ![f] = bLocal[f]]
+    \* A file the vault does not hold is a deletion only when the vault held this
+    \* very version at the swap and the device has not touched it since
+    /\ \/ /\ bLocal[d][f] = bBase[d][f] /\ temp[f] # bBase[d][f]
+          /\ temp[f] # Absent \/ (UseConvBase /\ convBase[f] = bBase[d][f])
+          /\ bLocal' = [bLocal EXCEPT ![d][f] = temp[f]]
+          /\ bBase' = [bBase EXCEPT ![d][f] = temp[f]]
+          /\ UNCHANGED <<temp, conflicts, bDeleted>>
+       \/ /\ bLocal[d][f] # bBase[d][f] /\ temp[f] = bBase[d][f]
+          /\ temp' = [temp EXCEPT ![f] = bLocal[d][f]]
+          /\ bBase' = [bBase EXCEPT ![d][f] = bLocal[d][f]]
+          /\ bDeleted' = IF bLocal[d][f] = Absent THEN bDeleted \cup {temp[f]} ELSE bDeleted
           /\ UNCHANGED <<bLocal, conflicts>>
-       \/ /\ bLocal[f] # bBase[f] /\ temp[f] # bBase[f] /\ temp[f] # bLocal[f]
-          /\ conflicts' = IF bLocal[f] # Absent THEN conflicts \cup {bLocal[f]} ELSE conflicts
-          /\ bLocal' = [bLocal EXCEPT ![f] = temp[f]]
-          /\ bBase' = [bBase EXCEPT ![f] = temp[f]]
-          /\ UNCHANGED temp
+       \* ... otherwise it never reached the vault (pushed into the old folder too
+       \* late): forgotten, and uploaded as a new file
+       \/ /\ temp[f] = Absent /\ bBase[d][f] # Absent /\ bLocal[d][f] # Absent
+          /\ ~(UseConvBase /\ bLocal[d][f] = bBase[d][f] /\ convBase[f] = bBase[d][f])
+          /\ temp' = [temp EXCEPT ![f] = bLocal[d][f]]
+          /\ bBase' = [bBase EXCEPT ![d][f] = bLocal[d][f]]
+          /\ UNCHANGED <<bLocal, conflicts, bDeleted>>
+       \/ /\ bLocal[d][f] # bBase[d][f] /\ temp[f] # bBase[d][f] /\ temp[f] # bLocal[d][f]
+          /\ temp[f] # Absent
+          /\ conflicts' = IF bLocal[d][f] # Absent THEN conflicts \cup {bLocal[d][f]} ELSE conflicts
+          /\ bLocal' = [bLocal EXCEPT ![d][f] = temp[f]]
+          /\ bBase' = [bBase EXCEPT ![d][f] = temp[f]]
+          /\ UNCHANGED <<temp, bDeleted>>
     /\ UNCHANGED <<phase, lockFile, vaultLock, old, oldAtScan, oldExists, aLocal, aSynced, converted, uploaded,
-                   aEdited, bMode, bStartedBeforeSwap, bDeleted, heads, nextVer>>
+                   aEdited, bMode, bStartedBeforeSwap, heads, nextVer>>
+
+-----------------------------------------------------------------------------
 
 \* The app is started again: the vault folder is looked up by name
-BRestart ==
-    /\ bMode = "idle" /\ bFolder = "old" /\ vaultLock
-    /\ bFolder' = "new"
-    /\ UNCHANGED <<bBlind, plainIn>>
+BRestart(d) ==
+    /\ bMode[d] = "idle" /\ bFolder[d] = "old" /\ vaultLock
+    /\ bFolder' = [bFolder EXCEPT ![d] = "new"]
+    /\ UNCHANGED <<bBlind, plainIn, convBase>>
     /\ UNCHANGED <<phase, lockFile, vaultLock, old, oldAtScan, oldExists, temp, conflicts, aLocal, aSynced,
                    converted, uploaded, aEdited, bLocal, bBase, bMode, bStartedBeforeSwap, bDeleted, heads, nextVer>>
 
-\* Without FollowFolder: B's index names the file of the OLD folder. The
-\* vault's file of that name has another id, so it is taken for an unrelated
-\* note of the same name: it is renamed aside ("name (2)", kept), and B's
-\* plaintext file is moved from the old folder into the vault.
-BResyncStale(f) ==
-    /\ ~FollowFolder /\ bMode = "resync" /\ oldExists
+\* Without FollowFolder: the device's index names the file of the OLD folder.
+\* The vault's file of that name has another id, so it is taken for an
+\* unrelated note of the same name: it is renamed aside ("name (2)", kept),
+\* and the plaintext file is moved from the old folder into the vault.
+BResyncStale(d, f) ==
+    /\ ~FollowFolder /\ bMode[d] = "resync" /\ oldExists
     /\ old[f] # Absent /\ temp[f] # Absent /\ f \notin plainIn
     /\ conflicts' = conflicts \cup {temp[f]}
     /\ temp' = [temp EXCEPT ![f] = old[f]]
-    /\ bBase' = [bBase EXCEPT ![f] = old[f]]
+    /\ bBase' = [bBase EXCEPT ![d][f] = old[f]]
     /\ plainIn' = plainIn \cup {f}
-    /\ UNCHANGED <<bFolder, bBlind>>
+    /\ UNCHANGED <<bFolder, bBlind, convBase>>
     /\ UNCHANGED <<phase, lockFile, vaultLock, old, oldAtScan, oldExists, aLocal, aSynced, converted, uploaded,
                    aEdited, bLocal, bMode, bStartedBeforeSwap, bDeleted, heads, nextVer>>
 
 -----------------------------------------------------------------------------
 
 \* The actions that do not touch B's view of the swap
-Keep(A) == A /\ UNCHANGED bView
+Keep(A) == A /\ UNCHANGED bView /\ UNCHANGED convBase
 
-AConverts == Keep(StartMigration \/ UploadDone \/ CatchUpStep \/ Swap \/ DeleteBackupNow \/ DeferredCleanup)
+AConverts ==
+    \/ Keep(StartMigration \/ UploadDone \/ CatchUpStep \/ DeleteBackupNow \/ DeferredCleanup)
+    \/ (Swap /\ convBase' = converted /\ UNCHANGED bView)
 
 Next ==
     \/ AConverts
-    \/ \E f \in Files : Keep(AEdit(f) \/ Upload(f) \/ BEdit(f) \/ BDelete(f) \/ BPush(f) \/ BResync(f))
-    \/ Keep(BEndCycle)
-    \/ BStartCycle \/ BRestart \/ \E f \in Files : BResyncStale(f)
+    \/ \E f \in Files : Keep(AEdit(f) \/ Upload(f))
+    \/ \E d \in Others, f \in Files :
+          Keep(BEdit(d, f) \/ BDelete(d, f) \/ BPush(d, f) \/ BPull(d, f) \/ BResync(d, f)) \/ BResyncStale(d, f)
+    \/ \E d \in Others : Keep(BEndCycle(d)) \/ BStartCycle(d) \/ BRestart(d)
 
 Spec == Init /\ [][Next]_vars
     /\ WF_vars(AConverts)
     /\ WF_vars(\E f \in Files : Keep(Upload(f)))
-    /\ WF_vars(Keep(BEndCycle))
+    /\ \A d \in Others : WF_vars(Keep(BEndCycle(d)))
 
 -----------------------------------------------------------------------------
 (* Safety *)
 
-Kept == Range(aLocal) \cup Range(bLocal) \cup Range(temp) \cup conflicts
+Kept == Range(aLocal) \cup UNION {Range(bLocal[d]) : d \in Others} \cup Range(temp) \cup conflicts
         \cup (IF oldExists THEN Range(old) ELSE {})
 
 \* No version a user still stands behind is lost
 NoLostEdit == heads \subseteq Kept
 
-\* A note B deleted (and synced) does not come back unless A edited it
+\* A version a device deleted (and synced) is not a file of the vault again
+\* once the conversion is over. (A newer version another device made of the
+\* note meanwhile is an edit and stays; so does a version A has edited and
+\* not pushed yet: its next push replaces it.)
+Resurrected(f) == temp[f] \in bDeleted /\ aLocal[f] = temp[f]
+
+\* ... for every version the converted vault held at the swap
 NoResurrection ==
-    phase = "done" => \A f \in bDeleted : f \in aEdited \/ temp[f] = Absent
+    phase = "done" => \A f \in Files : ~(Resurrected(f) /\ temp[f] = convBase[f])
+
+\* ... for every version. KNOWN OPEN DEFECT: a version pushed into the old
+\* folder after the catch-up scan, brought to the vault by its device and then
+\* deleted there before the old folder is cleaned up, is taken from the old
+\* folder once more (the cleanup cannot tell it from one that never arrived).
+NoLateResurrection ==
+    phase = "done" => \A f \in Files : ~Resurrected(f)
 
 \* A cycle that begins after the swap notices the conversion (and stops for
 \* the password) instead of skipping or pushing into the old folder

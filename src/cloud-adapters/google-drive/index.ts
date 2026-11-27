@@ -297,6 +297,8 @@ export class GoogleDriveAdapter implements OAuthCloudAdapter {
     }
 
     async getFileMetadataById(fileId: string, knownPath?: string): Promise<CloudFile | null> {
+        // No id, no file (the request would be the listing of all files)
+        if (!fileId) return null;
         let file: DriveFile;
         try {
             // Direct ID lookup provides stronger consistency than query search

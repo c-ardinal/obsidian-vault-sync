@@ -229,6 +229,7 @@ describe("vault converted while another device runs (Drive)", () => {
             // A edits a note before it knows of the conversion, then syncs
             await a.dev.userEdit("one.md", "one\nedited on A\n");
             await a.dev.userEdit("both.md", "both\nA's line\n");
+            await a.dev.userCreate("late.md", "late\n");
             if (restartA) await a.dev.restart();
             t.notices.A.length = 0;
             await t.sync(a.dev);
@@ -280,12 +281,15 @@ describe("vault converted while another device runs (Drive)", () => {
             expect(bothTexts).toContain("B's line");
             expect(Object.keys(fa).filter((p) => / \(\d+\)\./.test(p)), 'no "(2)" duplicates').toEqual([]);
             expect(Object.keys({ ...fa, ...fb }).filter((p) => !p.startsWith("both")).sort()).toEqual(
-                ["dir/two.md", "four.md", "gone.md", "one.md", "three.md"],
+                ["dir/two.md", "four.md", "late.md", "one.md", "three.md"],
             );
-            // Deleted in the converted vault before A followed. A cannot tell that from a
-            // note it pushed into the old folder too late to be converted, so the note
-            // is kept (it comes back) rather than deleted on a guess.
-            expect(fa["gone.md"]).toBe("gone\n");
+// Deleted in the converted vault before A followed: the converted vault
+            // held it in the version A knows, so it is a deletion, not a new note of A
+            expect(fa["gone.md"], "a note deleted in the converted vault does not come back").toBeUndefined();
+            expect(Object.keys(t.vaultFiles())).not.toContain("gone.md");
+            // Created on A before it knew of the conversion: never part of the
+            // converted vault, so it is uploaded, not taken for a deleted note
+            expect(fb["late.md"]).toBe("late\n");
         });
     }
 
@@ -313,6 +317,38 @@ describe("vault converted while another device runs (Drive)", () => {
             expect(t.notices.A.filter((k) => k !== "noticeSyncing")).toEqual(["noticeE2EEAutoEnabled"]);
             expect(t.prompts.A).toBe(1);
             expect(a.dev.syncErrors).toEqual([]);
+            for (const [p, bytes] of Object.entries(t.vaultFiles())) expect(decryptable(bytes), p).toBe(true);
+        });
+    }
+
+    for (const old of ["lock", "deleted"] as const) {
+        it(`a note deleted in the converted vault but edited here meanwhile is kept (old folder: ${old})`, async () => {
+            const t = await setup();
+            const a = await t.make("A");
+            const b = await t.make("B");
+            await a.dev.userCreate("gone.md", "gone\n");
+            await a.dev.userCreate("stay.md", "stay\n");
+            await t.sync(a.dev);
+            await t.sync(b.dev);
+            await t.sync(a.dev);
+            await t.convert(b.dev);
+            await b.dev.userDelete("gone.md");
+            await t.sync(b.dev);
+            if (old === "deleted") await t.remove(t.items().find((i) => i.name.includes("-Backup-"))!.id);
+
+            await a.dev.userEdit("gone.md", "gone\nedited on A after B deleted it\n");
+            await t.sync(a.dev);
+            await a.engine.unlockVault("LOCK", PASSWORD);
+            for (let i = 0; i < 3; i++) {
+                await t.sync(a.dev);
+                await t.sync(b.dev);
+            }
+
+            // The edit wins over the deletion, as between any two devices
+            expect(a.dev.userFiles()["gone.md"]).toBe("gone\nedited on A after B deleted it\n");
+            expect(b.dev.userFiles()).toEqual(a.dev.userFiles());
+            expect(a.dev.syncErrors).toEqual([]);
+            expect(b.dev.syncErrors).toEqual([]);
             for (const [p, bytes] of Object.entries(t.vaultFiles())) expect(decryptable(bytes), p).toBe(true);
         });
     }
@@ -351,4 +387,115 @@ describe("vault converted while another device runs (Drive)", () => {
         expect(await b.dev.sm.vaultLockService.downloadLockFile()).toBe("LOCK-2");
         for (const [p, bytes] of Object.entries(t.vaultFiles())) expect(decryptable(bytes), p).toBe(true);
     });
+
+    /**
+     * Four devices, each in another state when the vault is converted:
+     * B converts, A runs with the add-on, D runs without the add-on, C is closed
+     * (it holds edits made offline) and comes back later.
+     */
+    for (const old of ["kept", "deleted"] as const) {
+        it(`four devices in different states follow one conversion (old folder ${old} when the closed device returns)`, async () => {
+            const t = await setup();
+            const a = await t.make("A");
+            const b = await t.make("B");
+            const c = await t.make("C");
+            const d = await t.make("D", false);
+            const all = [a, b, c, d];
+            const round = async (devs = all, times = 3) => {
+                for (let i = 0; i < times; i++) for (const x of devs) await t.sync(x.dev);
+            };
+            const encrypted = (when: string) => {
+                for (const [p, bytes] of Object.entries(t.vaultFiles())) expect(decryptable(bytes), `${when}: ${p}`).toBe(true);
+            };
+
+            await a.dev.userCreate("one.md", "one\n");
+            await a.dev.userCreate("dir/two.md", "two\n");
+            await a.dev.userCreate("both.md", "both\n");
+            await a.dev.userCreate("gone.md", "gone\n");
+            await a.dev.userCreate("ren.md", "ren\n");
+            await round();
+            for (const x of all) expect(Object.keys(x.dev.userFiles()).sort(), x.dev.name).toEqual(["both.md", "dir/two.md", "gone.md", "one.md", "ren.md"]);
+
+            // C is closed from here on; it edits offline
+            await c.dev.userEdit("dir/two.md", "two\nedited on C offline\n");
+            await c.dev.userCreate("c-offline.md", "made on C offline\n");
+
+            await t.convert(b.dev);
+            await b.dev.userEdit("both.md", "both\nB's line\n");
+            await b.dev.userDelete("gone.md");
+            await b.dev.userRename("ren.md", "renamed.md");
+            await t.sync(b.dev);
+            encrypted("after the conversion");
+
+            // The two running devices: both stop at their next sync and ask the user
+            await a.dev.userEdit("one.md", "one\nedited on A\n");
+            await d.dev.userCreate("d.md", "made on D\n");
+            t.notices.A.length = 0;
+            t.notices.D.length = 0;
+            await t.sync(a.dev);
+            await t.sync(d.dev);
+            expect(t.notices.A.filter((k) => k !== "noticeSyncing")).toEqual(["noticeE2EEAutoEnabled"]);
+            expect(t.notices.D.filter((k) => k !== "noticeSyncing")).toEqual(["noticeAddonRequired"]);
+            expect([t.prompts.A, t.prompts.D]).toEqual([1, 1]);
+            await round([a, d], 2);
+            encrypted("while A and D are locked");
+            expect(Object.keys(t.vaultFiles())).not.toContain("d.md");
+
+            // A is unlocked first; D still waits for its add-on
+            await a.engine.unlockVault("LOCK", PASSWORD);
+            await round([a, b, d], 2);
+            encrypted("A unlocked, D without add-on");
+            expect(b.dev.userFiles()["one.md"]).toBe("one\nedited on A\n");
+            expect(d.dev.userFiles()["both.md"], "D takes nothing from the converted vault yet").toBe("both\n");
+
+            // The password is changed while D and C have not followed yet
+            await a.dev.sm.vaultLockService.uploadLockFile("LOCK-2");
+
+            // C comes back (the app starts), maybe after the old folder is gone
+            if (old === "deleted") await t.remove(t.items().find((i) => i.name.includes("-Backup-"))!.id);
+            await c.dev.restart();
+            t.notices.C.length = 0;
+            await t.sync(c.dev);
+            expect(t.notices.C.filter((k) => k !== "noticeSyncing")).toEqual(["noticeE2EEAutoEnabled"]);
+            encrypted("C back, locked");
+            await c.engine.unlockVault("LOCK-2", PASSWORD);
+            d.install();
+            await d.engine.unlockVault("LOCK-2", PASSWORD);
+            await round();
+
+            // One device is locked again (app restarted without a saved password)
+            a.engine.unlocked = false;
+            await a.dev.restart();
+            await a.dev.userCreate("while-locked.md", "made on A while locked\n");
+            t.notices.A.length = 0;
+            await t.sync(a.dev);
+            expect(t.notices.A).toContain("noticeVaultLocked");
+            expect(Object.keys(t.vaultFiles())).not.toContain("while-locked.md");
+            await a.engine.unlockVault("LOCK-2", PASSWORD);
+
+            await b.dev.userRename("renamed.md", "dir/renamed-again.md");
+            await d.dev.userDelete("c-offline.md");
+            await round();
+            for (const x of all) await t.sync(x.dev, true);
+            await round(all, 2);
+
+            const failures = t.logs.filter((l) => /decrypt|DecryptionError/i.test(l));
+            expect(failures, "no decryption failure on any device").toEqual([]);
+            for (const x of all) expect(x.dev.syncErrors, x.dev.name).toEqual([]);
+            encrypted("at the end");
+            const synced = (f: Record<string, string>) =>
+                Object.fromEntries(Object.entries(f).filter(([p]) => !p.includes("(Conflict ")));
+            const fa = synced(a.dev.userFiles());
+            for (const x of [b, c, d]) expect(synced(x.dev.userFiles()), x.dev.name).toEqual(fa);
+            expect(fa).toEqual({
+                "one.md": "one\nedited on A\n",
+                "dir/two.md": "two\nedited on C offline\n",
+                "both.md": "both\nB's line\n",
+                "dir/renamed-again.md": "ren\n",
+                "d.md": "made on D\n",
+                "while-locked.md": "made on A while locked\n",
+            });
+            expect(Object.keys(t.vaultFiles()).filter((p) => / \(\d+\)\./.test(p)), 'no "(2)" files on the cloud').toEqual([]);
+        });
+    }
 });

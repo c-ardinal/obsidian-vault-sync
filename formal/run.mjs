@@ -26,6 +26,10 @@ const RUNS = [
     { spec: "Auth", cfg: "Auth", expect: "pass" },
     { spec: "Auth", cfg: "AuthLegacy", expect: ["SignedOutStaysOut", "NoMixedTokens"] },
     { spec: "Migration", cfg: "Migration", expect: "pass" },
+    { spec: "Migration", cfg: "Migration3", expect: "pass" },
+    { spec: "Migration", cfg: "MigrationNoBase", expect: ["NoResurrection"] },
+    // A known open defect, kept visible: when it is fixed this run fails and moves to "pass"
+    { spec: "Migration", cfg: "MigrationLateDelete", expect: ["NoLateResurrection"] },
     { spec: "Migration", cfg: "MigrationPR43", expect: ["NoResurrection", "NoLostEdit"] },
     { spec: "Migration", cfg: "MigrationLegacy", expect: ["NoLostEdit", "NoResurrection"] },
     { spec: "Migration", cfg: "MigrationNoFollow", expect: ["SeesConversion"] },

@@ -44,6 +44,37 @@ export function isVaultFolderRestart(e: unknown): boolean {
     return e instanceof Error && (e.name === "VaultFolderReplacedError" || e.name === "VaultConvertedError");
 }
 
+/**
+ * Content (plain hash) of every file a converted vault held at the moment it
+ * replaced the old folder, by path. Written once by the converting device
+ * (REMOTE_FILES.conversionBase). It tells a device that follows later whether
+ * a file missing from the new folder was deleted there (it is listed here) or
+ * never reached it (it is not).
+ */
+export type ConversionBase = Record<string, string>;
+
+export function conversionBaseOf(index: LocalFileIndex): ConversionBase {
+    const base: ConversionBase = {};
+    for (const [path, e] of Object.entries(index)) {
+        const content = e.plainHash ?? e.hash;
+        if (content) base[path] = content;
+    }
+    return base;
+}
+
+export function parseConversionBase(text: string): ConversionBase {
+    try {
+        const doc = JSON.parse(text) as { paths?: unknown };
+        const out: ConversionBase = {};
+        if (doc.paths && typeof doc.paths === "object") {
+            for (const [p, h] of Object.entries(doc.paths)) if (typeof h === "string") out[p] = h;
+        }
+        return out;
+    } catch {
+        return {};
+    }
+}
+
 type Ctx = Pick<SyncContext, "adapter" | "index" | "localIndex" | "log" | "startPageToken">;
 
 /**
@@ -57,6 +88,10 @@ export async function followVaultFolder(
     readRemoteIndex: () => Promise<LocalFileIndex>,
     /** Throws when the new folder cannot be read with this device's current setup */
     canRead: () => Promise<void> = async () => {},
+    /** What the new folder held when it replaced the old one (see ConversionBase) */
+    readConversionBase: () => Promise<ConversionBase> = async () => ({}),
+    /** Content hash of the file this device holds under the path now (undefined: none) */
+    localContent: (path: string) => Promise<string | undefined> = async () => undefined,
 ): Promise<boolean> {
     const current = await ctx.adapter.getVaultRootId?.();
     if (!current) return false;
@@ -72,11 +107,11 @@ export async function followVaultFolder(
         "system",
     );
     await canRead();
-    const kept = rebaseOntoVaultFolder(ctx, await readRemoteIndex());
+    const kept = await rebaseOntoVaultFolder(ctx, await readRemoteIndex(), await readConversionBase(), localContent);
     ctx.startPageToken = null;
     knownRoot.set(ctx, current);
     await ctx.log(
-        `[Vault Folder] ${kept.same} file(s) carried over, ${kept.changed} changed on the cloud since, ${kept.dropped} without history.`,
+        `[Vault Folder] ${kept.same} file(s) carried over, ${kept.changed} changed on the cloud since, ${kept.deleted} deleted there since, ${kept.dropped} without history.`,
         "system",
     );
     return true;
@@ -94,14 +129,26 @@ export async function followVaultFolder(
  * the base, so an untouched local file takes it and an edited one is merged or
  * kept as a conflict copy, as for any change made on another device.
  *
- * A file the new folder does not list (or one being renamed here) is forgotten:
- * the sync meets it as a file it has no history of.
+ * A file the new folder does not list, but held in this very version when it
+ * replaced the old folder, was deleted there since. When this device still
+ * holds that version untouched, its entry is kept as it is: its cloud file is
+ * no longer part of the vault, so the sync handles it as any file deleted on
+ * another device (with the usual review of deletions). Edited here since, it
+ * is forgotten instead and uploaded as a new file: the edit wins, and nothing
+ * is ever sent to the old folder's file.
+ *
+ * Any other file the new folder does not list (or one being renamed here) is
+ * forgotten: the sync meets it as a file it has no history of, and uploads it.
+ * That covers a note this device pushed into the old folder too late to be
+ * converted.
  */
-export function rebaseOntoVaultFolder(
+export async function rebaseOntoVaultFolder(
     ctx: Pick<Ctx, "index" | "localIndex">,
     remote: LocalFileIndex,
-): { same: number; changed: number; dropped: number } {
-    const count = { same: 0, changed: 0, dropped: 0 };
+    base: ConversionBase = {},
+    localContent: (path: string) => Promise<string | undefined> = async () => undefined,
+): Promise<{ same: number; changed: number; deleted: number; dropped: number }> {
+    const count = { same: 0, changed: 0, deleted: 0, dropped: 0 };
     const paths = new Set([...Object.keys(ctx.localIndex), ...Object.keys(ctx.index)]);
     for (const path of paths) {
         const old = ctx.localIndex[path] ?? ctx.index[path];
@@ -109,6 +156,17 @@ export function rebaseOntoVaultFolder(
         // Without an add-on the cloud hash was the content's own hash
         const lastSynced = old.plainHash ?? old.hash;
         const moving = !!old.pendingMove || !!ctx.index[path]?.pendingMove;
+        if (
+            !now?.fileId && !moving && !!lastSynced && base[path] === lastSynced &&
+            (await localContent(path)) === lastSynced
+        ) {
+            // Synced and not changed by this device since, whoever uploaded it last:
+            // "pushed by this device" would make the deletion look like a conflict
+            if (ctx.localIndex[path]) ctx.localIndex[path].lastAction = "pull";
+            if (ctx.index[path]) ctx.index[path].lastAction = "pull";
+            count.deleted++;
+            continue;
+        }
         if (!now?.fileId || !lastSynced || moving) {
             delete ctx.localIndex[path];
             delete ctx.index[path];
