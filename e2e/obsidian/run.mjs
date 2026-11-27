@@ -1572,7 +1572,8 @@ async function checkAddonPages(main, lang, { mobile = false } = {}) {
     await page.waitForSelector(".vault-syncer-addon-terms", { timeout: 10000 });
     // The terms can be read in every language of the package, whatever the UI language
     const termsText = () => page.evaluate(() => document.querySelector(".vault-syncer-addon-terms")?.textContent ?? "");
-    const termsSelect = page.locator(".vault-syncer-addon-terms-language select");
+    // (on a phone Obsidian keeps a hidden copy of the dropdown to measure its width)
+    const termsSelect = page.locator(".vault-syncer-addon-terms-language select:not(.is-measuring)");
     const termsLangs = await termsSelect.locator("option").evaluateAll((os) => os.map((o) => o.value));
     check(lang, `${tag}: add-on terms offer every language of the package`, termsLangs.length >= 2, termsLangs.join(","));
     const shown = {};
