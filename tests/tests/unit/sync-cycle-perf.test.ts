@@ -24,7 +24,7 @@ import { pullViaChangesAPI } from "../../../src/sync-manager/sync-pull";
 import type { SyncContext } from "../../../src/sync-manager/context";
 import { MockCloudAdapter } from "../../helpers/mock-cloud-adapter";
 
-const COMM = ".obsidian/plugins/obsidian-vault-sync/communication.json";
+const COMM = ".obsidian/plugins/cardinal-vault-syncer/communication.json";
 
 function makeCtx(adapter: any, overrides: Record<string, unknown> = {}): SyncContext {
     const files = new Map<string, ArrayBuffer>();
@@ -56,10 +56,10 @@ function makeCtx(adapter: any, overrides: Record<string, unknown> = {}): SyncCon
         deletedFolders: new Set(),
         pendingFolderMoves: new Map(),
         recentlyDeletedFromRemote: new Set(),
-        pluginDataPath: ".obsidian/plugins/obsidian-vault-sync/data/remote/sync-index.json",
-        localIndexPath: ".obsidian/plugins/obsidian-vault-sync/data/local/local-index.json",
+        pluginDataPath: ".obsidian/plugins/cardinal-vault-syncer/data/remote/sync-index.json",
+        localIndexPath: ".obsidian/plugins/cardinal-vault-syncer/data/local/local-index.json",
         communicationPath: COMM,
-        pluginDir: ".obsidian/plugins/obsidian-vault-sync",
+        pluginDir: ".obsidian/plugins/cardinal-vault-syncer",
         deviceId: "dev_A",
         e2eeEnabled: false,
         startPageToken: null,

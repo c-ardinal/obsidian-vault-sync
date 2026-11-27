@@ -7,7 +7,7 @@ import { buildRemoteIndexPayload } from "../../../src/sync-manager/sync-helpers"
 import type { SyncContext } from "../../../src/sync-manager/context";
 import { MockCloudAdapter } from "../../helpers/mock-cloud-adapter";
 
-const INDEX = ".obsidian/plugins/obsidian-vault-sync/data/remote/sync-index.json";
+const INDEX = ".obsidian/plugins/cardinal-vault-syncer/data/remote/sync-index.json";
 const enc = (s: string) => new TextEncoder().encode(s).buffer as ArrayBuffer;
 const dec = (b: ArrayBuffer) => JSON.parse(new TextDecoder().decode(b));
 

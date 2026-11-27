@@ -46,10 +46,10 @@ describe("file explorer marks", () => {
         const s = setup(["a.md", "b.md", "a (Conflict 2026-01-01T00-00-00).md", "folder"]);
         s.setPending(["a.md"]);
         s.marks.enable();
-        expect([...s.els["a.md"].classes]).toEqual(["vault-sync-mark-pending"]);
+        expect([...s.els["a.md"].classes]).toEqual(["vault-syncer-mark-pending"]);
         expect(s.els["b.md"].classes.size).toBe(0);
         const conflict = Object.keys(s.els).find((p) => p.includes("Conflict"))!;
-        expect([...s.els[conflict].classes]).toEqual(["vault-sync-mark-conflict"]);
+        expect([...s.els[conflict].classes]).toEqual(["vault-syncer-mark-conflict"]);
         expect(s.els["folder"].classes.size).toBe(0);
     });
 
@@ -60,7 +60,7 @@ describe("file explorer marks", () => {
         s.setPending(["b.md"]);
         s.fire();
         expect(s.els["a.md"].classes.size).toBe(0);
-        expect(s.els["b.md"].classes.has("vault-sync-mark-pending")).toBe(true);
+        expect(s.els["b.md"].classes.has("vault-syncer-mark-pending")).toBe(true);
         s.marks.disable();
         expect(s.els["b.md"].classes.size).toBe(0);
         expect(s.marks.enabled).toBe(false);

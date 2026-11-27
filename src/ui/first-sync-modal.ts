@@ -44,7 +44,7 @@ export class FirstSyncModal extends Modal {
         this.setTitle(t("firstSyncTitle"));
         contentEl.createEl("p", { text: t("firstSyncIntro") });
 
-        const counts = contentEl.createEl("ul", { cls: "vault-sync-first-sync-counts" });
+        const counts = contentEl.createEl("ul", { cls: "vault-syncer-first-sync-counts" });
         counts.createEl("li", { text: fill(t("firstSyncIdentical"), s.identical.length) });
         counts.createEl("li", { text: fill(t("firstSyncDiffering"), s.differing.length) });
         counts.createEl("li", { text: fill(t("firstSyncLocalOnly"), s.localOnly.length) });
@@ -53,7 +53,7 @@ export class FirstSyncModal extends Modal {
         if (s.differing.length > 0) {
             const details = contentEl.createEl("details");
             details.createEl("summary", { text: t("firstSyncDifferingList") });
-            const list = details.createEl("ul", { cls: "vault-sync-mass-delete-list" });
+            const list = details.createEl("ul", { cls: "vault-syncer-mass-delete-list" });
             for (const path of s.differing.slice(0, MAX_LISTED)) list.createEl("li", { text: path });
             if (s.differing.length > MAX_LISTED) {
                 list.createEl("li", { text: fill(t("massDeleteMore"), s.differing.length - MAX_LISTED) });
@@ -66,11 +66,11 @@ export class FirstSyncModal extends Modal {
             warning.toggle(this.selected === "local");
         };
 
-        const group = contentEl.createDiv({ cls: "vault-sync-first-sync-modes" });
+        const group = contentEl.createDiv({ cls: "vault-syncer-first-sync-modes" });
         for (const m of MODES) {
             const row = new Setting(group).setName(t(m.label)).setDesc(t(m.desc));
             const radio = row.controlEl.createEl("input", { type: "radio" });
-            radio.name = "vault-sync-first-sync-mode";
+            radio.name = "vault-syncer-first-sync-mode";
             radio.checked = m.mode === this.selected;
             const pick = () => {
                 this.selected = m.mode;

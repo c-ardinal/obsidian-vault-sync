@@ -1,7 +1,7 @@
-import type { VaultSyncSettings } from "../types/settings";
+import type { VaultSyncerSettings } from "../types/settings";
 
 export type SyncManagerSettings = Pick<
-    VaultSyncSettings,
+    VaultSyncerSettings,
     | "concurrency"
     | "remoteTrashRetentionDays"
     | "autoKeepRevisionDays"
@@ -31,7 +31,7 @@ export type SyncManagerSettings = Pick<
 > &
     Partial<
         Pick<
-            VaultSyncSettings,
+            VaultSyncerSettings,
             | "autoKeepAttachmentRevisions"
             | "desktopMaxFileSizeMB"
             | "mobileMaxFileSizeMB"

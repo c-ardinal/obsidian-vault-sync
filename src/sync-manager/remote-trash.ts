@@ -16,7 +16,7 @@ import { CtxState } from "./context-state";
  * vault). Inside it, a folder per UTC day holds the copies under their
  * original vault path:
  *
- *   <app root>/.vault-sync-trash_<vault>/2026-11-20/Notes/a.md
+ *   <app root>/.vault-syncer-trash_<vault>/2026-11-20/Notes/a.md
  *
  * Why a copy plus the usual removal, not a move: the removal itself stays what
  * every build already understands. A moved file keeps its id, and a device that
@@ -31,7 +31,7 @@ import { CtxState } from "./context-state";
  * ahead without a copy rather than leaving the deletion stuck.
  */
 
-const TRASH_ROOT_PREFIX = ".vault-sync-trash_";
+const TRASH_ROOT_PREFIX = ".vault-syncer-trash_";
 
 /** Reasons whose removals keep a copy in the trash. Cleanups and plugin files do not. */
 const TRASHED_REASONS: ReadonlySet<RemoteDeletionReason> = new Set(["user-file", "user-folder"]);

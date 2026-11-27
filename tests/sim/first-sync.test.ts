@@ -60,7 +60,7 @@ function guard(dev: SimDevice, mode: FirstSyncMode) {
 }
 
 const userNotes = (dev: SimDevice) =>
-    Object.fromEntries(Object.entries(dev.userFiles()).filter(([p]) => !p.startsWith("_VaultSync_Orphans/")));
+    Object.fromEntries(Object.entries(dev.userFiles()).filter(([p]) => !p.startsWith("_VaultSyncer_Orphans/")));
 
 describe("first sync of a device with notes", () => {
     afterEach(() => {
@@ -96,10 +96,10 @@ describe("first sync of a device with notes", () => {
         guard(b, "cloud");
         await sync(b);
         expect(userNotes(b)).toEqual({ "same.md": "same", "diff.md": "cloud version", "cloud-only.md": "only on the cloud" });
-        const aside = Object.entries(b.userFiles()).filter(([p]) => p.startsWith("_VaultSync_Orphans/"));
+        const aside = Object.entries(b.userFiles()).filter(([p]) => p.startsWith("_VaultSyncer_Orphans/"));
         expect(aside.map(([p, c]) => [p.replace(/first-sync-[^/]+\//, ""), c]).sort()).toEqual([
-            ["_VaultSync_Orphans/diff.md", "local version"],
-            ["_VaultSync_Orphans/local-only.md", "only here"],
+            ["_VaultSyncer_Orphans/diff.md", "local version"],
+            ["_VaultSyncer_Orphans/local-only.md", "only here"],
         ]);
         await sync(a);
         expect(userNotes(a)).toEqual({ "same.md": "same", "diff.md": "cloud version", "cloud-only.md": "only on the cloud" });

@@ -47,7 +47,7 @@ export class SyncVerifyModal extends Modal {
         private readonly actions: VerifyActions,
     ) {
         super(app);
-        this.modalEl.addClass("vault-sync-verify-modal");
+        this.modalEl.addClass("vault-syncer-verify-modal");
     }
 
     onOpen(): void {
@@ -62,12 +62,12 @@ export class SyncVerifyModal extends Modal {
             el.createEl("p", { text: t("verifyBusy") });
             return;
         }
-        el.createEl("p", { cls: "vault-sync-verify-status", text: t("verifyRunning") });
+        el.createEl("p", { cls: "vault-syncer-verify-status", text: t("verifyRunning") });
         // Bar, then one line: the count on the left, the time left on the right
         const fill = el
-            .createDiv({ cls: "vault-sync-status-bar vault-sync-verify-bar" })
-            .createDiv({ cls: "vault-sync-status-bar-fill" });
-        const line = el.createDiv({ cls: "vault-sync-verify-progress" });
+            .createDiv({ cls: "vault-syncer-status-bar vault-syncer-verify-bar" })
+            .createDiv({ cls: "vault-syncer-status-bar-fill" });
+        const line = el.createDiv({ cls: "vault-syncer-verify-progress" });
         const countEl = line.createSpan({ text: t("verifyListing") });
         const etaEl = line.createSpan();
         // The cloud listing has no known length: a moving mark and the time it has taken
@@ -137,7 +137,7 @@ export class SyncVerifyModal extends Modal {
         for (const kind of KIND_ORDER) {
             const paths = report.differences.filter((d) => d.kind === kind).map((d) => d.path);
             if (paths.length === 0) continue;
-            const details = el.createEl("details", { cls: "vault-sync-verify-group" });
+            const details = el.createEl("details", { cls: "vault-syncer-verify-group" });
             details.createEl("summary", { text: `${t(KIND_LABEL[kind])} (${paths.length})` });
             const list = details.createEl("ul");
             for (const p of paths.slice(0, MAX_LISTED)) list.createEl("li", { text: p });

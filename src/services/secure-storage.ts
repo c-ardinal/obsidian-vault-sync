@@ -46,7 +46,7 @@ export class SecureStorage {
         }
         const vaultHash = Math.abs(hash).toString(36);
         this.vaultHash = vaultHash;
-        this.secretId = `vault-sync-creds-${vaultHash}`;
+        this.secretId = `vault-syncer-creds-${vaultHash}`;
     }
 
     /**
@@ -58,7 +58,7 @@ export class SecureStorage {
     }
 
     private getSecretIdFor(type: string): string {
-        return `vault-sync-${type}-${this.vaultHash}`;
+        return `vault-syncer-${type}-${this.vaultHash}`;
     }
 
     /**

@@ -68,7 +68,7 @@ jobs:
               if: steps.check.outputs.exists == 'false'
               run: |
                   cd dist
-                  zip -r "../cardinal-vault-sync_${{ env.VERSION }}.zip" cardinal-vault-sync
+                  zip -r "../cardinal-vault-syncer_${{ env.VERSION }}.zip" cardinal-vault-syncer
 
             - name: Create Release
               if: steps.check.outputs.exists == 'false'
@@ -79,9 +79,9 @@ jobs:
                   # Every release is published as a pre-release until the plugin leaves beta.
                   prerelease: true
                   files: |
-                      cardinal-vault-sync_${{ env.VERSION }}.zip
-                      dist/cardinal-vault-sync/main.js
-                      dist/cardinal-vault-sync/manifest.json
-                      dist/cardinal-vault-sync/styles.css
+                      cardinal-vault-syncer_${{ env.VERSION }}.zip
+                      dist/cardinal-vault-syncer/main.js
+                      dist/cardinal-vault-syncer/manifest.json
+                      dist/cardinal-vault-syncer/styles.css
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

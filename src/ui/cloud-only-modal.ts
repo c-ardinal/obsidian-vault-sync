@@ -25,7 +25,7 @@ class CloudOnlyPickerModal extends FuzzySuggestModal<CloudOnlyFile> {
 
     renderSuggestion(match: FuzzyMatch<CloudOnlyFile>, el: HTMLElement): void {
         super.renderSuggestion(match, el);
-        el.createSpan({ cls: "vault-sync-suggest-note", text: ` ${formatSize(match.item.size)}` });
+        el.createSpan({ cls: "vault-syncer-suggest-note", text: ` ${formatSize(match.item.size)}` });
     }
 
     onChooseItem(item: CloudOnlyFile): void {

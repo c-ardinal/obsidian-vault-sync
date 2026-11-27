@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="img/vaultsync_logotype_v2.webp" alt="Vault Syncer" width="420">
+  <img src="img/vaultsyncer_logotype_v2.webp" alt="Vault Syncer" width="420">
 </p>
 
 <p align="center">
@@ -12,8 +12,8 @@
 
 <p align="center">
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
-  <a href="https://github.com/c-ardinal/obsidian-vault-sync/releases"><img src="https://img.shields.io/github/v/release/c-ardinal/obsidian-vault-sync?label=Release&logo=github" alt="GitHub Release"></a>
-  <a href="https://github.com/c-ardinal/obsidian-vault-sync/actions/workflows/test.yml"><img src="https://img.shields.io/github/actions/workflow/status/c-ardinal/obsidian-vault-sync/test.yml?branch=main&label=CI&logo=github-actions" alt="CI Status"></a>
+  <a href="https://github.com/c-ardinal/obsidian-vault-syncer/releases"><img src="https://img.shields.io/github/v/release/c-ardinal/obsidian-vault-syncer?label=Release&logo=github" alt="GitHub Release"></a>
+  <a href="https://github.com/c-ardinal/obsidian-vault-syncer/actions/workflows/test.yml"><img src="https://img.shields.io/github/actions/workflow/status/c-ardinal/obsidian-vault-syncer/test.yml?branch=main&label=CI&logo=github-actions" alt="CI Status"></a>
   <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20iOS%20%7C%20Android-lightgrey" alt="Platform: Windows | macOS | Linux | iOS | Android">
 </p>
 
@@ -52,7 +52,7 @@ It currently supports the cloud storage below. Obsidian 1.11.4 or later is requi
 - **Background Transfer**:
     - Large files are uploaded and downloaded in the background without blocking the UI. Configurable thresholds and concurrency limits.
 - **End-to-End Encryption (E2EE)**:
-    - By installing the [E2EE Engine](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine) separately, vault data can be encrypted. File contents are encrypted before upload and decrypted after download, so they are never stored in the cloud as plaintext. File and folder names are not encrypted.
+    - By installing the [E2EE Engine](https://github.com/c-ardinal/obsidian-vault-syncer-e2ee-engine) separately, vault data can be encrypted. File contents are encrypted before upload and decrypted after download, so they are never stored in the cloud as plaintext. File and folder names are not encrypted.
 
 |               Transfer Status               |                   Selective Sync                   |
 | :-----------------------------------------: | :------------------------------------------------: |
@@ -119,27 +119,17 @@ It currently supports the cloud storage below. Obsidian 1.11.4 or later is requi
 
 1. Install the [BRAT](https://github.com/TfTHacker/obsidian42-brat) plugin from the Obsidian Community Plugins.
 2. Open BRAT settings and click **"Add Beta plugin"**.
-3. Enter `c-ardinal/obsidian-vault-sync`, select `Latest version`, and click **"Add Plugin"**.
+3. Enter `c-ardinal/obsidian-vault-syncer`, select `Latest version`, and click **"Add Plugin"**.
 4. Enable "Vault Syncer" in Settings > Community Plugins.
 
 BRAT will automatically check for updates and keep the plugin up to date.
 
 ### Manual Installation
 
-1. Download `main.js`, `manifest.json`, and `styles.css` from the [latest release](https://github.com/c-ardinal/obsidian-vault-sync/releases/latest).
-2. Create a folder named `cardinal-vault-sync` in your vault's `.obsidian/plugins/` directory.
+1. Download `main.js`, `manifest.json`, and `styles.css` from the [latest release](https://github.com/c-ardinal/obsidian-vault-syncer/releases/latest).
+2. Create a folder named `cardinal-vault-syncer` in your vault's `.obsidian/plugins/` directory.
 3. Place the downloaded files into the folder.
 4. Enable "Vault Syncer" in Settings > Community Plugins.
-
-### Updating from an older version (plugin ID `obsidian-vault-sync`)
-
-For the community directory the plugin ID changed from `obsidian-vault-sync` to `cardinal-vault-sync`, so Obsidian installs it into a new folder.
-
-1. Install Vault Syncer from the community browser (or update it with BRAT).
-2. Turn off the old copy (ID `obsidian-vault-sync`) in Settings > Community Plugins and restart the app. While the old copy is on, the new one does not sync, so the two never sync the same vault at once.
-3. On its first start the new copy carries over your settings, sync state and installed add-ons from the old folder. After that you can uninstall the old copy.
-
-Update every device. Until all are updated, devices still on the old copy keep working, but syncs between old and new devices may compare files more slowly.
 
 ---
 
@@ -323,7 +313,7 @@ As required by Obsidian's developer policies:
 - **Data Location**:
     - Synced data is stored exclusively in your own cloud storage space (in the root folder you specify).
 - **File Encryption**:
-    - By default, synced data (Markdown files, etc.) is uploaded to cloud storage in **plain text (without encryption)**. While protected by the cloud storage security model (HTTPS transfer, server-side encryption), data is readable on the server side. If End-to-End Encryption is required, install the [Vault Syncer E2EE Engine](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine). See the section below for details.
+    - By default, synced data (Markdown files, etc.) is uploaded to cloud storage in **plain text (without encryption)**. While protected by the cloud storage security model (HTTPS transfer, server-side encryption), data is readable on the server side. If End-to-End Encryption is required, install the [Vault Syncer E2EE Engine](https://github.com/c-ardinal/obsidian-vault-syncer-e2ee-engine). See the section below for details.
 
 ---
 
@@ -367,14 +357,14 @@ When E2EE is enabled:
 The E2EE Engine is a separately distributed **add-on** with its own terms of use, so that only people who want encryption install it, by their own choice. Installing it takes a few taps, on desktop or mobile, with no need to open the hidden `.obsidian` folder:
 
 1. Open Vault Syncer's settings and tap **Install add-on...** under "Add-ons" (or run `Vault Syncer: Show add-on install` from the command palette).
-2. Tap **Open download page** and download `vault-sync-e2ee-engine.zip` from the latest release.
+2. Tap **Open download page** and download `vault-syncer-e2ee-engine.zip` from the latest release.
 3. Tap **Choose file** and pick the downloaded zip. Vault Syncer checks every file in it against the approved release (SHA-256).
 4. Read the add-on's terms of use shown in the dialog, agree, and tap **Install**. The add-on is active right away, without a restart.
 5. The add-on's own settings page now appears under "Add-ons" in Vault Syncer's settings. Its operations can be started from there as well as from the command palette.
 
-Vault Syncer itself never downloads add-ons. If the vault already uses the add-on on another device, the install dialog opens on startup and then asks for the password. Copying `e2ee-engine.js` into `.obsidian/plugins/cardinal-vault-sync/` by hand still works too.
+Vault Syncer itself never downloads add-ons. If the vault already uses the add-on on another device, the install dialog opens on startup and then asks for the password. Copying `e2ee-engine.js` into `.obsidian/plugins/cardinal-vault-syncer/` by hand still works too.
 
-For details, available commands, build instructions, and the encryption specification, see the **[Vault Syncer E2EE Engine repository](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine)**.
+For details, available commands, build instructions, and the encryption specification, see the **[Vault Syncer E2EE Engine repository](https://github.com/c-ardinal/obsidian-vault-syncer-e2ee-engine)**.
 
 ---
 
@@ -388,7 +378,7 @@ For running in a development environment or building from source:
 npm run build
 ```
 
-Build results are output to the `dist/cardinal-vault-sync/` directory as follows.
+Build results are output to the `dist/cardinal-vault-syncer/` directory as follows.
 When distributing, copy the contents of this folder to your plugins directory.
 
 - `main.js`

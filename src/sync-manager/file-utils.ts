@@ -18,9 +18,6 @@ export type FileUtilsCtx = Pick<
 
 // === System-level Constants ===
 
-/** Plugin ID before the community-directory release (IDs may not contain "obsidian"). */
-export const LEGACY_PLUGIN_ID = "obsidian-vault-sync";
-
 /**
  * This plugin's folder, vault-relative with a trailing slash. main.ts sets it from
  * the manifest (the plugin ID and the vault's config folder) before anything syncs;
@@ -28,18 +25,9 @@ export const LEGACY_PLUGIN_ID = "obsidian-vault-sync";
  */
 export let PLUGIN_DIR = "";
 
-/**
- * The folder of the plugin under its old ID when it differs from PLUGIN_DIR, else null.
- * Devices not yet updated still write their sync data there (and may have the old
- * copy of the plugin installed), so the sync loop leaves everything in it alone.
- */
-export let LEGACY_PLUGIN_DIR: string | null = null;
-
 export function setPluginDir(pluginDir: string, vaultConfigDir: string): void {
     setConfigDir(vaultConfigDir);
     PLUGIN_DIR = normalizePath(pluginDir) + "/";
-    const legacy = normalizePath(`${vaultConfigDir}/plugins/${LEGACY_PLUGIN_ID}`) + "/";
-    LEGACY_PLUGIN_DIR = legacy === PLUGIN_DIR ? null : legacy;
 }
 
 export const INTERNAL_LOCAL_ONLY = ["cache/", "data/local/"];
@@ -55,8 +43,8 @@ export const INTERNAL_REMOTE_MANAGED: string[] = [
 
 /** General system-level files that should be ignored and cleaned up from remote if found */
 export const SYSTEM_IGNORES = [
-    "_VaultSync_Debug.log",
-    "_VaultSync_Orphans/",
+    "_VaultSyncer_Debug.log",
+    "_VaultSyncer_Orphans/",
     ".DS_Store",
     "Thumbs.db",
 ];
@@ -290,7 +278,6 @@ export async function runParallel<T>(
  */
 export function isManagedSeparately(path: string): boolean {
     if (INTERNAL_REMOTE_MANAGED.includes(path)) return true;
-    if (LEGACY_PLUGIN_DIR && path.startsWith(LEGACY_PLUGIN_DIR)) return true;
     if (!path.startsWith(PLUGIN_DIR)) return false;
     const subPath = path.substring(PLUGIN_DIR.length);
     return INTERNAL_REMOTE_MANAGED.includes(subPath) || subPath.startsWith(REMOTE_DEVICE_DIR + "/");

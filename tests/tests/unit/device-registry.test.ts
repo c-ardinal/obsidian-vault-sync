@@ -38,7 +38,7 @@ function makeCtx(cloud: MockCloudAdapter, deviceId: string): DeviceCtx & { uploa
             write: async (p, d) => void local.set(p, d),
             mkdir: async () => {},
         },
-        pluginDir: ".obsidian/plugins/cardinal-vault-sync",
+        pluginDir: ".obsidian/plugins/cardinal-vault-syncer",
         deviceId,
         deviceInfo: { platform: "Linux", defaultName: "Linux" },
         log: async () => {},
@@ -101,9 +101,9 @@ describe("device registry", () => {
     });
 
     it("record files are kept out of the file sync", () => {
-        setPluginDir(".obsidian/plugins/cardinal-vault-sync", ".obsidian");
+        setPluginDir(".obsidian/plugins/cardinal-vault-syncer", ".obsidian");
         const ctx = makeCtx(new MockCloudAdapter(), "dev1");
         expect(isManagedSeparately(deviceRecordPath(ctx, "dev1"))).toBe(true);
-        expect(isManagedSeparately(".obsidian/plugins/cardinal-vault-sync/data/remote/other.json")).toBe(false);
+        expect(isManagedSeparately(".obsidian/plugins/cardinal-vault-syncer/data/remote/other.json")).toBe(false);
     });
 });

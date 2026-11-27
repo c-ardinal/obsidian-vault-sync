@@ -300,7 +300,7 @@ describe("sync-helpers", () => {
 });
 
 describe("checkIndexOverwrite (shared index uploaded by two devices at once)", () => {
-    const INDEX = ".obsidian/plugins/obsidian-vault-sync/data/remote/sync-index.json";
+    const INDEX = ".obsidian/plugins/cardinal-vault-syncer/data/remote/sync-index.json";
     const makeCtx = (adapter: MockCloudAdapter) =>
         ({
             adapter: adapter as unknown as CloudAdapter,

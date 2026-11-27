@@ -1,14 +1,11 @@
 import { App, PluginSettingTab, SearchComponent, Setting, setIcon } from "obsidian";
-import type VaultSync from "../main";
+import type VaultSyncer from "../main";
 import { t } from "../i18n";
 import { getSettingsSections, SettingItem, SettingSection } from "./settings-schema";
 import { ExclusionPatternModal } from "./exclusion-modal";
 import { ConfirmModal } from "./confirm-modal";
 import { matchesWords, queryWords } from "./settings-search";
 import type { AddonPage, AddonSettingItem, AddonSettingSection, RegisteredAddon } from "../addons/addon-ui";
-
-/** Old accordion state; no longer used, removed on load. */
-const LEGACY_CLOSED_GROUPS_KEY = "vault-sync:closed-groups";
 
 type PageId =
     | "root"
@@ -121,8 +118,8 @@ const ACCOUNT_SEARCH_KEYS: [string, string][] = [
     ["settingLogout", "settingLogoutDesc"],
 ];
 
-export class VaultSyncSettingTab extends PluginSettingTab {
-    plugin: VaultSync;
+export class VaultSyncerSettingTab extends PluginSettingTab {
+    plugin: VaultSyncer;
     /** Page currently shown. Kept across re-renders, reset when the tab is hidden. */
     private page: PageId = "root";
     /** Text in the search box of the top page. Kept across re-renders, cleared when the tab is hidden. */
@@ -130,14 +127,9 @@ export class VaultSyncSettingTab extends PluginSettingTab {
     /** Add-on page shown (a sub-page of the add-on category), or null. */
     private addonPage: { addonId: string; pageId: string } | null = null;
 
-    constructor(app: App, plugin: VaultSync) {
+    constructor(app: App, plugin: VaultSyncer) {
         super(app, plugin);
         this.plugin = plugin;
-        try {
-            window.localStorage.removeItem(LEGACY_CLOSED_GROUPS_KEY);
-        } catch {
-            /* ignore */
-        }
     }
 
     hide(): void {
@@ -215,7 +207,7 @@ export class VaultSyncSettingTab extends PluginSettingTab {
         const { containerEl } = this;
         const scrollPos = containerEl.scrollTop;
         containerEl.empty();
-        containerEl.addClass("vault-sync-settings-container");
+        containerEl.addClass("vault-syncer-settings-container");
 
         const category = CATEGORIES.find((c) => c.id === this.page);
         const addonPage = this.addonPage
@@ -230,7 +222,7 @@ export class VaultSyncSettingTab extends PluginSettingTab {
             this.renderRoot(containerEl);
         } else {
             this.renderPageHeader(containerEl, category);
-            const body = containerEl.createDiv({ cls: "vault-sync-settings-page" });
+            const body = containerEl.createDiv({ cls: "vault-syncer-settings-page" });
             this.renderCategory(body, category);
         }
 
@@ -239,9 +231,9 @@ export class VaultSyncSettingTab extends PluginSettingTab {
     }
 
     private renderRoot(el: HTMLElement): void {
-        const searchEl = el.createDiv({ cls: "vault-sync-settings-search" });
-        const list = el.createDiv({ cls: "vault-sync-settings-nav" });
-        const results = el.createDiv({ cls: "vault-sync-settings-search-results" });
+        const searchEl = el.createDiv({ cls: "vault-syncer-settings-search" });
+        const list = el.createDiv({ cls: "vault-syncer-settings-nav" });
+        const results = el.createDiv({ cls: "vault-syncer-settings-search-results" });
         const search = new SearchComponent(searchEl);
         search
             .setPlaceholder(t("settingSearchPlaceholder"))
@@ -266,13 +258,13 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                             await this.plugin.adapterLogin();
                         }),
                 )
-                .settingEl.addClass("vault-sync-settings-login-cta");
+                .settingEl.addClass("vault-syncer-settings-login-cta");
         }
 
         for (const category of CATEGORIES) {
             const row = this.renderNavRow(list, t(category.titleKey), this.getCategoryDesc(category), category.id);
-            row.addClass("vault-sync-settings-nav-item");
-            const iconEl = createDiv({ cls: ["setting-item-icon", "vault-sync-settings-nav-icon"] });
+            row.addClass("vault-syncer-settings-nav-item");
+            const iconEl = createDiv({ cls: ["setting-item-icon", "vault-syncer-settings-nav-icon"] });
             setIcon(iconEl, category.icon);
             row.prepend(iconEl);
         }
@@ -284,10 +276,10 @@ export class VaultSyncSettingTab extends PluginSettingTab {
         const setting = new Setting(el).setName(name).setDesc(desc);
         const row = setting.settingEl;
         // mod-navigable: Obsidian keeps these rows horizontal on narrow screens
-        row.addClass("mod-navigable", "vault-sync-settings-nav-row");
+        row.addClass("mod-navigable", "vault-syncer-settings-nav-row");
         row.setAttr("role", "button");
         row.setAttr("tabindex", "0");
-        const chevron = setting.controlEl.createDiv({ cls: "vault-sync-settings-nav-chevron" });
+        const chevron = setting.controlEl.createDiv({ cls: "vault-syncer-settings-nav-chevron" });
         setIcon(chevron, "chevron-right");
         row.addEventListener("click", open);
         row.addEventListener("keydown", (e) => {
@@ -356,7 +348,7 @@ export class VaultSyncSettingTab extends PluginSettingTab {
         }
         found += this.renderAddonSearchResults(results, words);
         if (found === 0) {
-            results.createEl("p", { cls: "vault-sync-settings-search-none", text: t("settingSearchNone") });
+            results.createEl("p", { cls: "vault-syncer-settings-search-none", text: t("settingSearchNone") });
         }
     }
 
@@ -367,14 +359,14 @@ export class VaultSyncSettingTab extends PluginSettingTab {
         label: string,
     ): HTMLElement {
         const open = typeof category === "function" ? category : () => this.navigate(category.id);
-        const groupEl = results.createDiv({ cls: "vault-sync-subheader-group" });
-        const head = groupEl.createDiv({ cls: "vault-sync-subheader-label vault-sync-settings-search-group" });
-        const link = head.createEl("a", { cls: "vault-sync-subheader-text", text: label, href: "#" });
+        const groupEl = results.createDiv({ cls: "vault-syncer-subheader-group" });
+        const head = groupEl.createDiv({ cls: "vault-syncer-subheader-label vault-syncer-settings-search-group" });
+        const link = head.createEl("a", { cls: "vault-syncer-subheader-text", text: label, href: "#" });
         link.addEventListener("click", (e) => {
             e.preventDefault();
             open();
         });
-        return groupEl.createDiv({ cls: "vault-sync-subheader-body" });
+        return groupEl.createDiv({ cls: "vault-syncer-subheader-body" });
     }
 
     /** Search hits on add-on pages, grouped as "Add-ons › <page> › <section>". Returns the hit count. */
@@ -434,12 +426,12 @@ export class VaultSyncSettingTab extends PluginSettingTab {
     }
 
     private renderHeader(el: HTMLElement, title: string, back: () => void): void {
-        const header = el.createDiv({ cls: "vault-sync-settings-page-header" });
+        const header = el.createDiv({ cls: "vault-syncer-settings-page-header" });
         const backBtn = header.createEl("button", {
-            cls: ["clickable-icon", "vault-sync-settings-back"],
+            cls: ["clickable-icon", "vault-syncer-settings-back"],
             attr: { "aria-label": t("settingNavBackAria") },
         });
-        setIcon(backBtn.createSpan({ cls: "vault-sync-settings-back-icon" }), "chevron-left");
+        setIcon(backBtn.createSpan({ cls: "vault-syncer-settings-back-icon" }), "chevron-left");
         backBtn.createSpan({ text: t("settingNavBack") });
         backBtn.addEventListener("click", back);
 
@@ -448,7 +440,7 @@ export class VaultSyncSettingTab extends PluginSettingTab {
         new Setting(header)
             .setName(title)
             .setHeading()
-            .settingEl.addClass("vault-sync-settings-page-title");
+            .settingEl.addClass("vault-syncer-settings-page-title");
     }
 
     private renderCategory(el: HTMLElement, category: SettingsCategory): void {
@@ -587,7 +579,7 @@ export class VaultSyncSettingTab extends PluginSettingTab {
 
     private renderSection(el: HTMLElement, section: SettingSection, showTitle: boolean): void {
         if (showTitle) {
-            new Setting(el).setName(section.title).setHeading().settingEl.addClass("vault-sync-settings-section-title");
+            new Setting(el).setName(section.title).setHeading().settingEl.addClass("vault-syncer-settings-section-title");
         }
         if (section.description) {
             el.createEl("p", { text: section.description, cls: "setting-item-description" });
@@ -599,9 +591,9 @@ export class VaultSyncSettingTab extends PluginSettingTab {
 
             // A subheader starts a new group, headed like Obsidian's own settings
             if (item.type === "subheader") {
-                const groupEl = el.createDiv({ cls: "vault-sync-subheader-group" });
-                new Setting(groupEl).setName(item.label).setHeading().settingEl.addClass("vault-sync-subheader-label");
-                groupBody = groupEl.createDiv({ cls: "vault-sync-subheader-body" });
+                const groupEl = el.createDiv({ cls: "vault-syncer-subheader-group" });
+                new Setting(groupEl).setName(item.label).setHeading().settingEl.addClass("vault-syncer-subheader-label");
+                groupBody = groupEl.createDiv({ cls: "vault-syncer-subheader-body" });
                 continue;
             }
 
@@ -619,7 +611,7 @@ export class VaultSyncSettingTab extends PluginSettingTab {
         this.fillControl(setting, item, description);
         if (item.detail) {
             // Secondary facts stay folded so the description reads in one line
-            const details = setting.descEl.createEl("details", { cls: "vault-sync-setting-detail" });
+            const details = setting.descEl.createEl("details", { cls: "vault-syncer-setting-detail" });
             details.createEl("summary", { text: t("settingDetailToggle") });
             details.createDiv({ text: item.detail });
         }
@@ -733,9 +725,9 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                 });
                 break;
             case "number": {
-                setting.settingEl.addClass("vault-sync-number-setting");
+                setting.settingEl.addClass("vault-syncer-number-setting");
                 const numCol = setting.controlEl.createDiv({
-                    cls: "vault-sync-number-column",
+                    cls: "vault-syncer-number-column",
                 });
                 this.addNumberInput(setting, numCol, item, item.limits?.disabled);
                 break;
@@ -745,7 +737,7 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                 const disabledVal = item.limits?.disabled ?? -1;
                 const isEnabled = currentVal !== disabledVal;
 
-                setting.settingEl.addClass("vault-sync-toggle-number-setting");
+                setting.settingEl.addClass("vault-syncer-toggle-number-setting");
 
                 setting.addToggle((toggle) => {
                     toggle.setValue(isEnabled).onChange(async (val) => {
@@ -759,7 +751,7 @@ export class VaultSyncSettingTab extends PluginSettingTab {
 
                 if (isEnabled) {
                     const numCol = setting.controlEl.createDiv({
-                        cls: "vault-sync-number-column",
+                        cls: "vault-syncer-number-column",
                     });
                     this.addNumberInput(setting, numCol, item);
                 }
@@ -784,10 +776,10 @@ export class VaultSyncSettingTab extends PluginSettingTab {
             }
             case "page-link": {
                 const row = setting.settingEl;
-                row.addClass("mod-navigable", "vault-sync-settings-nav-row");
+                row.addClass("mod-navigable", "vault-syncer-settings-nav-row");
                 row.setAttr("role", "button");
                 row.setAttr("tabindex", "0");
-                setIcon(setting.controlEl.createDiv({ cls: "vault-sync-settings-nav-chevron" }), "chevron-right");
+                setIcon(setting.controlEl.createDiv({ cls: "vault-syncer-settings-nav-chevron" }), "chevron-right");
                 const open = () => item.onClick?.(this.plugin);
                 row.addEventListener("click", open);
                 row.addEventListener("keydown", (e) => {
@@ -799,7 +791,7 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                 break;
             }
             case "diff-preview":
-                setting.settingEl.addClass("vault-sync-diff-preview-setting");
+                setting.settingEl.addClass("vault-syncer-diff-preview-setting");
                 this.renderDiffPreview(setting.settingEl);
                 break;
             // subheader is handled in renderSection, never reaches here
@@ -811,9 +803,9 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                 });
                 break;
             case "info":
-                setting.settingEl.addClass("vault-sync-info-setting");
+                setting.settingEl.addClass("vault-syncer-info-setting");
                 setting.controlEl.createSpan({
-                    cls: "vault-sync-info-status",
+                    cls: "vault-syncer-info-status",
                     text: description,
                 });
                 setting.setDesc(""); // Clear description since we moved it to the control area
@@ -823,17 +815,17 @@ export class VaultSyncSettingTab extends PluginSettingTab {
 
     /** Sample diff in the history view's own styles, one pane per device type. */
     private renderDiffPreview(el: HTMLElement): void {
-        const panes = el.createDiv({ cls: "vault-sync-diff-preview" });
+        const panes = el.createDiv({ cls: "vault-syncer-diff-preview" });
         const devices: Array<{ id: "desktop" | "mobile"; label: string }> = [
             { id: "desktop", label: t("settingDiffPreviewDesktop") },
             { id: "mobile", label: t("settingDiffPreviewMobile") },
         ];
         for (const d of devices) {
             const pane = panes.createDiv({
-                cls: `vault-sync-diff-preview-pane mod-${d.id}`,
+                cls: `vault-syncer-diff-preview-pane mod-${d.id}`,
                 attr: { "data-device": d.id },
             });
-            pane.createDiv({ cls: "vault-sync-diff-preview-label", text: d.label });
+            pane.createDiv({ cls: "vault-syncer-diff-preview-label", text: d.label });
             const table = pane.createDiv({ cls: "diff-table" });
             const row = (
                 op: "" | "added" | "removed" | "modified",
@@ -867,11 +859,11 @@ export class VaultSyncSettingTab extends PluginSettingTab {
     private updateDiffPreviews(): void {
         const s = this.plugin.settings;
         this.containerEl
-            .querySelectorAll<HTMLElement>(".vault-sync-diff-preview-pane")
+            .querySelectorAll<HTMLElement>(".vault-syncer-diff-preview-pane")
             .forEach((pane) => {
                 const px =
                     pane.dataset.device === "mobile" ? s.diffFontSizeMobile : s.diffFontSizeDesktop;
-                pane.style.setProperty("--vault-sync-diff-font-size", `${px}px`);
+                pane.style.setProperty("--vault-syncer-diff-font-size", `${px}px`);
             });
     }
 
@@ -879,15 +871,15 @@ export class VaultSyncSettingTab extends PluginSettingTab {
     private renderAddonPageList(el: HTMLElement): void {
         const addons = this.plugin.addonUi.list().filter((a) => a.pages.length > 0);
         if (addons.length === 0) return;
-        el.createDiv({ cls: "vault-sync-settings-section-title", text: t("addonPagesTitle") });
+        el.createDiv({ cls: "vault-syncer-settings-section-title", text: t("addonPagesTitle") });
         for (const addon of addons) {
             for (const page of addon.pages) {
                 const row = this.renderNavRow(el, page.title, page.description ?? "", () =>
                     this.openAddonPage(addon.id, page.id),
                 );
-                row.addClass("vault-sync-addon-page-row");
+                row.addClass("vault-syncer-addon-page-row");
                 row.setAttr("data-addon-page", `${addon.id}/${page.id}`);
-                const iconEl = createDiv({ cls: ["setting-item-icon", "vault-sync-settings-nav-icon"] });
+                const iconEl = createDiv({ cls: ["setting-item-icon", "vault-syncer-settings-nav-icon"] });
                 setIcon(iconEl, page.icon || "puzzle");
                 row.prepend(iconEl);
             }
@@ -898,7 +890,7 @@ export class VaultSyncSettingTab extends PluginSettingTab {
     private renderAddonPage(el: HTMLElement, addonId: string, page: AddonPage): void {
         const addon = this.plugin.addonUi.get(addonId)!;
         this.renderHeader(el, page.title, () => this.navigate("addons"));
-        const body = el.createDiv({ cls: "vault-sync-settings-page vault-sync-addon-page" });
+        const body = el.createDiv({ cls: "vault-syncer-settings-page vault-syncer-addon-page" });
         if (page.description) {
             body.createEl("p", { text: page.description, cls: "setting-item-description" });
         }
@@ -1023,11 +1015,11 @@ export class VaultSyncSettingTab extends PluginSettingTab {
 
     private addUnitAddon(inputEl: HTMLInputElement, unit?: string): void {
         if (!unit) return;
-        inputEl.addClass("vault-sync-number-input-with-unit");
-        const wrapper = createDiv({ cls: "vault-sync-number-wrapper" });
+        inputEl.addClass("vault-syncer-number-input-with-unit");
+        const wrapper = createDiv({ cls: "vault-syncer-number-wrapper" });
         inputEl.parentNode?.insertBefore(wrapper, inputEl);
         wrapper.appendChild(inputEl);
-        wrapper.createDiv({ cls: "vault-sync-unit-addon", text: unit });
+        wrapper.createDiv({ cls: "vault-syncer-unit-addon", text: unit });
     }
 
     private addLimitsHint(
@@ -1035,7 +1027,7 @@ export class VaultSyncSettingTab extends PluginSettingTab {
         limits: { min: number; max: number; default: number },
     ): HTMLElement {
         return controlEl.createDiv({
-            cls: "vault-sync-number-hint",
+            cls: "vault-syncer-number-hint",
             text: t("settingDefaultHint")
                 .replace("{0}", String(limits.min))
                 .replace("{1}", String(limits.max))
@@ -1075,7 +1067,7 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                     busy = false;
                 }
                 setting.settingEl
-                    .querySelector<HTMLElement>(".vault-sync-reset-default")
+                    .querySelector<HTMLElement>(".vault-syncer-reset-default")
                     ?.toggle(item.limits !== undefined && value !== item.limits.default);
             };
             text.inputEl.addEventListener("change", () => void commit());
@@ -1084,7 +1076,7 @@ export class VaultSyncSettingTab extends PluginSettingTab {
             });
 
             this.addUnitAddon(text.inputEl, item.unit);
-            const el = text.inputEl.closest(".vault-sync-number-wrapper") || text.inputEl;
+            const el = text.inputEl.closest(".vault-syncer-number-wrapper") || text.inputEl;
             numCol.appendChild(el);
         });
         if (item.limits) hintEl = this.addLimitsHint(numCol, item.limits);
@@ -1102,7 +1094,7 @@ export class VaultSyncSettingTab extends PluginSettingTab {
                     if (item.onChange) await item.onChange(defaultValue, this.plugin);
                     this.display();
                 });
-            btn.extraSettingsEl.addClass("vault-sync-reset-default");
+            btn.extraSettingsEl.addClass("vault-syncer-reset-default");
             btn.extraSettingsEl.setAttr("aria-label", t("settingResetDefault"));
             btn.extraSettingsEl.toggle(Number(this.getSettingValue(item.key)) !== defaultValue);
         });

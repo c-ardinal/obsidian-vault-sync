@@ -71,11 +71,11 @@ function createMockCtx(overrides: Partial<SyncContext> = {}): SyncContext {
         deletedFolders: new Set(),
         pendingFolderMoves: new Map(),
         recentlyDeletedFromRemote: new Set(),
-        pluginDataPath: ".obsidian/plugins/obsidian-vault-sync/data/remote/sync-index.json",
-        localIndexPath: ".obsidian/plugins/obsidian-vault-sync/data/local/local-index.json",
-        communicationPath: ".obsidian/plugins/obsidian-vault-sync/communication.json",
-        pluginDir: ".obsidian/plugins/obsidian-vault-sync",
-        logFolder: ".obsidian/plugins/obsidian-vault-sync/logs/test-device",
+        pluginDataPath: ".obsidian/plugins/cardinal-vault-syncer/data/remote/sync-index.json",
+        localIndexPath: ".obsidian/plugins/cardinal-vault-syncer/data/local/local-index.json",
+        communicationPath: ".obsidian/plugins/cardinal-vault-syncer/communication.json",
+        pluginDir: ".obsidian/plugins/cardinal-vault-syncer",
+        logFolder: ".obsidian/plugins/cardinal-vault-syncer/logs/test-device",
         deviceId: "test-device",
         e2eeEnabled: false,
         syncState: "idle",
@@ -622,7 +622,7 @@ describe("state - index management", () => {
 
         it("should log error when load fails and not already logged (line 249)", async () => {
             // Set logFolder to a different path so isAlreadyLogged is false
-            ctx.logFolder = ".obsidian/plugins/obsidian-vault-sync/logs/different-device";
+            ctx.logFolder = ".obsidian/plugins/cardinal-vault-syncer/logs/different-device";
             ctx.vault.exists = vi.fn().mockRejectedValue(new Error("Filesystem error"));
 
             await loadLocalIndex(ctx);

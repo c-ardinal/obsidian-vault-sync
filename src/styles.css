@@ -20,7 +20,7 @@
     }
 }
 
-.vault-sync-spinning svg {
+.vault-syncer-spinning svg {
     animation:
         spin 1s linear infinite,
         pulse 1.5s ease-in-out infinite;
@@ -28,7 +28,7 @@
 }
 
 /* Loading Spinner */
-.vault-sync-loading-container {
+.vault-syncer-loading-container {
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -39,7 +39,7 @@
     color: var(--text-muted);
 }
 
-.vault-sync-spinner {
+.vault-syncer-spinner {
     width: 40px;
     height: 40px;
     border: 3px solid var(--background-modifier-border);
@@ -92,7 +92,7 @@
     flex-shrink: 0;
 }
 
-.vault-sync-history-toggle-btn {
+.vault-syncer-history-toggle-btn {
     display: none; /* Hidden on PC */
     background: transparent;
     border: none;
@@ -106,7 +106,7 @@
 }
 
 /* Grid Layout Container */
-.vault-sync-history-container {
+.vault-syncer-history-container {
     display: grid;
     /* PC Defaults */
     grid-template-columns: 200px 1fr;
@@ -122,7 +122,7 @@
 }
 
 /* Area: List (Drawer) */
-.vault-sync-history-list {
+.vault-syncer-history-list {
     grid-area: list;
     display: flex;
     flex-direction: column;
@@ -132,7 +132,7 @@
 }
 
 /* Area: Header (Revision Info & Controls) */
-.vault-sync-info-header {
+.vault-syncer-info-header {
     grid-area: header;
     border-bottom: 1px solid var(--background-modifier-border);
     padding: 15px;
@@ -156,7 +156,7 @@
 }
 
 /* List Styling */
-.vault-sync-revision-list {
+.vault-syncer-revision-list {
     list-style: none;
     padding: 0;
     margin: 0;
@@ -167,7 +167,7 @@
 }
 
 /* Date Header with dot */
-.vault-sync-revision-date-header {
+.vault-syncer-revision-date-header {
     padding: 8px 15px 8px 12px; /* Adjusted padding to accommodate dot */
     font-weight: bold;
     font-size: 0.9em;
@@ -182,7 +182,7 @@
 }
 
 /* Timeline Dot for Date Header - Larger than item dots */
-.vault-sync-revision-date-header::before {
+.vault-syncer-revision-date-header::before {
     content: "";
     position: absolute;
     left: -7px; /* Center on 2px border: -6px (radius) - 1px */
@@ -197,7 +197,7 @@
 }
 
 /* Revision Item Styling */
-.vault-sync-revision-item {
+.vault-syncer-revision-item {
     position: relative;
     padding: 8px 15px 8px 20px; /* Match header padding */
     cursor: pointer;
@@ -208,7 +208,7 @@
 }
 
 /* Timeline Dot for Item */
-.vault-sync-revision-item::before {
+.vault-syncer-revision-item::before {
     content: "";
     position: absolute;
     left: -6px; /* Center on 2px border: -5px - 1px */
@@ -222,17 +222,17 @@
     box-sizing: border-box;
 }
 
-.vault-sync-revision-item:hover {
+.vault-syncer-revision-item:hover {
     background-color: var(--background-modifier-hover);
 }
 
 /* Selected State - Matching Old Design Colors */
-.vault-sync-revision-item.is-selected {
+.vault-syncer-revision-item.is-selected {
     background-color: hsla(263, 70%, 50%, 0.15); /* Deep purple background */
     border-left-color: var(--text-accent); /* Make the line accent color */
 }
 
-.vault-sync-revision-item.is-selected::before {
+.vault-syncer-revision-item.is-selected::before {
     background-color: var(--text-accent); /* Solid accent dot */
     width: 10px;
     /* To match "Old Design" (Image 2): It looks like a solid purple dot. */
@@ -312,7 +312,7 @@
     flex-direction: column;
     width: 100%;
     font-family: var(--font-monospace);
-    font-size: var(--vault-sync-diff-font-size, 0.9em);
+    font-size: var(--vault-syncer-diff-font-size, 0.9em);
     line-height: 1.5;
 }
 
@@ -472,10 +472,10 @@
 }
 
 /* Navigation button styling (matching premium look) */
-.vault-sync-info-header .clickable-icon {
+.vault-syncer-info-header .clickable-icon {
     transition: transform 0.1s ease;
 }
-.vault-sync-info-header .clickable-icon:active {
+.vault-syncer-info-header .clickable-icon:active {
     transform: scale(0.9);
 }
 
@@ -501,8 +501,8 @@
 }
 
 /* Tall card modals on phone: keep the whole card clear of the status bar */
-.is-phone .modal.vault-sync-conflict-modal,
-.is-phone .modal.vault-sync-devices-modal {
+.is-phone .modal.vault-syncer-conflict-modal,
+.is-phone .modal.vault-syncer-devices-modal {
     margin-top: var(--safe-area-inset-top);
     max-height: calc(100% - var(--safe-area-inset-top) - var(--safe-area-inset-bottom) - 16px);
 }
@@ -515,7 +515,7 @@
 }
 
 /* Floating Action Button for Mobile History Toggle */
-.is-mobile .vault-sync-history-toggle-btn {
+.is-mobile .vault-syncer-history-toggle-btn {
     display: flex;
     position: absolute;
     bottom: 24px;
@@ -536,16 +536,16 @@
         background-color 0.2s;
 }
 
-.is-mobile .vault-sync-history-toggle-btn svg {
+.is-mobile .vault-syncer-history-toggle-btn svg {
     width: 24px;
     height: 24px;
 }
 
-.is-mobile .vault-sync-history-toggle-btn:active {
+.is-mobile .vault-syncer-history-toggle-btn:active {
     transform: scale(0.95);
 }
 
-.is-mobile .vault-sync-history-container {
+.is-mobile .vault-syncer-history-container {
     /* Mobile Grid: Header on top, then List(Drawer) + Diff below */
     grid-template-areas:
         "header header"
@@ -556,7 +556,7 @@
 }
 
 /* Drawer Styling on Mobile: slides in over the diff instead of squeezing it */
-.is-mobile .vault-sync-history-list {
+.is-mobile .vault-syncer-history-list {
     background-color: var(--background-primary);
     z-index: 30; /* above the diff highlight outline (20) */
     white-space: nowrap; /* Prevent text wrap during transition */
@@ -571,7 +571,7 @@
         visibility 0.25s;
 }
 
-.is-mobile .vault-sync-history-container.is-drawer-open .vault-sync-history-list {
+.is-mobile .vault-syncer-history-container.is-drawer-open .vault-syncer-history-list {
     transform: none;
     visibility: visible;
 }
@@ -582,12 +582,12 @@
 }
 /* If closed (width 0), content is hidden by overflow:hidden on container */
 
-.is-mobile .vault-sync-history-list h3 {
+.is-mobile .vault-syncer-history-list h3 {
     padding: 10px;
     font-size: 1em;
 }
 
-.is-mobile .vault-sync-revision-date-header {
+.is-mobile .vault-syncer-revision-date-header {
     margin-left: 0;
     border-left: none; /* Remove PC outline in mobile drawer? Or keep? */
     /* Actually, mobile drawer likely needs the timeline too */
@@ -599,23 +599,23 @@
     background-color: var(--background-primary);
     font-size: 0.9em;
 }
-.is-mobile .vault-sync-revision-date-header::before {
+.is-mobile .vault-syncer-revision-date-header::before {
     left: -7px;
 }
 
-.is-mobile .vault-sync-revision-item {
+.is-mobile .vault-syncer-revision-item {
     padding: 12px 10px 12px 20px;
     margin-left: 12px;
     border-left: 2px solid var(--background-modifier-border);
 }
 
-.is-mobile .vault-sync-revision-item::before {
+.is-mobile .vault-syncer-revision-item::before {
     left: -6px;
     top: 19px;
     transform: translateY(-50%); /* Center vertical on mobile item */
 }
 
-.is-mobile .vault-sync-info-header {
+.is-mobile .vault-syncer-info-header {
     padding: 10px;
     gap: 8px;
 }
@@ -636,7 +636,7 @@
 }
 
 /* Adjustments for the drawer toggle button visibility */
-.is-mobile .vault-sync-history-toggle-btn.is-active {
+.is-mobile .vault-syncer-history-toggle-btn.is-active {
     background-color: var(--interactive-accent-hover);
     color: var(--text-on-accent);
 }
@@ -649,7 +649,7 @@
 }
 
 /* Exclusion Pattern Textarea */
-.vault-sync-exclusion-textarea {
+.vault-syncer-exclusion-textarea {
     font-family: var(--font-monospace);
     min-height: 200px;
     width: 100%;
@@ -660,20 +660,20 @@
 }
 
 /* Respect newlines in setting descriptions */
-.vault-sync-settings-container .setting-item-description {
+.vault-syncer-settings-container .setting-item-description {
     white-space: pre-wrap;
 }
 
 /* Mobile Floating Action Button (FAB) */
-.vault-sync-mobile-fab {
+.vault-syncer-mobile-fab {
     display: none;
 }
 
-.is-mobile .vault-sync-mobile-fab {
+.is-mobile .vault-syncer-mobile-fab {
     display: flex;
     position: fixed;
     /* Below Obsidian's floating mobile header (its title sits around 60-104px) */
-    top: calc(var(--vault-sync-fab-top, 53px) + var(--safe-area-inset-top));
+    top: calc(var(--vault-syncer-fab-top, 53px) + var(--safe-area-inset-top));
     left: 50%;
     transform: translateX(-50%) scale(0.7); /* Smaller and centered */
     width: 40px;
@@ -694,35 +694,35 @@
     pointer-events: none;
 }
 
-.is-mobile .vault-sync-mobile-fab.is-active {
+.is-mobile .vault-syncer-mobile-fab.is-active {
     opacity: 0.9;
     visibility: visible;
     transform: translateX(-50%) scale(0.9); /* Subtle appearance */
     pointer-events: none; /* Changed from auto to none */
 }
 
-.is-mobile .vault-sync-mobile-fab svg {
+.is-mobile .vault-syncer-mobile-fab svg {
     width: 20px;
     height: 20px;
 }
 /* Unit Addon (Floating Style) */
-.vault-sync-number-wrapper {
+.vault-syncer-number-wrapper {
     position: relative;
     display: inline-flex;
     align-items: center;
     width: 120px;
 }
 
-.is-mobile .vault-sync-number-wrapper {
+.is-mobile .vault-syncer-number-wrapper {
     width: 120px;
 }
 
-.vault-sync-number-input-with-unit {
+.vault-syncer-number-input-with-unit {
     width: 100% !important;
     padding-right: 42px !important; /* Make room for the unit */
 }
 
-.vault-sync-unit-addon {
+.vault-syncer-unit-addon {
     position: absolute;
     right: 4px;
     height: calc(100% - 8px);
@@ -741,7 +741,7 @@
 }
 
 /* Mobile: Highly rounded inputs need rounded unit blocks to avoid "interference" */
-.is-mobile .vault-sync-unit-addon {
+.is-mobile .vault-syncer-unit-addon {
     right: 6px;
     height: calc(100% - 10px);
     border-radius: 12px;
@@ -749,7 +749,7 @@
     border: 1px solid var(--background-modifier-border);
     padding: 0 8px;
 }
-.vault-sync-info-status {
+.vault-syncer-info-status {
     color: var(--text-muted);
     font-size: var(--font-ui-small);
     background-color: var(--background-modifier-border);
@@ -758,13 +758,13 @@
     font-family: var(--font-monospace);
 }
 
-.is-mobile .vault-sync-info-status {
+.is-mobile .vault-syncer-info-status {
     font-size: var(--font-ui-smaller);
     padding: 4px 10px;
 }
 
 /* Number Limits Hint — sits inside .setting-item-control */
-.vault-sync-number-hint {
+.vault-syncer-number-hint {
     width: 100%;
     font-size: var(--font-ui-smaller);
     color: var(--text-muted);
@@ -773,46 +773,46 @@
     line-height: 1.2;
 }
 
-.vault-sync-number-hint.is-error {
+.vault-syncer-number-hint.is-error {
     color: var(--text-error);
 }
 
 /* Phone and tablet: the description keeps the full width, the number field goes below it */
-.is-mobile .vault-sync-number-setting.setting-item,
-.is-mobile .vault-sync-toggle-number-setting.setting-item {
+.is-mobile .vault-syncer-number-setting.setting-item,
+.is-mobile .vault-syncer-toggle-number-setting.setting-item {
     flex-wrap: wrap;
 }
 
-.is-mobile .vault-sync-number-setting .setting-item-info,
-.is-mobile .vault-sync-toggle-number-setting .setting-item-info {
+.is-mobile .vault-syncer-number-setting .setting-item-info,
+.is-mobile .vault-syncer-toggle-number-setting .setting-item-info {
     flex: 1 1 100%;
     margin-right: 0;
 }
 
-.is-mobile .vault-sync-number-setting .setting-item-control,
-.is-mobile .vault-sync-toggle-number-setting .setting-item-control {
+.is-mobile .vault-syncer-number-setting .setting-item-control,
+.is-mobile .vault-syncer-toggle-number-setting .setting-item-control {
     flex: 1 1 100%;
     justify-content: flex-end;
     margin-top: var(--size-4-2);
 }
 
-.is-mobile .vault-sync-info-setting.setting-item {
+.is-mobile .vault-syncer-info-setting.setting-item {
     flex-wrap: nowrap;
     align-items: center;
 }
 
-.is-mobile .vault-sync-info-setting .setting-item-info {
+.is-mobile .vault-syncer-info-setting .setting-item-info {
     flex: 1 1 0;
     min-width: 0;
 }
 
-.is-mobile .vault-sync-info-setting .setting-item-control {
+.is-mobile .vault-syncer-info-setting .setting-item-control {
     flex: 0 0 auto;
     width: auto;
 }
 
 /* Number column: input+unit stacked above limits hint */
-.vault-sync-number-column {
+.vault-syncer-number-column {
     display: flex;
     flex-direction: column;
     align-items: flex-end;
@@ -820,56 +820,56 @@
 }
 
 /* Toggle-number: toggle on first line, number input wraps below */
-.vault-sync-toggle-number-setting > .setting-item-control {
+.vault-syncer-toggle-number-setting > .setting-item-control {
     flex-wrap: wrap;
     justify-content: flex-end;
     gap: 6px;
 }
 
-.vault-sync-toggle-number-setting .vault-sync-number-column {
+.vault-syncer-toggle-number-setting .vault-syncer-number-column {
     flex-basis: 100%;
 }
 
 /* Subheader group: an Obsidian setting heading and the rows below it */
-.vault-sync-subheader-group {
+.vault-syncer-subheader-group {
     margin-top: var(--size-4-3);
 }
 
-.vault-sync-subheader-text {
+.vault-syncer-subheader-text {
     font-weight: var(--font-semibold);
     color: var(--text-normal);
 }
 
-.vault-sync-subheader-body > .setting-item:first-child {
+.vault-syncer-subheader-body > .setting-item:first-child {
     border-top: none;
 }
 
 /* Folded secondary facts under a setting's description */
-.vault-sync-setting-detail > summary {
+.vault-syncer-setting-detail > summary {
     cursor: pointer;
     color: var(--text-muted);
     width: fit-content;
 }
 
-.vault-sync-setting-detail > div {
+.vault-syncer-setting-detail > div {
     margin-top: var(--size-2-2);
 }
 
 /* Exclusion Pattern Modal */
-.vault-sync-exclusion-modal {
+.vault-syncer-exclusion-modal {
     width: 80%;
     height: 90%;
     max-width: 80%;
     max-height: 90%;
 }
 
-.is-mobile .vault-sync-exclusion-modal {
+.is-mobile .vault-syncer-exclusion-modal {
     width: 95vw;
     max-width: none;
     max-height: 90vh;
 }
 
-.vault-sync-exclusion-list {
+.vault-syncer-exclusion-list {
     display: flex;
     flex-direction: column;
     gap: 4px;
@@ -878,7 +878,7 @@
     overflow-y: auto;
 }
 
-.vault-sync-exclusion-item {
+.vault-syncer-exclusion-item {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -887,7 +887,7 @@
     border-radius: 6px;
 }
 
-.vault-sync-exclusion-item-pattern {
+.vault-syncer-exclusion-item-pattern {
     flex: 1;
     font-family: var(--font-monospace);
     font-size: 0.9em;
@@ -898,24 +898,24 @@
     cursor: text;
 }
 
-.vault-sync-exclusion-match-count {
+.vault-syncer-exclusion-match-count {
     font-size: var(--font-ui-smaller);
     color: var(--text-muted);
     white-space: nowrap;
     flex-shrink: 0;
 }
 
-.vault-sync-exclusion-match-clickable {
+.vault-syncer-exclusion-match-clickable {
     cursor: pointer;
     text-decoration: underline;
     text-decoration-style: dotted;
 }
 
-.vault-sync-exclusion-match-clickable:hover {
+.vault-syncer-exclusion-match-clickable:hover {
     color: var(--text-accent);
 }
 
-.vault-sync-exclusion-file-list {
+.vault-syncer-exclusion-file-list {
     padding: 4px 8px 6px 16px;
     background-color: var(--background-primary);
     border-radius: 0 0 6px 6px;
@@ -924,7 +924,7 @@
     overflow-y: auto;
 }
 
-.vault-sync-exclusion-file-item {
+.vault-syncer-exclusion-file-item {
     font-family: var(--font-monospace);
     font-size: var(--font-ui-smaller);
     color: var(--text-muted);
@@ -936,7 +936,7 @@
     white-space: nowrap;
 }
 
-.vault-sync-exclusion-delete {
+.vault-syncer-exclusion-delete {
     cursor: pointer;
     color: var(--text-muted);
     flex-shrink: 0;
@@ -946,12 +946,12 @@
     padding: 2px;
 }
 
-.vault-sync-exclusion-delete:hover {
+.vault-syncer-exclusion-delete:hover {
     color: var(--text-error);
     background-color: var(--background-modifier-hover);
 }
 
-.vault-sync-exclusion-add-row {
+.vault-syncer-exclusion-add-row {
     display: flex;
     gap: 8px;
     align-items: center;
@@ -959,25 +959,25 @@
     margin-bottom: 16px;
 }
 
-.vault-sync-exclusion-add-input {
+.vault-syncer-exclusion-add-input {
     flex: 1;
     font-family: var(--font-monospace);
 }
 
-.vault-sync-exclusion-empty {
+.vault-syncer-exclusion-empty {
     color: var(--text-muted);
     font-style: italic;
     text-align: center;
     padding: 20px 0;
 }
 
-.vault-sync-exclusion-error {
+.vault-syncer-exclusion-error {
     color: var(--text-error);
     font-size: var(--font-ui-small);
     margin-top: 4px;
 }
 
-.vault-sync-exclusion-suggest {
+.vault-syncer-exclusion-suggest {
     position: absolute;
     top: 100%;
     left: 0;
@@ -992,7 +992,7 @@
     margin-top: 4px;
 }
 
-.vault-sync-exclusion-suggest-item {
+.vault-syncer-exclusion-suggest-item {
     padding: 6px 10px;
     cursor: pointer;
     font-family: var(--font-monospace);
@@ -1002,32 +1002,32 @@
     gap: 6px;
 }
 
-.vault-sync-exclusion-suggest-item:hover {
+.vault-syncer-exclusion-suggest-item:hover {
     background-color: var(--background-modifier-hover);
 }
 
-.vault-sync-exclusion-suggest-icon {
+.vault-syncer-exclusion-suggest-icon {
     color: var(--text-muted);
     flex-shrink: 0;
 }
 
-.vault-sync-exclusion-status {
+.vault-syncer-exclusion-status {
     font-size: var(--font-ui-smaller);
     color: var(--text-muted);
     text-align: right;
     padding: 6px 4px 0;
 }
 
-.vault-sync-exclusion-match-loading {
+.vault-syncer-exclusion-match-loading {
     opacity: 0.5;
     font-style: italic;
 }
 
-.vault-sync-exclusion-item-container {
+.vault-syncer-exclusion-item-container {
     margin-bottom: 2px;
 }
 
-.vault-sync-exclusion-section-label {
+.vault-syncer-exclusion-section-label {
     font-size: var(--font-ui-smaller);
     font-weight: 600;
     color: var(--text-muted);
@@ -1039,15 +1039,15 @@
     border-top: 1px solid var(--background-modifier-border);
 }
 
-.vault-sync-exclusion-item-managed {
+.vault-syncer-exclusion-item-managed {
     opacity: 0.7;
 }
 
-.vault-sync-exclusion-item-managed .vault-sync-exclusion-item-pattern {
+.vault-syncer-exclusion-item-managed .vault-syncer-exclusion-item-pattern {
     font-style: italic;
 }
 
-.vault-sync-exclusion-managed-badge {
+.vault-syncer-exclusion-managed-badge {
     font-size: var(--font-ui-smaller);
     color: var(--text-muted);
     background: var(--background-modifier-border);
@@ -1058,14 +1058,14 @@
 }
 
 /* Migration UI */
-.vault-sync-migration-container {
+.vault-syncer-migration-container {
     padding: 10px 0;
     display: flex;
     flex-direction: column;
     gap: 12px;
 }
 
-.vault-sync-progress-wrapper {
+.vault-syncer-progress-wrapper {
     width: 100%;
     height: 10px;
     background-color: var(--background-modifier-border);
@@ -1073,19 +1073,19 @@
     overflow: hidden;
 }
 
-.vault-sync-progress-bar {
+.vault-syncer-progress-bar {
     height: 100%;
     background-color: var(--interactive-accent);
     width: 0%;
     transition: width 0.3s ease;
 }
 
-.vault-sync-migration-status {
+.vault-syncer-migration-status {
     font-size: 0.9em;
     color: var(--text-muted);
 }
 
-.vault-sync-migration-file {
+.vault-syncer-migration-file {
     font-size: var(--font-ui-smaller);
     color: var(--text-faint);
     white-space: nowrap;
@@ -1114,7 +1114,7 @@
 }
 
 /* Status and queue stay in place at a fixed size; only the history below them scrolls */
-.vault-sync-transfer-container {
+.vault-syncer-transfer-container {
     display: flex;
     flex-direction: column;
     flex: 1 1 auto;
@@ -1124,55 +1124,55 @@
     padding: var(--size-4-4) var(--size-4-5) 0;
 }
 
-.vault-sync-transfer-container > .vault-sync-xfer-summary,
-.vault-sync-transfer-container > .mod-queue {
+.vault-syncer-transfer-container > .vault-syncer-xfer-summary,
+.vault-syncer-transfer-container > .mod-queue {
     flex: 0 0 auto;
 }
 
-.vault-sync-xfer-queue-body {
+.vault-syncer-xfer-queue-body {
     height: 132px;
     overflow-y: auto;
 }
 
-.vault-sync-transfer-container > .mod-history {
+.vault-syncer-transfer-container > .mod-history {
     display: flex;
     flex-direction: column;
     flex: 1 1 0;
     min-height: 0;
 }
 
-.vault-sync-xfer-history-body {
+.vault-syncer-xfer-history-body {
     flex: 1 1 0;
     min-height: 0;
     overflow-y: auto;
     padding-bottom: var(--size-4-6);
 }
 
-.vault-sync-xfer-muted {
+.vault-syncer-xfer-muted {
     color: var(--text-muted);
     font-size: var(--font-ui-small);
     font-variant-numeric: tabular-nums;
 }
 
 /* Top: the shared sync status panel (same parts as the status bar popover) */
-.vault-sync-xfer-summary {
+.vault-syncer-xfer-summary {
     padding-bottom: var(--size-4-5);
     border-bottom: 1px solid var(--background-modifier-border);
 }
 
-.vault-sync-xfer-error {
+.vault-syncer-xfer-error {
     color: var(--text-error);
     font-size: var(--font-ui-small);
     overflow-wrap: anywhere;
 }
 
 /* Sections */
-.vault-sync-xfer-section {
+.vault-syncer-xfer-section {
     display: flex;
     flex-direction: column;
 }
 
-.vault-sync-xfer-section-head {
+.vault-syncer-xfer-section-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -1181,24 +1181,24 @@
     border-bottom: 1px solid var(--background-modifier-border);
 }
 
-.vault-sync-xfer-section-title {
+.vault-syncer-xfer-section-title {
     font-weight: var(--font-semibold);
 }
 
-.vault-sync-xfer-empty,
-.vault-sync-xfer-more {
+.vault-syncer-xfer-empty,
+.vault-syncer-xfer-more {
     padding: 10px 0;
     color: var(--text-muted);
     font-size: var(--font-ui-small);
 }
 
 /* Rows (queue and history) */
-.vault-sync-xfer-list {
+.vault-syncer-xfer-list {
     display: flex;
     flex-direction: column;
 }
 
-.vault-sync-xfer-row {
+.vault-syncer-xfer-row {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: center;
@@ -1206,28 +1206,28 @@
     padding: 6px 0;
 }
 
-.vault-sync-xfer-icon {
+.vault-syncer-xfer-icon {
     display: flex;
     color: var(--text-faint);
 }
 
-.vault-sync-xfer-icon svg {
+.vault-syncer-xfer-icon svg {
     width: 14px;
     height: 14px;
 }
 
-.vault-sync-xfer-file {
+.vault-syncer-xfer-file {
     min-width: 0;
 }
 
-.vault-sync-xfer-file-line {
+.vault-syncer-xfer-file-line {
     display: flex;
     align-items: baseline;
     gap: 8px;
     min-width: 0;
 }
 
-.vault-sync-xfer-name {
+.vault-syncer-xfer-name {
     flex: 0 1 auto;
     min-width: 0;
     overflow: hidden;
@@ -1235,7 +1235,7 @@
     white-space: nowrap;
 }
 
-.vault-sync-xfer-dir {
+.vault-syncer-xfer-dir {
     flex: 0 10 auto;
     min-width: 0;
     overflow: hidden;
@@ -1245,12 +1245,12 @@
     font-size: var(--font-ui-smaller);
 }
 
-.vault-sync-xfer-file .vault-sync-xfer-error {
+.vault-syncer-xfer-file .vault-syncer-xfer-error {
     margin-top: 2px;
     font-size: var(--font-ui-smaller);
 }
 
-.vault-sync-xfer-meta {
+.vault-syncer-xfer-meta {
     display: flex;
     align-items: center;
     justify-content: flex-end;
@@ -1261,40 +1261,40 @@
     white-space: nowrap;
 }
 
-.vault-sync-xfer-state {
+.vault-syncer-xfer-state {
     display: inline-flex;
     align-items: center;
     gap: 4px;
 }
 
-.vault-sync-xfer-state.mod-warn,
-.vault-sync-xfer-result.is-failed {
+.vault-syncer-xfer-state.mod-warn,
+.vault-syncer-xfer-result.is-failed {
     color: var(--text-error);
 }
 
-.vault-sync-xfer-state .vault-sync-spinner {
+.vault-syncer-xfer-state .vault-syncer-spinner {
     width: 10px;
     height: 10px;
     border-width: 2px;
 }
 
-.vault-sync-xfer-row.is-cancelled .vault-sync-xfer-file {
+.vault-syncer-xfer-row.is-cancelled .vault-syncer-xfer-file {
     color: var(--text-muted);
 }
 
 /* History: days and batches */
-.vault-sync-xfer-day-label {
+.vault-syncer-xfer-day-label {
     padding: 12px 0 2px;
     color: var(--text-muted);
     font-size: var(--font-ui-small);
     font-weight: var(--font-semibold);
 }
 
-.vault-sync-xfer-batch {
+.vault-syncer-xfer-batch {
     border-bottom: 1px solid var(--background-modifier-border);
 }
 
-.modal.mod-transfer-status-modal .vault-sync-xfer-batch-head {
+.modal.mod-transfer-status-modal .vault-syncer-xfer-batch-head {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -1313,40 +1313,40 @@
     cursor: pointer;
 }
 
-.vault-sync-xfer-chevron {
+.vault-syncer-xfer-chevron {
     display: flex;
     color: var(--text-faint);
     transition: transform 0.15s ease;
 }
 
-.vault-sync-xfer-chevron svg {
+.vault-syncer-xfer-chevron svg {
     width: 14px;
     height: 14px;
 }
 
-.vault-sync-xfer-batch.is-open .vault-sync-xfer-chevron {
+.vault-syncer-xfer-batch.is-open .vault-syncer-xfer-chevron {
     transform: rotate(90deg);
 }
 
-.vault-sync-xfer-batch-counts {
+.vault-syncer-xfer-batch-counts {
     margin-right: auto;
     color: var(--text-muted);
 }
 
-.vault-sync-xfer-batch-counts .mod-failed {
+.vault-syncer-xfer-batch-counts .mod-failed {
     color: var(--text-error);
 }
 
-.vault-sync-xfer-batch-head .vault-sync-xfer-size {
+.vault-syncer-xfer-batch-head .vault-syncer-xfer-size {
     color: var(--text-muted);
     font-size: var(--font-ui-smaller);
 }
 
-.vault-sync-xfer-batch > .vault-sync-xfer-list {
+.vault-syncer-xfer-batch > .vault-syncer-xfer-list {
     padding: 0 0 6px 22px;
 }
 
-.vault-sync-xfer-batch:not(.is-open) > .vault-sync-xfer-list {
+.vault-syncer-xfer-batch:not(.is-open) > .vault-syncer-xfer-list {
     display: none;
 }
 
@@ -1361,61 +1361,61 @@
     background-color: var(--background-primary);
 }
 
-.is-mobile .vault-sync-transfer-container {
+.is-mobile .vault-syncer-transfer-container {
     gap: var(--size-4-4);
     padding: var(--size-4-3) var(--size-4-3) 0;
 }
 
-.is-mobile .vault-sync-xfer-history-body {
+.is-mobile .vault-syncer-xfer-history-body {
     padding-bottom: calc(var(--size-4-4) + var(--safe-area-inset-bottom));
 }
 
-.is-phone .vault-sync-xfer-queue-body {
+.is-phone .vault-syncer-xfer-queue-body {
     height: 112px;
 }
 
-.is-phone .vault-sync-xfer-row {
+.is-phone .vault-syncer-xfer-row {
     gap: 8px;
     padding: 8px 0;
 }
 
 /* Phone: the folder goes under the file name, the time is dropped */
-.is-phone .vault-sync-xfer-file-line {
+.is-phone .vault-syncer-xfer-file-line {
     flex-direction: column;
     align-items: stretch;
     gap: 0;
 }
 
-.is-phone .mod-history .vault-sync-xfer-time {
+.is-phone .mod-history .vault-syncer-xfer-time {
     display: none;
 }
 
-.is-phone .vault-sync-xfer-meta {
+.is-phone .vault-syncer-xfer-meta {
     flex-direction: column;
     align-items: flex-end;
     gap: 2px;
 }
 
 /* Add-on install dialog */
-.vault-sync-addon-install h3 {
+.vault-syncer-addon-install h3 {
     margin-top: 1.2em;
     margin-bottom: 0.2em;
     font-size: 1em;
 }
-.vault-sync-addon-install .setting-item-description {
+.vault-syncer-addon-install .setting-item-description {
     color: var(--text-normal);
 }
-.vault-sync-addon-install-notice {
+.vault-syncer-addon-install-notice {
     padding: 8px 12px;
     border-radius: var(--radius-s);
     background: var(--background-modifier-hover);
     font-weight: 600;
 }
-.vault-sync-addon-install-name {
+.vault-syncer-addon-install-name {
     font-weight: 600;
     margin-bottom: 0.2em;
 }
-.vault-sync-addon-terms {
+.vault-syncer-addon-terms {
     max-height: 40vh;
     overflow-y: auto;
     padding: 4px 12px;
@@ -1424,74 +1424,74 @@
     background: var(--background-secondary);
     font-size: 0.9em;
 }
-.vault-sync-addon-install-status {
+.vault-syncer-addon-install-status {
     min-height: 1.4em;
     margin-top: 8px;
     color: var(--text-success);
 }
-.vault-sync-addon-install-status.mod-error {
+.vault-syncer-addon-install-status.mod-error {
     color: var(--text-error);
 }
 
 /* ── Classes replacing former inline styles (Obsidian guideline: no hardcoded styling) ── */
-.vault-sync-prompt-input {
+.vault-syncer-prompt-input {
     width: 100%;
 }
 
-.vault-sync-prompt-error {
+.vault-syncer-prompt-error {
     color: var(--text-error);
     font-size: var(--font-ui-small);
     margin-top: 4px;
     min-height: 1.2em;
 }
 
-.revision-size.vault-sync-revision-size-row {
+.revision-size.vault-syncer-revision-size-row {
     display: flex;
     justify-content: space-between;
 }
 
-.vault-sync-revision-size-row .revision-pin {
+.vault-syncer-revision-size-row .revision-pin {
     font-size: 0.9em;
 }
 
-.revision-control-row.vault-sync-revision-control-row {
+.revision-control-row.vault-syncer-revision-control-row {
     display: flex;
     align-items: center;
     gap: 8px;
     margin-top: 8px;
 }
 
-.vault-sync-control-spacer {
+.vault-syncer-control-spacer {
     flex: 1;
 }
 
 /* Settings: hierarchical navigation */
-.vault-sync-settings-nav-row {
+.vault-syncer-settings-nav-row {
     cursor: pointer;
     align-items: center;
     gap: 12px;
     border-radius: var(--radius-s);
 }
 
-.vault-sync-settings-nav-row:hover,
-.vault-sync-settings-nav-row:focus-visible {
+.vault-syncer-settings-nav-row:hover,
+.vault-syncer-settings-nav-row:focus-visible {
     background-color: var(--background-modifier-hover);
 }
 
-.vault-sync-settings-nav-icon,
-.vault-sync-settings-nav-chevron {
+.vault-syncer-settings-nav-icon,
+.vault-syncer-settings-nav-chevron {
     display: flex;
     align-items: center;
     color: var(--text-muted);
     flex-shrink: 0;
 }
 
-.vault-sync-settings-nav-icon svg {
+.vault-syncer-settings-nav-icon svg {
     width: 20px;
     height: 20px;
 }
 
-.vault-sync-settings-page-header {
+.vault-syncer-settings-page-header {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
@@ -1499,7 +1499,7 @@
     margin-bottom: var(--size-4-5);
 }
 
-.vault-sync-settings-back {
+.vault-syncer-settings-back {
     display: inline-flex;
     align-items: center;
     gap: var(--size-4-1);
@@ -1511,31 +1511,31 @@
     font-size: var(--font-ui-small);
 }
 
-.vault-sync-settings-back:hover {
+.vault-syncer-settings-back:hover {
     color: var(--text-normal);
 }
 
-.is-mobile .vault-sync-settings-back {
+.is-mobile .vault-syncer-settings-back {
     min-height: 44px;
 }
 
-.vault-sync-settings-back-icon {
+.vault-syncer-settings-back-icon {
     display: flex;
     align-items: center;
 }
 
-.vault-sync-settings-container .setting-item-heading.vault-sync-settings-page-title {
+.vault-syncer-settings-container .setting-item-heading.vault-syncer-settings-page-title {
     width: 100%;
     margin: 0;
     padding: 0;
     border-top: none;
 }
 
-.vault-sync-settings-page-title .setting-item-name {
+.vault-syncer-settings-page-title .setting-item-name {
     font-size: var(--font-ui-large);
 }
 
-.vault-sync-settings-section-title {
+.vault-syncer-settings-section-title {
     margin-top: var(--size-4-4);
 }
 
@@ -1543,7 +1543,7 @@
  * Desktop: status bar item + popover panel.
  * Mobile: progress line under the header, pill, bottom sheet.
  */
-.vault-sync-status-item {
+.vault-syncer-status-item {
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -1551,21 +1551,21 @@
     white-space: nowrap;
 }
 
-.vault-sync-status-item[data-state="syncing"],
-.vault-sync-status-item[data-state="scanning"] {
+.vault-syncer-status-item[data-state="syncing"],
+.vault-syncer-status-item[data-state="scanning"] {
     color: var(--text-normal);
 }
 
-.vault-sync-status-item[data-state="error"],
-.vault-sync-status-item[data-state="auth"] {
+.vault-syncer-status-item[data-state="error"],
+.vault-syncer-status-item[data-state="auth"] {
     color: var(--text-error);
 }
 
-.vault-sync-status-item[data-state="offline"] {
+.vault-syncer-status-item[data-state="offline"] {
     color: var(--text-warning);
 }
 
-.vault-sync-status-ring {
+.vault-syncer-status-ring {
     --vs-p: 0;
     flex: 0 0 auto;
     width: 12px;
@@ -1579,25 +1579,25 @@
     mask: radial-gradient(circle 3px, transparent 98%, #000 100%);
 }
 
-[data-state="synced"] > .vault-sync-status-ring {
+[data-state="synced"] > .vault-syncer-status-ring {
     background: var(--color-green);
 }
 
-[data-state="error"] > .vault-sync-status-ring,
-[data-state="auth"] > .vault-sync-status-ring {
+[data-state="error"] > .vault-syncer-status-ring,
+[data-state="auth"] > .vault-syncer-status-ring {
     background: var(--text-error);
 }
 
-[data-state="offline"] > .vault-sync-status-ring {
+[data-state="offline"] > .vault-syncer-status-ring {
     background: var(--text-warning);
 }
 
-[data-state="never"] > .vault-sync-status-ring {
+[data-state="never"] > .vault-syncer-status-ring {
     background: var(--text-faint);
 }
 
 /* Panel (shared by the desktop popover and the mobile sheet) */
-.vault-sync-status-panel {
+.vault-syncer-status-panel {
     display: flex;
     flex-direction: column;
     gap: 12px;
@@ -1605,7 +1605,7 @@
     color: var(--text-normal);
 }
 
-.vault-sync-status-popover {
+.vault-syncer-status-popover {
     position: fixed;
     right: 8px;
     bottom: calc(var(--status-bar-height, 26px) + 10px);
@@ -1621,7 +1621,7 @@
 }
 
 /* Each row of the panel is one line in every state: nothing wraps, long text is cut */
-.vault-sync-status-head {
+.vault-syncer-status-head {
     display: flex;
     justify-content: space-between;
     align-items: baseline;
@@ -1629,42 +1629,42 @@
     white-space: nowrap;
 }
 
-.vault-sync-status-title {
+.vault-syncer-status-title {
     flex: 0 0 auto;
     font-size: var(--font-ui-medium);
     font-weight: var(--font-semibold);
 }
 
-.vault-sync-status-sub {
+.vault-syncer-status-sub {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
-[data-state="error"] .vault-sync-status-title,
-[data-state="auth"] .vault-sync-status-title {
+[data-state="error"] .vault-syncer-status-title,
+[data-state="auth"] .vault-syncer-status-title {
     color: var(--text-error);
 }
 
-[data-state="offline"] .vault-sync-status-title {
+[data-state="offline"] .vault-syncer-status-title {
     color: var(--text-warning);
 }
 
-.vault-sync-status-sub,
-.vault-sync-status-muted {
+.vault-syncer-status-sub,
+.vault-syncer-status-muted {
     color: var(--text-muted);
     font-size: var(--font-ui-smaller);
     font-variant-numeric: tabular-nums;
 }
 
-.vault-sync-status-steps {
+.vault-syncer-status-steps {
     --vs-steps: 4;
     display: grid;
     grid-template-columns: repeat(var(--vs-steps), 1fr);
     gap: 4px;
 }
 
-.vault-sync-status-step {
+.vault-syncer-status-step {
     display: flex;
     flex-direction: column;
     gap: 4px;
@@ -1673,13 +1673,13 @@
     color: var(--text-faint);
 }
 
-.vault-sync-status-step > span {
+.vault-syncer-status-step > span {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.vault-sync-status-step-bar {
+.vault-syncer-status-step-bar {
     height: 6px;
     border-radius: 3px;
     background: var(--background-modifier-border);
@@ -1687,37 +1687,37 @@
 }
 
 /* Fills with the progress of its own step */
-.vault-sync-status-step-fill {
+.vault-syncer-status-step-fill {
     height: 100%;
     width: 0;
     background: var(--interactive-accent);
 }
 
-.vault-sync-status-step.is-done {
+.vault-syncer-status-step.is-done {
     color: var(--text-muted);
 }
 
-.vault-sync-status-step.is-done .vault-sync-status-step-fill {
+.vault-syncer-status-step.is-done .vault-syncer-status-step-fill {
     opacity: 0.45;
 }
 
-.vault-sync-status-step.is-current {
+.vault-syncer-status-step.is-current {
     color: var(--text-normal);
     font-weight: var(--font-semibold);
 }
 
 /* A step without a measure: a mark at rest, moving where motion is welcome */
-.vault-sync-status-step-fill.is-indeterminate,
-.vault-sync-verify-bar .vault-sync-status-bar-fill.is-indeterminate {
+.vault-syncer-status-step-fill.is-indeterminate,
+.vault-syncer-verify-bar .vault-syncer-status-bar-fill.is-indeterminate {
     width: 40%;
     opacity: 0.7;
 }
 
-[data-state="error"] .vault-sync-status-step-fill {
+[data-state="error"] .vault-syncer-status-step-fill {
     background: var(--text-error);
 }
 
-@keyframes vault-sync-step-indeterminate {
+@keyframes vault-syncer-step-indeterminate {
     from {
         transform: translateX(-100%);
     }
@@ -1726,30 +1726,30 @@
     }
 }
 
-.vault-sync-status-bar,
-.vault-sync-status-mini {
+.vault-syncer-status-bar,
+.vault-syncer-status-mini {
     height: 8px;
     border-radius: 4px;
     background: var(--background-modifier-border);
     overflow: hidden;
 }
 
-.vault-sync-status-mini {
+.vault-syncer-status-mini {
     height: 5px;
     border-radius: 3px;
 }
 
-.vault-sync-status-bar-fill {
+.vault-syncer-status-bar-fill {
     height: 100%;
     width: 0;
     background: var(--interactive-accent);
 }
 
-[data-state="error"] .vault-sync-status-bar .vault-sync-status-bar-fill {
+[data-state="error"] .vault-syncer-status-bar .vault-syncer-status-bar-fill {
     background: var(--text-error);
 }
 
-.vault-sync-status-kv {
+.vault-syncer-status-kv {
     display: grid;
     grid-template-columns: auto 1fr auto;
     align-items: center;
@@ -1758,21 +1758,21 @@
     white-space: nowrap;
 }
 
-.vault-sync-status-kv > * {
+.vault-syncer-status-kv > * {
     font-size: var(--font-ui-smaller);
     line-height: 1.4;
 }
 
-.vault-sync-status-num {
+.vault-syncer-status-num {
     text-align: right;
 }
 
-.vault-sync-status-warn {
+.vault-syncer-status-warn {
     color: var(--text-warning);
 }
 
 /* Detail box: always two lines (file in transfer, failure reason or idle note) */
-.vault-sync-status-now {
+.vault-syncer-status-now {
     --vs-now-line: 1.45em;
     flex: 0 0 auto;
     box-sizing: content-box;
@@ -1785,7 +1785,7 @@
     overflow: hidden;
 }
 
-.vault-sync-status-now-line {
+.vault-syncer-status-now-line {
     height: var(--vs-now-line);
     font-size: inherit;
     overflow: hidden;
@@ -1793,7 +1793,7 @@
     white-space: nowrap;
 }
 
-.vault-sync-status-now-text {
+.vault-syncer-status-now-text {
     display: -webkit-box;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
@@ -1801,21 +1801,21 @@
     overflow-wrap: anywhere;
 }
 
-.vault-sync-status-file {
+.vault-syncer-status-file {
     font-weight: var(--font-semibold);
 }
 
-.vault-sync-status-error {
+.vault-syncer-status-error {
     background: rgba(var(--color-red-rgb), 0.1);
     color: var(--text-error);
 }
 
-[data-state="offline"] > .vault-sync-status-error {
+[data-state="offline"] > .vault-syncer-status-error {
     background: rgba(var(--color-orange-rgb), 0.1);
     color: var(--text-warning);
 }
 
-.vault-sync-status-foot {
+.vault-syncer-status-foot {
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -1823,7 +1823,7 @@
     min-height: var(--input-height, 30px);
 }
 
-.vault-sync-status-note {
+.vault-syncer-status-note {
     flex: 1 1 0;
     min-width: 0;
     overflow: hidden;
@@ -1831,7 +1831,7 @@
     white-space: nowrap;
 }
 
-.vault-sync-status-btns {
+.vault-syncer-status-btns {
     display: flex;
     flex: 0 0 auto;
     gap: 8px;
@@ -1839,29 +1839,29 @@
 }
 
 @media (prefers-reduced-motion: no-preference) {
-    .vault-sync-status-bar-fill,
-    .vault-sync-status-line-fill {
+    .vault-syncer-status-bar-fill,
+    .vault-syncer-status-line-fill {
         transition: width 0.4s ease;
     }
 
-    .vault-sync-status-step-fill.is-indeterminate,
-    .vault-sync-verify-bar .vault-sync-status-bar-fill.is-indeterminate {
-        animation: vault-sync-step-indeterminate 1.4s linear infinite;
+    .vault-syncer-status-step-fill.is-indeterminate,
+    .vault-syncer-verify-bar .vault-syncer-status-bar-fill.is-indeterminate {
+        animation: vault-syncer-step-indeterminate 1.4s linear infinite;
     }
 }
 
 /* Mobile: progress line + pill under Obsidian's floating header */
-.vault-sync-status-line,
-.vault-sync-status-pill {
+.vault-syncer-status-line,
+.vault-syncer-status-pill {
     display: none;
 }
 
-.is-mobile .vault-sync-status-line {
+.is-mobile .vault-syncer-status-line {
     display: block;
     position: fixed;
     left: 0;
     right: 0;
-    top: calc(var(--vault-sync-status-top, 45px) + var(--safe-area-inset-top));
+    top: calc(var(--vault-syncer-status-top, 45px) + var(--safe-area-inset-top));
     z-index: var(--layer-status-bar, 15);
     height: 3px;
     background: var(--background-modifier-border);
@@ -1873,16 +1873,16 @@
         visibility 0.2s;
 }
 
-.is-mobile .vault-sync-status-line-fill {
+.is-mobile .vault-syncer-status-line-fill {
     height: 100%;
     width: 0;
     background: var(--interactive-accent);
 }
 
-.is-mobile .vault-sync-status-pill {
+.is-mobile .vault-syncer-status-pill {
     display: inline-flex;
     position: fixed;
-    top: calc(var(--vault-sync-status-top, 45px) + 10px + var(--safe-area-inset-top));
+    top: calc(var(--vault-syncer-status-top, 45px) + 10px + var(--safe-area-inset-top));
     left: 50%;
     transform: translateX(-50%) translateY(-4px);
     z-index: var(--layer-status-bar, 15);
@@ -1906,23 +1906,23 @@
         visibility 0.2s;
 }
 
-.is-mobile .vault-sync-status-line.is-visible,
-.is-mobile .vault-sync-status-pill.is-visible {
+.is-mobile .vault-syncer-status-line.is-visible,
+.is-mobile .vault-syncer-status-pill.is-visible {
     opacity: 1;
     visibility: visible;
 }
 
-.is-mobile .vault-sync-status-pill.is-visible {
+.is-mobile .vault-syncer-status-pill.is-visible {
     pointer-events: auto;
     transform: translateX(-50%);
 }
 
-.is-mobile .vault-sync-status-pill .vault-sync-status-text {
+.is-mobile .vault-syncer-status-pill .vault-syncer-status-text {
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
-.is-mobile .vault-sync-status-pill .vault-sync-status-ring {
+.is-mobile .vault-syncer-status-pill .vault-syncer-status-ring {
     -webkit-mask: none;
     mask: none;
     background: conic-gradient(
@@ -1931,33 +1931,33 @@
     );
 }
 
-.is-mobile .vault-sync-status-pill[data-state="synced"] .vault-sync-status-ring {
+.is-mobile .vault-syncer-status-pill[data-state="synced"] .vault-syncer-status-ring {
     background: var(--color-green);
 }
 
-.is-mobile .vault-sync-status-pill[data-state="error"] .vault-sync-status-ring,
-.is-mobile .vault-sync-status-pill[data-state="auth"] .vault-sync-status-ring {
+.is-mobile .vault-syncer-status-pill[data-state="error"] .vault-syncer-status-ring,
+.is-mobile .vault-syncer-status-pill[data-state="auth"] .vault-syncer-status-ring {
     background: var(--color-red);
 }
 
-.is-mobile .vault-sync-status-pill[data-state="offline"] .vault-sync-status-ring {
+.is-mobile .vault-syncer-status-pill[data-state="offline"] .vault-syncer-status-ring {
     background: var(--color-orange);
 }
 
 /* Mobile: bottom sheet */
-.vault-sync-status-sheet-root {
+.vault-syncer-status-sheet-root {
     position: fixed;
     inset: 0;
     z-index: var(--layer-modal);
 }
 
-.vault-sync-status-sheet-backdrop {
+.vault-syncer-status-sheet-backdrop {
     position: absolute;
     inset: 0;
     background: var(--background-modifier-cover);
 }
 
-.vault-sync-status-sheet {
+.vault-syncer-status-sheet {
     position: absolute;
     left: 0;
     right: 0;
@@ -1972,7 +1972,7 @@
     gap: 10px;
 }
 
-.vault-sync-status-sheet-grab {
+.vault-syncer-status-sheet-grab {
     align-self: center;
     width: 36px;
     height: 4px;
@@ -1980,18 +1980,18 @@
     background: var(--background-modifier-border);
 }
 
-.vault-sync-status-sheet-body {
+.vault-syncer-status-sheet-body {
     display: flex;
     flex-direction: column;
     gap: 12px;
 }
 
-.vault-sync-status-sheet .vault-sync-status-btns button {
+.vault-syncer-status-sheet .vault-syncer-status-btns button {
     min-height: 40px;
 }
 
 /* Mass deletion confirmation: long path lists scroll inside the dialog */
-.vault-sync-mass-delete-list {
+.vault-syncer-mass-delete-list {
     max-height: 40vh;
     overflow-y: auto;
     padding-inline-start: 1.25em;
@@ -2000,25 +2000,25 @@
     word-break: break-all;
 }
 
-.vault-sync-remote-trash-list {
+.vault-syncer-remote-trash-list {
     max-height: 60vh;
     overflow-y: auto;
 }
 
-.vault-sync-remote-trash-list .setting-item-name {
+.vault-syncer-remote-trash-list .setting-item-name {
     word-break: break-all;
 }
 
 /* Settings: diff preview */
-.vault-sync-diff-preview-setting {
+.vault-syncer-diff-preview-setting {
     flex-wrap: wrap;
 }
 
-.vault-sync-diff-preview-setting .setting-item-control {
+.vault-syncer-diff-preview-setting .setting-item-control {
     display: none;
 }
 
-.vault-sync-diff-preview {
+.vault-syncer-diff-preview {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
     gap: 12px;
@@ -2026,7 +2026,7 @@
     margin-top: 10px;
 }
 
-.vault-sync-diff-preview-pane {
+.vault-syncer-diff-preview-pane {
     display: flex;
     flex-direction: column;
     min-width: 0;
@@ -2036,11 +2036,11 @@
 }
 
 /* The mobile sample is as wide as a phone so lines wrap the same way */
-.vault-sync-diff-preview-pane.mod-mobile {
+.vault-syncer-diff-preview-pane.mod-mobile {
     max-width: 390px;
 }
 
-.vault-sync-diff-preview-label {
+.vault-syncer-diff-preview-label {
     padding: 4px 10px;
     background: var(--background-secondary);
     border-bottom: 1px solid var(--background-modifier-border);
@@ -2049,25 +2049,25 @@
 }
 
 /* Conflict resolve screen */
-.vault-sync-conflict-modal {
+.vault-syncer-conflict-modal {
     width: min(1000px, 95vw);
 }
 
-.vault-sync-conflict-path {
+.vault-syncer-conflict-path {
     font-family: var(--font-monospace);
     font-size: var(--font-ui-small);
     color: var(--text-muted);
     word-break: break-all;
 }
 
-.vault-sync-conflict-chunks {
+.vault-syncer-conflict-chunks {
     max-height: 45vh;
     overflow-y: auto;
     border: 1px solid var(--background-modifier-border);
     border-radius: var(--radius-s);
 }
 
-.vault-sync-conflict-chunks pre {
+.vault-syncer-conflict-chunks pre {
     margin: 0;
     padding: 2px var(--size-4-2);
     white-space: pre-wrap;
@@ -2075,86 +2075,86 @@
     font-size: var(--font-ui-small);
 }
 
-.vault-sync-conflict-same {
+.vault-syncer-conflict-same {
     color: var(--text-muted);
 }
 
-.vault-sync-conflict-fold {
+.vault-syncer-conflict-fold {
     padding: 2px var(--size-4-2);
     font-size: var(--font-ui-smaller);
     color: var(--text-faint);
     background: var(--background-secondary);
 }
 
-.vault-sync-conflict-chunk {
+.vault-syncer-conflict-chunk {
     border-top: 1px solid var(--background-modifier-border);
     border-bottom: 1px solid var(--background-modifier-border);
     padding: var(--size-4-1) 0;
 }
 
-.vault-sync-conflict-panes {
+.vault-syncer-conflict-panes {
     display: flex;
     flex-wrap: wrap;
     gap: var(--size-4-2);
 }
 
-.vault-sync-conflict-pane {
+.vault-syncer-conflict-pane {
     flex: 1 1 280px;
     min-width: 0;
     background: var(--background-secondary);
     border-radius: var(--radius-s);
 }
 
-.vault-sync-conflict-pane-label {
+.vault-syncer-conflict-pane-label {
     padding: 2px var(--size-4-2);
     font-size: var(--font-ui-smaller);
     color: var(--text-muted);
 }
 
-.vault-sync-conflict-choices {
+.vault-syncer-conflict-choices {
     display: flex;
     gap: var(--size-4-2);
     padding: var(--size-4-1) var(--size-4-2);
 }
 
-.vault-sync-conflict-result {
+.vault-syncer-conflict-result {
     width: 100%;
     font-family: var(--font-monospace);
     font-size: var(--font-ui-small);
 }
 
-.vault-sync-conflict-buttons {
+.vault-syncer-conflict-buttons {
     flex-wrap: wrap;
 }
 
-.vault-sync-conflict-hint {
+.vault-syncer-conflict-hint {
     margin-bottom: var(--size-4-2);
     font-size: var(--font-ui-smaller);
     color: var(--text-muted);
 }
 
-.vault-sync-conflict-modal .modal-content > * {
+.vault-syncer-conflict-modal .modal-content > * {
     flex-shrink: 0;
 }
 
 /* Phone: the page scrolls as one, the diff has no scroll of its own */
-.is-phone .vault-sync-conflict-chunks {
+.is-phone .vault-syncer-conflict-chunks {
     max-height: none;
     overflow-y: visible;
 }
 
 /* Devices and changes */
-.vault-sync-activity-list {
+.vault-syncer-activity-list {
     max-height: 50vh;
     overflow-y: auto;
 }
 
-.vault-sync-activity-row {
+.vault-syncer-activity-row {
     padding: var(--size-4-1) 0;
     border-bottom: 1px solid var(--background-modifier-border);
 }
 
-.vault-sync-activity-meta {
+.vault-syncer-activity-meta {
     display: flex;
     flex-wrap: wrap;
     gap: var(--size-4-2);
@@ -2162,94 +2162,94 @@
     color: var(--text-muted);
 }
 
-.vault-sync-activity-op.mod-delete,
-.vault-sync-activity-op.mod-conflict {
+.vault-syncer-activity-op.mod-delete,
+.vault-syncer-activity-op.mod-conflict {
     color: var(--text-error);
 }
 
-.vault-sync-activity-path {
+.vault-syncer-activity-path {
     font-size: var(--font-ui-small);
     overflow-wrap: anywhere;
 }
 
-.vault-sync-activity-from {
+.vault-syncer-activity-from {
     color: var(--text-muted);
 }
 
-.vault-sync-activity-more {
+.vault-syncer-activity-more {
     margin-top: var(--size-4-2);
 }
 
 /* Full-height phone modals lay out their content as a flex column: never let
    a paragraph or list shrink below its content (it was cut to one line). */
-.vault-sync-devices-modal .modal-content > * {
+.vault-syncer-devices-modal .modal-content > * {
     flex-shrink: 0;
 }
 
-.vault-sync-devices-note {
+.vault-syncer-devices-note {
     margin: var(--size-4-2) 0;
     font-size: var(--font-ui-smaller);
     color: var(--text-muted);
 }
 
 /* Diagnostic info */
-.vault-sync-diagnostics-modal .modal-content > * {
+.vault-syncer-diagnostics-modal .modal-content > * {
     flex-shrink: 0;
 }
 
-.vault-sync-diagnostics-note {
+.vault-syncer-diagnostics-note {
     margin: var(--size-4-2) 0;
     font-size: var(--font-ui-smaller);
     color: var(--text-muted);
 }
 
-.vault-sync-diagnostics-text {
+.vault-syncer-diagnostics-text {
     width: 100%;
     font-family: var(--font-monospace);
     font-size: var(--font-ui-smaller);
 }
 
 /* Settings search (top page) */
-.vault-sync-settings-search {
+.vault-syncer-settings-search {
     margin-bottom: var(--size-4-3);
 }
 
-.vault-sync-settings-search .search-input-container {
+.vault-syncer-settings-search .search-input-container {
     width: 100%;
 }
 
-.vault-sync-settings-search-group a.vault-sync-subheader-text {
+.vault-syncer-settings-search-group a.vault-syncer-subheader-text {
     text-decoration: none;
 }
 
-.vault-sync-settings-search-group a.vault-sync-subheader-text:hover {
+.vault-syncer-settings-search-group a.vault-syncer-subheader-text:hover {
     color: var(--text-accent);
 }
 
-.vault-sync-settings-search-none {
+.vault-syncer-settings-search-none {
     color: var(--text-muted);
 }
 
 /* Restore to a past time */
-.vault-sync-pit-modal .modal-content > * {
+.vault-syncer-pit-modal .modal-content > * {
     flex-shrink: 0;
 }
 
-.vault-sync-pit-note {
+.vault-syncer-pit-note {
     margin: var(--size-4-2) 0;
     font-size: var(--font-ui-small);
     color: var(--text-muted);
 }
 
-.vault-sync-pit-progress {
+.vault-syncer-pit-progress {
     font-variant-numeric: tabular-nums;
 }
 
-.vault-sync-pit-summary {
+.vault-syncer-pit-summary {
     margin: var(--size-4-2) 0;
 }
 
-.vault-sync-pit-count {
+.vault-syncer-pit-count {
     display: flex;
     justify-content: space-between;
     gap: var(--size-4-2);
@@ -2257,85 +2257,85 @@
     border-bottom: 1px solid var(--background-modifier-border);
 }
 
-.vault-sync-pit-count-n {
+.vault-syncer-pit-count-n {
     font-variant-numeric: tabular-nums;
     color: var(--text-muted);
 }
 
-.vault-sync-pit-list {
+.vault-syncer-pit-list {
     max-height: 40vh;
     overflow-y: auto;
     margin: var(--size-4-2) 0;
     font-size: var(--font-ui-small);
 }
 
-.vault-sync-pit-row {
+.vault-syncer-pit-row {
     display: flex;
     gap: var(--size-4-2);
     padding: var(--size-2-1) 0;
 }
 
-.vault-sync-pit-tag {
+.vault-syncer-pit-tag {
     flex-shrink: 0;
     min-width: 6em;
     color: var(--text-muted);
 }
 
-.vault-sync-pit-tag.mod-created-after {
+.vault-syncer-pit-tag.mod-created-after {
     color: var(--text-warning);
 }
 
-.vault-sync-pit-path {
+.vault-syncer-pit-path {
     word-break: break-all;
 }
 
 /* Exclusion lists: which devices a list applies to */
-.vault-sync-exclusion-note {
+.vault-syncer-exclusion-note {
     margin: 0 0 var(--size-4-3);
     color: var(--text-muted);
     font-size: var(--font-ui-small);
 }
 
 /* Conflict count in the sync status panel: opens the conflict resolver */
-.vault-sync-status-link {
+.vault-syncer-status-link {
     text-decoration: underline;
     cursor: pointer;
 }
 
-.vault-sync-status-btns .vault-sync-status-more {
+.vault-syncer-status-btns .vault-syncer-status-more {
     padding: var(--size-2-2) var(--size-2-3);
 }
 
-.vault-sync-revision-item:focus-visible {
+.vault-syncer-revision-item:focus-visible {
     outline: none;
     box-shadow: inset 0 0 0 2px var(--background-modifier-border-focus);
 }
 
 /* Delete button of an exclusion pattern: a full-size touch target on phones */
-.is-mobile .vault-sync-exclusion-delete {
+.is-mobile .vault-syncer-exclusion-delete {
     min-width: 44px;
     min-height: 44px;
     justify-content: center;
 }
 
 /* Headings inside this plugin's dialogs line up with the rows below them */
-.modal .vault-sync-modal-heading.setting-item-heading {
+.modal .vault-syncer-modal-heading.setting-item-heading {
     padding-inline: 0;
 }
 
 /* Version history when signed out: the reason and the way to fix it */
-.vault-sync-history-signin {
+.vault-syncer-history-signin {
     padding: var(--size-4-4);
 }
 
 /* Size after a file name in a suggestion list */
-.vault-sync-suggest-note {
+.vault-syncer-suggest-note {
     color: var(--text-muted);
     font-size: var(--font-ui-smaller);
 }
 
 /* Sync check while it runs: a bar, then the count and the time left */
-.vault-sync-verify-progress {
+.vault-syncer-verify-progress {
     display: flex;
     justify-content: space-between;
     gap: var(--size-4-2);
@@ -2347,10 +2347,10 @@
 }
 
 /* Sync check: one folded list per kind of difference */
-.vault-sync-verify-group {
+.vault-syncer-verify-group {
     margin: var(--size-4-2) 0;
 }
-.vault-sync-verify-group ul {
+.vault-syncer-verify-group ul {
     max-height: 12em;
     overflow-y: auto;
     margin: var(--size-4-1) 0 0;
@@ -2359,8 +2359,8 @@
 }
 
 /* File explorer marks (optional): a small dot after the name */
-.nav-file-title.vault-sync-mark-pending::after,
-.nav-file-title.vault-sync-mark-conflict::after {
+.nav-file-title.vault-syncer-mark-pending::after,
+.nav-file-title.vault-syncer-mark-conflict::after {
     content: "";
     flex-shrink: 0;
     width: 6px;
@@ -2369,9 +2369,9 @@
     border-radius: 50%;
     align-self: center;
 }
-.nav-file-title.vault-sync-mark-pending::after {
+.nav-file-title.vault-syncer-mark-pending::after {
     background-color: var(--text-accent);
 }
-.nav-file-title.vault-sync-mark-conflict::after {
+.nav-file-title.vault-syncer-mark-conflict::after {
     background-color: var(--text-error);
 }
