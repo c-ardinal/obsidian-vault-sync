@@ -333,6 +333,14 @@ async function pullFileSafelyClaimed(
             clash = null;
             release = claimPullPath(ctx, item.path, fileId);
         }
+        if (clash && clashId && fileId < clashId && !(await ctx.vault.exists(clash))) {
+            // The note that has to move is not on this disk (deleted here, the deletion
+            // not pushed yet): nothing collides here. Renaming the incoming one instead
+            // broke the rule above: another device renamed the other note of the pair,
+            // and both ended as "x (2)" in two folders that are one folder here.
+            clash = null;
+            release = claimPullPath(ctx, item.path, fileId);
+        }
         if (clash) {
             const newPath = await freeCollisionPath(ctx, item.path);
             try {
@@ -366,8 +374,22 @@ async function pullFileSafelyClaimed(
             return false;
         }
     }
+    // Renamed or moved here, the move not pushed yet (the pull of a pending conflict
+    // runs under the new name). The pull writes a fresh index entry: without the move
+    // carried over, the cloud file stayed under its old name for good while this
+    // device listed it under the new one.
+    const unpushedMove = fileId && ctx.index[item.path]?.fileId === fileId ? ctx.index[item.path].pendingMove : undefined;
     try {
         const ok = await pullFileUnchecked(ctx, item, logPrefix, isRemoteDeleted, fileId);
+        if (unpushedMove && ctx.index[item.path]?.fileId === fileId && !ctx.index[item.path].pendingMove) {
+            ctx.index[item.path].pendingMove = unpushedMove;
+            ctx.index[item.path].forcePush = true;
+            if (ctx.localIndex[item.path]) {
+                ctx.localIndex[item.path].pendingMove = unpushedMove;
+                ctx.localIndex[item.path].forcePush = true;
+            }
+            ctx.dirtyPaths.set(item.path, ctx.dirtyPaths.get(item.path) ?? Date.now());
+        }
         if (ok && fileId && ctx.index[item.path]?.fileId === fileId) {
             await dropStaleAliases(ctx, item.path, fileId, logPrefix);
         }
