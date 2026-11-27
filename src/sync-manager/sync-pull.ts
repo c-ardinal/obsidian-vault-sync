@@ -161,7 +161,7 @@ async function detectPullChanges(
 
         if (!localBaseEntry) {
             // Remote rename detection: check if this fileId exists locally under a different name
-            const prevPathForId = localIdToPath.get(remoteEntry.fileId);
+            const prevPathForId = pathListedFor(ctx, localIdToPath, remoteEntry.fileId);
             if (prevPathForId && prevPathForId !== path) {
                 // Detected remote rename (A -> B) during initial full scan
                 const oldPath = prevPathForId;
@@ -233,7 +233,7 @@ async function detectPullChanges(
             // Check if this fileId exists locally under a different name (Rename in progress locally)
             // If we renamed A -> B locally, remote still sees A.
             // We should NOT download A if we are about to push B (which patches A -> B).
-            const renamedLocalPath = localIdToPath.get(remoteEntry.fileId);
+            const renamedLocalPath = pathListedFor(ctx, localIdToPath, remoteEntry.fileId);
             if (
                 renamedLocalPath &&
                 renamedLocalPath !== path &&
@@ -1588,6 +1588,24 @@ const foldersListedAt = new CtxState<Map<string, string>>(
     "Changed folders (by id) and the path each was listed at for notes that moved with it",
 );
 
+/**
+ * Where the note with this cloud id is listed on this device now.
+ *
+ * `known` is built when a pull step starts, and the step then waits on the cloud and
+ * the disk. A note the user renames meanwhile leaves the path `known` holds for it.
+ * Read as it was, the pull took the cloud's name for a rename made elsewhere, found
+ * no file at the stale path and downloaded the note again under the cloud's name:
+ * one note in two files.
+ */
+function pathListedFor(ctx: SyncContext, known: Map<string, string>, fileId: string): string | undefined {
+    const path = known.get(fileId);
+    if (path === undefined || ctx.index[path]?.fileId === fileId) return path;
+    const now = Object.entries(ctx.index).find(([, e]) => e.fileId === fileId)?.[0];
+    if (now === undefined) return path;
+    known.set(fileId, now);
+    return now;
+}
+
 async function notesMovedWithFolders(
     ctx: SyncContext,
     changes: ReadonlyArray<{ fileId: string; removed?: boolean; file?: ChangedFile & { kind: string } }>,
@@ -1809,7 +1827,7 @@ async function processChangePage(
 
             // Remote rename of a file we know under another path
             if (localIdToPath.has(cloudFile.id)) {
-                const prevPathForId = localIdToPath.get(cloudFile.id);
+                const prevPathForId = pathListedFor(ctx, localIdToPath, cloudFile.id);
                 if (prevPathForId && prevPathForId !== cloudFile.path) {
                     const oldPath = prevPathForId;
                     const newPath = cloudFile.path;

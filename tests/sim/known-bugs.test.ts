@@ -998,6 +998,33 @@ const FIXED_REGRESSIONS: Case[] = [
         config: { seed: 250750, ...CHAOS },
         expect: [],
     },
+    {
+        title: "a note renamed here while a pull is waiting on the cloud is not downloaded again",
+        symptom:
+            "Rename a note twice in a row while a sync runs: the note came back under its first name as well, one note in two files on every device",
+        config: { seed: 1179, ...LARGE, driveServer: true },
+        plan: [
+            { t: 0, dev: "A", kind: "join" },
+            { t: 7304, dev: "A", kind: "sync", scan: false },
+            { t: 8681, dev: "A", kind: "create", fid: "f1", path: "notes/A-1.md" },
+            { t: 10189, dev: "C", kind: "join" },
+            { t: 11090, dev: "A", kind: "sync", scan: false },
+            { t: 16816, dev: "A", kind: "sync", scan: true },
+            { t: 17498, dev: "B", kind: "join" },
+            { t: 22363, dev: "C", kind: "create", fid: "f4", path: "assets/C-3.png", binary: true },
+            { t: 22875, dev: "A", kind: "rename", pick: 0.7926614787429571, to: "notes/sub/A-r14.md" },
+            { t: 24033, dev: "A", kind: "sync", scan: false },
+            { t: 38156, dev: "A", kind: "rename", pick: 0.10778653551824391, to: "notes/sub/A-r23.md" },
+            { t: 40638, dev: "A", kind: "edit", pick: 0.9303215651307255, line: "A", value: "A26" },
+            { t: 48362, dev: "C", kind: "sync", scan: false },
+            { t: 48678, dev: "A", kind: "sync", scan: false },
+            { t: 50595, dev: "C", kind: "sync", scan: false },
+            { t: 57342, dev: "C", kind: "edit", pick: 0.48607094888575375, line: "C", value: "C39" },
+            { t: 57472, dev: "A", kind: "offline" },
+            { t: 63336, dev: "A", kind: "create", fid: "f6", path: "assets/A-3.png", binary: true },
+        ],
+        expect: [],
+    },
 ];
 
 function configOf(c: Case, name: string): SimConfig {
