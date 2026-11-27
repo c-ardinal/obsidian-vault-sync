@@ -23,7 +23,7 @@ import { MockCloudAdapter } from "../../helpers/mock-cloud-adapter";
 import { loadLocalIndex, resetIndex, saveCommunication } from "../../../src/sync-manager/state";
 import { vaultLockPath } from "../../../src/services/vault-lock-service";
 
-const SYNC_INDEX_PATH = ".obsidian/plugins/obsidian-vault-sync/data/remote/sync-index.json";
+const SYNC_INDEX_PATH = ".obsidian/plugins/cardinal-vault-syncer/data/remote/sync-index.json";
 
 // =============================================================================
 // Helpers
@@ -430,7 +430,7 @@ describe("Fix 1: checkForLockFile error handling by auth state", () => {
 // =============================================================================
 /** 初期同期時にローカルのデフォルトJSONがリモートと競合しないことを検証 */
 describe("Fix 3: Initial sync accepts remote for untracked local files", () => {
-    const JSON_PATH = ".obsidian/plugins/obsidian-vault-sync/data/open-data.json";
+    const JSON_PATH = ".obsidian/plugins/cardinal-vault-syncer/data/open-data.json";
     const JSON_FILE_ID = "f_json_1";
 
     it("should accept remote JSON when local has empty default {} and no localBase", async () => {

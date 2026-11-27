@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="img/vaultsync_logotype_v2.webp" alt="Vault Syncer" width="420">
+  <img src="img/vaultsyncer_logotype_v2.webp" alt="Vault Syncer" width="420">
 </p>
 
 <p align="center">
@@ -130,16 +130,6 @@ BRAT が自動的にアップデートを確認し、プラグインを最新状
 2. Vault の `.obsidian/plugins/` ディレクトリに `cardinal-vault-syncer` フォルダを作成する。
 3. ダウンロードしたファイルをフォルダに配置する。
 4. 設定 > コミュニティプラグインから「Vault Syncer」を有効化する。
-
-### 旧バージョン（プラグインID `cardinal-vault-sync` または `obsidian-vault-sync`）からの更新
-
-現在のプラグインIDは `cardinal-vault-syncer` である。旧バージョンは `cardinal-vault-sync`（0.19.1 以前）および `obsidian-vault-sync`（初期のバージョン）を使用していた。Obsidian はID単位で別フォルダにインストールするため、旧バージョンからの更新時は新規フォルダへのインストールとなる。
-
-1. コミュニティプラグインの閲覧画面から Vault Syncer をインストールする（BRAT の際は更新する）。
-2. 設定 > コミュニティプラグインで旧バージョン（ID `cardinal-vault-sync` または `obsidian-vault-sync`）を無効化し、アプリを再起動する。旧バージョンが有効な期間は新バージョンが同期を停止するため、両者が同一 Vault を同時に同期することはない。
-3. 新バージョンは初回起動時に、旧フォルダから設定・同期状態・導入済みアドオンを移行する。移行後は旧バージョンのアンインストールが可能。
-
-全デバイスを更新すること。更新完了までは旧バージョンのデバイスも従来同様に動作するが、旧バージョンと新バージョンのデバイス間ではファイル照合に長時間を要する可能性がある。
 
 ---
 

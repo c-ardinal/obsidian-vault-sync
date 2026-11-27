@@ -9,7 +9,7 @@ import { MockApp, MockVaultAdapter, MockVaultOperations } from "../helpers/mock-
 import type { Rng } from "./rng";
 import { PersonalityVaultAdapter, RealFsVaultAdapter, type FsPersonality } from "./sim-vault";
 
-export const PLUGIN_DIR = ".obsidian/plugins/obsidian-vault-sync";
+export const PLUGIN_DIR = ".obsidian/plugins/cardinal-vault-syncer";
 export const SYNC_INDEX_PATH = `${PLUGIN_DIR}/data/remote/sync-index.json`;
 export const LOCAL_INDEX_PATH = `${PLUGIN_DIR}/data/local/local-index.json`;
 
@@ -192,12 +192,6 @@ export class SimDevice {
     private inflight = new Set<Promise<void>>();
     private pendingEvents = 0;
 
-    /**
-     * The folder the plugin is installed in. Changed (with a restart) to play an
-     * update that moves the plugin to a new ID.
-     */
-    pluginDir = PLUGIN_DIR;
-
     constructor(private readonly opts: DeviceOptions) {
         this.name = opts.name;
         this.app = new MockApp();
@@ -259,12 +253,12 @@ export class SimDevice {
         this.sm = new SyncManager(
             fencedOps,
             fence(opts.cloudView(this)),
-            `${this.pluginDir}/data/remote/sync-index.json`,
+            SYNC_INDEX_PATH,
             settings,
-            this.pluginDir,
+            PLUGIN_DIR,
             (key: string) => key,
             notifier,
-            new RevisionCache(fencedOps, this.pluginDir),
+            new RevisionCache(fencedOps, PLUGIN_DIR),
             new BackgroundTransferQueue(),
         );
         if (opts.cryptoEngine) this.sm.cryptoEngine = opts.cryptoEngine;

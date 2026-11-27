@@ -68,7 +68,7 @@ describe("readAddonPackage", () => {
     });
 
     it("accepts a package whose files sit in a folder", async () => {
-        const result = await readAddonPackage(zip(FILES, "vault-sync-addon/"), registry());
+        const result = await readAddonPackage(zip(FILES, "vault-syncer-addon/"), registry());
         expect(result.ok).toBe(true);
     });
 

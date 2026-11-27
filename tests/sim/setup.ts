@@ -12,7 +12,7 @@ const toAB = (b: Buffer): ArrayBuffer => b.buffer.slice(b.byteOffset, b.byteOffs
 
 vi.mock("../../src/sync-manager/file-utils", async (importOriginal) => {
     const orig = await importOriginal<typeof import("../../src/sync-manager/file-utils")>();
-    const mocked = {
+    return {
         ...orig,
         compress: async (data: ArrayBuffer) => toAB(gzipSync(Buffer.from(data))),
         tryDecompress: async (data: ArrayBuffer) => {
@@ -21,10 +21,4 @@ vi.mock("../../src/sync-manager/file-utils", async (importOriginal) => {
             return data;
         },
     };
-    // The plugin folders are set after load (setPluginDir): read them from the module
-    // each time, a copy made here would keep the values of the moment it was made.
-    for (const name of ["PLUGIN_DIR", "LEGACY_PLUGIN_DIRS"] as const) {
-        Object.defineProperty(mocked, name, { get: () => orig[name], enumerable: true });
-    }
-    return mocked;
 });

@@ -62,7 +62,7 @@ Obsidian向けクラウドストレージ同期プラグイン。ローカルの
 #### Google Drive上のフォルダ構造
 
 ```
-ObsidianVaultSync/           ← App Root (設定で変更可)
+ObsidianVaultSyncer/           ← App Root (設定で変更可)
   └── <VaultName>/           ← Vault Root
        ├── notes             ← ユーザーファイル群
        └── .obsidian/        ← Obsidian 設定ファイル群 (選択同期)

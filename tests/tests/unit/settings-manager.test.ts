@@ -27,7 +27,7 @@ import { MockApp, MockVaultOperations } from "../../helpers/mock-vault-adapter";
 if (typeof window === "undefined") (globalThis as any).window = { crypto: nodeCrypto.webcrypto };
 if (!(window as any).crypto) (window as any).crypto = nodeCrypto.webcrypto;
 
-const DIR = ".obsidian/plugins/cardinal-vault-sync";
+const DIR = ".obsidian/plugins/cardinal-vault-syncer";
 const OPEN = `${DIR}/data/flexible/open-data.json`;
 const LOCAL = `${DIR}/data/local/local-data.json`;
 

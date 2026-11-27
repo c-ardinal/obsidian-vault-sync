@@ -9,7 +9,7 @@
  */
 import { Platform, setIcon } from "obsidian";
 import { formatMoment } from "./format-time";
-import type VaultSync from "../main";
+import type VaultSyncer from "../main";
 import type { SyncManager } from "../sync-manager";
 import { t } from "../i18n";
 import type { SyncPhase, SyncProgressSnapshot } from "../sync-manager/sync-progress";
@@ -117,7 +117,7 @@ export class SyncStatusView {
         if (e.key === "Escape") this.closeDetails();
     };
 
-    constructor(private plugin: VaultSync) {}
+    constructor(private plugin: VaultSyncer) {}
 
     get mounted(): boolean {
         return this.unsubscribe !== null;
@@ -174,13 +174,13 @@ export class SyncStatusView {
 
     private mountDesktop(): void {
         const el = this.plugin.addStatusBarItem();
-        el.addClass("vault-sync-status-item", "mod-clickable");
+        el.addClass("vault-syncer-status-item", "mod-clickable");
         el.setAttribute("role", "button");
         el.setAttribute("tabindex", "0");
         el.setAttribute("aria-label", t("statusOpenDetails"));
         el.setAttribute("aria-expanded", "false");
-        this.statusRingEl = el.createSpan({ cls: "vault-sync-status-ring" });
-        this.statusTextEl = el.createSpan({ cls: "vault-sync-status-text" });
+        this.statusRingEl = el.createSpan({ cls: "vault-syncer-status-ring" });
+        this.statusTextEl = el.createSpan({ cls: "vault-syncer-status-text" });
         el.addEventListener("click", () => (this.popoverEl ? this.closeDetails() : this.openPopover()));
         el.addEventListener("keydown", (e) => {
             if (e.key === "Enter" || e.key === " ") {
@@ -195,7 +195,7 @@ export class SyncStatusView {
     private openPopover(): void {
         if (this.popoverEl) return;
         this.popoverEl = activeDocument.body.createDiv({
-            cls: "vault-sync-status-panel vault-sync-status-popover",
+            cls: "vault-syncer-status-panel vault-syncer-status-popover",
             attr: { role: "dialog", "aria-label": t("statusPanelTitle") },
         });
         this.statusBarEl?.setAttribute("aria-expanded", "true");
@@ -208,31 +208,31 @@ export class SyncStatusView {
 
     private mountMobile(): void {
         const body = activeDocument.body;
-        this.mobileLineEl = body.createDiv({ cls: "vault-sync-status-line" });
-        this.mobileLineEl.createDiv({ cls: "vault-sync-status-line-fill" });
+        this.mobileLineEl = body.createDiv({ cls: "vault-syncer-status-line" });
+        this.mobileLineEl.createDiv({ cls: "vault-syncer-status-line-fill" });
         this.mobilePillEl = body.createDiv({
-            cls: "vault-sync-status-pill",
+            cls: "vault-syncer-status-pill",
             attr: { role: "button", tabindex: "0", "aria-label": t("statusOpenDetails") },
         });
-        this.mobilePillEl.createSpan({ cls: "vault-sync-status-ring" });
-        this.mobilePillEl.createSpan({ cls: "vault-sync-status-text" });
+        this.mobilePillEl.createSpan({ cls: "vault-syncer-status-ring" });
+        this.mobilePillEl.createSpan({ cls: "vault-syncer-status-text" });
         this.mobilePillEl.addEventListener("click", () => this.openSheet());
     }
 
     private openSheet(): void {
         if (this.sheetEl) return;
-        const root = activeDocument.body.createDiv({ cls: "vault-sync-status-sheet-root" });
-        const backdrop = root.createDiv({ cls: "vault-sync-status-sheet-backdrop" });
+        const root = activeDocument.body.createDiv({ cls: "vault-syncer-status-sheet-root" });
+        const backdrop = root.createDiv({ cls: "vault-syncer-status-sheet-backdrop" });
         backdrop.addEventListener("click", () => this.closeDetails());
         const sheet = root.createDiv({
-            cls: "vault-sync-status-panel vault-sync-status-sheet",
+            cls: "vault-syncer-status-panel vault-syncer-status-sheet",
             attr: { role: "dialog", "aria-label": t("statusPanelTitle") },
         });
-        sheet.createDiv({ cls: "vault-sync-status-sheet-grab" });
-        sheet.createDiv({ cls: "vault-sync-status-sheet-body" });
+        sheet.createDiv({ cls: "vault-syncer-status-sheet-grab" });
+        sheet.createDiv({ cls: "vault-syncer-status-sheet-body" });
         this.sheetEl = root;
         activeDocument.addEventListener("keydown", this.onDocKeyDown, true);
-        if (this.snap) this.renderPanel(sheet.querySelector(".vault-sync-status-sheet-body")!, this.snap);
+        if (this.snap) this.renderPanel(sheet.querySelector(".vault-syncer-status-sheet-body")!, this.snap);
     }
 
     private clearMobileTimers(): void {
@@ -251,9 +251,9 @@ export class SyncStatusView {
         const line = this.mobileLineEl;
         if (!pill || !line) return;
         pill.dataset.state = state;
-        pill.querySelector<HTMLElement>(".vault-sync-status-text")!.setText(shortText(s, state, false));
-        pill.querySelector<HTMLElement>(".vault-sync-status-ring")!.style.setProperty("--vs-p", String(percent(s)));
-        line.querySelector<HTMLElement>(".vault-sync-status-line-fill")!.style.width = `${percent(s)}%`;
+        pill.querySelector<HTMLElement>(".vault-syncer-status-text")!.setText(shortText(s, state, false));
+        pill.querySelector<HTMLElement>(".vault-syncer-status-ring")!.style.setProperty("--vs-p", String(percent(s)));
+        line.querySelector<HTMLElement>(".vault-syncer-status-line-fill")!.style.width = `${percent(s)}%`;
 
         const hasWork = s.pull.total + s.push.total > 0 || s.scan.total > 0;
         if (s.active) {
@@ -307,7 +307,7 @@ export class SyncStatusView {
         }
         this.updateMobile(s, state, prev);
         if (this.popoverEl) this.renderPanel(this.popoverEl, s);
-        const sheetBody = this.sheetEl?.querySelector<HTMLElement>(".vault-sync-status-sheet-body");
+        const sheetBody = this.sheetEl?.querySelector<HTMLElement>(".vault-syncer-status-sheet-body");
         if (sheetBody) this.renderPanel(sheetBody, s);
     }
 
@@ -409,8 +409,8 @@ export function renderSyncPanel(el: HTMLElement, s: SyncProgressSnapshot, o: Syn
     el.dataset.state = state;
 
     // Title row: state + what started it / when it ended
-    const head = el.createDiv({ cls: "vault-sync-status-head" });
-    head.createSpan({ cls: "vault-sync-status-title", text: stateTitle(state) });
+    const head = el.createDiv({ cls: "vault-syncer-status-head" });
+    head.createSpan({ cls: "vault-syncer-status-title", text: stateTitle(state) });
     let sub = "";
     if (s.active && s.startedAt) {
         sub = `${triggerLabel(s.trigger)} · ${t("statusStartedAt").replace("{0}", formatClock(s.startedAt))}`;
@@ -419,11 +419,11 @@ export function renderSyncPanel(el: HTMLElement, s: SyncProgressSnapshot, o: Syn
             .replace("{0}", formatClock(s.last.finishedAt))
             .replace("{1}", formatDuration(s.last.durationMs / 1000));
     }
-    head.createSpan({ cls: "vault-sync-status-sub", text: sub });
+    head.createSpan({ cls: "vault-syncer-status-sub", text: sub });
 
     // Steps: check -> (scan) -> download -> upload -> finish. Each bar fills with the
     // progress of its own step, so the row is the overall progress as well.
-    const steps = el.createDiv({ cls: "vault-sync-status-steps" });
+    const steps = el.createDiv({ cls: "vault-syncer-status-steps" });
     const order: Array<{ id: SyncPhase; label: string }> = [
         { id: "checking", label: t("statusStepCheck") },
         ...(s.phase === "scanning" || s.scan.total > 0
@@ -436,12 +436,12 @@ export function renderSyncPanel(el: HTMLElement, s: SyncProgressSnapshot, o: Syn
     // After a successful sync every step is behind; after a failed one none is marked.
     const currentIdx = s.active ? order.findIndex((o) => o.id === s.phase) : state === "synced" ? order.length : -1;
     order.forEach((o, i) => {
-        const step = steps.createDiv({ cls: "vault-sync-status-step" });
+        const step = steps.createDiv({ cls: "vault-syncer-status-step" });
         if (i < currentIdx) step.addClass("is-done");
         if (i === currentIdx) step.addClass("is-current");
         const fill = step
-            .createDiv({ cls: "vault-sync-status-step-bar" })
-            .createDiv({ cls: "vault-sync-status-step-fill" });
+            .createDiv({ cls: "vault-syncer-status-step-bar" })
+            .createDiv({ cls: "vault-syncer-status-step-fill" });
         const share = stepFraction(s, o.id, i < currentIdx, i === currentIdx);
         if (share === null) {
             // No measure for this step: a moving mark. The panel is redrawn often,
@@ -456,13 +456,13 @@ export function renderSyncPanel(el: HTMLElement, s: SyncProgressSnapshot, o: Syn
     steps.style.setProperty("--vs-steps", String(order.length));
 
     // Per direction, and conflicts
-    const kv = el.createDiv({ cls: "vault-sync-status-kv" });
+    const kv = el.createDiv({ cls: "vault-syncer-status-kv" });
     const dir = (label: string, d: { done: number; total: number }) => {
-        kv.createSpan({ cls: "vault-sync-status-muted", text: label });
-        const mini = kv.createDiv({ cls: "vault-sync-status-mini" });
-        mini.createDiv({ cls: "vault-sync-status-bar-fill" }).style.width =
+        kv.createSpan({ cls: "vault-syncer-status-muted", text: label });
+        const mini = kv.createDiv({ cls: "vault-syncer-status-mini" });
+        mini.createDiv({ cls: "vault-syncer-status-bar-fill" }).style.width =
             `${d.total > 0 ? Math.round((d.done / d.total) * 100) : 0}%`;
-        kv.createSpan({ cls: "vault-sync-status-num", text: `${d.done} / ${d.total}` });
+        kv.createSpan({ cls: "vault-syncer-status-num", text: `${d.done} / ${d.total}` });
     };
     dir(t("statusPull"), s.pull);
     dir(t("statusPush"), s.push);
@@ -470,7 +470,7 @@ export function renderSyncPanel(el: HTMLElement, s: SyncProgressSnapshot, o: Syn
     if (conflicts > 0 && o.onResolveConflicts) {
         const resolve = o.onResolveConflicts;
         const link = kv.createEl("a", {
-            cls: "vault-sync-status-warn vault-sync-status-link",
+            cls: "vault-syncer-status-warn vault-syncer-status-link",
             text: t("statusConflicts"),
             href: "#",
             attr: { "aria-label": t("statusResolveConflicts") },
@@ -481,18 +481,18 @@ export function renderSyncPanel(el: HTMLElement, s: SyncProgressSnapshot, o: Syn
         });
     } else {
         kv.createSpan({
-            cls: conflicts > 0 ? "vault-sync-status-warn" : "vault-sync-status-muted",
+            cls: conflicts > 0 ? "vault-syncer-status-warn" : "vault-syncer-status-muted",
             text: t("statusConflicts"),
         });
     }
     kv.createDiv();
     kv.createSpan({
-        cls: `vault-sync-status-num ${conflicts > 0 ? "vault-sync-status-warn" : "vault-sync-status-muted"}`,
+        cls: `vault-syncer-status-num ${conflicts > 0 ? "vault-syncer-status-warn" : "vault-syncer-status-muted"}`,
         text: String(conflicts),
     });
 
     // Detail box, two lines in every state: the file in transfer, the reason of a failure, or the idle note
-    const box = el.createDiv({ cls: "vault-sync-status-now" });
+    const box = el.createDiv({ cls: "vault-syncer-status-now" });
     const failed = !s.active && (state === "error" || state === "offline" || state === "auth");
     if (failed) {
         const msg =
@@ -501,39 +501,39 @@ export function renderSyncPanel(el: HTMLElement, s: SyncProgressSnapshot, o: Syn
                 : state === "offline"
                   ? t("statusOfflineHint")
                   : (s.last?.message ?? t("statusFailedHint"));
-        box.addClass("vault-sync-status-error");
-        box.createDiv({ cls: "vault-sync-status-now-text", text: msg, attr: { title: msg } });
+        box.addClass("vault-syncer-status-error");
+        box.createDiv({ cls: "vault-syncer-status-now-text", text: msg, attr: { title: msg } });
     } else if (s.active && s.current.length > 0) {
         const cur = s.current[0];
         const meta: string[] = [cur.direction === "pull" ? t("statusDownloading") : t("statusUploading")];
         if (cur.size > 0) meta.push(formatBytes(cur.size));
         if (s.bytesPerSec) meta.push(`${formatBytes(s.bytesPerSec)}/s`);
         if (s.current.length > 1) meta.push(t("statusParallel").replace("{0}", String(s.current.length)));
-        box.createDiv({ cls: "vault-sync-status-now-line vault-sync-status-muted", text: meta.join(" · ") });
-        box.createDiv({ cls: "vault-sync-status-now-line vault-sync-status-file", text: cur.path, attr: { title: cur.path } });
+        box.createDiv({ cls: "vault-syncer-status-now-line vault-syncer-status-muted", text: meta.join(" · ") });
+        box.createDiv({ cls: "vault-syncer-status-now-line vault-syncer-status-file", text: cur.path, attr: { title: cur.path } });
     } else {
         box.createDiv({
-            cls: "vault-sync-status-now-line vault-sync-status-muted",
+            cls: "vault-syncer-status-now-line vault-syncer-status-muted",
             text: s.active ? phaseText(s) : t("statusNoTransfer"),
         });
-        box.createDiv({ cls: "vault-sync-status-now-line" });
+        box.createDiv({ cls: "vault-syncer-status-now-line" });
     }
 
     // Footer: time left / pending, actions
-    const foot = el.createDiv({ cls: "vault-sync-status-foot" });
+    const foot = el.createDiv({ cls: "vault-syncer-status-foot" });
     let note = "";
     if (s.active && s.etaSec !== null) note = `${t("statusEta")} ${t("statusAbout")}${formatDuration(s.etaSec)}`;
     else if (!s.active && sm.pendingChangeCount > 0)
         note = t("statusPending").replace("{0}", String(sm.pendingChangeCount));
     const background = sm.getActiveTransfers().filter((x) => !x.id.startsWith("inline-")).length;
     if (background > 0) note += `${note ? " · " : ""}${t("statusBackground").replace("{0}", String(background))}`;
-    foot.createSpan({ cls: "vault-sync-status-muted vault-sync-status-note", text: note, attr: { title: note } });
+    foot.createSpan({ cls: "vault-syncer-status-muted vault-syncer-status-note", text: note, attr: { title: note } });
 
-    const btns = foot.createDiv({ cls: "vault-sync-status-btns" });
+    const btns = foot.createDiv({ cls: "vault-syncer-status-btns" });
     if (o.onMoreMenu) {
         const more = o.onMoreMenu;
         const moreBtn = btns.createEl("button", {
-            cls: "clickable-icon vault-sync-status-more",
+            cls: "clickable-icon vault-syncer-status-more",
             attr: { "aria-label": t("statusMoreTools") },
         });
         setIcon(moreBtn, "more-horizontal");

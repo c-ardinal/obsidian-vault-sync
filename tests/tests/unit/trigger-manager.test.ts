@@ -657,7 +657,7 @@ describe("TriggerManager", () => {
             await workspace._triggerLayoutReady();
 
             const hookedCmd = deps.app.commands.commands["editor:save"];
-            expect(hookedCmd._isVaultSyncHooked).toBe(true);
+            expect(hookedCmd._isVaultSyncerHooked).toBe(true);
 
             // Try to register again
             tm.registerTriggers();
@@ -690,8 +690,8 @@ describe("TriggerManager", () => {
             await workspace._triggerLayoutReady();
 
             // Both commands should be hooked
-            expect(deps.app.commands.commands["custom:save-file"]._isVaultSyncHooked).toBe(true);
-            expect(deps.app.commands.commands["save-all"]._isVaultSyncHooked).toBe(true);
+            expect(deps.app.commands.commands["custom:save-file"]._isVaultSyncerHooked).toBe(true);
+            expect(deps.app.commands.commands["save-all"]._isVaultSyncerHooked).toBe(true);
 
             await deps.app.commands.commands["custom:save-file"].callback();
             await new Promise((r) => process.nextTick(r));
@@ -740,7 +740,7 @@ describe("TriggerManager", () => {
             await workspace._triggerLayoutReady();
 
             // Should be marked as hooked but no callback modification
-            expect(deps.app.commands.commands["editor:save"]._isVaultSyncHooked).toBe(true);
+            expect(deps.app.commands.commands["editor:save"]._isVaultSyncerHooked).toBe(true);
             expect(deps.app.commands.commands["editor:save"].callback).toBeUndefined();
             expect(deps.app.commands.commands["editor:save"].checkCallback).toBeUndefined();
         });

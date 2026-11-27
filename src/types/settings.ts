@@ -12,7 +12,7 @@ export interface TriggerSettings {
     onLayoutChangeDelaySec: number;
 }
 
-export interface VaultSyncSettings {
+export interface VaultSyncerSettings {
     // Sync Triggers Strategy
     triggerConfigStrategy: "unified" | "per-platform";
     unifiedTriggers: TriggerSettings;

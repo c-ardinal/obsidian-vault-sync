@@ -1,11 +1,11 @@
 import { App, TFile, Platform } from "obsidian";
 import type { SyncManager, SyncTrigger } from "../sync-manager";
-import type { VaultSyncSettings, TriggerSettings } from "../types/settings";
+import type { VaultSyncerSettings, TriggerSettings } from "../types/settings";
 import { DEFAULT_SETTINGS, SETTINGS_LIMITS } from "../constants";
 
 interface TriggerManagerDeps {
     app: App;
-    settings: VaultSyncSettings;
+    settings: VaultSyncerSettings;
     syncManager: SyncManager;
     registerEvent: (evt: import("obsidian").EventRef) => void;
     registerInterval: (id: number) => void;
@@ -28,7 +28,7 @@ const QUIT_FLUSH_MAX_REQUESTS = 3;
 
 /** Shape of an Obsidian command entry (internal API) that we hook for save detection. */
 interface HookableCommand {
-    _isVaultSyncHooked?: boolean;
+    _isVaultSyncerHooked?: boolean;
     callback?: (...args: unknown[]) => unknown;
     checkCallback?: (checking: boolean) => unknown;
 }
@@ -211,8 +211,8 @@ export class TriggerManager {
 
             targetIds.forEach((id) => {
                 const cmd = commands[id];
-                if (cmd && !cmd._isVaultSyncHooked) {
-                    cmd._isVaultSyncHooked = true;
+                if (cmd && !cmd._isVaultSyncerHooked) {
+                    cmd._isVaultSyncerHooked = true;
 
                     if (cmd.callback) {
                         const originalCallback = cmd.callback;

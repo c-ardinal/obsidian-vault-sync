@@ -1301,7 +1301,7 @@ describe("smartPush complete coverage", () => {
             const sm = device.syncManager as any;
 
             // These paths are managed separately
-            const pluginDir = ".obsidian/plugins/obsidian-vault-sync";
+            const pluginDir = ".obsidian/plugins/cardinal-vault-syncer";
             sm.dirtyPaths.set(`${pluginDir}/data/remote/sync-index.json`, Date.now());
 
             const ctx = await createTestContext(cloud, device);
@@ -1904,12 +1904,12 @@ describe("coverage gap tests", () => {
             // this device's settings may hold files other devices sync)
 
             // Create folder and file
-            await cloud.uploadFile("_VaultSync_Orphans", new ArrayBuffer(0), Date.now());
-            await cloud.uploadFile("_VaultSync_Orphans/data.json", new ArrayBuffer(10), Date.now());
+            await cloud.uploadFile("_VaultSyncer_Orphans", new ArrayBuffer(0), Date.now());
+            await cloud.uploadFile("_VaultSyncer_Orphans/data.json", new ArrayBuffer(10), Date.now());
 
-            sm.index["_VaultSync_Orphans/data.json"] = { fileId: "f1", mtime: Date.now(), size: 10 };
-            sm.localIndex["_VaultSync_Orphans/data.json"] = { fileId: "f1", mtime: Date.now(), size: 10 };
-            sm.dirtyPaths.set("_VaultSync_Orphans/data.json", Date.now());
+            sm.index["_VaultSyncer_Orphans/data.json"] = { fileId: "f1", mtime: Date.now(), size: 10 };
+            sm.localIndex["_VaultSyncer_Orphans/data.json"] = { fileId: "f1", mtime: Date.now(), size: 10 };
+            sm.dirtyPaths.set("_VaultSyncer_Orphans/data.json", Date.now());
 
             // Create regular file to push
             device.app.vaultAdapter.setFile("regular.md", "content");
@@ -1920,10 +1920,10 @@ describe("coverage gap tests", () => {
             // Make getFileMetadata return valid meta for the folder
             const originalGetMeta = cloud.getFileMetadata.bind(cloud);
             cloud.getFileMetadata = async (path: string) => {
-                if (path === "_VaultSync_Orphans") {
+                if (path === "_VaultSyncer_Orphans") {
                     return {
                         id: "wipefail_folder_id",
-                        path: "_VaultSync_Orphans",
+                        path: "_VaultSyncer_Orphans",
                         mtime: Date.now(),
                         size: 0,
                         kind: "folder" as const,

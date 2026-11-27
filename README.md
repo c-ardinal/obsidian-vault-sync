@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="img/vaultsync_logotype_v2.webp" alt="Vault Syncer" width="420">
+  <img src="img/vaultsyncer_logotype_v2.webp" alt="Vault Syncer" width="420">
 </p>
 
 <p align="center">
@@ -130,16 +130,6 @@ BRAT will automatically check for updates and keep the plugin up to date.
 2. Create a folder named `cardinal-vault-syncer` in your vault's `.obsidian/plugins/` directory.
 3. Place the downloaded files into the folder.
 4. Enable "Vault Syncer" in Settings > Community Plugins.
-
-### Updating from an older version (plugin ID `cardinal-vault-sync` or `obsidian-vault-sync`)
-
-The plugin ID is now `cardinal-vault-syncer`. Earlier versions used `cardinal-vault-sync` (up to 0.19.1) and `obsidian-vault-sync` (early versions). Obsidian installs each ID into a folder of its own, so an update from one of them lands in a new folder.
-
-1. Install Vault Syncer from the community browser (or update it with BRAT).
-2. Turn off the old copy (ID `cardinal-vault-sync` or `obsidian-vault-sync`) in Settings > Community Plugins and restart the app. While the old copy is on, the new one does not sync, so the two never sync the same vault at once.
-3. On its first start the new copy carries over your settings, sync state and installed add-ons from the old folder. After that you can uninstall the old copy.
-
-Update every device. Until all are updated, devices still on the old copy keep working, but syncs between old and new devices may compare files more slowly.
 
 ---
 

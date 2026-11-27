@@ -92,7 +92,7 @@ export class MassChangeModal extends Modal {
     }
 
     private listLabels(labels: string[]): void {
-        const ul = this.contentEl.createEl("ul", { cls: "vault-sync-mass-delete-list" });
+        const ul = this.contentEl.createEl("ul", { cls: "vault-syncer-mass-delete-list" });
         for (const l of labels.slice(0, MAX_LISTED)) ul.createEl("li", { text: l });
         if (labels.length > MAX_LISTED) {
             ul.createEl("li", { text: fill(t("massDeleteMore"), labels.length - MAX_LISTED) });

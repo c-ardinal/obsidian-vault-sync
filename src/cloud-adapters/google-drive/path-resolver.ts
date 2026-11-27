@@ -58,13 +58,13 @@ export class DrivePathResolver {
     }
 
     private validateRootFolder(folder: string | undefined): string {
-        if (!folder || folder.trim() === "") return "ObsidianVaultSync";
+        if (!folder || folder.trim() === "") return "ObsidianVaultSyncer";
         const sanitized = folder.trim();
         if (sanitized.startsWith("/") || sanitized.includes("\\") || sanitized.length > 255) {
-            return "ObsidianVaultSync";
+            return "ObsidianVaultSyncer";
         }
         if (/[<>:"|?*]/.test(sanitized)) {
-            return "ObsidianVaultSync";
+            return "ObsidianVaultSyncer";
         }
         return sanitized;
     }
@@ -155,7 +155,7 @@ export class DrivePathResolver {
                 // Ensure appRootId is not null
                 if (!this.appRootId) throw new Error("Failed to resolve App Root ID");
 
-                // 2. Ensure vault root "ObsidianVaultSync/<VaultName>" exists
+                // 2. Ensure vault root "ObsidianVaultSyncer/<VaultName>" exists
                 const escapedVaultName = this.http.escapeQueryValue(this.vaultName);
                 const query = `name = '${escapedVaultName}' and '${this.appRootId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
                 const response = await this.http.fetchWithAuth(
@@ -217,7 +217,7 @@ export class DrivePathResolver {
                             const currentParent = bestMatch.parents?.[0];
                             if (currentParent && currentParent !== this.appRootId) {
                                 await this.log(
-                                    `Consolidating: Moving manually uploaded vault to ObsidianVaultSync...`,
+                                    `Consolidating: Moving manually uploaded vault to ObsidianVaultSyncer...`,
                                     "system",
                                 );
                                 await this.http.fetchWithAuth(

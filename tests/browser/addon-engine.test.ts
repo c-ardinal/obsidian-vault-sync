@@ -15,7 +15,7 @@
  * - a changed engine file is refused (null), nothing of it runs
  *
  * The engine file: ADDON_ENGINE_JS, or the build of the engine repository next to this
- * one (../obsidian-vault-sync-e2ee-engine/dist/e2ee-engine.js). On CI it is required.
+ * one (../obsidian-vault-syncer-e2ee-engine/dist/e2ee-engine.js). On CI it is required.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import fs from "node:fs";
@@ -24,7 +24,7 @@ import type { AddressInfo } from "node:net";
 import type { Browser, Page } from "playwright-core";
 import { BROWSER_ENGINES, bundleForBrowser, launchEngine } from "./browsers";
 
-const enginePath = process.env.ADDON_ENGINE_JS || "../obsidian-vault-sync-e2ee-engine/dist/e2ee-engine.js";
+const enginePath = process.env.ADDON_ENGINE_JS || "../obsidian-vault-syncer-e2ee-engine/dist/e2ee-engine.js";
 const engineSource = fs.existsSync(enginePath) ? fs.readFileSync(enginePath, "utf8") : null;
 if (!engineSource && process.env.CI) throw new Error(`Add-on engine file not found: ${enginePath}`);
 

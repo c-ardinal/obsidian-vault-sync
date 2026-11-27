@@ -89,9 +89,9 @@ function createMockCtx(overrides: Partial<SyncContext> = {}): SyncContext {
         },
         index: {},
         localIndex: {},
-        pluginDataPath: ".obsidian/plugins/obsidian-vault-sync/sync-index.json",
-        pluginDir: ".obsidian/plugins/obsidian-vault-sync",
-        localIndexPath: ".obsidian/plugins/obsidian-vault-sync/local-index.json",
+        pluginDataPath: ".obsidian/plugins/cardinal-vault-syncer/sync-index.json",
+        pluginDir: ".obsidian/plugins/cardinal-vault-syncer",
+        localIndexPath: ".obsidian/plugins/cardinal-vault-syncer/local-index.json",
         startPageToken: "token-1",
         cryptoEngine: {
             initializeNewVault: vi.fn(async () => "lock-blob-data"),

@@ -53,19 +53,19 @@ function makeCtx(overrides: Partial<SyncContext["settings"]> = {}): SyncContext 
 describe("isAlwaysForbiddenOnRemote", () => {
     describe("plugin internal local-only files", () => {
         it("should forbid cache/ under plugin dir", () => {
-            expect(isAlwaysForbiddenOnRemote(".obsidian/plugins/obsidian-vault-sync/cache/data.bin")).toBe(true);
+            expect(isAlwaysForbiddenOnRemote(".obsidian/plugins/cardinal-vault-syncer/cache/data.bin")).toBe(true);
         });
 
         it("should forbid data/local/ under plugin dir", () => {
-            expect(isAlwaysForbiddenOnRemote(".obsidian/plugins/obsidian-vault-sync/data/local/settings.json")).toBe(true);
+            expect(isAlwaysForbiddenOnRemote(".obsidian/plugins/cardinal-vault-syncer/data/local/settings.json")).toBe(true);
         });
 
         it("should allow data/remote/ under plugin dir", () => {
-            expect(isAlwaysForbiddenOnRemote(".obsidian/plugins/obsidian-vault-sync/data/remote/sync-index.json")).toBe(false);
+            expect(isAlwaysForbiddenOnRemote(".obsidian/plugins/cardinal-vault-syncer/data/remote/sync-index.json")).toBe(false);
         });
 
         it("should allow logs/ under plugin dir (settings-dependent, not system-level)", () => {
-            expect(isAlwaysForbiddenOnRemote(".obsidian/plugins/obsidian-vault-sync/logs/dev1/log.txt")).toBe(false);
+            expect(isAlwaysForbiddenOnRemote(".obsidian/plugins/cardinal-vault-syncer/logs/dev1/log.txt")).toBe(false);
         });
     });
 
@@ -86,12 +86,12 @@ describe("isAlwaysForbiddenOnRemote", () => {
             expect(isAlwaysForbiddenOnRemote("images/photos/Thumbs.db")).toBe(true);
         });
 
-        it("should forbid _VaultSync_Debug.log", () => {
-            expect(isAlwaysForbiddenOnRemote("_VaultSync_Debug.log")).toBe(true);
+        it("should forbid _VaultSyncer_Debug.log", () => {
+            expect(isAlwaysForbiddenOnRemote("_VaultSyncer_Debug.log")).toBe(true);
         });
 
-        it("should forbid _VaultSync_Orphans/ directory", () => {
-            expect(isAlwaysForbiddenOnRemote("_VaultSync_Orphans/orphan1.md")).toBe(true);
+        it("should forbid _VaultSyncer_Orphans/ directory", () => {
+            expect(isAlwaysForbiddenOnRemote("_VaultSyncer_Orphans/orphan1.md")).toBe(true);
         });
     });
 
@@ -177,7 +177,7 @@ describe("shouldNotBeOnRemote", () => {
         });
 
         it("should block plugin cache/ regardless of settings", () => {
-            expect(shouldNotBeOnRemote(makeCtx(), ".obsidian/plugins/obsidian-vault-sync/cache/data.bin")).toBe(true);
+            expect(shouldNotBeOnRemote(makeCtx(), ".obsidian/plugins/cardinal-vault-syncer/cache/data.bin")).toBe(true);
         });
 
         it("should block .obsidian/cache/ regardless of settings", () => {
@@ -248,9 +248,9 @@ describe("shouldNotBeOnRemote", () => {
             expect(shouldNotBeOnRemote(makeCtx({ syncCommunityPlugins: false }), ".obsidian/plugins/templater/manifest.json")).toBe(true);
         });
 
-        it("should not affect vault-sync's own internal files (caught by local-only check)", () => {
-            // vault-sync cache is caught by INTERNAL_LOCAL_ONLY before community plugins check
-            expect(shouldNotBeOnRemote(makeCtx({ syncCommunityPlugins: true }), ".obsidian/plugins/obsidian-vault-sync/cache/x")).toBe(true);
+        it("should not affect the plugin's own internal files (caught by local-only check)", () => {
+            // the plugin's cache is caught by INTERNAL_LOCAL_ONLY before community plugins check
+            expect(shouldNotBeOnRemote(makeCtx({ syncCommunityPlugins: true }), ".obsidian/plugins/cardinal-vault-syncer/cache/x")).toBe(true);
         });
     });
 
@@ -339,7 +339,7 @@ describe("shouldNotBeOnRemote", () => {
     // ─── syncDeviceLogs ───
 
     describe("syncDeviceLogs", () => {
-        const logPath = ".obsidian/plugins/obsidian-vault-sync/logs/dev1/sync.log";
+        const logPath = ".obsidian/plugins/cardinal-vault-syncer/logs/dev1/sync.log";
 
         it("should allow logs when syncDeviceLogs=true", () => {
             expect(shouldNotBeOnRemote(makeCtx({ syncDeviceLogs: true }), logPath)).toBe(false);
@@ -353,7 +353,7 @@ describe("shouldNotBeOnRemote", () => {
     // ─── syncFlexibleData ───
 
     describe("syncFlexibleData", () => {
-        const flexPath = ".obsidian/plugins/obsidian-vault-sync/data/flexible/open-data.json";
+        const flexPath = ".obsidian/plugins/cardinal-vault-syncer/data/flexible/open-data.json";
 
         it("should allow flexible data when syncFlexibleData=true", () => {
             expect(shouldNotBeOnRemote(makeCtx({ syncFlexibleData: true }), flexPath)).toBe(false);
@@ -435,7 +435,7 @@ describe("isManagedSeparately", () => {
     });
 
     it("should identify sync-index.json as managed (full plugin path)", () => {
-        expect(isManagedSeparately(".obsidian/plugins/obsidian-vault-sync/data/remote/sync-index.json")).toBe(true);
+        expect(isManagedSeparately(".obsidian/plugins/cardinal-vault-syncer/data/remote/sync-index.json")).toBe(true);
     });
 
     it("should identify sync-index_raw.json as managed", () => {
@@ -459,7 +459,7 @@ describe("isManagedSeparately", () => {
     });
 
     it("should NOT identify unrelated plugin files as managed", () => {
-        expect(isManagedSeparately(".obsidian/plugins/obsidian-vault-sync/manifest.json")).toBe(false);
+        expect(isManagedSeparately(".obsidian/plugins/cardinal-vault-syncer/manifest.json")).toBe(false);
     });
 });
 

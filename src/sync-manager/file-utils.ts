@@ -19,33 +19,15 @@ export type FileUtilsCtx = Pick<
 // === System-level Constants ===
 
 /**
- * Every ID the plugin has had, oldest first; the last one is the current ID.
- * "obsidian-vault-sync" could not go into the community directory (IDs may not
- * contain "obsidian"); "cardinal-vault-sync" predates the name Vault Syncer.
- */
-export const PLUGIN_IDS = ["obsidian-vault-sync", "cardinal-vault-sync", "cardinal-vault-syncer"] as const;
-
-/**
  * This plugin's folder, vault-relative with a trailing slash. main.ts sets it from
  * the manifest (the plugin ID and the vault's config folder) before anything syncs;
  * tests set it in their setup file.
  */
 export let PLUGIN_DIR = "";
 
-/**
- * The folders of the plugin under its earlier IDs, oldest first: every ID before
- * the one PLUGIN_DIR is named after (all earlier IDs when the folder has a name of
- * its own). Devices not yet updated still write their sync data there (and may have
- * an old copy of the plugin installed), so the sync loop leaves everything in them alone.
- */
-export let LEGACY_PLUGIN_DIRS: string[] = [];
-
 export function setPluginDir(pluginDir: string, vaultConfigDir: string): void {
     setConfigDir(vaultConfigDir);
     PLUGIN_DIR = normalizePath(pluginDir) + "/";
-    const known = PLUGIN_IDS.map((id) => normalizePath(`${vaultConfigDir}/plugins/${id}`) + "/");
-    const at = known.indexOf(PLUGIN_DIR);
-    LEGACY_PLUGIN_DIRS = known.slice(0, at === -1 ? known.length - 1 : at);
 }
 
 export const INTERNAL_LOCAL_ONLY = ["cache/", "data/local/"];
@@ -61,8 +43,8 @@ export const INTERNAL_REMOTE_MANAGED: string[] = [
 
 /** General system-level files that should be ignored and cleaned up from remote if found */
 export const SYSTEM_IGNORES = [
-    "_VaultSync_Debug.log",
-    "_VaultSync_Orphans/",
+    "_VaultSyncer_Debug.log",
+    "_VaultSyncer_Orphans/",
     ".DS_Store",
     "Thumbs.db",
 ];
@@ -296,7 +278,6 @@ export async function runParallel<T>(
  */
 export function isManagedSeparately(path: string): boolean {
     if (INTERNAL_REMOTE_MANAGED.includes(path)) return true;
-    if (LEGACY_PLUGIN_DIRS.some((dir) => path.startsWith(dir))) return true;
     if (!path.startsWith(PLUGIN_DIR)) return false;
     const subPath = path.substring(PLUGIN_DIR.length);
     return INTERNAL_REMOTE_MANAGED.includes(subPath) || subPath.startsWith(REMOTE_DEVICE_DIR + "/");

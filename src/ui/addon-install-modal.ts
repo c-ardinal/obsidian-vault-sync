@@ -47,18 +47,18 @@ export class AddonInstallModal extends Modal {
     onOpen(): void {
         const { contentEl } = this;
         this.renderer.load();
-        contentEl.addClass("vault-sync-addon-install");
+        contentEl.addClass("vault-syncer-addon-install");
         this.setTitle(t("addonInstallTitle"));
         if (this.requiredByVault) {
             contentEl.createEl("p", {
                 text: t("addonRequiredByVault"),
-                cls: "vault-sync-addon-install-notice",
+                cls: "vault-syncer-addon-install-notice",
             });
         }
         contentEl.createEl("p", { text: t("addonInstallIntro") });
 
         // Step 1: download
-        new Setting(contentEl).setName(t("addonStepDownload")).setHeading().settingEl.addClass("vault-sync-modal-heading");
+        new Setting(contentEl).setName(t("addonStepDownload")).setHeading().settingEl.addClass("vault-syncer-modal-heading");
         const download = new Setting(contentEl).setDesc(t("addonStepDownloadDesc"));
         APPROVED_ADDONS.forEach((addon, i) => {
             const label =
@@ -71,7 +71,7 @@ export class AddonInstallModal extends Modal {
         });
 
         // Step 2: choose the package
-        new Setting(contentEl).setName(t("addonStepChoose")).setHeading().settingEl.addClass("vault-sync-modal-heading");
+        new Setting(contentEl).setName(t("addonStepChoose")).setHeading().settingEl.addClass("vault-syncer-modal-heading");
         const fileInput = contentEl.createEl("input", {
             type: "file",
             attr: { accept: ".zip,application/zip,application/x-zip-compressed,*/*" },
@@ -89,7 +89,7 @@ export class AddonInstallModal extends Modal {
                 .onClick(() => fileInput.click());
         });
 
-        this.statusEl = contentEl.createDiv({ cls: "vault-sync-addon-install-status" });
+        this.statusEl = contentEl.createDiv({ cls: "vault-syncer-addon-install-status" });
         this.reviewEl = contentEl.createDiv();
     }
 
@@ -126,15 +126,15 @@ export class AddonInstallModal extends Modal {
         const el = this.reviewEl!;
         const lang = currentLanguage();
 
-        new Setting(el).setName(t("addonStepTerms")).setHeading().settingEl.addClass("vault-sync-modal-heading");
+        new Setting(el).setName(t("addonStepTerms")).setHeading().settingEl.addClass("vault-syncer-modal-heading");
         el.createEl("p", {
             text: `${pkg.manifest.name} ${pkg.manifest.version}`,
-            cls: "vault-sync-addon-install-name",
+            cls: "vault-syncer-addon-install-name",
         });
         const description = pickLocalized(pkg.manifest.description, lang);
         if (description) el.createEl("p", { text: description });
 
-        const termsEl = el.createDiv({ cls: "vault-sync-addon-terms markdown-rendered" });
+        const termsEl = el.createDiv({ cls: "vault-syncer-addon-terms markdown-rendered" });
         await MarkdownRenderer.render(
             this.app,
             pickLocalized(pkg.terms, lang),

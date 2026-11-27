@@ -99,7 +99,7 @@ function createMockCtx(): SyncContext & {
         dirtyPaths: new Map(),
         syncingPaths: new Set(),
         recentlyDeletedFromRemote: new Set(),
-        pluginDataPath: ".obsidian/plugins/obsidian-vault-sync/sync-index.json",
+        pluginDataPath: ".obsidian/plugins/cardinal-vault-syncer/sync-index.json",
         e2eeEnabled: false,
         log: vi.fn(),
         _files: files,

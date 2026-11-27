@@ -17,7 +17,7 @@ import { smartPull, pullViaChangesAPI } from "../../../src/sync-manager/sync-pul
 import type { SyncContext } from "../../../src/sync-manager/context";
 import type { LogLevel } from "../../../src/sync-manager/logger";
 
-const PLUGIN_DIR = ".obsidian/plugins/obsidian-vault-sync";
+const PLUGIN_DIR = ".obsidian/plugins/cardinal-vault-syncer";
 const SYNC_INDEX_PATH = `${PLUGIN_DIR}/sync-index.json`;
 
 function encode(str: string): ArrayBuffer {
@@ -1682,8 +1682,8 @@ describe("sync-pull branch coverage - cleanupForbiddenDirectories (lines 50-65)"
      */
     it("should clean up forbidden directories when forceCleanupNextSync is true", async () => {
         // INTERNAL_LOCAL_ONLY contains ["cache/", "data/local/"]
-        // Full path is PLUGIN_DIR + dirName.slice(0, -1) = .obsidian/plugins/obsidian-vault-sync/cache
-        const forbiddenDir = ".obsidian/plugins/obsidian-vault-sync/cache";
+        // Full path is PLUGIN_DIR + dirName.slice(0, -1) = .obsidian/plugins/cardinal-vault-syncer/cache
+        const forbiddenDir = ".obsidian/plugins/cardinal-vault-syncer/cache";
 
         // Create the forbidden folder in cloud
         cloud.addFakeFolder(forbiddenDir);
@@ -1726,7 +1726,7 @@ describe("sync-pull branch coverage - cleanupForbiddenDirectories (lines 50-65)"
      */
     it("should handle delete failure gracefully in cleanupForbiddenDirectories", async () => {
         // Add a fake folder that will fail to delete (INTERNAL_LOCAL_ONLY contains "cache/")
-        const folderId = cloud.addFakeFolder(".obsidian/plugins/obsidian-vault-sync/cache");
+        const folderId = cloud.addFakeFolder(".obsidian/plugins/cardinal-vault-syncer/cache");
 
         // Make deleteFile fail
         const originalDeleteFile = cloud.deleteFile.bind(cloud);

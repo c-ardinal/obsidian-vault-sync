@@ -170,7 +170,7 @@ describe("GoogleAuthService", () => {
         });
 
         it("should fall back to localStorage when currentAuthState is null", () => {
-            localStorageMock["vault-sync-state"] = "saved-state";
+            localStorageMock["vault-syncer-state"] = "saved-state";
             expect(auth.verifyState("saved-state")).toBe(true);
         });
     });
@@ -226,7 +226,7 @@ describe("GoogleAuthService", () => {
         });
 
         it("should recover verifier from localStorage", async () => {
-            localStorageMock["vault-sync-verifier"] = "stored-verifier";
+            localStorageMock["vault-syncer-verifier"] = "stored-verifier";
             mockRequestUrl.mockResolvedValueOnce({
                 status: 200,
                 text: JSON.stringify({
@@ -367,7 +367,7 @@ describe("GoogleAuthService", () => {
 
         it("should save state to localStorage", async () => {
             await auth.getAuthUrl();
-            expect(localStorageMock["vault-sync-state"]).toBeDefined();
+            expect(localStorageMock["vault-syncer-state"]).toBeDefined();
         });
     });
 

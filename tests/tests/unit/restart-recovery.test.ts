@@ -37,8 +37,8 @@ import { hashContent } from "../../../src/sync-manager/file-utils";
 import { md5 } from "../../../src/utils/md5";
 import type { SyncContext } from "../../../src/sync-manager/context";
 
-const LOCAL = ".obsidian/plugins/obsidian-vault-sync/data/local/local-index.json";
-const REMOTE = ".obsidian/plugins/obsidian-vault-sync/data/remote/sync-index.json";
+const LOCAL = ".obsidian/plugins/cardinal-vault-syncer/data/local/local-index.json";
+const REMOTE = ".obsidian/plugins/cardinal-vault-syncer/data/remote/sync-index.json";
 
 function makeCtx(overrides: Record<string, unknown> = {}): SyncContext & { files: Map<string, ArrayBuffer> } {
     const files = new Map<string, ArrayBuffer>();
@@ -73,8 +73,8 @@ function makeCtx(overrides: Record<string, unknown> = {}): SyncContext & { files
         recentlyDeletedFromRemote: new Set(),
         pluginDataPath: REMOTE,
         localIndexPath: LOCAL,
-        pluginDir: ".obsidian/plugins/obsidian-vault-sync",
-        logFolder: ".obsidian/plugins/obsidian-vault-sync/logs/dev_A",
+        pluginDir: ".obsidian/plugins/cardinal-vault-syncer",
+        logFolder: ".obsidian/plugins/cardinal-vault-syncer/logs/dev_A",
         deviceId: "dev_A",
         e2eeEnabled: false,
         startPageToken: "42",

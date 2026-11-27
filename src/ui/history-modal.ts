@@ -78,8 +78,8 @@ export class HistoryModal extends Modal {
             this.fileContent = await this.app.vault.read(this.file);
             this.render();
         } else {
-            const loadingContainer = contentEl.createDiv({ cls: "vault-sync-loading-container" });
-            loadingContainer.createDiv({ cls: "vault-sync-spinner" });
+            const loadingContainer = contentEl.createDiv({ cls: "vault-syncer-loading-container" });
+            loadingContainer.createDiv({ cls: "vault-syncer-spinner" });
             loadingContainer.createDiv({ text: this.syncManager.t("historyLoading") });
         }
 
@@ -114,7 +114,7 @@ export class HistoryModal extends Modal {
             contentEl.empty();
             if (this.syncManager.isSignedIn === false) {
                 // Same wording and action as the sync status panel when signed out
-                const box = contentEl.createDiv({ cls: "vault-sync-history-signin" });
+                const box = contentEl.createDiv({ cls: "vault-syncer-history-signin" });
                 box.createEl("p", { text: this.syncManager.t("historySignInRequired") });
                 const open = this.openSettings;
                 if (open) {
@@ -139,7 +139,7 @@ export class HistoryModal extends Modal {
         const { contentEl } = this;
 
         // Save scroll position before clearing
-        const existingList = contentEl.querySelector(".vault-sync-revision-list") as HTMLElement;
+        const existingList = contentEl.querySelector(".vault-syncer-revision-list") as HTMLElement;
         if (existingList) {
             this.listScrollLeft = existingList.scrollLeft;
             this.listScrollTop = existingList.scrollTop;
@@ -176,7 +176,7 @@ export class HistoryModal extends Modal {
 
         // Mobile-only: Toggle button for the drawer (floating)
         const toggleHistoryBtn = contentEl.createEl("button", {
-            cls: "vault-sync-history-toggle-btn",
+            cls: "vault-syncer-history-toggle-btn",
             attr: { "aria-label": "Toggle History" },
         });
         setIcon(toggleHistoryBtn, "history");
@@ -186,7 +186,7 @@ export class HistoryModal extends Modal {
 
         toggleHistoryBtn.addEventListener("click", () => {
             this.isDrawerOpen = !this.isDrawerOpen;
-            const container = contentEl.querySelector(".vault-sync-history-container");
+            const container = contentEl.querySelector(".vault-syncer-history-container");
             if (container) {
                 container.toggleClass("is-drawer-open", this.isDrawerOpen);
             }
@@ -194,13 +194,13 @@ export class HistoryModal extends Modal {
         });
 
         // --- Container Creation (Grid Layout) ---
-        const container = contentEl.createDiv({ cls: "vault-sync-history-container" });
+        const container = contentEl.createDiv({ cls: "vault-syncer-history-container" });
         if (this.isDrawerOpen) {
             container.addClass("is-drawer-open");
         }
 
         // --- [Area: list] Revision List (Drawer) ---
-        const listContainer = container.createDiv({ cls: "vault-sync-history-list" });
+        const listContainer = container.createDiv({ cls: "vault-syncer-history-list" });
 
         if (this.revisions.length === 0) {
             listContainer.createDiv({
@@ -209,18 +209,18 @@ export class HistoryModal extends Modal {
             });
         }
 
-        const ul = listContainer.createEl("ul", { cls: "vault-sync-revision-list" });
+        const ul = listContainer.createEl("ul", { cls: "vault-syncer-revision-list" });
 
         let lastDateStr = "";
         for (const rev of this.revisions) {
             const date = new Date(rev.modifiedTime);
             const dateStr = formatDay(date.getTime());
             if (dateStr !== lastDateStr) {
-                ul.createEl("li", { cls: "vault-sync-revision-date-header" }).setText(dateStr);
+                ul.createEl("li", { cls: "vault-syncer-revision-date-header" }).setText(dateStr);
                 lastDateStr = dateStr;
             }
 
-            const li = ul.createEl("li", { cls: "vault-sync-revision-item" });
+            const li = ul.createEl("li", { cls: "vault-syncer-revision-item" });
             if (this.selectedRevision?.id === rev.id) {
                 li.addClass("is-selected");
             }
@@ -244,7 +244,7 @@ export class HistoryModal extends Modal {
             authorDiv.setText(rev.author || this.syncManager.t("historyAuthorUnknown"));
 
             // Row 3: Size
-            const sizeDiv = metaDiv.createDiv({ cls: "revision-size vault-sync-revision-size-row" });
+            const sizeDiv = metaDiv.createDiv({ cls: "revision-size vault-syncer-revision-size-row" });
             sizeDiv.createSpan({ text: this.formatSize(rev.size) });
 
             if (rev.keepForever) {
@@ -263,7 +263,7 @@ export class HistoryModal extends Modal {
                     li.click();
                 } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
                     e.preventDefault();
-                    const items = Array.from(ul.querySelectorAll<HTMLElement>(".vault-sync-revision-item"));
+                    const items = Array.from(ul.querySelectorAll<HTMLElement>(".vault-syncer-revision-item"));
                     const next = items[items.indexOf(li) + (e.key === "ArrowDown" ? 1 : -1)];
                     next?.focus();
                 }
@@ -288,7 +288,7 @@ export class HistoryModal extends Modal {
         ul.scrollTop = this.listScrollTop;
         if (this.focusSelectedAfterRender) {
             this.focusSelectedAfterRender = false;
-            ul.querySelector<HTMLElement>(".vault-sync-revision-item.is-selected")?.focus();
+            ul.querySelector<HTMLElement>(".vault-syncer-revision-item.is-selected")?.focus();
         }
 
         if (!this.selectedRevision) {
@@ -301,12 +301,12 @@ export class HistoryModal extends Modal {
         }
 
         // --- [Area: header] Info Header ---
-        const infoHeader = container.createDiv({ cls: "vault-sync-info-header" });
+        const infoHeader = container.createDiv({ cls: "vault-syncer-info-header" });
         const header = infoHeader.createDiv({ cls: "revision-actions-header" });
 
         // Row 2: Diff Controls
         const controlRow = header.createDiv({
-            cls: "revision-control-row vault-sync-revision-control-row",
+            cls: "revision-control-row vault-syncer-revision-control-row",
         });
 
         // Phone: the label goes inside the choices so it does not take a line of its own
@@ -360,7 +360,7 @@ export class HistoryModal extends Modal {
         });
 
         // Spacer to push subsequent buttons to the right
-        controlRow.createSpan({ cls: "vault-sync-control-spacer" });
+        controlRow.createSpan({ cls: "vault-syncer-control-spacer" });
 
         // 1. Context Lines Input (Only if not showing all)
         if (!this.showAllLines) {
@@ -644,8 +644,8 @@ export class HistoryModal extends Modal {
         if (!bothCached) {
             // Show loading spinner in the diff area ONLY if not cached
             container.empty();
-            const loadingContainer = container.createDiv({ cls: "vault-sync-loading-container" });
-            loadingContainer.createDiv({ cls: "vault-sync-spinner" });
+            const loadingContainer = container.createDiv({ cls: "vault-syncer-loading-container" });
+            loadingContainer.createDiv({ cls: "vault-syncer-spinner" });
             loadingContainer.createDiv({ text: "Loading diff..." });
         }
 

@@ -16,7 +16,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { RevisionCache } from "../../../src/services/revision-cache";
 import { MockVaultAdapter, MockVaultOperations, MockVault } from "../../helpers/mock-vault-adapter";
 
-const PLUGIN_DIR = ".obsidian/plugins/obsidian-vault-sync";
+const PLUGIN_DIR = ".obsidian/plugins/cardinal-vault-syncer";
 
 describe("RevisionCache", () => {
     let adapter: MockVaultAdapter;

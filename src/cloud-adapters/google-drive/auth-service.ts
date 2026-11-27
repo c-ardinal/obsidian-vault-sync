@@ -155,17 +155,17 @@ export class GoogleAuthService {
         if (proxyBase) {
             // Proxy mode: state prefix "p:" signals server-side token exchange
             this.currentAuthState = `p:${randomState}`;
-            window.localStorage.setItem("vault-sync-state", this.currentAuthState);
+            window.localStorage.setItem("vault-syncer-state", this.currentAuthState);
             const params = new URLSearchParams({ state: this.currentAuthState });
             return `${proxyBase}/api/auth/login?${params.toString()}`;
         }
 
         // Client-credentials mode: state prefix "d:" signals code passthrough
         this.currentAuthState = `d:${randomState}`;
-        window.localStorage.setItem("vault-sync-state", this.currentAuthState);
+        window.localStorage.setItem("vault-syncer-state", this.currentAuthState);
         this.codeVerifier = await generateCodeVerifier();
         const challenge = await generateCodeChallenge(this.codeVerifier);
-        window.localStorage.setItem("vault-sync-verifier", this.codeVerifier);
+        window.localStorage.setItem("vault-syncer-verifier", this.codeVerifier);
 
         const params = new URLSearchParams({
             client_id: this.clientId,
@@ -183,7 +183,7 @@ export class GoogleAuthService {
     }
 
     verifyState(state: string): boolean {
-        const savedState = this.currentAuthState || window.localStorage.getItem("vault-sync-state");
+        const savedState = this.currentAuthState || window.localStorage.getItem("vault-syncer-state");
         if (!savedState) return false;
         return state === savedState;
     }
@@ -197,7 +197,7 @@ export class GoogleAuthService {
 
     async exchangeCodeForToken(code: string): Promise<void> {
         if (!this.codeVerifier) {
-            this.codeVerifier = window.localStorage.getItem("vault-sync-verifier");
+            this.codeVerifier = window.localStorage.getItem("vault-syncer-verifier");
         }
         if (!this.codeVerifier) {
             throw new Error("Code verifier missing. Did you start the login flow?");

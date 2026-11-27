@@ -48,15 +48,17 @@ export const APPROVED_ADDONS: ApprovedAddon[] = [
         source: {
             repo: "c-ardinal/obsidian-vault-syncer-e2ee-engine",
             // 0.19.2
-            commit: "53b3c87332d264cfbfd71fdd27f57be390007f9e",
+            commit: "a6bc83f64f1a6160edfaeb8607c2872b0cafc268",
         },
         files: {
             "addon.json": "61bde8a64ac452e05ef26c40a662bdcbf0ff16e602691d1422a252c810197c5c",
-            "e2ee-engine.js": "9b0c2d618892f80921261b774f9fd88de0c26df9ed17ea82a4225d7429aca83d",
+            "e2ee-engine.js": "6f112253403a2e575a51eec087411de8dceb2b534d9008da13315a678144391d",
             "TERMS.md": "12b4525dd2a3dcde2758470c53f74cd8d65ff71c74ffd8a2351ee039191ecf14",
             "TERMS_ja.md": "ba7a50d0d9e4ee0c0a3696683c33dc8a4f316a39ba51909a87f20e1528114f36",
         },
         retiredEntryHashes: [
+            // 0.19.0
+            "9b0c2d618892f80921261b774f9fd88de0c26df9ed17ea82a4225d7429aca83d",
             // 0.18.0
             "115c3307aee64b9c903495dbc6187864c7ef7ff3d5565f5c8ba803bc0382f588",
             // 0.17.1

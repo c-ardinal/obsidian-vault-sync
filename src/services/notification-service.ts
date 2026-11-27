@@ -20,7 +20,7 @@ export class ObsidianNotificationService implements INotificationService {
             const target = options?.openPath;
             if (target && this.openPath) {
                 const el = notice.messageEl;
-                el.addClass("vault-sync-notice-link");
+                el.addClass("vault-syncer-notice-link");
                 // Obsidian dismisses the notice on click; open the file as well.
                 el.addEventListener("click", () => this.openPath?.(target));
             }

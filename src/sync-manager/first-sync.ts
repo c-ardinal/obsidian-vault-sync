@@ -63,7 +63,7 @@ export interface FirstSyncGuard {
 }
 
 /** Folder (in the vault, never synced) that "start from the cloud" moves local notes to */
-export const FIRST_SYNC_ORPHANS_DIR = "_VaultSync_Orphans";
+export const FIRST_SYNC_ORPHANS_DIR = "_VaultSyncer_Orphans";
 
 const deferred = new CtxFlag("firstSyncDeferred", "The user chose to start the first sync later");
 

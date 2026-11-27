@@ -38,7 +38,7 @@ export class DevicesModal extends Modal {
         private readonly source: DevicesSource,
     ) {
         super(app);
-        this.modalEl.addClass("vault-sync-devices-modal");
+        this.modalEl.addClass("vault-syncer-devices-modal");
     }
 
     onOpen(): void {
@@ -53,7 +53,7 @@ export class DevicesModal extends Modal {
     private async load(): Promise<void> {
         const { contentEl } = this;
         contentEl.empty();
-        contentEl.createEl("p", { cls: "vault-sync-devices-note", text: t("devicesIntro") });
+        contentEl.createEl("p", { cls: "vault-syncer-devices-note", text: t("devicesIntro") });
         const status = contentEl.createEl("p", { text: t("remoteTrashLoading") });
         try {
             this.records = await this.source.listDevices();
@@ -68,10 +68,10 @@ export class DevicesModal extends Modal {
 
     private renderDevices(): void {
         const { contentEl } = this;
-        new Setting(contentEl).setName(t("devicesListHeading")).setHeading().settingEl.addClass("vault-sync-modal-heading");
+        new Setting(contentEl).setName(t("devicesListHeading")).setHeading().settingEl.addClass("vault-syncer-modal-heading");
         const own = this.records.some((r) => r.id === this.source.thisDeviceId);
         if (!own) {
-            contentEl.createEl("p", { cls: "vault-sync-devices-note", text: t("devicesThisNotYet") });
+            contentEl.createEl("p", { cls: "vault-syncer-devices-note", text: t("devicesThisNotYet") });
         }
         for (const r of this.records) {
             const isThis = r.id === this.source.thisDeviceId;
@@ -113,14 +113,14 @@ export class DevicesModal extends Modal {
             }
         }
         if (this.records.length > 1) {
-            contentEl.createEl("p", { cls: "vault-sync-devices-note", text: t("devicesForgetDesc") });
+            contentEl.createEl("p", { cls: "vault-syncer-devices-note", text: t("devicesForgetDesc") });
         }
     }
 
     private redraw(): void {
         const { contentEl } = this;
         contentEl.empty();
-        contentEl.createEl("p", { cls: "vault-sync-devices-note", text: t("devicesIntro") });
+        contentEl.createEl("p", { cls: "vault-syncer-devices-note", text: t("devicesIntro") });
         this.renderDevices();
         this.renderActivity();
     }
@@ -128,7 +128,7 @@ export class DevicesModal extends Modal {
     private renderActivity(): void {
         const { contentEl } = this;
         const heading = new Setting(contentEl).setName(t("devicesActivityHeading")).setHeading();
-        heading.settingEl.addClass("vault-sync-modal-heading");
+        heading.settingEl.addClass("vault-syncer-modal-heading");
         const dd = new DropdownComponent(heading.controlEl);
         dd.addOption("", t("devicesAllDevices"));
         for (const r of this.records) dd.addOption(r.id, r.name);
@@ -138,19 +138,19 @@ export class DevicesModal extends Modal {
             renderList();
         });
 
-        const listEl = contentEl.createDiv({ cls: "vault-sync-activity-list" });
+        const listEl = contentEl.createDiv({ cls: "vault-syncer-activity-list" });
         const all = mergeActivity(this.records);
         const renderList = () => {
             listEl.empty();
             const items = this.filter ? all.filter((a) => a.deviceId === this.filter) : all;
             if (items.length === 0) {
-                listEl.createEl("p", { cls: "vault-sync-devices-note", text: t("devicesNoActivity") });
+                listEl.createEl("p", { cls: "vault-syncer-devices-note", text: t("devicesNoActivity") });
                 return;
             }
             for (const a of items.slice(0, this.shown)) this.renderEntry(listEl, a);
             if (items.length > this.shown) {
                 const more = listEl.createEl("button", {
-                    cls: "vault-sync-activity-more",
+                    cls: "vault-syncer-activity-more",
                     text: fill(t("devicesShowMore"), "n", items.length - this.shown),
                 });
                 more.addEventListener("click", () => {
@@ -163,14 +163,14 @@ export class DevicesModal extends Modal {
     }
 
     private renderEntry(parent: HTMLElement, a: DeviceActivity): void {
-        const row = parent.createDiv({ cls: "vault-sync-activity-row" });
-        const meta = row.createDiv({ cls: "vault-sync-activity-meta" });
+        const row = parent.createDiv({ cls: "vault-syncer-activity-row" });
+        const meta = row.createDiv({ cls: "vault-syncer-activity-meta" });
         meta.createSpan({ text: formatTime(a.t) });
         meta.createSpan({ text: a.deviceName });
-        meta.createSpan({ cls: `vault-sync-activity-op mod-${a.op}`, text: t(OP_LABELS[a.op] ?? "devicesOpEdit") });
-        const pathEl = row.createDiv({ cls: "vault-sync-activity-path" });
+        meta.createSpan({ cls: `vault-syncer-activity-op mod-${a.op}`, text: t(OP_LABELS[a.op] ?? "devicesOpEdit") });
+        const pathEl = row.createDiv({ cls: "vault-syncer-activity-path" });
         const file = this.app.vault.getAbstractFileByPath(a.path);
-        if (a.op === "rename" && a.from) pathEl.createSpan({ cls: "vault-sync-activity-from", text: `${a.from} → ` });
+        if (a.op === "rename" && a.from) pathEl.createSpan({ cls: "vault-syncer-activity-from", text: `${a.from} → ` });
         if (file instanceof TFile) {
             const link = pathEl.createEl("a", { text: a.path, href: "#" });
             link.addEventListener("click", (e) => {

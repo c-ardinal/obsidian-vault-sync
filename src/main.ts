@@ -21,10 +21,10 @@ import { fetchLinkedCloudOnly, openCloudOnlyPicker } from "./ui/cloud-only-modal
 import { TransferStatusModal, type TransferModalActions } from "./ui/transfer-status-modal";
 import { SyncStatusView } from "./ui/sync-status-view";
 import { DEFAULT_SETTINGS } from "./constants";
-import { DATA_REMOTE_DIR, VaultSyncSettings } from "./types/settings";
+import { DATA_REMOTE_DIR, VaultSyncerSettings } from "./types/settings";
 import { t, initI18n, setAddonStrings, currentLanguage } from "./i18n";
 import type { ICryptoEngine } from "./encryption/interfaces";
-import { VaultSyncSettingTab } from "./ui/vault-sync-setting-tab";
+import { VaultSyncerSettingTab } from "./ui/vault-syncer-setting-tab";
 import {
     installEngineFromContent,
     loadExternalCryptoEngine,
@@ -52,7 +52,6 @@ import { TriggerManager } from "./services/trigger-manager";
 import { SettingsManager } from "./services/settings-manager";
 import { CredentialManager } from "./services/credential-manager";
 import { setPluginDir } from "./sync-manager/file-utils";
-import { enabledLegacyCopyId, migrateLegacyPluginData } from "./services/legacy-plugin-migration";
 
 /** Command ids of Vault Syncer itself; an add-on action may not take them. */
 const BUILTIN_COMMAND_IDS: ReadonlySet<string> = new Set([
@@ -81,8 +80,8 @@ const CRYPTO_ADDON_ID = APPROVED_ADDONS.find((a) => a.kind === "crypto-engine")?
 /** Syncs the user starts: a mass-change question held before is asked again */
 const USER_TRIGGERS: ReadonlySet<SyncTrigger> = new Set<SyncTrigger>(["manual-sync", "full-scan", "initial-sync"]);
 
-export default class VaultSync extends Plugin {
-    settings!: VaultSyncSettings;
+export default class VaultSyncer extends Plugin {
+    settings!: VaultSyncerSettings;
     adapter!: OAuthCloudAdapter;
     syncManager!: SyncManager;
     secureStorage!: SecureStorage;
@@ -97,7 +96,7 @@ export default class VaultSync extends Plugin {
     private manualSyncInProgress = false;
     private mobileSyncFabEl: HTMLElement | null = null;
     private syncStatusView: SyncStatusView | null = null;
-    private settingTab: VaultSyncSettingTab | null = null;
+    private settingTab: VaultSyncerSettingTab | null = null;
     private triggerManager!: TriggerManager;
     private settingsMgr!: SettingsManager;
     private credentialMgr!: CredentialManager;
@@ -296,20 +295,6 @@ export default class VaultSync extends Plugin {
         setPluginDir(pluginDir, configDir);
         initI18n();
 
-        // The plugin's ID has changed (PLUGIN_IDS). While a copy under an earlier ID
-        // is still enabled, both would sync the same vault: stay idle until it is off.
-        const oldCopyId = enabledLegacyCopyId(this.app);
-        if (oldCopyId) {
-            new Notice(t("noticeLegacyCopyEnabled").replace("{id}", oldCopyId), 0);
-            return;
-        }
-        try {
-            const migrated = await migrateLegacyPluginData(this.app.vault.adapter, pluginDir);
-            if (migrated) new Notice(t("noticeLegacyDataMigrated").replace("{id}", migrated.fromId), 15000);
-        } catch (e) {
-            console.error("Vault Syncer: Could not carry over data from the old plugin folder", e);
-        }
-
         this.vaultOps = new ObsidianVaultOperations(this.app);
 
         this.adapter = createCloudAdapter(
@@ -443,7 +428,7 @@ export default class VaultSync extends Plugin {
 
                 for (const el of targets) {
                     setIcon(el, "sync");
-                    el.addClass("vault-sync-spinning");
+                    el.addClass("vault-syncer-spinning");
                 }
             },
             () => {
@@ -456,7 +441,7 @@ export default class VaultSync extends Plugin {
                 }
 
                 for (const el of targets) {
-                    el.removeClass("vault-sync-spinning");
+                    el.removeClass("vault-syncer-spinning");
                     setIcon(el, "sync");
                 }
             },
@@ -772,7 +757,7 @@ export default class VaultSync extends Plugin {
             this.refreshFileExplorerMarks();
         });
 
-        this.settingTab = new VaultSyncSettingTab(this.app, this);
+        this.settingTab = new VaultSyncerSettingTab(this.app, this);
         this.addSettingTab(this.settingTab);
 
         this.triggerManager.setupAutoSyncInterval();
@@ -826,7 +811,7 @@ export default class VaultSync extends Plugin {
         this.triggerManager?.destroy();
         this.syncStatusView?.unmount();
         this.syncStatusView = null;
-        activeDocument.body.style.removeProperty("--vault-sync-diff-font-size");
+        activeDocument.body.style.removeProperty("--vault-syncer-diff-font-size");
         if (this.mobileSyncFabEl) {
             this.mobileSyncFabEl.remove();
         }
@@ -842,7 +827,7 @@ export default class VaultSync extends Plugin {
         const px = Platform.isMobile
             ? this.settings.diffFontSizeMobile
             : this.settings.diffFontSizeDesktop;
-        activeDocument.body.style.setProperty("--vault-sync-diff-font-size", `${px}px`);
+        activeDocument.body.style.setProperty("--vault-syncer-diff-font-size", `${px}px`);
     }
 
     private fileMarks: FileExplorerMarks | null = null;
@@ -872,7 +857,7 @@ export default class VaultSync extends Plugin {
             this.syncStatusView?.unmount();
             this.syncStatusView = null;
             if (Platform.isMobile && !this.mobileSyncFabEl) {
-                this.mobileSyncFabEl = activeDocument.body.createDiv("vault-sync-mobile-fab");
+                this.mobileSyncFabEl = activeDocument.body.createDiv("vault-syncer-mobile-fab");
                 setIcon(this.mobileSyncFabEl, "sync");
                 this.mobileSyncFabEl.setAttribute("aria-label", t("labelSyncTooltip"));
             }
@@ -978,13 +963,13 @@ export default class VaultSync extends Plugin {
         targets: { element: HTMLElement; originalIcon: string }[],
         operation: () => Promise<void>,
     ) {
-        if (targets.some((t) => t.element.classList.contains("vault-sync-spinning"))) return;
+        if (targets.some((t) => t.element.classList.contains("vault-syncer-spinning"))) return;
 
         this.manualSyncInProgress = true;
         for (const target of targets) {
             setIcon(target.element, "sync");
-            target.element.addClass("vault-sync-spinning");
-            if (target.element.classList.contains("vault-sync-mobile-fab")) {
+            target.element.addClass("vault-syncer-spinning");
+            if (target.element.classList.contains("vault-syncer-mobile-fab")) {
                 target.element.addClass("is-active");
             }
         }
@@ -993,8 +978,8 @@ export default class VaultSync extends Plugin {
             await operation();
         } finally {
             for (const target of targets) {
-                target.element.removeClass("vault-sync-spinning");
-                if (target.element.classList.contains("vault-sync-mobile-fab")) {
+                target.element.removeClass("vault-syncer-spinning");
+                if (target.element.classList.contains("vault-syncer-mobile-fab")) {
                     target.element.removeClass("is-active");
                 }
                 setIcon(target.element, target.originalIcon);

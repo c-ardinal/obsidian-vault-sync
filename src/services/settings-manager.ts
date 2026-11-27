@@ -7,7 +7,7 @@ import {
     DATA_LOCAL_DIR,
     DATA_REMOTE_DIR,
     DATA_FLEXIBLE_DIR,
-    type VaultSyncSettings,
+    type VaultSyncerSettings,
 } from "../types/settings";
 import { toHex } from "../utils/format";
 import { mergeWithDefaults, migrateSettings } from "./settings-migration";
@@ -42,14 +42,14 @@ export function moveLegacyDeviceExclusion(settings: Record<string, unknown>, isM
 }
 
 export class SettingsManager {
-    settings!: VaultSyncSettings;
+    settings!: VaultSyncerSettings;
     secureStorage!: SecureStorage;
 
     constructor(private deps: SettingsManagerDeps) {}
 
     async loadSettings(): Promise<void> {
         const { vaultOps, manifestDir, adapter, appSecretStorage } = this.deps;
-        let loadedSettings: Partial<VaultSyncSettings> = {};
+        let loadedSettings: Partial<VaultSyncerSettings> = {};
 
         const openDataPath = `${manifestDir}/${DATA_FLEXIBLE_DIR}/open-data.json`;
         const localDataPath = `${manifestDir}/${DATA_LOCAL_DIR}/local-data.json`;
@@ -58,7 +58,7 @@ export class SettingsManager {
             try {
                 const openData = JSON.parse(
                     await vaultOps.read(openDataPath),
-                ) as Partial<VaultSyncSettings>;
+                ) as Partial<VaultSyncerSettings>;
                 loadedSettings = { ...loadedSettings, ...openData };
             } catch (e) {
                 console.error("Vault Syncer: Failed to load open-data.json", e);
@@ -69,7 +69,7 @@ export class SettingsManager {
             try {
                 const localData = JSON.parse(
                     await vaultOps.read(localDataPath),
-                ) as Partial<VaultSyncSettings>;
+                ) as Partial<VaultSyncerSettings>;
                 loadedSettings = { ...loadedSettings, ...localData };
             } catch (e) {
                 console.error("Vault Syncer: Failed to load local-data.json", e);

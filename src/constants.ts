@@ -1,4 +1,4 @@
-import { VaultSyncSettings } from "./types/settings";
+import { VaultSyncerSettings } from "./types/settings";
 
 export const AUTH_PROXY_BASE_URL = "https://obsidian-vault-sync.pages.dev";
 
@@ -28,7 +28,7 @@ export const SETTINGS_LIMITS = {
     autoKeepRevisionDays: { min: 1, max: 365, default: 1, disabled: -1 },
 } as const;
 
-export const DEFAULT_SETTINGS: VaultSyncSettings = {
+export const DEFAULT_SETTINGS: VaultSyncerSettings = {
     triggerConfigStrategy: "unified",
     unifiedTriggers: {
         enableStartupSync: true,
@@ -71,7 +71,7 @@ export const DEFAULT_SETTINGS: VaultSyncSettings = {
     isDeveloperMode: false,
     enableLogging: false,
     startupDelaySec: SETTINGS_LIMITS.startupDelay.default,
-    cloudRootFolder: "ObsidianVaultSync",
+    cloudRootFolder: "ObsidianVaultSyncer",
     exclusionPatterns: ".git\n.svn\n.hg\n.bzr",
     desktopMaxFileSizeMB: SETTINGS_LIMITS.maxFileSizeMB.disabled,
     mobileMaxFileSizeMB: SETTINGS_LIMITS.maxFileSizeMB.disabled,

@@ -1,15 +1,15 @@
 import { Notice, Platform } from "obsidian";
 import { ConfirmModal } from "./confirm-modal";
 import { isValidCloudRootFolder } from "../utils/cloud-root";
-import { OBSIDIAN_SCOPE_KEYS, type ObsidianScopeKey, VaultSyncSettings } from "../types/settings";
+import { OBSIDIAN_SCOPE_KEYS, type ObsidianScopeKey, VaultSyncerSettings } from "../types/settings";
 import { SETTINGS_LIMITS } from "../constants";
 import { t } from "../i18n";
-import VaultSync from "../main";
+import VaultSyncer from "../main";
 import { formatSize } from "../utils/format";
 import { formatDateTime } from "./format-time";
 
 /** The cloud storage line of the data protection page (last reading; no request) */
-function storageDesc(p: VaultSync): string {
+function storageDesc(p: VaultSyncer): string {
     const sum = p.syncManager.getStorageSummary();
     if (!sum || !sum.quota) return t("settingStorageNotChecked");
     const q = sum.quota;
@@ -42,7 +42,7 @@ export type SettingType =
     | "diff-preview";
 
 export interface SettingItem {
-    key: string; // Changed from keyof VaultSyncSettings to support nested paths
+    key: string; // Changed from keyof VaultSyncerSettings to support nested paths
     type: SettingType;
     label: string;
     desc?: string;
@@ -59,15 +59,15 @@ export interface SettingItem {
         disabled?: number;
     };
     // Custom behaviors
-    onChange?: (value: unknown, plugin: VaultSync) => Promise<void>;
+    onChange?: (value: unknown, plugin: VaultSyncer) => Promise<void>;
     /** Text only: run onChange when the field is committed (blur / Enter), then show the saved value. */
     commitOnBlur?: boolean;
-    isHidden?: (settings: VaultSyncSettings, plugin: VaultSync) => boolean;
-    getDesc?: (settings: VaultSyncSettings, plugin: VaultSync) => string;
+    isHidden?: (settings: VaultSyncerSettings, plugin: VaultSyncer) => boolean;
+    getDesc?: (settings: VaultSyncerSettings, plugin: VaultSyncer) => string;
     /** Button only: its text and what it does */
     buttonText?: string;
     buttonStyle?: "cta" | "warning";
-    onClick?: (plugin: VaultSync) => void;
+    onClick?: (plugin: VaultSyncer) => void;
 }
 
 export interface SettingSection {
@@ -75,10 +75,10 @@ export interface SettingSection {
     title: string;
     description?: string;
     items: SettingItem[];
-    isHidden?: (settings: VaultSyncSettings, plugin: VaultSync) => boolean;
+    isHidden?: (settings: VaultSyncerSettings, plugin: VaultSyncer) => boolean;
 }
 
-const DEFAULT_CLOUD_ROOT = "ObsidianVaultSync";
+const DEFAULT_CLOUD_ROOT = "ObsidianVaultSyncer";
 
 /**
  * A .obsidian category toggle: the shared one, or with "per PC / mobile" the one
@@ -162,7 +162,7 @@ const getTriggerItems = (prefix: string, suffix = ""): SettingItem[] => [
     },
 ];
 
-export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
+export const getSettingsSections = (plugin: VaultSyncer): SettingSection[] => {
     return [
         {
             id: "sync_behavior",
@@ -382,20 +382,20 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
         {
             id: "triggers_unified",
             title: t("settingTriggerSection"),
-            isHidden: (s: VaultSyncSettings) => s.triggerConfigStrategy !== "unified",
+            isHidden: (s: VaultSyncerSettings) => s.triggerConfigStrategy !== "unified",
             items: getTriggerItems("unifiedTriggers"),
         },
         {
             id: "triggers_desktop",
             title: t("settingTriggerSection"),
-            isHidden: (s: VaultSyncSettings) =>
+            isHidden: (s: VaultSyncerSettings) =>
                 s.triggerConfigStrategy !== "per-platform" || Platform.isMobile,
             items: getTriggerItems("desktopTriggers", t("settingSuffixDesktop")),
         },
         {
             id: "triggers_mobile",
             title: t("settingTriggerSection"),
-            isHidden: (s: VaultSyncSettings) =>
+            isHidden: (s: VaultSyncerSettings) =>
                 s.triggerConfigStrategy !== "per-platform" || !Platform.isMobile,
             items: getTriggerItems("mobileTriggers", t("settingSuffixMobile")),
         },
@@ -414,7 +414,7 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
                     type: "text",
                     label: t("settingCloudRootFolder"),
                     desc: t("settingCloudRootFolderDesc"),
-                    placeholder: "ObsidianVaultSync",
+                    placeholder: "ObsidianVaultSyncer",
                     // Validate and confirm only once the field is committed (blur / Enter),
                     // never per keystroke: a half-typed name must not be saved.
                     commitOnBlur: true,
@@ -689,7 +689,7 @@ export const getSettingsSections = (plugin: VaultSync): SettingSection[] => {
         {
             id: "developer",
             title: t("settingDevSection"),
-            isHidden: (s: VaultSyncSettings) => !s.isDeveloperMode,
+            isHidden: (s: VaultSyncerSettings) => !s.isDeveloperMode,
             items: [
                 // ── Debug ──
                 {

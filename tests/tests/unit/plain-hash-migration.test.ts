@@ -28,7 +28,7 @@ import {
 import { loadLocalIndex, saveLocalIndex } from "../../../src/sync-manager/state";
 import type { SyncContext } from "../../../src/sync-manager/context";
 
-const LOCAL = ".obsidian/plugins/obsidian-vault-sync/data/local/local-index.json";
+const LOCAL = ".obsidian/plugins/cardinal-vault-syncer/data/local/local-index.json";
 
 const buf = (bytes: number[]) => new Uint8Array(bytes).buffer as ArrayBuffer;
 const enc = (s: string) => new TextEncoder().encode(s).buffer as ArrayBuffer;
@@ -97,8 +97,8 @@ function makeCtx(files: Record<string, ArrayBuffer>, overrides: Record<string, u
         index: {},
         localIndex: {},
         localIndexPath: LOCAL,
-        pluginDir: ".obsidian/plugins/obsidian-vault-sync",
-        logFolder: ".obsidian/plugins/obsidian-vault-sync/logs/dev_A",
+        pluginDir: ".obsidian/plugins/cardinal-vault-syncer",
+        logFolder: ".obsidian/plugins/cardinal-vault-syncer/logs/dev_A",
         deviceId: "dev_A",
         e2eeEnabled: true,
         log: vi.fn(async () => {}),

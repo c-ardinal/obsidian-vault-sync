@@ -1,6 +1,6 @@
 import { App, Modal, setIcon, ButtonComponent, TextComponent } from "obsidian";
-import type VaultSync from "../main";
-import { OBSIDIAN_SCOPE_KEYS, type ObsidianScopeKey, type VaultSyncSettings } from "../types/settings";
+import type VaultSyncer from "../main";
+import { OBSIDIAN_SCOPE_KEYS, type ObsidianScopeKey, type VaultSyncerSettings } from "../types/settings";
 import { t } from "../i18n";
 import { matchWildcard } from "../utils/wildcard";
 import {
@@ -12,7 +12,7 @@ import {
 import { configDir, configPath } from "../utils/config-dir";
 
 interface ToggleExclusion {
-    settingKey: keyof VaultSyncSettings;
+    settingKey: keyof VaultSyncerSettings;
     label: string;
     patterns: string[];
 }
@@ -71,7 +71,7 @@ const LIST_TEXTS: Record<ExclusionListKey, { title: string; note: string }> = {
 };
 
 export class ExclusionPatternModal extends Modal {
-    private plugin: VaultSync;
+    private plugin: VaultSyncer;
     private patterns: string[];
     private listEl!: HTMLElement;
     private statusEl!: HTMLElement;
@@ -85,7 +85,7 @@ export class ExclusionPatternModal extends Modal {
 
     constructor(
         app: App,
-        plugin: VaultSync,
+        plugin: VaultSyncer,
         private readonly key: ExclusionListKey = "exclusionPatterns",
     ) {
         super(app);
@@ -98,21 +98,21 @@ export class ExclusionPatternModal extends Modal {
 
     onOpen(): void {
         const { contentEl } = this;
-        this.modalEl.addClass("vault-sync-exclusion-modal");
+        this.modalEl.addClass("vault-syncer-exclusion-modal");
         contentEl.empty();
 
         const texts = LIST_TEXTS[this.key];
         this.setTitle(t(texts.title));
         contentEl.createEl("p", {
-            cls: "vault-sync-exclusion-note",
+            cls: "vault-syncer-exclusion-note",
             text: t(texts.note),
         });
 
-        const addRow = contentEl.createDiv({ cls: "vault-sync-exclusion-add-row" });
+        const addRow = contentEl.createDiv({ cls: "vault-syncer-exclusion-add-row" });
 
         this.inputComp = new TextComponent(addRow);
         this.inputComp.setPlaceholder(t("settingExclusionModalPlaceholder"));
-        this.inputComp.inputEl.addClass("vault-sync-exclusion-add-input");
+        this.inputComp.inputEl.addClass("vault-syncer-exclusion-add-input");
         this.inputComp.inputEl.addEventListener("input", () => this.onInputChange());
         this.inputComp.inputEl.addEventListener("keydown", (e: KeyboardEvent) => {
             if (e.key === "Enter") {
@@ -129,18 +129,18 @@ export class ExclusionPatternModal extends Modal {
             .onClick(() => this.addCurrentPattern());
 
         // Suggest dropdown
-        this.suggestEl = addRow.createDiv({ cls: "vault-sync-exclusion-suggest" });
+        this.suggestEl = addRow.createDiv({ cls: "vault-syncer-exclusion-suggest" });
         this.suggestEl.hide();
 
         // Error message
-        this.errorEl = contentEl.createDiv({ cls: "vault-sync-exclusion-error" });
+        this.errorEl = contentEl.createDiv({ cls: "vault-syncer-exclusion-error" });
         this.errorEl.hide();
 
         // Pattern list (below the input)
-        this.listEl = contentEl.createDiv({ cls: "vault-sync-exclusion-list" });
+        this.listEl = contentEl.createDiv({ cls: "vault-syncer-exclusion-list" });
 
         // Status line (bottom)
-        this.statusEl = contentEl.createDiv({ cls: "vault-sync-exclusion-status" });
+        this.statusEl = contentEl.createDiv({ cls: "vault-syncer-exclusion-status" });
 
         // Close suggest on outside click
         contentEl.addEventListener("click", (e) => {
@@ -216,7 +216,7 @@ export class ExclusionPatternModal extends Modal {
     private renderUserPatterns(): void {
         if (this.patterns.length === 0 && this.getActiveToggleExclusions().length === 0) {
             this.listEl.createDiv({
-                cls: "vault-sync-exclusion-empty",
+                cls: "vault-syncer-exclusion-empty",
                 text: t("settingExclusionModalEmpty"),
             });
             return;
@@ -225,13 +225,13 @@ export class ExclusionPatternModal extends Modal {
         for (let i = 0; i < this.patterns.length; i++) {
             const pattern = this.patterns[i];
             const itemContainer = this.listEl.createDiv({
-                cls: "vault-sync-exclusion-item-container",
+                cls: "vault-syncer-exclusion-item-container",
             });
-            const item = itemContainer.createDiv({ cls: "vault-sync-exclusion-item" });
+            const item = itemContainer.createDiv({ cls: "vault-syncer-exclusion-item" });
 
             // Selectable pattern text
             const patternEl = item.createSpan({
-                cls: "vault-sync-exclusion-item-pattern",
+                cls: "vault-syncer-exclusion-item-pattern",
                 text: pattern,
             });
             patternEl.setAttribute("title", pattern);
@@ -241,12 +241,12 @@ export class ExclusionPatternModal extends Modal {
                 const matchedFiles = this.getMatchedFiles(pattern);
                 const matchCount = matchedFiles.length;
                 const matchEl = item.createDiv({
-                    cls: "vault-sync-exclusion-match-count",
+                    cls: "vault-syncer-exclusion-match-count",
                     text: t("settingExclusionModalMatchCount").replace("{0}", String(matchCount)),
                 });
 
                 if (matchCount > 0) {
-                    matchEl.addClass("vault-sync-exclusion-match-clickable");
+                    matchEl.addClass("vault-syncer-exclusion-match-clickable");
                     matchEl.addEventListener("click", (e) => {
                         e.stopPropagation();
                         if (this.expandedPatterns.has(pattern)) {
@@ -261,22 +261,22 @@ export class ExclusionPatternModal extends Modal {
                 // Expanded file list
                 if (this.expandedPatterns.has(pattern) && matchCount > 0) {
                     const fileListEl = itemContainer.createDiv({
-                        cls: "vault-sync-exclusion-file-list",
+                        cls: "vault-syncer-exclusion-file-list",
                     });
                     for (const file of matchedFiles) {
-                        fileListEl.createDiv({ cls: "vault-sync-exclusion-file-item", text: file });
+                        fileListEl.createDiv({ cls: "vault-syncer-exclusion-file-item", text: file });
                     }
                 }
             } else {
                 item.createDiv({
-                    cls: "vault-sync-exclusion-match-count vault-sync-exclusion-match-loading",
+                    cls: "vault-syncer-exclusion-match-count vault-syncer-exclusion-match-loading",
                     text: "...",
                 });
             }
 
             // Delete button
             const deleteBtn = item.createEl("button", {
-                cls: "clickable-icon vault-sync-exclusion-delete",
+                cls: "clickable-icon vault-syncer-exclusion-delete",
                 attr: { "aria-label": t("settingExclusionModalDelete") },
             });
             setIcon(deleteBtn, "x");
@@ -306,26 +306,26 @@ export class ExclusionPatternModal extends Modal {
 
         // Section label
         this.listEl.createDiv({
-            cls: "vault-sync-exclusion-section-label",
+            cls: "vault-syncer-exclusion-section-label",
             text: t("settingExclusionModalToggleExclusion"),
         });
 
         for (const te of activeExclusions) {
             const itemContainer = this.listEl.createDiv({
-                cls: "vault-sync-exclusion-item-container vault-sync-exclusion-item-managed",
+                cls: "vault-syncer-exclusion-item-container vault-syncer-exclusion-item-managed",
             });
-            const item = itemContainer.createDiv({ cls: "vault-sync-exclusion-item" });
+            const item = itemContainer.createDiv({ cls: "vault-syncer-exclusion-item" });
 
             // Setting label as pattern text
             const label = t(te.label);
             item.createSpan({
-                cls: "vault-sync-exclusion-item-pattern",
+                cls: "vault-syncer-exclusion-item-pattern",
                 text: te.patterns.join(", "),
             });
 
             // Managed badge (instead of delete button)
             item.createDiv({
-                cls: "vault-sync-exclusion-managed-badge",
+                cls: "vault-syncer-exclusion-managed-badge",
                 text: label,
             });
         }
@@ -383,8 +383,8 @@ export class ExclusionPatternModal extends Modal {
         }
 
         for (const s of suggestions) {
-            const item = this.suggestEl.createDiv({ cls: "vault-sync-exclusion-suggest-item" });
-            const icon = item.createSpan({ cls: "vault-sync-exclusion-suggest-icon" });
+            const item = this.suggestEl.createDiv({ cls: "vault-syncer-exclusion-suggest-item" });
+            const icon = item.createSpan({ cls: "vault-syncer-exclusion-suggest-icon" });
             setIcon(icon, s.isFolder ? "folder" : "file");
             item.createSpan({ text: s.isFolder ? `${s.path}/**` : s.path });
             item.addEventListener("click", () => {
