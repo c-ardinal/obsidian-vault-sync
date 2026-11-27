@@ -587,6 +587,7 @@
     "verifyBusy": "同期の実行中です。完了後に再実行してください。",
     "verifyRunning": "本端末とクラウドを照合中…",
     "verifyListing": "クラウドのファイル一覧を取得中…",
+    "verifyElapsed": "経過時間: {0}",
     "verifyProgress": "{0} / {1} 件を照合済み",
     "verifyFailed": "検証を完了できませんでした。通信状態の確認後、再実行してください。",
     "verifyClean": "全 {0} 件のファイルがクラウドと一致しています。",

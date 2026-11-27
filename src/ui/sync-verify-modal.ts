@@ -5,6 +5,13 @@ import { verifyEstimate } from "./progress-math";
 import { formatDateTime } from "./format-time";
 import { formatDuration } from "./sync-status-view";
 
+/** Time taken so far, to the second: "42s", "1 min 5s" */
+function formatElapsed(sec: number): string {
+    const whole = Math.floor(sec);
+    const seconds = t("statusSeconds").replace("{0}", String(whole % 60));
+    return whole < 60 ? seconds : `${t("statusMinutes").replace("{0}", String(Math.floor(whole / 60)))} ${seconds}`;
+}
+
 /** The progress display is redrawn at most this often */
 const PROGRESS_REDRAW_MS = 150;
 
@@ -33,6 +40,8 @@ export interface VerifyActions {
  * differs. Changes nothing; "Sync now" is the user's choice.
  */
 export class SyncVerifyModal extends Modal {
+    private listingClock: number | null = null;
+
     constructor(
         app: App,
         private readonly actions: VerifyActions,
@@ -61,27 +70,38 @@ export class SyncVerifyModal extends Modal {
         const line = el.createDiv({ cls: "vault-sync-verify-progress" });
         const countEl = line.createSpan({ text: t("verifyListing") });
         const etaEl = line.createSpan();
+        // The cloud listing has no known length: a moving mark and the time it has taken
+        // show that it runs. The comparison that follows has a measure and fills the bar.
+        const listingStart = Date.now();
+        const showElapsed = () =>
+            etaEl.setText(t("verifyElapsed").replace("{0}", formatElapsed((Date.now() - listingStart) / 1000)));
+        fill.addClass("is-indeterminate");
+        showElapsed();
+        this.stopListingClock();
+        this.listingClock = window.setInterval(showElapsed, 1000);
         let compareStart: number | null = null;
         let lastDraw = 0;
         const onProgress = (p: VerifyProgress) => {
+            if (p.stage === "listing") return;
             const now = Date.now();
-            if (p.stage === "comparing" && compareStart === null) compareStart = now;
-            const last = p.stage === "comparing" && p.done >= p.total;
+            if (compareStart === null) {
+                compareStart = now;
+                this.stopListingClock();
+                fill.removeClass("is-indeterminate");
+            }
+            const last = p.done >= p.total;
             if (!last && now - lastDraw < PROGRESS_REDRAW_MS) return;
             lastDraw = now;
-            const { fraction, etaSec } = verifyEstimate(p, now - (compareStart ?? now));
+            const { fraction, etaSec } = verifyEstimate(p, now - compareStart);
             fill.style.width = `${Math.round((fraction ?? 0) * 100)}%`;
-            countEl.setText(
-                p.stage === "listing"
-                    ? t("verifyListing")
-                    : t("verifyProgress").replace("{0}", String(p.done)).replace("{1}", String(p.total)),
-            );
+            countEl.setText(t("verifyProgress").replace("{0}", String(p.done)).replace("{1}", String(p.total)));
             etaEl.setText(etaSec === null ? "" : `${t("statusEta")} ${t("statusAbout")}${formatDuration(etaSec)}`);
         };
         let report: VerifyReport;
         try {
             report = await this.actions.run(onProgress);
         } catch (e) {
+            this.stopListingClock();
             el.empty();
             if (this.actions.isSignedIn() === false) {
                 el.createEl("p", { text: t("verifySignInRequired") });
@@ -91,7 +111,13 @@ export class SyncVerifyModal extends Modal {
             el.createEl("p", { cls: "setting-item-description", text: String(e) });
             return;
         }
+        this.stopListingClock();
         this.render(report);
+    }
+
+    private stopListingClock(): void {
+        if (this.listingClock !== null) window.clearInterval(this.listingClock);
+        this.listingClock = null;
     }
 
     private render(report: VerifyReport): void {
@@ -134,6 +160,7 @@ export class SyncVerifyModal extends Modal {
     }
 
     onClose(): void {
+        this.stopListingClock();
         this.contentEl.empty();
     }
 }

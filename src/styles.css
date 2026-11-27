@@ -1707,7 +1707,8 @@
 }
 
 /* A step without a measure: a mark at rest, moving where motion is welcome */
-.vault-sync-status-step-fill.is-indeterminate {
+.vault-sync-status-step-fill.is-indeterminate,
+.vault-sync-verify-bar .vault-sync-status-bar-fill.is-indeterminate {
     width: 40%;
     opacity: 0.7;
 }
@@ -1843,7 +1844,8 @@
         transition: width 0.4s ease;
     }
 
-    .vault-sync-status-step-fill.is-indeterminate {
+    .vault-sync-status-step-fill.is-indeterminate,
+    .vault-sync-verify-bar .vault-sync-status-bar-fill.is-indeterminate {
         animation: vault-sync-step-indeterminate 1.4s linear infinite;
     }
 }
