@@ -1,3 +1,4 @@
+import { rememberOwnDeletion } from "./vault-folder";
 import { contentFingerprint } from "./content-fingerprint";
 import type { SyncContext } from "./context";
 import { parseIndex, providerNameOf, serializeIndex, type DeletionMark, type DeletionMarks, type MergeOrigins } from "./remote-layout";
@@ -137,11 +138,59 @@ function learnDeletionMarks(ctx: object, marks: DeletionMarks): void {
     knownDeletionMarks.set(ctx, known);
 }
 
-/** Record that we deleted cloud file `fileId` after seeing version `hash` there. */
-export function noteDeletionMark(ctx: object, fileId: string, hash: string | undefined): void {
+/**
+ * Record that we deleted cloud file `fileId` after seeing version `hash` there.
+ * `what` names the note and its content: a copy of this very version found
+ * elsewhere later (the old folder of a conversion) is then known as deleted.
+ */
+export function noteDeletionMark(
+    ctx: object,
+    fileId: string,
+    hash: string | undefined,
+    what?: { path: string; plain?: string },
+): void {
     const mark: DeletionMark = { at: Date.now() };
     if (hash) mark.hash = hash.toLowerCase();
+    if (what?.plain) {
+        mark.path = what.path;
+        mark.plain = what.plain.toLowerCase();
+        rememberOwnDeletion(ctx, fileId, what.path, what.plain);
+    }
     learnDeletionMarks(ctx, { [fileId]: mark });
+}
+
+/** True when a device deleted the note at `path` while it held the content `plain` */
+export function deletedVersionKnown(ctx: object, path: string, plain: string): boolean {
+    const want = plain.toLowerCase();
+    return Object.values(knownDeletionMarks.get(ctx) ?? {}).some((m) => m.path === path && m.plain === want);
+}
+
+/**
+ * Read the deletion marks of the shared index now (they are otherwise learnt
+ * during a sync). Throws when the index cannot be read.
+ */
+export async function refreshDeletionMarks(ctx: SyncHelpersCtx): Promise<void> {
+    const meta = await ctx.adapter.getFileMetadata(ctx.pluginDataPath);
+    if (!meta?.id) return;
+    // The marks alone: what else the index tells is taken in where a sync reads it
+    const decompressed = await tryDecompress(await ctx.adapter.downloadFile(meta.id));
+    const parsed = parseIndex(new TextDecoder().decode(decompressed), providerNameOf(ctx.adapter));
+    learnDeletionMarks(ctx, parsed.deleted);
+}
+
+/**
+ * Whether the shared index, as it is on the cloud now, holds a deletion mark for
+ * this note in this version. Nothing is learnt from it: the marks are taken in
+ * where a sync reads the index. Throws when the index cannot be read.
+ */
+export async function deletedVersionOnCloud(ctx: SyncHelpersCtx, path: string, plain: string): Promise<boolean> {
+    if (deletedVersionKnown(ctx, path, plain)) return true;
+    const meta = await ctx.adapter.getFileMetadata(ctx.pluginDataPath);
+    if (!meta?.id) return false;
+    const decompressed = await tryDecompress(await ctx.adapter.downloadFile(meta.id));
+    const parsed = parseIndex(new TextDecoder().decode(decompressed), providerNameOf(ctx.adapter));
+    const want = plain.toLowerCase();
+    return Object.values(parsed.deleted ?? {}).some((m) => m?.path === path && m.plain === want);
 }
 
 /** The mark another device (or we) left when deleting `fileId`, if known. */

@@ -59,6 +59,10 @@ export interface DeletionMark {
     hash?: string;
     /** Unix time (ms) of the deletion */
     at: number;
+    /** Vault path the file had */
+    path?: string;
+    /** Content hash (hashContent) of that version, as the vault holds it locally */
+    plain?: string;
 }
 
 export type DeletionMarks = Record<string, DeletionMark>;

@@ -95,6 +95,12 @@ export interface CloudAdapter {
      * @param knownPath Optional known path to populate the result (avoids expensive path resolution)
      */
     getFileMetadataById(fileId: string, knownPath?: string): Promise<CloudFile | null>;
+    /**
+     * Content hash of the cloud file with this id wherever it is now, also
+     * outside the vault folder (a folder that was the vault before a conversion).
+     * null when the file is gone. Optional: only clouds that address files by id.
+     */
+    getContentHashById?(fileId: string): Promise<string | null>;
     downloadFile(fileId: string): Promise<ArrayBuffer>;
     uploadFile(
         path: string,
@@ -224,6 +230,13 @@ export interface CloudAdapter {
     getAppRootId(): Promise<string>;
 
     /**
+     * Asked right before the adapter creates a vault folder because none of its
+     * name exists, with the folders lying next to it (name, cloud id, time of
+     * the last change). Throwing prevents the creation.
+     */
+    beforeVaultRootCreate?: ((siblings: { id: string; name: string; modifiedTime: number }[]) => Promise<void>) | null;
+
+    /**
      * Clone this adapter with a new vault name.
      * Used for migration to create temporary adapters.
      * Returns a new adapter instance with the same credentials but different vault name.
@@ -278,4 +291,16 @@ export interface StorageQuota {
     usage: number;
     /** Of that, files in the cloud's own trash */
     usageInTrash?: number;
+}
+
+/**
+ * The vault folder is missing by name while a conversion's folders lie next to
+ * it: another device is swapping the folders right now (or stopped in between).
+ * No new vault folder may be created meanwhile; sync waits.
+ */
+export class VaultFolderSwapError extends Error {
+    constructor() {
+        super("The vault folder is being replaced by a conversion on another device.");
+        this.name = "VaultFolderSwapError";
+    }
 }

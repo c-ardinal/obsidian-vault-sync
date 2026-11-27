@@ -155,6 +155,55 @@ describe("VaultLockService", () => {
         });
     });
 
+    describe("copy of the vault-lock on this device", () => {
+        const withCopy = () => {
+            const kept: { blob: string | null } = { blob: null };
+            svc.copy = { load: async () => kept.blob, save: async (blob) => void (kept.blob = blob) };
+            return kept;
+        };
+
+        it("is saved whenever the lock is read or written", async () => {
+            const kept = withCopy();
+            await svc.uploadLockFile("first");
+            expect(kept.blob).toBe("first");
+            adapter._store.set(vaultLockPath(), { id: "lock1", content: encode("changed elsewhere") });
+            await svc.downloadLockFile();
+            expect(kept.blob).toBe("changed elsewhere");
+        });
+
+        it("puts the lock back into a folder that has none", async () => {
+            const kept = withCopy();
+            kept.blob = "the lock";
+            expect(await svc.restoreLockFileIfMissing()).toBe("restored");
+            expect(new TextDecoder().decode(adapter._store.get(vaultLockPath())!.content)).toBe("the lock");
+        });
+
+        it("leaves a lock that is there untouched", async () => {
+            const kept = withCopy();
+            kept.blob = "older copy";
+            adapter._store.set(vaultLockPath(), { id: "lock1", content: encode("current") });
+            expect(await svc.restoreLockFileIfMissing()).toBe("present");
+            expect(new TextDecoder().decode(adapter._store.get(vaultLockPath())!.content)).toBe("current");
+        });
+
+        it("reports the lock lost when there is neither a lock nor a copy", async () => {
+            withCopy();
+            expect(await svc.restoreLockFileIfMissing()).toBe("lost");
+            expect(adapter._store.has(vaultLockPath())).toBe(false);
+        });
+
+        it("a failing copy does not fail the read", async () => {
+            svc.copy = {
+                load: async () => null,
+                save: async () => {
+                    throw new Error("disk full");
+                },
+            };
+            adapter._store.set(vaultLockPath(), { id: "lock1", content: encode("blob") });
+            expect(await svc.downloadLockFile()).toBe("blob");
+        });
+    });
+
     describe("uploadLockFileToAdapter", () => {
         it("should upload to a different adapter", async () => {
             const otherAdapter = createMockAdapter();

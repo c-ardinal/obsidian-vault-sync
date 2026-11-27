@@ -77,10 +77,55 @@ export class DrivePathResolver {
         await this.ensureRootFolders();
     }
 
+    /**
+     * Asked right before a vault folder is created because none of its name
+     * exists, with the folders that lie next to it. Throwing prevents the
+     * creation (see VaultFolderSwapError).
+     */
+    beforeVaultRootCreate: ((siblings: { id: string; name: string; modifiedTime: number }[]) => Promise<void>) | null =
+        null;
+
+    private appRootPromise: Promise<string> | null = null;
+
+    /** The app root alone: looking it up never creates a vault folder */
     async getAppRootId(): Promise<string> {
-        await this.ensureRootFolders();
-        if (!this.appRootId) throw new Error("App root not found");
+        if (this.appRootId) return this.appRootId;
+        if (!this.appRootPromise) {
+            this.appRootPromise = this.findOrCreateAppRoot().finally(() => {
+                this.appRootPromise = null;
+            });
+        }
+        return this.appRootPromise;
+    }
+
+    private async findOrCreateAppRoot(): Promise<string> {
+        const query = `name = '${this.http.escapeQueryValue(
+            this.cloudRootFolder,
+        )}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+        const response = await this.http.fetchWithAuth(
+            `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,parents)`,
+        );
+        const data = (await response.json()) as DriveFileList;
+        // A reset or another lookup may have finished meanwhile
+        if (this.appRootId) return this.appRootId;
+        if (data.files && data.files.length > 0) {
+            this.appRootId = data.files[0].id;
+            await this.log(`Found app root(s): ${data.files.length}. Using: ${this.appRootId}`, "system");
+        } else {
+            this.appRootId = await this.createFolder(this.cloudRootFolder);
+            await this.log(`Created fresh app root: ${this.appRootId}`, "system");
+        }
+        if (!this.appRootId) throw new Error("Failed to resolve App Root ID");
         return this.appRootId;
+    }
+
+    private async foldersInAppRoot(): Promise<{ id: string; name: string; modifiedTime: number }[]> {
+        const query = `'${this.appRootId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+        const response = await this.http.fetchWithAuth(
+            `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,modifiedTime)&pageSize=1000`,
+        );
+        const data = (await response.json()) as DriveFileList;
+        return (data.files ?? []).map((f) => ({ id: f.id, name: f.name, modifiedTime: Date.parse(f.modifiedTime) }));
     }
 
     reset(): void {
@@ -131,26 +176,7 @@ export class DrivePathResolver {
                 await this.log("=== ROOT DISCOVERY STARTED ===", "info");
 
                 // 1. Ensure app root folder exists
-                if (!this.appRootId) {
-                    const query = `name = '${this.http.escapeQueryValue(
-                        this.cloudRootFolder,
-                    )}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
-                    const response = await this.http.fetchWithAuth(
-                        `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,parents)`,
-                    );
-                    const data = (await response.json()) as DriveFileList;
-
-                    if (data.files && data.files.length > 0) {
-                        this.appRootId = data.files[0].id;
-                        await this.log(
-                            `Found app root(s): ${data.files.length}. Using: ${this.appRootId}`,
-                            "system",
-                        );
-                    } else {
-                        this.appRootId = await this.createFolder(this.cloudRootFolder);
-                        await this.log(`Created fresh app root: ${this.appRootId}`, "system");
-                    }
-                }
+                if (!this.appRootId) await this.getAppRootId();
 
                 // Ensure appRootId is not null
                 if (!this.appRootId) throw new Error("Failed to resolve App Root ID");
@@ -238,6 +264,7 @@ export class DrivePathResolver {
                             "No existing vault found anywhere. Creating new vault folder in app root...",
                             "info",
                         );
+                        if (this.beforeVaultRootCreate) await this.beforeVaultRootCreate(await this.foldersInAppRoot());
                         this.vaultRootId = await this.createFolder(this.vaultName, this.appRootId);
                         await this.log(`Created new vault root: ${this.vaultRootId}`, "system");
                     }

@@ -60,7 +60,9 @@ function createMockBaseAdapter(vaultName = "TestVault") {
 function createMockLockService() {
     return {
         checkForLockFile: vi.fn(async () => false),
-        createMigrationLock: vi.fn(),
+        createMigrationLock: vi.fn(async (deviceId: string) => ({ id: "lock-id", deviceId, timestamp: Date.now() })),
+        listMigrationLocks: vi.fn(async () => []),
+        removeMigrationLockById: vi.fn(),
         removeMigrationLock: vi.fn(),
         getMigrationLock: vi.fn(async () => null),
         uploadLockFileToAdapter: vi.fn(),
@@ -138,7 +140,7 @@ describe("MigrationService - Branch Coverage Tests", () => {
             await svc.startMigration("password");
 
             // Create temp adapter with modified download that returns different size
-            const tempAdapter = createMockBaseAdapter("TestVault-Temp-Encrypted");
+            const tempAdapter = createMockBaseAdapter("TestVault-Temp-Encrypted-test-device");
             tempAdapter.getBaseAdapter = vi.fn(() => tempAdapter);
             
             // Override downloadFile to return content with different size
@@ -170,7 +172,7 @@ describe("MigrationService - Branch Coverage Tests", () => {
             await svc.startMigration("password");
 
             // Create temp adapter with modified download that returns slightly different content
-            const tempAdapter = createMockBaseAdapter("TestVault-Temp-Encrypted");
+            const tempAdapter = createMockBaseAdapter("TestVault-Temp-Encrypted-test-device");
             tempAdapter.getBaseAdapter = vi.fn(() => tempAdapter);
             
             // Same size but different content
@@ -202,7 +204,7 @@ describe("MigrationService - Branch Coverage Tests", () => {
             const svc = new MigrationService(baseAdapter, lockService, ctx);
             await svc.startMigration("password");
 
-            const tempAdapter = createMockBaseAdapter("TestVault-Temp-Encrypted");
+            const tempAdapter = createMockBaseAdapter("TestVault-Temp-Encrypted-test-device");
             tempAdapter.getBaseAdapter = vi.fn(() => tempAdapter);
 
             const progress: any[] = [];
@@ -231,7 +233,7 @@ describe("MigrationService - Branch Coverage Tests", () => {
             const svc = new MigrationService(baseAdapter, lockService, ctx);
             await svc.startMigration("password");
 
-            const tempAdapter = createMockBaseAdapter("TestVault-Temp-Encrypted");
+            const tempAdapter = createMockBaseAdapter("TestVault-Temp-Encrypted-test-device");
             tempAdapter.getBaseAdapter = vi.fn(() => tempAdapter);
             
             // Make upload fail for second file
@@ -253,7 +255,7 @@ describe("MigrationService - Branch Coverage Tests", () => {
             const ctx = createMockCtx();
             const baseAdapter = createMockBaseAdapter();
             const lockService = createMockLockService();
-            const tempAdapter = createMockBaseAdapter("TestVault-Temp-Encrypted");
+            const tempAdapter = createMockBaseAdapter("TestVault-Temp-Encrypted-test-device");
             tempAdapter.getBaseAdapter = vi.fn(() => tempAdapter);
 
             // Simulate folder state during recovery
@@ -303,7 +305,7 @@ describe("MigrationService - Branch Coverage Tests", () => {
             const ctx = createMockCtx();
             const baseAdapter = createMockBaseAdapter();
             const lockService = createMockLockService();
-            const tempAdapter = createMockBaseAdapter("TestVault-Temp-Encrypted");
+            const tempAdapter = createMockBaseAdapter("TestVault-Temp-Encrypted-test-device");
             tempAdapter.getBaseAdapter = vi.fn(() => tempAdapter);
 
             // Simulate folder state during recovery
@@ -357,13 +359,15 @@ describe("MigrationService - Branch Coverage Tests", () => {
                     read: vi.fn(async (p: string) => files.get(p)!),
                     remove: vi.fn(async (p: string) => void files.delete(p)),
                 });
+                // The converted vault as the cleanup reads it: no index, no conversion record
+                (ctx as any).adapter = { name: "mock", getFileMetadata: vi.fn(async () => null) };
                 const record = `${ctx.pluginDir}/data/local/migration-backup.json`;
                 const baseAdapter = createMockBaseAdapter();
                 const lockService = createMockLockService();
                 lockService.getFolderId = vi.fn(async (name: string) =>
                     name.includes("Temp") ? "temp-folder-id" : "original-folder-id",
                 );
-                const tempAdapter = createMockBaseAdapter("TestVault-Temp-Encrypted");
+                const tempAdapter = createMockBaseAdapter("TestVault-Temp-Encrypted-test-device");
                 tempAdapter.getBaseAdapter = vi.fn(() => tempAdapter);
                 baseAdapter.deleteFile = vi.fn(async () => {
                     throw new Error("Permission denied");

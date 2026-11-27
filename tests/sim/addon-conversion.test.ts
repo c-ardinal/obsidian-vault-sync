@@ -26,6 +26,17 @@
  * - no file is renamed to "name (2)", in the cloud or on a device
  * - a note deleted in the converted vault meanwhile comes back (never lost)
  * - the same holds when the running device is restarted instead
+ * - a note pushed into the old folder too late to be converted reaches the
+ *   converted vault once (by its device or by the cleanup of the old folder),
+ *   and stays deleted when it was deleted there, whichever way it arrived
+ * - a note renamed before its device followed is renamed in the vault, not copied
+ * - of two devices that start a conversion, one gives up before the folders are
+ *   swapped and follows the other's conversion
+ * - a converting device closed at any step leaves a vault every device can sync
+ *   with: the run is given up, or its folder swap completed, at the next start;
+ *   no device creates an empty vault folder while the vault's name is free
+ * - files the converting device leaves out by its settings are converted too
+ * - a vault folder renamed or deleted by hand is rebuilt, with the vault-lock
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { SimDevice } from "./sim-device";
@@ -498,4 +509,796 @@ describe("vault converted while another device runs (Drive)", () => {
             expect(Object.keys(t.vaultFiles()).filter((p) => / \(\d+\)\./.test(p)), 'no "(2)" files on the cloud').toEqual([]);
         });
     }
+
+    /**
+     * A sync another device started before the migration lock existed pushes a
+     * new note into the old folder after the converting device has read it. Its
+     * own device carries the note over when it follows; the converting device
+     * finds it in the old folder once more when it cleans that folder up.
+     */
+    describe("a note pushed into the old folder too late to be converted", () => {
+        const HOUR = 60 * 60 * 1000;
+        /**
+         * A's sync checked the locks before B created the migration lock and is
+         * still sending when B is about to swap the folders: what A changed
+         * (by default a new note and an edit) reaches the old folder only.
+         */
+        async function latePush(change?: (a: SimDevice) => Promise<void>) {
+            const t = await setup();
+            const a = await t.make("A");
+            const b = await t.make("B");
+            const c = await t.make("C");
+            const all = [a, b, c];
+            const round = async (times = 3) => {
+                for (let i = 0; i < times; i++) for (const x of all) await t.sync(x.dev);
+            };
+            await a.dev.userCreate("one.md", "one\n");
+            await a.dev.userCreate("two.md", "two\n");
+            await round(2);
+            if (change) await change(a.dev);
+            else {
+                await a.dev.userCreate("late.md", "late\n");
+                await a.dev.userEdit("one.md", "one\nlate edit on A\n");
+            }
+            const lock = b.dev.sm.vaultLockService;
+            const rename = lock.renameFolder.bind(lock);
+            let pushed = false;
+            lock.renameFolder = async (id: string, name: string) => {
+                if (!pushed) {
+                    pushed = true;
+                    const aLock = a.dev.sm.vaultLockService;
+                    const check = aLock.getMigrationLock.bind(aLock);
+                    aLock.getMigrationLock = async () => null;
+                    await t.sync(a.dev);
+                    aLock.getMigrationLock = check;
+                }
+                return rename(id, name);
+            };
+            await t.convert(b.dev);
+            expect(Object.keys(t.vaultFiles())).not.toContain("late.md");
+            const follow = async (x: (typeof all)[number]) => {
+                await t.sync(x.dev);
+                await x.engine.unlockVault("LOCK", PASSWORD);
+                await t.sync(x.dev);
+            };
+            /** The grace time is over: B's next sync cleans the old folder up */
+            const cleanUp = async () => {
+                vi.setSystemTime(Date.now() + 2 * HOUR);
+                await t.sync(b.dev);
+                expect(t.folderNames().filter((n) => n.includes("-Backup-")), "the old folder is gone").toEqual([]);
+                await round();
+            };
+            const everywhere = () => ({ ...a.dev.userFiles(), ...b.dev.userFiles(), ...c.dev.userFiles() });
+            const noErrors = () => {
+                for (const x of all) expect(x.dev.syncErrors, x.dev.name).toEqual([]);
+                for (const [p, bytes] of Object.entries(t.vaultFiles())) expect(decryptable(bytes), p).toBe(true);
+            };
+            return { t, a, b, c, round, follow, cleanUp, everywhere, noErrors };
+        }
+
+        it("is taken from the old folder when its device never comes back", async () => {
+            const s = await latePush();
+            await s.follow(s.c);
+            await s.cleanUp();
+            expect(s.b.dev.userFiles()["late.md"]).toBe("late\n");
+            expect(s.c.dev.userFiles()["late.md"]).toBe("late\n");
+            expect(decryptable(s.t.vaultFiles()["late.md"])).toBe(true);
+        });
+
+        it("stays deleted when it was carried over and deleted in the vault before the cleanup", async () => {
+            const s = await latePush();
+            await s.follow(s.a);
+            await s.follow(s.c);
+            await s.round();
+            expect(s.c.dev.userFiles()["late.md"], "A carried its note over").toBe("late\n");
+            await s.c.dev.userDelete("late.md");
+            await s.round();
+            expect(Object.keys(s.everywhere())).not.toContain("late.md");
+            await s.cleanUp();
+            expect(Object.keys(s.everywhere()).sort(), "the deleted note does not come back").toEqual(["one.md", "two.md"]);
+            expect(Object.keys(s.t.vaultFiles()).filter((p) => !p.startsWith(".obsidian/")).sort()).toEqual(["one.md", "two.md"]);
+            expect(s.b.dev.userFiles()["one.md"]).toBe("one\nlate edit on A\n");
+            s.noErrors();
+        });
+
+        it("stays deleted when its device was closed between following and sending it again", async () => {
+            const s = await latePush(async (a) => a.userCreate("late.md", "late\n"));
+            await s.t.sync(s.a.dev);
+            await s.a.engine.unlockVault("LOCK", PASSWORD);
+            // A follows the conversion, and the app is closed before anything is sent
+            const push = s.a.dev.sm.smartPush.bind(s.a.dev.sm);
+            s.a.dev.sm.smartPush = async () => {
+                throw new Error("app closed");
+            };
+            await s.a.dev.startSync("manual-sync", false).catch(() => {});
+            await vi.advanceTimersByTimeAsync(1000);
+            s.a.dev.sm.smartPush = push;
+            s.a.dev.syncErrors.length = 0;
+            expect(Object.keys(s.t.vaultFiles())).not.toContain("late.md");
+            // Meanwhile the cleanup carries the note over, and it is deleted on C
+            await s.follow(s.c);
+            vi.setSystemTime(Date.now() + 2 * HOUR);
+            for (let i = 0; i < 2; i++) for (const x of [s.b, s.c]) await s.t.sync(x.dev);
+            expect(s.c.dev.userFiles()["late.md"], "the cleanup carried the note over").toBe("late\n");
+            await s.c.dev.userDelete("late.md");
+            for (let i = 0; i < 2; i++) for (const x of [s.c, s.b]) await s.t.sync(x.dev);
+            // A is opened again
+            await s.a.dev.restart();
+            await s.a.engine.unlockVault("LOCK", PASSWORD);
+            await s.round();
+            expect(Object.keys(s.everywhere()).sort(), "the deleted note does not come back").toEqual(["one.md", "two.md"]);
+            expect(Object.keys(s.t.vaultFiles()).filter((p) => !p.startsWith(".obsidian/")).sort()).toEqual(["one.md", "two.md"]);
+            s.noErrors();
+        });
+
+        it("a late edit stays deleted when it was carried over and deleted while its device was closed", async () => {
+            const s = await latePush(async (a) => a.userEdit("one.md", "one\nlate edit on A\n"));
+            await s.t.sync(s.a.dev);
+            await s.a.engine.unlockVault("LOCK", PASSWORD);
+            const push = s.a.dev.sm.smartPush.bind(s.a.dev.sm);
+            s.a.dev.sm.smartPush = async () => {
+                throw new Error("app closed");
+            };
+            await s.a.dev.startSync("manual-sync", false).catch(() => {});
+            await vi.advanceTimersByTimeAsync(1000);
+            s.a.dev.sm.smartPush = push;
+            s.a.dev.syncErrors.length = 0;
+            await s.follow(s.c);
+            vi.setSystemTime(Date.now() + 2 * HOUR);
+            for (let i = 0; i < 2; i++) for (const x of [s.b, s.c]) await s.t.sync(x.dev);
+            expect(s.c.dev.userFiles()["one.md"], "the cleanup carried the edit over").toBe("one\nlate edit on A\n");
+            await s.c.dev.userDelete("one.md");
+            for (let i = 0; i < 2; i++) for (const x of [s.c, s.b]) await s.t.sync(x.dev);
+            await s.a.dev.restart();
+            await s.a.engine.unlockVault("LOCK", PASSWORD);
+            await s.round();
+            expect(Object.keys(s.everywhere()).sort(), "the deleted note does not come back").toEqual(["two.md"]);
+            s.noErrors();
+        });
+
+        it("an edit made here is still kept when another version of the note was deleted", async () => {
+            const s = await latePush();
+            for (const x of [s.a, s.c]) await s.follow(x);
+            await s.round();
+            await s.a.dev.userEdit("two.md", "two\nedited on A\n");
+            await s.c.dev.userDelete("two.md");
+            await s.t.sync(s.c.dev);
+            await s.round();
+            expect(s.everywhere()["two.md"], "deleted in the older version only").toBe("two\nedited on A\n");
+            s.noErrors();
+        });
+
+        it("is sent again after such a stop when nobody deleted it", async () => {
+            const s = await latePush(async (a) => a.userCreate("late.md", "late\n"));
+            await s.t.sync(s.a.dev);
+            await s.a.engine.unlockVault("LOCK", PASSWORD);
+            const push = s.a.dev.sm.smartPush.bind(s.a.dev.sm);
+            s.a.dev.sm.smartPush = async () => {
+                throw new Error("app closed");
+            };
+            await s.a.dev.startSync("manual-sync", false).catch(() => {});
+            await vi.advanceTimersByTimeAsync(1000);
+            s.a.dev.sm.smartPush = push;
+            s.a.dev.syncErrors.length = 0;
+            await s.a.dev.restart();
+            await s.a.engine.unlockVault("LOCK", PASSWORD);
+            await s.follow(s.c);
+            await s.round();
+            expect(s.c.dev.userFiles()["late.md"]).toBe("late\n");
+            expect(s.b.dev.userFiles()["late.md"]).toBe("late\n");
+            s.noErrors();
+        });
+
+        it("stays deleted when the converting device never held it", async () => {
+            const s = await latePush();
+            await s.follow(s.a);
+            await s.follow(s.c);
+            // B does not sync between the upload and the deletion
+            await s.c.dev.userDelete("late.md");
+            await s.t.sync(s.c.dev);
+            await s.cleanUp();
+            expect(Object.keys(s.everywhere()).sort()).toEqual(["one.md", "two.md"]);
+            s.noErrors();
+        });
+
+        it("stays deleted when its device follows only after the cleanup and the deletion", async () => {
+            const s = await latePush();
+            await s.follow(s.c);
+            // The cleanup brings A's late note into the vault; then it is deleted there
+            vi.setSystemTime(Date.now() + 2 * HOUR);
+            for (let i = 0; i < 2; i++) for (const x of [s.b, s.c]) await s.t.sync(x.dev);
+            expect(s.c.dev.userFiles()["late.md"]).toBe("late\n");
+            await s.c.dev.userDelete("late.md");
+            for (let i = 0; i < 2; i++) for (const x of [s.c, s.b]) await s.t.sync(x.dev);
+            await s.follow(s.a);
+            await s.round();
+            expect(Object.keys(s.everywhere()).sort()).toEqual(["one.md", "two.md"]);
+            s.noErrors();
+        });
+
+        it("stays deleted when its device deleted it before following the conversion", async () => {
+            const s = await latePush();
+            await s.a.dev.userDelete("late.md");
+            await s.follow(s.a);
+            await s.follow(s.c);
+            await s.round();
+            await s.cleanUp();
+            expect(Object.keys(s.everywhere()).sort()).toEqual(["one.md", "two.md"]);
+            s.noErrors();
+        });
+
+        it("a late edit of a converted note stays on its device and reaches the others without the cleanup", async () => {
+            const s = await latePush();
+            expect(new TextDecoder().decode(s.t.vaultFiles()["one.md"])).not.toContain("late edit on A");
+            await s.follow(s.a);
+            expect(s.a.dev.userFiles()["one.md"], "A's own edit is not replaced by the older converted version").toBe("one\nlate edit on A\n");
+            await s.follow(s.c);
+            await s.round();
+            for (const x of [s.a, s.b, s.c]) expect(x.dev.userFiles()["one.md"], x.dev.name).toBe("one\nlate edit on A\n");
+            await s.cleanUp();
+            expect(Object.keys(s.everywhere()).sort(), "no conflict copy").toEqual(["late.md", "one.md", "two.md"]);
+            s.noErrors();
+        });
+
+        it("a late edit and an edit made in the converted vault before its device followed are both kept", async () => {
+            const s = await latePush();
+            await s.follow(s.c);
+            await s.c.dev.userEdit("one.md", "one\nedited on C in the converted vault\n");
+            await s.t.sync(s.c.dev);
+            await s.follow(s.a);
+            await s.round();
+            await s.cleanUp();
+            const texts = Object.entries(s.everywhere()).filter(([p]) => p.startsWith("one")).map(([, c]) => c).join("|");
+            expect(texts).toContain("late edit on A");
+            expect(texts).toContain("edited on C in the converted vault");
+            for (const x of [s.a, s.b, s.c]) expect(x.dev.userFiles()["one.md"], x.dev.name).toBe(s.a.dev.userFiles()["one.md"]);
+            s.noErrors();
+        });
+
+        it("a late edit is kept as a copy when the old folder was removed by hand before its device followed", async () => {
+            const s = await latePush();
+            await s.t.remove(s.t.items().find((i) => i.name.includes("-Backup-"))!.id);
+            await s.follow(s.a);
+            const onA = s.a.dev.userFiles();
+            expect(onA["one.md"], "the vault's version, as nobody can tell which one is newer").toBe("one\n");
+            const copies = Object.entries(onA).filter(([p]) => p.startsWith("one (Conflict "));
+            expect(copies.map(([, c]) => c), "the content A held is not lost").toEqual(["one\nlate edit on A\n"]);
+            expect(onA["late.md"]).toBe("late\n");
+            s.noErrors();
+        });
+
+        const lateDelete = (dev: SimDevice) => dev.userDelete("two.md").then(() => {});
+        const lateRename = (dev: SimDevice) => dev.userRename("two.md", "dir/moved.md").then(() => {});
+
+        it("a late deletion is carried over by its device at once", async () => {
+            const s = await latePush(lateDelete);
+            expect(Object.keys(s.t.vaultFiles()), "converted although A had deleted it").toContain("two.md");
+            await s.follow(s.a);
+            expect(Object.keys(s.a.dev.userFiles())).toEqual(["one.md"]);
+            await s.follow(s.c);
+            await s.round();
+            expect(Object.keys(s.everywhere())).toEqual(["one.md"]);
+            await s.cleanUp();
+            expect(Object.keys(s.everywhere())).toEqual(["one.md"]);
+            s.noErrors();
+        });
+
+        it("a late deletion is carried over after a restart of its device, too", async () => {
+            const s = await latePush(lateDelete);
+            await s.a.dev.restart();
+            await s.follow(s.a);
+            await s.follow(s.c);
+            await s.round();
+            expect(Object.keys(s.everywhere())).toEqual(["one.md"]);
+            s.noErrors();
+        });
+
+        it("a late deletion whose device never comes back is carried out by the cleanup", async () => {
+            const s = await latePush(lateDelete);
+            await s.follow(s.c);
+            expect(s.c.dev.userFiles()["two.md"]).toBe("two\n");
+            await s.cleanUp();
+            expect(Object.keys({ ...s.b.dev.userFiles(), ...s.c.dev.userFiles() })).toEqual(["one.md"]);
+        });
+
+        it("a late deletion does not touch a note edited in the vault since", async () => {
+            const s = await latePush(lateDelete);
+            await s.follow(s.c);
+            await s.c.dev.userEdit("two.md", "two\nedited on C after the conversion\n");
+            await s.t.sync(s.c.dev);
+            await s.follow(s.a);
+            await s.round();
+            await s.cleanUp();
+            for (const x of [s.a, s.b, s.c]) expect(x.dev.userFiles()["two.md"], x.dev.name).toBe("two\nedited on C after the conversion\n");
+            s.noErrors();
+        });
+
+        it("a late rename ends as a rename, not as a copy", async () => {
+            const s = await latePush(lateRename);
+            await s.follow(s.a);
+            await s.follow(s.c);
+            await s.round();
+            await s.cleanUp();
+            for (const x of [s.a, s.b, s.c]) expect(x.dev.userFiles(), x.dev.name).toEqual({ "one.md": "one\n", "dir/moved.md": "two\n" });
+            s.noErrors();
+        });
+
+        it("a late rename whose device never comes back leaves the note under its old name", async () => {
+            const s = await latePush(lateRename);
+            await s.follow(s.c);
+            await s.cleanUp();
+            for (const x of [s.b, s.c]) expect(x.dev.userFiles(), x.dev.name).toEqual({ "one.md": "one\n", "two.md": "two\n" });
+        });
+
+        it("a note kept under its old name after a late rename is not deleted by the cleanup", async () => {
+            const s = await latePush(lateRename);
+            await s.follow(s.a);
+            await s.follow(s.c);
+            await s.round();
+            // The user finds the note under both names and removes the new one
+            const files = s.c.dev.userFiles();
+            if (files["two.md"] !== undefined && files["dir/moved.md"] !== undefined) {
+                await s.c.dev.userDelete("dir/moved.md");
+                await s.round();
+            }
+            await s.cleanUp();
+            expect(Object.values(s.everywhere()), "the note's content is somewhere").toContain("two\n");
+            s.noErrors();
+        });
+
+        it("keeps an edit made to it in the vault before the cleanup", async () => {
+            const s = await latePush();
+            await s.follow(s.a);
+            await s.follow(s.c);
+            await s.round();
+            await s.c.dev.userEdit("late.md", "late\nedited on C\n");
+            await s.round();
+            await s.cleanUp();
+            for (const x of [s.a, s.b, s.c]) expect(x.dev.userFiles()["late.md"], x.dev.name).toBe("late\nedited on C\n");
+            s.noErrors();
+        });
+    });
+
+    /**
+     * A device that was behind when the vault was converted: the note it pushed
+     * last was edited on another device before the conversion. The conversion
+     * never read this device's version either, but here the vault's is the newer.
+     */
+    for (const old of ["kept", "cleaned up"] as const) {
+        it(`a device that was behind takes the converted version without a copy (old folder ${old})`, async () => {
+            const t = await setup();
+            const a = await t.make("A");
+            const b = await t.make("B");
+            await a.dev.userCreate("one.md", "one\n");
+            await t.sync(a.dev);
+            await t.sync(b.dev);
+            await b.dev.userEdit("one.md", "one\nedited on B before the conversion\n");
+            await t.sync(b.dev);
+            await t.convert(b.dev);
+            if (old === "cleaned up") {
+                vi.setSystemTime(Date.now() + 2 * 60 * 60 * 1000);
+                await t.sync(b.dev);
+                expect(t.folderNames().filter((n) => n.includes("-Backup-"))).toEqual([]);
+            }
+            await t.sync(a.dev);
+            await a.engine.unlockVault("LOCK", PASSWORD);
+            for (let i = 0; i < 2; i++) for (const x of [a, b]) await t.sync(x.dev);
+            expect(a.dev.userFiles()).toEqual({ "one.md": "one\nedited on B before the conversion\n" });
+            expect(b.dev.userFiles()).toEqual(a.dev.userFiles());
+            expect(a.dev.syncErrors).toEqual([]);
+        });
+    }
+
+    /** Renames made on a device before it follows the conversion */
+    describe("a note renamed here before this device followed the conversion", () => {
+        async function renamed(edit: "none" | "here" | "there") {
+            const t = await setup();
+            const a = await t.make("A");
+            const b = await t.make("B");
+            await a.dev.userCreate("one.md", "one\n");
+            await a.dev.userCreate("keep.md", "keep\n");
+            for (let i = 0; i < 2; i++) for (const x of [a, b]) await t.sync(x.dev);
+            await t.convert(b.dev);
+            if (edit === "there") {
+                await b.dev.userEdit("one.md", "one\nedited on B\n");
+                await t.sync(b.dev);
+            }
+            await a.dev.userRename("one.md", "dir/moved.md");
+            if (edit === "here") await a.dev.userEdit("dir/moved.md", "one\nedited on A\n");
+            await t.sync(a.dev);
+            await a.engine.unlockVault("LOCK", PASSWORD);
+            for (let i = 0; i < 3; i++) for (const x of [a, b]) await t.sync(x.dev);
+            for (const x of [a, b]) await t.sync(x.dev, true);
+            for (let i = 0; i < 2; i++) for (const x of [a, b]) await t.sync(x.dev);
+            expect(a.dev.syncErrors).toEqual([]);
+            expect(b.dev.syncErrors).toEqual([]);
+            for (const [p, bytes] of Object.entries(t.vaultFiles())) expect(decryptable(bytes), p).toBe(true);
+            expect(b.dev.userFiles()).toEqual(a.dev.userFiles());
+            return a.dev.userFiles();
+        }
+
+        it("is renamed in the converted vault, not copied", async () => {
+            expect(await renamed("none")).toEqual({ "dir/moved.md": "one\n", "keep.md": "keep\n" });
+        });
+
+        it("keeps the edit made here with the rename", async () => {
+            expect(await renamed("here")).toEqual({ "dir/moved.md": "one\nedited on A\n", "keep.md": "keep\n" });
+        });
+
+        it("keeps the edit made in the converted vault meanwhile", async () => {
+            expect(await renamed("there")).toEqual({ "dir/moved.md": "one\nedited on B\n", "keep.md": "keep\n" });
+        });
+    });
+
+    /** Two devices start to convert the same vault */
+    describe("two devices start the conversion at the same time", () => {
+        async function twoConverters() {
+            const t = await setup();
+            const a = await t.make("A");
+            const b = await t.make("B");
+            await a.dev.userCreate("one.md", "one\n");
+            await a.dev.userCreate("dir/two.md", "two\n");
+            for (let i = 0; i < 2; i++) for (const x of [a, b]) await t.sync(x.dev);
+            const start = async (x: typeof a, seesOthers: boolean) => {
+                const lock = x.dev.sm.vaultLockService;
+                const list = lock.listMigrationLocks.bind(lock);
+                // The cloud's listing can lag: the other device's lock is not in it yet
+                const get = lock.getMigrationLock.bind(lock);
+                if (!seesOthers) {
+                    lock.listMigrationLocks = async () => (await list()).filter((l) => l.deviceId === x.dev.sm.deviceId);
+                    lock.getMigrationLock = async () => null;
+                }
+                try {
+                    return await x.dev.sm.migrationService.startMigration(PASSWORD);
+                } finally {
+                    lock.listMigrationLocks = list;
+                    lock.getMigrationLock = get;
+                }
+            };
+            const finish = async (x: typeof a, temp: CloudAdapter) => {
+                await x.dev.sm.migrationService.runMigration(temp, () => {});
+                await x.dev.sm.migrationService.finalizeMigration(temp);
+                x.dev.settings.e2eeEnabled = true;
+            };
+            const settle = async (winner: typeof a, loser: typeof a) => {
+                expect(loser.dev.sm.syncState).toBe("IDLE");
+                expect(loser.dev.sm.migrationService.isMigrating).toBe(false);
+                expect(t.folderNames().filter((n) => n.includes("Temp-Encrypted")), "no temporary folder left").toEqual([]);
+                expect(t.folderNames().filter((n) => n === "ContractVault")).toHaveLength(1);
+                expect(t.folderNames().filter((n) => n.includes("-Backup-"))).toHaveLength(1);
+                // The device that gave up follows the conversion like any other device
+                await t.sync(loser.dev);
+                expect(loser.dev.settings.e2eeEnabled).toBe(true);
+                await loser.engine.unlockVault("LOCK", PASSWORD);
+                await loser.dev.userCreate("after.md", "after\n");
+                for (let i = 0; i < 3; i++) for (const x of [loser, winner]) await t.sync(x.dev);
+                expect(winner.dev.userFiles()).toEqual({ "one.md": "one\n", "dir/two.md": "two\n", "after.md": "after\n" });
+                expect(loser.dev.userFiles()).toEqual(winner.dev.userFiles());
+                expect(winner.dev.syncErrors).toEqual([]);
+                expect(loser.dev.syncErrors).toEqual([]);
+                for (const [p, bytes] of Object.entries(t.vaultFiles())) expect(decryptable(bytes), p).toBe(true);
+                expect(Object.keys(t.vaultFiles()).filter((p) => / \(\d+\)\./.test(p))).toEqual([]);
+            };
+            return { t, a, b, start, finish, settle };
+        }
+
+        it("the second device is refused when it sees the first one's lock", async () => {
+            const s = await twoConverters();
+            const tempA = (await s.start(s.a, true)) as CloudAdapter;
+            await vi.advanceTimersByTimeAsync(10);
+            await expect(s.start(s.b, true)).rejects.toThrow(/Another device/);
+            expect(s.b.dev.sm.syncState).toBe("IDLE");
+            await s.finish(s.a, tempA);
+            await s.settle(s.a, s.b);
+        });
+
+        it("the device with the later lock gives up before the swap when it finishes first", async () => {
+            const s = await twoConverters();
+            const tempA = (await s.start(s.a, true)) as CloudAdapter;
+            await vi.advanceTimersByTimeAsync(10);
+            const tempB = (await s.start(s.b, false)) as CloudAdapter;
+            await expect(s.finish(s.b, tempB)).rejects.toThrow(/Migration stopped/);
+            await s.finish(s.a, tempA);
+            await s.settle(s.a, s.b);
+        });
+
+        it("the device with the later lock gives up when the other one has swapped already", async () => {
+            const s = await twoConverters();
+            const tempA = (await s.start(s.a, true)) as CloudAdapter;
+            await vi.advanceTimersByTimeAsync(10);
+            const tempB = (await s.start(s.b, false)) as CloudAdapter;
+            await s.finish(s.a, tempA);
+            await expect(s.finish(s.b, tempB)).rejects.toThrow(/Migration stopped/);
+            await s.settle(s.a, s.b);
+        });
+
+        it("the device with the earlier lock goes on although the other one never saw its lock", async () => {
+            const s = await twoConverters();
+            const tempA = (await s.start(s.a, true)) as CloudAdapter;
+            await vi.advanceTimersByTimeAsync(10);
+            const tempB = (await s.start(s.b, false)) as CloudAdapter;
+            // Both upload; each into its own temporary folder
+            await s.a.dev.sm.migrationService.runMigration(tempA, () => {});
+            await s.b.dev.sm.migrationService.runMigration(tempB, () => {});
+            await expect(s.b.dev.sm.migrationService.finalizeMigration(tempB)).rejects.toThrow(/Migration stopped/);
+            await s.a.dev.sm.migrationService.finalizeMigration(tempA);
+            s.a.dev.settings.e2eeEnabled = true;
+            await s.settle(s.a, s.b);
+        });
+    });
+
+    /** The app of the converting device stops during the conversion */
+    describe("the converting device is closed during the conversion", () => {
+        const HOUR = 60 * 60 * 1000;
+        type Stage = "upload" | "before-swap" | "between-renames" | "after-swap";
+        async function killed(stage: Stage, other: "runs" | "restarts" | "away" = "runs") {
+            const t = await setup();
+            const a = await t.make("A");
+            const b = await t.make("B");
+            await a.dev.userCreate("one.md", "one\n");
+            await a.dev.userCreate("dir/two.md", "two\n");
+            for (let i = 0; i < 2; i++) for (const x of [a, b]) await t.sync(x.dev);
+
+            const svc = b.dev.sm.migrationService;
+            const temp = (await svc.startMigration(PASSWORD)) as CloudAdapter;
+            await svc.runMigration(temp, () => {});
+            if (stage !== "upload") {
+                // The app dies inside a step: that step never returns
+                const never = new Promise<never>(() => {});
+                const lock = b.dev.sm.vaultLockService;
+                const rename = lock.renameFolder.bind(lock);
+                let renames = 0;
+                let reached!: () => void;
+                const dead = new Promise<void>((r) => (reached = r));
+                lock.renameFolder = async (id: string, name: string) => {
+                    renames++;
+                    if ((stage === "before-swap" && renames === 1) || (stage === "between-renames" && renames === 2)) {
+                        reached();
+                        return never;
+                    }
+                    return rename(id, name);
+                };
+                if (stage === "after-swap") {
+                    b.dev.sm.baseAdapter.reset = () => {
+                        reached();
+                        throw new Error("app closed");
+                    };
+                }
+                void svc.finalizeMigration(temp).catch(() => {});
+                expect(await drive(dead, 600_000)).toBe("ok");
+            }
+            // The other device works on meanwhile
+            await a.dev.userEdit("one.md", "one\nedited on A meanwhile\n");
+            t.notices.A.length = 0;
+            if (other === "restarts") await a.dev.restart();
+            if (other !== "away") await t.sync(a.dev);
+            expect(t.folderNames().filter((n) => n === "ContractVault").length, "no second vault folder").toBeLessThan(2);
+            await b.dev.restart();
+            return { t, a, b };
+        }
+        const finishTogether = async (s: Awaited<ReturnType<typeof killed>>, converted: boolean) => {
+            const { t, a, b } = s;
+            await t.sync(b.dev);
+            if (converted) {
+                expect(b.dev.settings.e2eeEnabled, "B follows its own conversion").toBe(true);
+                await b.engine.unlockVault("LOCK", PASSWORD);
+                await t.sync(a.dev);
+                await a.engine.unlockVault("LOCK", PASSWORD);
+            } else {
+                expect(t.folderNames().filter((n) => n !== "ContractVault" && !n.startsWith(".vault-syncer-trash")), "nothing of the run is left").toEqual([]);
+                expect(t.items().filter((i) => i.name === "migration.lock")).toEqual([]);
+            }
+            await b.dev.userCreate("after.md", "after\n");
+            for (let i = 0; i < 3; i++) for (const x of [a, b]) await t.sync(x.dev);
+            for (const x of [a, b]) await t.sync(x.dev, true);
+            const want = { "one.md": "one\nedited on A meanwhile\n", "dir/two.md": "two\n", "after.md": "after\n" };
+            expect(a.dev.userFiles()).toEqual(want);
+            expect(b.dev.userFiles()).toEqual(want);
+            expect(a.dev.syncErrors).toEqual([]);
+            expect(b.dev.syncErrors).toEqual([]);
+            expect(t.folderNames().filter((n) => n === "ContractVault")).toHaveLength(1);
+            expect(t.folderNames().filter((n) => n.includes("Temp-Encrypted"))).toEqual([]);
+            expect(Object.keys(t.vaultFiles()).filter((p) => / \(\d+\)\./.test(p))).toEqual([]);
+            if (converted) {
+                for (const [p, bytes] of Object.entries(t.vaultFiles())) expect(decryptable(bytes), p).toBe(true);
+                vi.setSystemTime(Date.now() + 2 * HOUR);
+                for (let i = 0; i < 2; i++) for (const x of [b, a]) await t.sync(x.dev);
+                expect(t.folderNames().filter((n) => n.includes("-Backup-")), "the old folder is cleaned up").toEqual([]);
+                expect(a.dev.userFiles()).toEqual(want);
+                expect(b.dev.userFiles()).toEqual(want);
+            } else {
+                // The vault is as it was, and can be converted afterwards
+                await t.convert(b.dev);
+                await t.sync(a.dev);
+                await a.engine.unlockVault("LOCK", PASSWORD);
+                for (let i = 0; i < 2; i++) for (const x of [a, b]) await t.sync(x.dev);
+                expect(a.dev.userFiles()).toEqual(want);
+                for (const [p, bytes] of Object.entries(t.vaultFiles())) expect(decryptable(bytes), p).toBe(true);
+            }
+        };
+
+        it("during the upload: the other device waits, the run is given up at the next start", async () => {
+            const s = await killed("upload");
+            expect(s.t.notices.A).toContain("noticeVaultConverting");
+            await finishTogether(s, false);
+        });
+
+        it("right before the folders are swapped: the run is given up at the next start", async () => {
+            const s = await killed("before-swap");
+            await finishTogether(s, false);
+        });
+
+        it("between the two renames: the swap is completed at the next start", async () => {
+            const s = await killed("between-renames");
+            await finishTogether(s, true);
+        });
+
+        for (const other of ["restarts", "away"] as const) {
+            it(`between the two renames, the other device ${other}: no empty vault folder takes the name`, async () => {
+                const s = await killed("between-renames", other);
+                if (other === "restarts") expect(s.t.notices.A).toContain("noticeVaultConverting");
+                await finishTogether(s, true);
+            });
+        }
+
+        it("between the two renames: a device new to the vault waits, too", async () => {
+            const s = await killed("between-renames", "away");
+            // (B is restarted, but has not synced yet: the vault's name is still free)
+            const c = await s.t.make("C");
+            await s.t.sync(c.dev);
+            expect(s.t.notices.C).toContain("noticeVaultConverting");
+            expect(s.t.folderNames().filter((n) => n === "ContractVault")).toEqual([]);
+            await finishTogether(s, true);
+            await s.t.sync(c.dev);
+            await c.engine.unlockVault("LOCK", PASSWORD);
+            for (let i = 0; i < 2; i++) await s.t.sync(c.dev);
+            expect(c.dev.userFiles()).toEqual(s.a.dev.userFiles());
+        });
+
+        it("right after the swap: the converting device follows its own conversion", async () => {
+            const s = await killed("after-swap");
+            await finishTogether(s, true);
+        });
+    });
+
+    /** Someone renames or deletes the vault's folder on the cloud by hand */
+    describe("the vault folder is renamed or deleted by hand on the cloud", () => {
+        for (const converted of [false, true]) {
+            for (const change of ["renamed", "deleted"] as const) {
+                for (const restartB of [false, true]) {
+                    const title = `${converted ? "converted" : "plain"} vault, folder ${change}, the second device ${restartB ? "restarts" : "keeps running"}`;
+                    it(title, async () => {
+                        const t = await setup();
+                        const a = await t.make("A");
+                        const b = await t.make("B");
+                        await a.dev.userCreate("one.md", "one\n");
+                        await a.dev.userCreate("dir/two.md", "two\n");
+                        for (let i = 0; i < 2; i++) for (const x of [a, b]) await t.sync(x.dev);
+                        if (converted) {
+                            await t.convert(b.dev);
+                            await t.sync(a.dev);
+                            // (the unlock dialog reads the vault-lock from the cloud)
+                            await a.engine.unlockVault(await a.dev.sm.vaultLockService.downloadLockFile(), PASSWORD);
+                            for (let i = 0; i < 2; i++) for (const x of [a, b]) await t.sync(x.dev);
+                            // The old folder is checked and deleted
+                            vi.setSystemTime(Date.now() + 2 * 60 * 60 * 1000);
+                            for (let i = 0; i < 2; i++) for (const x of [b, a]) await t.sync(x.dev);
+                        }
+                        const folder = t.items().find((i) => i.name === "ContractVault" && i.mimeType.endsWith("folder"))!;
+                        const other = driveAdapterOnFakeServer(t.server).adapter;
+                        if (change === "renamed") await other.moveFile(folder.id, "Kept by hand", null, "outside");
+                        else await t.remove(folder.id);
+
+                        await a.dev.userEdit("one.md", "one\nedited on A\n");
+                        await b.dev.userCreate("new.md", "new on B\n");
+                        if (restartB) await b.dev.restart();
+                        if (restartB && converted) await b.engine.unlockVault("LOCK", PASSWORD);
+                        for (let i = 0; i < 4; i++) for (const x of [a, b]) await t.sync(x.dev);
+                        for (const x of [a, b]) await t.sync(x.dev, true);
+                        for (let i = 0; i < 2; i++) for (const x of [a, b]) await t.sync(x.dev);
+
+                        const want = { "one.md": "one\nedited on A\n", "dir/two.md": "two\n", "new.md": "new on B\n" };
+                        expect(a.dev.userFiles()).toEqual(want);
+                        expect(b.dev.userFiles()).toEqual(want);
+                        expect(a.dev.syncErrors).toEqual([]);
+                        expect(b.dev.syncErrors).toEqual([]);
+                        expect(t.folderNames().filter((n) => n === "ContractVault")).toHaveLength(1);
+                        // Everything is in the folder that carries the vault's name
+                        expect(Object.keys(t.vaultFiles()).filter((p) => !p.startsWith(".obsidian/")).sort()).toEqual(Object.keys(want).sort());
+                        if (converted) {
+                            for (const [p, bytes] of Object.entries(t.vaultFiles())) expect(decryptable(bytes), p).toBe(true);
+                            const lock = t.items().filter((i) => t.pathOf(i).startsWith("ContractRoot/ContractVault/") && i.name === "vault-lock.vault");
+                            expect(lock, "the rebuilt folder says that it is converted").toHaveLength(1);
+                        }
+                    });
+                }
+            }
+        }
+    });
+
+    /** The converting device leaves some files out of its own sync */
+    describe("files the converting device leaves out by its own settings", () => {
+        it("a late edit of such a file is brought over by the cleanup when its device never comes back", async () => {
+            const t = await setup();
+            const a = await t.make("A");
+            const b = await t.make("B");
+            b.dev.settings.exclusionPatterns = "private/**";
+            await a.dev.userCreate("one.md", "one\n");
+            await a.dev.userCreate("private/secret.md", "secret\n");
+            for (let i = 0; i < 2; i++) for (const x of [a, b]) await t.sync(x.dev);
+            await a.dev.userEdit("private/secret.md", "secret\nlate edit on A\n");
+            await a.dev.userCreate("private/new.md", "new\n");
+            const lock = b.dev.sm.vaultLockService;
+            const rename = lock.renameFolder.bind(lock);
+            let pushed = false;
+            lock.renameFolder = async (id: string, name: string) => {
+                if (!pushed) {
+                    pushed = true;
+                    const aLock = a.dev.sm.vaultLockService;
+                    const check = aLock.getMigrationLock.bind(aLock);
+                    aLock.getMigrationLock = async () => null;
+                    await t.sync(a.dev);
+                    aLock.getMigrationLock = check;
+                }
+                return rename(id, name);
+            };
+            await t.convert(b.dev);
+            vi.setSystemTime(Date.now() + 2 * 60 * 60 * 1000);
+            for (let i = 0; i < 2; i++) await t.sync(b.dev);
+            expect(t.folderNames().filter((n) => n.includes("-Backup-"))).toEqual([]);
+            const c = await t.make("C");
+            await t.sync(c.dev);
+            await c.engine.unlockVault("LOCK", PASSWORD);
+            for (let i = 0; i < 3; i++) for (const x of [c, b]) await t.sync(x.dev);
+            expect(c.dev.userFiles()).toEqual({
+                "one.md": "one\n",
+                "private/secret.md": "secret\nlate edit on A\n",
+                "private/new.md": "new\n",
+            });
+            expect(Object.keys(b.dev.userFiles())).toEqual(["one.md"]);
+            expect(b.dev.syncErrors).toEqual([]);
+            expect(c.dev.syncErrors).toEqual([]);
+            for (const [p, bytes] of Object.entries(t.vaultFiles())) expect(decryptable(bytes), p).toBe(true);
+        });
+
+        for (const holder of ["stays", "never comes back"] as const) {
+            it(`are in the converted vault all the same (the device that holds them ${holder})`, async () => {
+                const t = await setup();
+                const a = await t.make("A");
+                const b = await t.make("B");
+                b.dev.settings.exclusionPatterns = "private/**";
+                await a.dev.userCreate("one.md", "one\n");
+                await a.dev.userCreate("private/secret.md", "secret\n");
+                for (let i = 0; i < 2; i++) for (const x of [a, b]) await t.sync(x.dev);
+                expect(Object.keys(b.dev.userFiles())).toEqual(["one.md"]);
+
+                await t.convert(b.dev);
+                expect(decryptable(t.vaultFiles()["private/secret.md"]), "converted without being held here").toBe(true);
+                expect(Object.keys(b.dev.userFiles()), "still left out on the converting device").toEqual(["one.md"]);
+                await t.sync(b.dev);
+                if (holder === "stays") {
+                    await t.sync(a.dev);
+                    await a.engine.unlockVault("LOCK", PASSWORD);
+                    for (let i = 0; i < 2; i++) for (const x of [a, b]) await t.sync(x.dev);
+                    expect(a.dev.userFiles()).toEqual({ "one.md": "one\n", "private/secret.md": "secret\n" });
+                    expect(a.dev.syncErrors).toEqual([]);
+                }
+                // The old folder is checked and deleted
+                vi.setSystemTime(Date.now() + 2 * 60 * 60 * 1000);
+                for (let i = 0; i < 2; i++) await t.sync(b.dev);
+                expect(t.folderNames().filter((n) => n.includes("-Backup-"))).toEqual([]);
+                // A device new to the vault gets everything
+                const c = await t.make("C");
+                await t.sync(c.dev);
+                await c.engine.unlockVault("LOCK", PASSWORD);
+                for (let i = 0; i < 3; i++) for (const x of [c, b]) await t.sync(x.dev);
+                expect(c.dev.userFiles()).toEqual({ "one.md": "one\n", "private/secret.md": "secret\n" });
+                expect(Object.keys(b.dev.userFiles())).toEqual(["one.md"]);
+                expect(b.dev.syncErrors).toEqual([]);
+                expect(c.dev.syncErrors).toEqual([]);
+                expect(Object.keys(t.vaultFiles()).filter((p) => / \(\d+\)\./.test(p))).toEqual([]);
+                for (const [p, bytes] of Object.entries(t.vaultFiles())) expect(decryptable(bytes), p).toBe(true);
+            });
+        }
+    });
 });

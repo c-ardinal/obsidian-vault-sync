@@ -193,6 +193,9 @@ export class GoogleDriveAdapter implements OAuthCloudAdapter {
     async getAppRootId(): Promise<string> {
         return this.pathResolver.getAppRootId();
     }
+    set beforeVaultRootCreate(fn: ((siblings: { id: string; name: string; modifiedTime: number }[]) => Promise<void>) | null) {
+        this.pathResolver.beforeVaultRootCreate = fn;
+    }
     /** Set when the change feed showed the vault folder renamed, moved or deleted */
     private rootStale = false;
 
@@ -294,6 +297,20 @@ export class GoogleDriveAdapter implements OAuthCloudAdapter {
         const { createdTime } = (await response.json()) as { createdTime?: string };
         const time = createdTime ? Date.parse(createdTime) : NaN;
         return Number.isFinite(time) ? time : undefined;
+    }
+
+    async getContentHashById(fileId: string): Promise<string | null> {
+        if (!fileId) return null;
+        try {
+            const response = await this.http.fetchWithAuth(
+                `https://www.googleapis.com/drive/v3/files/${fileId}?fields=id,md5Checksum,trashed`,
+            );
+            const file = (await response.json()) as DriveFile;
+            return file.id && !file.trashed ? (file.md5Checksum ?? null) : null;
+        } catch (e) {
+            if (isNotFound(e)) return null;
+            throw e;
+        }
     }
 
     async getFileMetadataById(fileId: string, knownPath?: string): Promise<CloudFile | null> {

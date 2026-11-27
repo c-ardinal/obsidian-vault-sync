@@ -181,7 +181,7 @@ async function executeFolderDeletions(
                     );
                     // The files inside went with it, each as last seen here
                     for (const [p, e] of Object.entries(ctx.index)) {
-                        if (p.startsWith(folderPath + "/") && e.fileId) noteDeletionMark(ctx, e.fileId, e.hash);
+                        if (p.startsWith(folderPath + "/") && e.fileId) noteDeletionMark(ctx, e.fileId, e.hash, { path: p, plain: e.plainHash ?? e.hash });
                     }
                     recordActivity(ctx, "delete", folderPath);
                     ctx.logger.markActionTaken();
@@ -1697,7 +1697,10 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                 { id: entry.fileId, path, kind: "file" },
                                 "user-file",
                             );
-                            noteDeletionMark(ctx, entry.fileId, remote.hash ?? entry.hash);
+                            noteDeletionMark(ctx, entry.fileId, remote.hash ?? entry.hash, {
+                                path,
+                                plain: entry.plainHash ?? entry.hash,
+                            });
                             recordActivity(ctx, "delete", path);
                         }
                         delete ctx.index[path];
