@@ -1112,6 +1112,13 @@ const FIXED_REGRESSIONS: Case[] = [
         config: { seed: 3007, ...CHAOS },
         expect: [],
     },
+    {
+        title: "a merge renamed before its upload still says which version it was built on",
+        symptom:
+            "Three devices uploaded a note at once; the one whose upload had replaced another's saved that old version as a conflict copy although its author had built on it",
+        config: { seed: 3216, ...CLEAN },
+        expect: [],
+    },
 ];
 
 function configOf(c: Case, name: string): SimConfig {
