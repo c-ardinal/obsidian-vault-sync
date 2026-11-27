@@ -168,13 +168,15 @@ export class TransferStatusModal extends Modal {
             });
         }
 
+        // A fixed-height area that scrolls by itself: the history below never moves.
+        const body = el.createDiv({ cls: "vault-sync-xfer-queue-body" });
         if (active.length === 0) {
-            el.createDiv({ cls: "vault-sync-xfer-empty", text: t("transferNoActive") });
+            body.createDiv({ cls: "vault-sync-xfer-empty", text: t("transferNoActive") });
             return;
         }
         const deferred = this.syncManager.getTransferDeferReason?.();
         if (deferred) {
-            el.createDiv({
+            body.createDiv({
                 cls: "vault-sync-xfer-muted vault-sync-xfer-deferred",
                 text: t(deferred === "cellular" ? "transferDeferredCellular" : "transferDeferredLowBattery"),
             });
@@ -183,10 +185,10 @@ export class TransferStatusModal extends Modal {
         const sorted = [...active].sort(
             (a, b) => Number(b.status === "active") - Number(a.status === "active"),
         );
-        const list = el.createDiv({ cls: "vault-sync-xfer-list" });
+        const list = body.createDiv({ cls: "vault-sync-xfer-list" });
         for (const item of sorted.slice(0, QUEUE_VISIBLE)) this.renderQueueRow(list, item);
         if (sorted.length > QUEUE_VISIBLE) {
-            el.createDiv({
+            body.createDiv({
                 cls: "vault-sync-xfer-more",
                 text: t("transferMore").replace("{0}", String(sorted.length - QUEUE_VISIBLE)),
             });
@@ -222,8 +224,7 @@ export class TransferStatusModal extends Modal {
         const el = this.historyEl;
         if (!el) return;
         const t = this.t;
-        const scroller = el.closest(".vault-sync-transfer-container");
-        const savedTop = scroller?.scrollTop ?? 0;
+        const savedTop = el.querySelector(".vault-sync-xfer-history-body")?.scrollTop ?? 0;
         el.empty();
 
         const header = el.createDiv({ cls: "vault-sync-xfer-section-head" });
@@ -245,9 +246,11 @@ export class TransferStatusModal extends Modal {
         filter.selectEl.addClass("vault-sync-xfer-filter");
         filter.selectEl.setAttribute("aria-label", t("transferHistorySection"));
 
+        // The only part of the screen that scrolls
+        const body = el.createDiv({ cls: "vault-sync-xfer-history-body" });
         const days = groupHistory(history, this.filter, Date.now());
         if (days.length === 0) {
-            el.createDiv({
+            body.createDiv({
                 cls: "vault-sync-xfer-empty",
                 text: history.length === 0 ? t("transferNoHistory") : t("transferNoMatch"),
             });
@@ -255,7 +258,7 @@ export class TransferStatusModal extends Modal {
         }
         let first = true;
         for (const day of days) {
-            const dayEl = el.createDiv({ cls: "vault-sync-xfer-day" });
+            const dayEl = body.createDiv({ cls: "vault-sync-xfer-day" });
             dayEl.createDiv({
                 cls: "vault-sync-xfer-day-label",
                 text:
@@ -270,7 +273,7 @@ export class TransferStatusModal extends Modal {
                 first = false;
             }
         }
-        if (scroller && savedTop) scroller.scrollTop = savedTop;
+        if (savedTop) body.scrollTop = savedTop;
     }
 
     private renderBatch(parent: HTMLElement, batch: HistoryBatch, newest: boolean): void {

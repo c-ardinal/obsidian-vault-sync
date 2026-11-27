@@ -366,17 +366,20 @@ async function uploadRemoteIndex(ctx: SyncContext): Promise<void> {
 
         // Upload raw index backup (best effort, uncompressed)
         const rawPath = ctx.pluginDataPath.replace(".json", "_raw.json");
-        try {
-            if (await ctx.vault.exists(rawPath)) {
-                await ctx.adapter.uploadFile(rawPath, indexContent, Date.now());
-                await ctx.log(`[Smart Push] Raw index backup uploaded.`, "debug");
+        const uploadRaw = async () => {
+            try {
+                if (await ctx.vault.exists(rawPath)) {
+                    await ctx.adapter.uploadFile(rawPath, indexContent, Date.now());
+                    await ctx.log(`[Smart Push] Raw index backup uploaded.`, "debug");
+                }
+            } catch (rawErr) {
+                await ctx.log(`[Smart Push] Failed to upload raw index: ${String(rawErr)}`, "debug");
             }
-        } catch (rawErr) {
-            await ctx.log(`[Smart Push] Failed to upload raw index: ${String(rawErr)}`, "debug");
-        }
+        };
 
         clearIndexUploadOwed(ctx);
-        await checkIndexOverwrite(ctx, uploadedIndex);
+        // The backup and the check are independent of each other: side by side
+        await Promise.all([uploadRaw(), checkIndexOverwrite(ctx, uploadedIndex)]);
         await saveIndex(ctx);
         await ctx.log(`[Smart Push] Index uploaded. Hash: ${uploadedIndex.hash}`, "info");
     } catch (e) {
@@ -851,8 +854,13 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                 updatedEntry.ancestorHash = moved.hash;
                                 delete (updatedEntry as { plainHash?: string }).plainHash;
                             }
+                            // A merge not uploaded yet keeps its origin: dropped here, the
+                            // upload no longer said which version it was built on, and the
+                            // device whose upload had replaced that version saved it as a
+                            // conflict copy.
+                            const mergedFrom = ctx.localIndex[path]?.mergedFrom;
                             ctx.index[path] = updatedEntry;
-                            ctx.localIndex[path] = { ...updatedEntry };
+                            ctx.localIndex[path] = { ...updatedEntry, ...(mergedFrom ? { mergedFrom } : {}) };
                             recordActivity(ctx, "rename", path, moveInfo.oldPath);
                             moveCount++;
                             ctx.startActivity();
@@ -904,10 +912,11 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                 `[Smart Push] Move API failed for ${path}, falling back to re-upload: ${String(e)}`,
                                 "warn",
                             );
-                            delete indexEntry.pendingMove;
-                            if (ctx.localIndex[path]) {
-                                delete ctx.localIndex[path].pendingMove;
-                            }
+                            // Gone from the cloud (deleted on another device): the upload
+                            // below makes a new file. With the entry kept, it went to the
+                            // deleted file's id and failed on every sync from then on.
+                            delete ctx.index[path];
+                            delete ctx.localIndex[path];
                         }
                     }
 

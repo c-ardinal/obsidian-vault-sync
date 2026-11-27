@@ -34,10 +34,20 @@ export interface VerifyReport {
     pending: number;
 }
 
+/** How far the check is: the cloud listing has no known length, the comparison has */
+export type VerifyProgress =
+    | { stage: "listing" }
+    | { stage: "comparing"; done: number; total: number; bytesDone: number; bytesTotal: number };
+
 const key = (p: string) => p.normalize("NFC");
 
-export async function verifySync(ctx: SyncContext, now = Date.now()): Promise<VerifyReport> {
+export async function verifySync(
+    ctx: SyncContext,
+    now = Date.now(),
+    onProgress?: (p: VerifyProgress) => void,
+): Promise<VerifyReport> {
     if (ctx.e2eeLocked) throw new Error("Add-on locked: cloud files cannot be compared now");
+    onProgress?.({ stage: "listing" });
     const leftOut = (path: string, size?: number) => shouldIgnore(ctx, path) || exceedsDeviceSizeLimit(ctx, size);
 
     const cloud = new Map<string, { hash?: string; size?: number }>();
@@ -50,8 +60,16 @@ export async function verifySync(ctx: SyncContext, now = Date.now()): Promise<Ve
     const differences: VerifyReport["differences"] = [];
     let matching = 0;
     const seen = new Set<string>();
-    for (const lf of await getLocalFiles(ctx)) {
-        if (leftOut(lf.path, lf.size)) continue;
+    const localFiles = (await getLocalFiles(ctx)).filter((lf) => !leftOut(lf.path, lf.size));
+    const bytesTotal = localFiles.reduce((sum, lf) => sum + lf.size, 0);
+    let done = 0;
+    let bytesDone = 0;
+    const report = () => onProgress?.({ stage: "comparing", done, total: localFiles.length, bytesDone, bytesTotal });
+    report();
+    for (const lf of localFiles) {
+        if (done > 0) report();
+        done++;
+        bytesDone += lf.size;
         const k = key(lf.path);
         seen.add(k);
         const c = cloud.get(k);
@@ -80,6 +98,7 @@ export async function verifySync(ctx: SyncContext, now = Date.now()): Promise<Ve
             });
         }
     }
+    report();
     for (const [k] of cloud) {
         if (!seen.has(k)) differences.push({ path: k, kind: "cloud-only" });
     }

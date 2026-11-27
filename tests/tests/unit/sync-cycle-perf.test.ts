@@ -177,6 +177,59 @@ describe("deferred local-index writes", () => {
     });
 });
 
+describe("journal writes of transfers running side by side", () => {
+    it("shares one write among the saves that wait, and each returns with its entry on the disk", async () => {
+        const ctx = makeCtx(new MockCloudAdapter());
+        const journalPath = ctx.localIndexPath.replace(/\.json$/, "") + "-journal.json";
+        // A disk that takes its time: every write ends only when released
+        const disk = new Map<string, string>();
+        const waiting: Array<() => void> = [];
+        (ctx.vault.write as any).mockImplementation(
+            (p: string, d: string) =>
+                new Promise<void>((resolve) =>
+                    waiting.push(() => {
+                        disk.set(p, d);
+                        resolve();
+                    }),
+                ),
+        );
+        const onDisk = () => Object.keys(JSON.parse(disk.get(journalPath) ?? '{"entries":{}}').entries);
+        const tick = () => new Promise((r) => setTimeout(r, 0));
+
+        beginSyncCycle(ctx);
+        const done: string[] = [];
+        const saves = [0, 1, 2, 3, 4].map(async (i) => {
+            ctx.localIndex[`f${i}.md`] = { fileId: `id${i}`, mtime: 0, size: 0, hash: "h" };
+            await saveLocalIndex(ctx);
+            // Returned: this entry must be on the disk
+            expect(onDisk()).toContain(`f${i}.md`);
+            done.push(`f${i}.md`);
+        });
+        await tick();
+        // The first write is on its way; the other four wait for one write, not four
+        expect(waiting).toHaveLength(1);
+        waiting.shift()!();
+        await tick();
+        expect(done).toEqual(["f0.md"]);
+        expect(waiting).toHaveLength(1);
+        waiting.shift()!();
+        await Promise.all(saves);
+        expect(onDisk().sort()).toEqual(["f0.md", "f1.md", "f2.md", "f3.md", "f4.md"]);
+        const journalWrites = (ctx.vault.write as any).mock.calls.filter((c: unknown[]) => c[0] === journalPath);
+        expect(journalWrites).toHaveLength(2);
+
+        // The cycle's end (a full write) goes through as before
+        const end = endSyncCycle(ctx);
+        await tick();
+        while (waiting.length) {
+            waiting.shift()!();
+            await tick();
+        }
+        await end;
+        expect(Object.keys(JSON.parse(disk.get(ctx.localIndexPath)!).index)).toHaveLength(5);
+    });
+});
+
 describe("Changes API draining and retry", () => {
     let cloud: MockCloudAdapter;
     beforeEach(() => {

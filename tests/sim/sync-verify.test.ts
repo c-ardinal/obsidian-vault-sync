@@ -87,4 +87,28 @@ describe("sync check", () => {
         expect((await verify(b)).differences).toEqual([]);
         expect((await verify(a)).differences).toEqual([]);
     });
+
+    it("reports its progress: the cloud listing first, then each file compared", async () => {
+        const { make, sync } = setup();
+        const a = make("A");
+        await a.init();
+        await a.userCreate("one.md", "1");
+        await a.userCreate("two.md", "22");
+        await sync(a);
+
+        const seen: import("../../src/sync-manager/sync-verify").VerifyProgress[] = [];
+        const p = a.sm.verifySync((x) => seen.push(x));
+        expect(await drive(p, 600_000)).toBe("ok");
+        const report = await p;
+
+        expect(seen[0]).toEqual({ stage: "listing" });
+        const steps = seen.filter((x) => x.stage === "comparing");
+        expect(steps[0]).toMatchObject({ done: 0 });
+        const last = steps[steps.length - 1];
+        expect(last.done).toBe(last.total);
+        expect(last.bytesDone).toBe(last.bytesTotal);
+        expect(last.total).toBe(report.matching + report.differences.length);
+        // never backwards
+        expect(steps.map((x) => x.done)).toEqual([...steps.map((x) => x.done)].sort((x, y) => x - y));
+    });
 });

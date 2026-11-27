@@ -102,6 +102,17 @@ const NON_MD5: Partial<SimConfig> = {
     network: { minLatencyMs: 5, maxLatencyMs: 800, failureRate: 0.02, lostResponseRate: 0.15 },
 };
 
+/** Same settings as the folders scenarios in multi-device.sim.test.ts */
+const FOLDERS: Partial<SimConfig> = {
+    profile: "disjoint",
+    devices: 3,
+    actions: 50,
+    binaryRate: 0.2,
+    deletes: true,
+    folderRenames: true,
+    network: { minLatencyMs: 5, maxLatencyMs: 800, failureRate: 0.02, lostResponseRate: 0.2 },
+};
+
 const KNOWN_BUGS: Case[] = [];
 
 /** Former bugs that must stay fixed (move cases here when fixing them) */
@@ -996,6 +1007,116 @@ const FIXED_REGRESSIONS: Case[] = [
         title: "chaos: a note present under another Unicode spelling does not hold new notes back",
         symptom: "macOS: a synced note seen only in NFD form counted as a missing note, and every new note waited behind it",
         config: { seed: 250750, ...CHAOS },
+        expect: [],
+    },
+    {
+        title: "a note renamed here while a pull is waiting on the cloud is not downloaded again",
+        symptom:
+            "Rename a note twice in a row while a sync runs: the note came back under its first name as well, one note in two files on every device",
+        config: { seed: 1179, ...LARGE, driveServer: true },
+        plan: [
+            { t: 0, dev: "A", kind: "join" },
+            { t: 7304, dev: "A", kind: "sync", scan: false },
+            { t: 8681, dev: "A", kind: "create", fid: "f1", path: "notes/A-1.md" },
+            { t: 10189, dev: "C", kind: "join" },
+            { t: 11090, dev: "A", kind: "sync", scan: false },
+            { t: 16816, dev: "A", kind: "sync", scan: true },
+            { t: 17498, dev: "B", kind: "join" },
+            { t: 22363, dev: "C", kind: "create", fid: "f4", path: "assets/C-3.png", binary: true },
+            { t: 22875, dev: "A", kind: "rename", pick: 0.7926614787429571, to: "notes/sub/A-r14.md" },
+            { t: 24033, dev: "A", kind: "sync", scan: false },
+            { t: 38156, dev: "A", kind: "rename", pick: 0.10778653551824391, to: "notes/sub/A-r23.md" },
+            { t: 40638, dev: "A", kind: "edit", pick: 0.9303215651307255, line: "A", value: "A26" },
+            { t: 48362, dev: "C", kind: "sync", scan: false },
+            { t: 48678, dev: "A", kind: "sync", scan: false },
+            { t: 50595, dev: "C", kind: "sync", scan: false },
+            { t: 57342, dev: "C", kind: "edit", pick: 0.48607094888575375, line: "C", value: "C39" },
+            { t: 57472, dev: "A", kind: "offline" },
+            { t: 63336, dev: "A", kind: "create", fid: "f6", path: "assets/A-3.png", binary: true },
+        ],
+        expect: [],
+    },
+    {
+        title: "drive folders: another device's edit of a note moved here with its folder is pulled after the move",
+        symptom: "Move a folder while another device edits a note in it: this device kept the old text of that note for good",
+        config: { seed: 1006, ...FOLDERS, driveServer: true },
+        expect: [],
+    },
+    {
+        title: "drive folders: a pull put off for our own move is not dropped once the move is pushed",
+        symptom: "The edit made elsewhere was waiting for the folder move, and was forgotten when the move went through",
+        config: { seed: 1219, ...FOLDERS, driveServer: true },
+        expect: [],
+    },
+    {
+        title: "drive folders: a note renamed elsewhere and moved here with its folder ends under one name",
+        symptom: "The cloud kept the other device's name and this device the moved one: the note was missing on one side and extra on the other",
+        config: { seed: 2259, ...FOLDERS, driveServer: true },
+        expect: [],
+    },
+    {
+        title: "chaos: a rename onto a name our unpushed move holds is followed once the name is free",
+        symptom: "Linux: the cloud's note was downloaded again under the freed name next to its old spelling",
+        config: { seed: 2178, ...CHAOS },
+        expect: [],
+    },
+    {
+        title: "chaos: a deletion given up for another device's rename does not pass for a later note's deletion",
+        symptom: "A note that took the name later stayed on this device after it was deleted everywhere else",
+        config: { seed: 2166, ...CHAOS },
+        expect: [],
+    },
+    {
+        title: "chaos: a new note renamed onto a deleted note's name is uploaded",
+        symptom: "The deleted note was removed everywhere and the new note under its name never left this device",
+        config: { seed: 1253, ...CHAOS },
+        expect: [],
+    },
+    {
+        title: "chaos: a note renamed apart does not take the name of a file of the same change page",
+        symptom: "The incoming 'idea (2).md' was pulled over the note just moved to that name, which became a conflict copy",
+        config: { seed: 2102, ...CHAOS },
+        expect: [],
+    },
+    {
+        title: "drive chaos: a note renamed here and deleted elsewhere is uploaded as a new file",
+        symptom: "Every sync failed with 'File not found' for that note, which never reached the other devices",
+        config: { seed: 1311, ...CHAOS, driveServer: true },
+        expect: [],
+    },
+    {
+        title: "drive chaos: of two same-named notes the same one moves aside when the other was deleted here",
+        symptom:
+            "Folders 'Projects' and 'projects' each held 'café.md': a Windows/macOS device that had deleted one renamed the other, and both ended as 'café (2).md'",
+        config: { seed: 2360, ...CHAOS, driveServer: true },
+        expect: [],
+    },
+    {
+        title: "drive chaos: a conflict resolved on a note renamed here keeps the unpushed rename",
+        symptom:
+            "The cloud kept the note under its old name while this device and the shared index had the new one",
+        config: { seed: 3291, ...CHAOS, driveServer: true },
+        expect: [],
+    },
+    {
+        title: "drive chaos: a cloud rename onto a name another note holds in a different letter case is not taken for done",
+        symptom:
+            "A Windows/macOS device uploaded another note's content under the renamed note's name, then lacked that note for good",
+        config: { seed: 2259, ...CHAOS, driveServer: true },
+        expect: [],
+    },
+    {
+        title: "chaos: a merge that cannot place the other device's hunk does not drop its new lines",
+        symptom:
+            "A note recreated under a deleted note's name lost its first line when a third device merged it: the note was gone",
+        config: { seed: 3007, ...CHAOS },
+        expect: [],
+    },
+    {
+        title: "a merge renamed before its upload still says which version it was built on",
+        symptom:
+            "Three devices uploaded a note at once; the one whose upload had replaced another's saved that old version as a conflict copy although its author had built on it",
+        config: { seed: 3216, ...CLEAN },
         expect: [],
     },
 ];

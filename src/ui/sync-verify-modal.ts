@@ -1,7 +1,12 @@
 import { App, Modal } from "obsidian";
 import { t } from "../i18n";
-import type { VerifyDifference, VerifyReport } from "../sync-manager/sync-verify";
+import type { VerifyDifference, VerifyProgress, VerifyReport } from "../sync-manager/sync-verify";
+import { verifyEstimate } from "./progress-math";
 import { formatDateTime } from "./format-time";
+import { formatDuration } from "./sync-status-view";
+
+/** The progress display is redrawn at most this often */
+const PROGRESS_REDRAW_MS = 150;
 
 /** Most paths listed per kind (the count says how many there are) */
 const MAX_LISTED = 50;
@@ -16,7 +21,7 @@ const KIND_LABEL: Record<VerifyDifference, string> = {
 };
 
 export interface VerifyActions {
-    run: () => Promise<VerifyReport>;
+    run: (onProgress: (p: VerifyProgress) => void) => Promise<VerifyReport>;
     isSyncing: () => boolean;
     /** false: not logged in (the check needs the cloud) */
     isSignedIn: () => boolean | undefined;
@@ -49,9 +54,33 @@ export class SyncVerifyModal extends Modal {
             return;
         }
         el.createEl("p", { cls: "vault-sync-verify-status", text: t("verifyRunning") });
+        // Bar, then one line: the count on the left, the time left on the right
+        const fill = el
+            .createDiv({ cls: "vault-sync-status-bar vault-sync-verify-bar" })
+            .createDiv({ cls: "vault-sync-status-bar-fill" });
+        const line = el.createDiv({ cls: "vault-sync-verify-progress" });
+        const countEl = line.createSpan({ text: t("verifyListing") });
+        const etaEl = line.createSpan();
+        let compareStart: number | null = null;
+        let lastDraw = 0;
+        const onProgress = (p: VerifyProgress) => {
+            const now = Date.now();
+            if (p.stage === "comparing" && compareStart === null) compareStart = now;
+            const last = p.stage === "comparing" && p.done >= p.total;
+            if (!last && now - lastDraw < PROGRESS_REDRAW_MS) return;
+            lastDraw = now;
+            const { fraction, etaSec } = verifyEstimate(p, now - (compareStart ?? now));
+            fill.style.width = `${Math.round((fraction ?? 0) * 100)}%`;
+            countEl.setText(
+                p.stage === "listing"
+                    ? t("verifyListing")
+                    : t("verifyProgress").replace("{0}", String(p.done)).replace("{1}", String(p.total)),
+            );
+            etaEl.setText(etaSec === null ? "" : `${t("statusEta")} ${t("statusAbout")}${formatDuration(etaSec)}`);
+        };
         let report: VerifyReport;
         try {
-            report = await this.actions.run();
+            report = await this.actions.run(onProgress);
         } catch (e) {
             el.empty();
             if (this.actions.isSignedIn() === false) {
