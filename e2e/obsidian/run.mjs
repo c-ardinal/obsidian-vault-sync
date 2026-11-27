@@ -705,11 +705,11 @@ async function checkSyncStatus(page, lang, { mobile = false } = {}) {
     const quietEnd = (await drawn()) === restPanel && (await statusText()) === restLine;
     await tracker(`tr.finish("ok");`);
     await sleep(300);
-    const afterQuiet = await page.evaluate((sel) => document.querySelector(sel)?.dataset.state ?? "", panelSel);
+    const afterQuiet = await statusText();
     check(
         lang,
         `${tag}: a timer sync with nothing to transfer leaves the status display unchanged`,
-        quietStart && quietEnd && afterQuiet === "synced",
+        quietStart && quietEnd && /Synced|同期済み|已同步|동기화됨/.test(afterQuiet),
         `start=${quietStart} end=${quietEnd} after=${afterQuiet}`,
     );
     await closePanel();
