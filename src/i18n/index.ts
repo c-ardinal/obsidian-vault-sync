@@ -644,6 +644,7 @@ export const en: Record<string, string> = {
     verifyBusy: "A sync is running. Check again when it has finished.",
     verifyRunning: "Comparing this device with the cloud…",
     verifyListing: "Listing the files in the cloud…",
+    verifyElapsed: "Elapsed: {0}",
     verifyProgress: "{0} / {1} files compared",
     verifyFailed: "The check could not finish. Check the network and try again.",
     verifyClean: "All {0} files match the cloud.",

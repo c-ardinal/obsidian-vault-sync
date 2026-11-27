@@ -9,7 +9,7 @@ import {
     Menu,
     TextComponent,
 } from "obsidian";
-import { formatDateTime, formatDay, formatTimeOfDay } from "./format-time";
+import { formatDateTimeSeconds, formatDay, formatTimeOfDay } from "./format-time";
 import { SyncManager } from "../sync-manager";
 import { FileRevision } from "../types/adapter";
 import { diff_match_patch } from "diff-match-patch";
@@ -323,7 +323,7 @@ export class HistoryModal extends Modal {
             const prev = this.revisions[currentIdx + 1];
             add(
                 prev.id,
-                `${this.syncManager.t("historyPreviousVersion")} (${formatDateTime(prev.modifiedTime)})`,
+                `${this.syncManager.t("historyPreviousVersion")} (${formatDateTimeSeconds(prev.modifiedTime)})`,
             );
         } else {
             add(
@@ -340,7 +340,7 @@ export class HistoryModal extends Modal {
                 return;
             add(
                 r.id,
-                `${formatDateTime(r.modifiedTime)} (${r.author || this.syncManager.t("historyAuthorUnknown")})`,
+                `${formatDateTimeSeconds(r.modifiedTime)} (${r.author || this.syncManager.t("historyAuthorUnknown")})`,
             );
         });
         if (this.baseRevision) {
@@ -539,7 +539,7 @@ export class HistoryModal extends Modal {
                         .setIcon("rotate-ccw")
                         .setWarning(true)
                         .onClick(async () => {
-                            const dateStr = formatDateTime(this.selectedRevision!.modifiedTime);
+                            const dateStr = formatDateTimeSeconds(this.selectedRevision!.modifiedTime);
                             const confirmed = await new ConfirmModal(
                                 this.app,
                                 this.syncManager.t("historyRestoreConfirm").replace("{0}", dateStr),
@@ -564,7 +564,7 @@ export class HistoryModal extends Modal {
                         .setIcon("trash")
                         .setWarning(true)
                         .onClick(async () => {
-                            const dateStr = formatDateTime(this.selectedRevision!.modifiedTime);
+                            const dateStr = formatDateTimeSeconds(this.selectedRevision!.modifiedTime);
                             const confirmed = await new ConfirmModal(
                                 this.app,
                                 this.syncManager.t("historyDeleteConfirm").replace("{0}", dateStr),

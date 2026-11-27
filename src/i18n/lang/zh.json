@@ -587,6 +587,7 @@
     "verifyBusy": "正在同步。请在完成后再检查。",
     "verifyRunning": "正在比对本设备与云端…",
     "verifyListing": "正在获取云端文件列表…",
+    "verifyElapsed": "已用时间：{0}",
     "verifyProgress": "已比对 {0} / {1} 个文件",
     "verifyFailed": "检查未能完成。请检查网络后重试。",
     "verifyClean": "全部 {0} 个文件与云端一致。",

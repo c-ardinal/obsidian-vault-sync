@@ -16,6 +16,7 @@ import type { SyncProgressSnapshot } from "../sync-manager/sync-progress";
 import { TRANSFER_MAX_RETRIES } from "../sync-manager/constants";
 import { basename, dirname } from "../utils/path";
 import { formatBytes, formatClock, renderSyncPanel } from "./sync-status-view";
+import { quietCycleFilter } from "./progress-math";
 import {
     groupHistory,
     type HistoryBatch,
@@ -72,7 +73,8 @@ export class TransferStatusModal extends Modal {
 
         const progress = this.syncManager.progress;
         if (progress) {
-            this.unsubscribe = progress.subscribe((s) => this.renderSummary(s));
+            const shown = quietCycleFilter();
+            this.unsubscribe = progress.subscribe((s) => this.renderSummary(shown(s)));
         } else {
             this.summaryEl.remove();
             this.summaryEl = null;

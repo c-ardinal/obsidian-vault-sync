@@ -30,3 +30,9 @@ export function formatDateTime(ms: number): string {
     if (ms <= 0) return "-";
     return moment(ms).format("L LT");
 }
+
+/** Date and time with seconds, e.g. "11/22/2026 4:42:23 PM" / "2026/11/22 16:42:23" */
+export function formatDateTimeSeconds(ms: number): string {
+    if (ms <= 0) return "-";
+    return moment(ms).format("L LTS");
+}

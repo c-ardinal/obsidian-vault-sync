@@ -691,6 +691,27 @@ async function checkSyncStatus(page, lang, { mobile = false } = {}) {
         await sleep(200);
         if (!(await page.$(panelSel))) await openPanel();
     }
+    // A timer sync with nothing to transfer runs out of sight: the panel and the
+    // one-line display stay as they are until it ends (they flickered at each one).
+    const drawn = () =>
+        page.evaluate((sel) => document.querySelector(sel)?.innerHTML ?? "", panelSel);
+    const restPanel = await drawn();
+    const restLine = await statusText();
+    await tracker(`tr.begin("timer-sync");`);
+    await sleep(400);
+    const quietStart = (await drawn()) === restPanel && (await statusText()) === restLine;
+    await tracker(`tr.setPhase("finishing"); tr.emit(true);`);
+    await sleep(400);
+    const quietEnd = (await drawn()) === restPanel && (await statusText()) === restLine;
+    await tracker(`tr.finish("ok");`);
+    await sleep(300);
+    const afterQuiet = await page.evaluate((sel) => document.querySelector(sel)?.dataset.state ?? "", panelSel);
+    check(
+        lang,
+        `${tag}: a timer sync with nothing to transfer leaves the status display unchanged`,
+        quietStart && quietEnd && afterQuiet === "synced",
+        `start=${quietStart} end=${quietEnd} after=${afterQuiet}`,
+    );
     await closePanel();
 
     // 4. Failed and offline.
@@ -1112,6 +1133,15 @@ async function checkScreens(page, lang, { mobile = false } = {}) {
     }
     await page.waitForSelector(".diff-table", { timeout: 8000 }).catch(() => {});
     await sleep(500);
+    // Versions made within one minute must be told apart in the "compare with" list.
+    const compareOptions = await page.$$eval(".mod-history-modal select option", (els) => els.map((e) => e.textContent));
+    const timed = compareOptions.filter((o) => /\d{1,2}:\d{2}/.test(o));
+    check(
+        lang,
+        `${tag}: history "compare with" times show seconds`,
+        timed.length > 0 && timed.every((o) => /\d{1,2}:\d{2}:\d{2}/.test(o)),
+        compareOptions.join(" | "),
+    );
     await shotModal(page, lang, tag, "scr-history", "history modal");
     if (mobile) {
         await page.click(".vault-sync-history-toggle-btn").catch(() => {});
@@ -1688,15 +1718,36 @@ async function checkNewFeatures(page, lang, { mobile = false } = {}) {
             onProgress({ stage: "listing" });
             const total = 1840, bytesTotal = 92_000_000;
             const step = (done) => onProgress({ stage: "comparing", done, total, bytesDone: bytesTotal * done / total, bytesTotal });
-            setTimeout(() => step(0), 300);
-            setTimeout(() => step(772), 2600);
+            setTimeout(() => step(0), 2300);
+            setTimeout(() => step(772), 4600);
             window.__verifyEnd = () => resolve({ checkedAt: Date.now(), matching: total, pending: 0, differences: [] });
         });`);
     await cmd(page, "verify-sync");
     await modalOpen(page, ".vault-sync-verify-modal");
     await sleep(150);
-    const listing = await page.$eval(".vault-sync-verify-progress", (e) => e.textContent);
-    await sleep(2900);
+    // Listing the cloud has no measure: a moving mark and the time taken so far.
+    const listingState = () =>
+        page.evaluate(() => {
+            const fill = document.querySelector(".vault-sync-verify-bar .vault-sync-status-bar-fill");
+            return {
+                text: document.querySelector(".vault-sync-verify-progress")?.textContent ?? "",
+                mark: !!fill?.classList.contains("is-indeterminate"),
+                moving: fill ? getComputedStyle(fill).animationName !== "none" : false,
+                width: fill ? Math.round(fill.getBoundingClientRect().width) : 0,
+            };
+        });
+    const listingA = await listingState();
+    const listing = listingA.text;
+    await shotModal(page, lang, tag, "scr-verify-listing", "sync check (listing)");
+    await sleep(1300);
+    const listingB = await listingState();
+    check(
+        lang,
+        `${tag}: sync check shows a moving mark and the time taken while it lists the cloud`,
+        listingA.mark && listingA.moving && listingA.width > 0 && listingB.mark && listingA.text !== listingB.text,
+        `${JSON.stringify(listingA)} | ${JSON.stringify(listingB)}`,
+    );
+    await sleep(3500);
     const running = await page.evaluate(() => ({
         text: document.querySelector(".vault-sync-verify-progress")?.textContent ?? "",
         bar: document.querySelector(".vault-sync-verify-bar .vault-sync-status-bar-fill")?.style.width ?? "",

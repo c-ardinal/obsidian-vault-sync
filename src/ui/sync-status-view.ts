@@ -13,13 +13,11 @@ import type VaultSync from "../main";
 import type { SyncManager } from "../sync-manager";
 import { t } from "../i18n";
 import type { SyncPhase, SyncProgressSnapshot } from "../sync-manager/sync-progress";
-import { stepFraction, transferLabel } from "./progress-math";
+import { LOUD_TRIGGERS, quietCycleFilter, stepFraction, transferLabel } from "./progress-math";
 import { TransferStatusModal } from "./transfer-status-modal";
 
 export type DisplayState = "syncing" | "scanning" | "synced" | "error" | "offline" | "auth" | "never";
 
-/** Triggers the user started or waits on: their syncs always show on mobile. */
-const LOUD_TRIGGERS = new Set(["manual-sync", "initial-sync", "startup-sync", "full-scan"]);
 /** Mobile: how long a finished result stays on screen */
 const MOBILE_RESULT_MS = 4000;
 const MOBILE_ERROR_MS = 8000;
@@ -129,7 +127,8 @@ export class SyncStatusView {
         if (this.mounted) return;
         if (Platform.isMobile) this.mountMobile();
         else this.mountDesktop();
-        this.unsubscribe = this.plugin.syncManager.progress.subscribe((s) => this.update(s));
+        const shown = quietCycleFilter();
+        this.unsubscribe = this.plugin.syncManager.progress.subscribe((s) => this.update(shown(s)));
         // Keep "3 min ago" current.
         this.clockTimer = window.setInterval(() => {
             if (this.snap) this.update(this.snap);

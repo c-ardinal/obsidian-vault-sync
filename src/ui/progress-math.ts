@@ -26,6 +26,45 @@ export function stepFraction(s: SyncProgressSnapshot, id: SyncPhase, behind: boo
     return null;
 }
 
+/** Triggers the user started or waits on: their syncs show from the start. */
+export const LOUD_TRIGGERS: ReadonlySet<string> = new Set(["manual-sync", "initial-sync", "startup-sync", "full-scan"]);
+
+/** A background cycle that has had nothing to transfer or scan so far. */
+function isQuietCycle(s: SyncProgressSnapshot): boolean {
+    return (
+        s.active &&
+        !LOUD_TRIGGERS.has(s.trigger ?? "") &&
+        s.pull.total + s.push.total === 0 &&
+        s.scan.total === 0 &&
+        s.conflicts === 0
+    );
+}
+
+/**
+ * What a status display shows for each tracker snapshot. A quiet cycle stays out
+ * of sight: the display keeps what it showed before the cycle, and changes only
+ * when the cycle ends (the new sync time) or finds a file to transfer.
+ * One filter per display: it remembers the last snapshot shown at rest.
+ */
+export function quietCycleFilter(): (s: SyncProgressSnapshot) => SyncProgressSnapshot {
+    let atRest: SyncProgressSnapshot | null = null;
+    return (s) => {
+        if (!isQuietCycle(s)) {
+            if (!s.active) atRest = s;
+            return s;
+        }
+        atRest ??= {
+            ...s,
+            active: false,
+            phase: "idle",
+            bytesPerSec: null,
+            etaSec: null,
+            fraction: s.last ? (s.last.outcome === "ok" ? 1 : 0) : null,
+        };
+        return atRest;
+    };
+}
+
 /** No time-left estimate before the comparison has run this long (early rates are noise) */
 const ETA_MIN_ELAPSED_MS = 2000;
 /** Share done (0..1) and seconds left of a running check; null where not known yet. */
