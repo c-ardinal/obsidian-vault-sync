@@ -1098,6 +1098,13 @@ const FIXED_REGRESSIONS: Case[] = [
         config: { seed: 3291, ...CHAOS, driveServer: true },
         expect: [],
     },
+    {
+        title: "drive chaos: a cloud rename onto a name another note holds in a different letter case is not taken for done",
+        symptom:
+            "A Windows/macOS device uploaded another note's content under the renamed note's name, then lacked that note for good",
+        config: { seed: 2259, ...CHAOS, driveServer: true },
+        expect: [],
+    },
 ];
 
 function configOf(c: Case, name: string): SimConfig {
