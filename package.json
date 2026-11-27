@@ -1,5 +1,5 @@
 {
-    "name": "obsidian-vault-sync",
+    "name": "obsidian-vault-syncer",
     "version": "0.19.2",
     "description": "Obsidian Cloud Storage Sync Plugin (Google Drive)",
     "type": "module",
