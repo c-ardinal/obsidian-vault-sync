@@ -2065,6 +2065,9 @@ async function processChangePage(
                         !ctx.index[newPath] &&
                         !ctx.localIndex[newPath] &&
                         !(await ctx.vault.exists(oldPath)) &&
+                        // On Windows/macOS the file under this name can be another
+                        // synced note whose name differs in letter case only.
+                        !findPathCollision(ctx, newPath, cloudFile.id) &&
                         (await holdsSyncedContent(ctx, newPath, oldPath))
                     ) {
                         // The rename is already done here, only its index update was lost
