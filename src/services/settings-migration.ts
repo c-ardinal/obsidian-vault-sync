@@ -7,7 +7,7 @@
  */
 
 /** Version of the settings shape this build writes. Raise it with each migration. */
-export const CURRENT_SETTINGS_VERSION = 1;
+export const CURRENT_SETTINGS_VERSION = 2;
 
 type PlainObject = Record<string, unknown>;
 
@@ -48,11 +48,28 @@ export interface SettingsMigration {
     migrate(settings: PlainObject): void;
 }
 
+/** Add-on IDs that changed: old ID -> current ID (the add-on's terms and files are the same). */
+const RENAMED_ADDON_IDS: Record<string, string> = { "vault-sync-e2ee-engine": "vault-syncer-e2ee-engine" };
+
+/** 1 -> 2: the record of an installed add-on moves to the add-on's current ID. */
+function renameAddonAgreements(settings: PlainObject): void {
+    const agreements = settings.addonAgreements;
+    if (!isPlainObject(agreements)) return;
+    for (const [oldId, newId] of Object.entries(RENAMED_ADDON_IDS)) {
+        if (!(oldId in agreements)) continue;
+        if (!(newId in agreements)) agreements[newId] = agreements[oldId];
+        delete agreements[oldId];
+    }
+}
+
 /**
  * Migrations in order. Settings saved before versioning have no version and are
  * version 0; 0 -> 1 only records the version (no shape change).
  */
-export const SETTINGS_MIGRATIONS: readonly SettingsMigration[] = [{ from: 0, migrate: () => {} }];
+export const SETTINGS_MIGRATIONS: readonly SettingsMigration[] = [
+    { from: 0, migrate: () => {} },
+    { from: 1, migrate: renameAddonAgreements },
+];
 
 /**
  * Bring saved settings to CURRENT_SETTINGS_VERSION. Settings written by a newer

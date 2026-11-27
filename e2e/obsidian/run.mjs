@@ -9,7 +9,7 @@
  * sticking out of the screen.
  *
  *   OBSIDIAN_BIN   path to the unpacked Obsidian executable (see setup-obsidian.mjs)
- *   PLUGIN_DIR     built plugin (default: dist/cardinal-vault-sync)
+ *   PLUGIN_DIR     built plugin (default: dist/cardinal-vault-syncer)
  *   OUT_DIR        screenshots + report (default: test-results/e2e-obsidian)
  *   E2E_LANGS      comma separated UI languages (default: en,ja)
  *   ADDON_ZIP      optional add-on package (.zip): shows the install review screen, then
@@ -26,7 +26,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { chromium } from "playwright-core";
 
-const PLUGIN_DIR = resolve(process.env.PLUGIN_DIR || "dist/cardinal-vault-sync");
+const PLUGIN_DIR = resolve(process.env.PLUGIN_DIR || "dist/cardinal-vault-syncer");
 const OUT_DIR = resolve(process.env.OUT_DIR || "test-results/e2e-obsidian");
 const LANGS = (process.env.E2E_LANGS || "en,ja")
     .split(",")
@@ -1307,7 +1307,7 @@ async function checkScreens(page, lang, { mobile = false } = {}) {
     check(
         lang,
         `${tag}: report opens the new-issue page with the diagnostics`,
-        !!opened && opened.startsWith("https://github.com/c-ardinal/obsidian-vault-sync/issues/new?") && openedBody.includes("## Vault Syncer diagnostics") && opened.length <= 7500,
+        !!opened && opened.startsWith("https://github.com/c-ardinal/obsidian-vault-syncer/issues/new?") && openedBody.includes("## Vault Syncer diagnostics") && opened.length <= 7500,
         opened ? `length=${opened.length}` : "not opened",
     );
     await escape(page);

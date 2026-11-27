@@ -67,7 +67,7 @@ ObsidianVaultSync/           ← App Root (設定で変更可)
        ├── notes             ← ユーザーファイル群
        └── .obsidian/        ← Obsidian 設定ファイル群 (選択同期)
             └──plugins
-                 └── obsidian-vault-sync/ ← 本プラグイン配置フォルダ
+                 └── cardinal-vault-syncer/ ← 本プラグイン配置フォルダ
 ```
 
 - **Global Discovery**: `VaultName` と一致するフォルダをGoogle Drive内からグローバルに検索。検出時は App Root 配下へ自動的に移動（Adoption）して統合する。

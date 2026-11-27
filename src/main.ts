@@ -52,7 +52,7 @@ import { TriggerManager } from "./services/trigger-manager";
 import { SettingsManager } from "./services/settings-manager";
 import { CredentialManager } from "./services/credential-manager";
 import { setPluginDir } from "./sync-manager/file-utils";
-import { isLegacyCopyEnabled, migrateLegacyPluginData } from "./services/legacy-plugin-migration";
+import { enabledLegacyCopyId, migrateLegacyPluginData } from "./services/legacy-plugin-migration";
 
 /** Command ids of Vault Syncer itself; an add-on action may not take them. */
 const BUILTIN_COMMAND_IDS: ReadonlySet<string> = new Set([
@@ -296,19 +296,16 @@ export default class VaultSync extends Plugin {
         setPluginDir(pluginDir, configDir);
         initI18n();
 
-        // The plugin's ID changed for the community directory. While the old copy is
-        // still enabled, both would sync the same vault: stay idle until it is off.
-        if (isLegacyCopyEnabled(this.app)) {
-            new Notice(t("noticeLegacyCopyEnabled"), 0);
+        // The plugin's ID has changed (PLUGIN_IDS). While a copy under an earlier ID
+        // is still enabled, both would sync the same vault: stay idle until it is off.
+        const oldCopyId = enabledLegacyCopyId(this.app);
+        if (oldCopyId) {
+            new Notice(t("noticeLegacyCopyEnabled").replace("{id}", oldCopyId), 0);
             return;
         }
         try {
-            const migrated = await migrateLegacyPluginData(
-                this.app.vault.adapter,
-                configDir,
-                pluginDir,
-            );
-            if (migrated) new Notice(t("noticeLegacyDataMigrated"), 15000);
+            const migrated = await migrateLegacyPluginData(this.app.vault.adapter, pluginDir);
+            if (migrated) new Notice(t("noticeLegacyDataMigrated").replace("{id}", migrated.fromId), 15000);
         } catch (e) {
             console.error("Vault Syncer: Could not carry over data from the old plugin folder", e);
         }

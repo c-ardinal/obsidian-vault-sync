@@ -104,14 +104,14 @@
 
 ### 2.2 本プラグインの同期除外
 
-`syncCommunityPlugins` が ON の際も、本プラグイン自体（`obsidian-vault-sync/`）のバイナリやランタイムデータは同期対象外とする。プラグイン設定のみ `data/flexible/open-data.json` を通じて同期可能。
+`syncCommunityPlugins` が ON の際も、本プラグイン自体（`cardinal-vault-syncer/`）のバイナリやランタイムデータは同期対象外とする。プラグイン設定のみ `data/flexible/open-data.json` を通じて同期可能。
 
 ## 3. データディレクトリ構造
 
 プラグインフォルダ内のデータ配置規則。
 
 ```
-.obsidian/plugins/obsidian-vault-sync/
+.obsidian/plugins/cardinal-vault-syncer/
   ├── data.json              ← プラグイン設定
   ├── data/
   │   ├── local/             ← 同期対象外（デバイス固有）

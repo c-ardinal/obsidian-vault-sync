@@ -1,11 +1,11 @@
 import { normalizePath } from "obsidian";
 import type { DataAdapter } from "obsidian";
-import { LEGACY_PLUGIN_ID } from "../sync-manager/file-utils";
+import { LEGACY_PLUGIN_DIRS } from "../sync-manager/file-utils";
 
 /**
- * The plugin was renamed from `obsidian-vault-sync` to its community-directory ID
- * (IDs may not contain "obsidian"), so Obsidian installs it into a new folder.
- * This carries a device's state over from the old folder, once.
+ * The plugin's ID has changed (see PLUGIN_IDS), and Obsidian installs each ID into
+ * a folder of its own. This carries a device's state over from the folder of an
+ * earlier ID, once.
  */
 
 /** Files of the old install that belong to the old copy of the plugin itself. */
@@ -19,32 +19,36 @@ const LOCAL_INDEX = "data/local/local-index.json";
 export interface LegacyMigrationResult {
     /** Number of files copied from the old folder. */
     copied: number;
+    /** The plugin ID the state was carried over from. */
+    fromId: string;
 }
 
-export function legacyPluginDir(configDir: string): string {
-    return normalizePath(`${configDir}/plugins/${LEGACY_PLUGIN_ID}`);
-}
+const idOf = (dir: string) => dir.replace(/\/$/, "").split("/").pop() ?? dir;
 
 /**
  * Copies settings (data.json), sync state (data/) and installed add-ons from the
- * old plugin folder into `pluginDir`, when the old folder has them and `pluginDir`
- * has no sync state yet. Files that already exist in `pluginDir` are never
- * overwritten, and the old folder is left as it is. Returns null when there was
- * nothing to do.
+ * folder of an earlier plugin ID into `pluginDir`, when `pluginDir` has no sync
+ * state yet. Of the earlier folders that hold state, the one of the newest ID is
+ * used (a device moves from ID to ID in order, so that one is the most recent).
+ * Files that already exist in `pluginDir` are never overwritten, and the old
+ * folder is left as it is. Returns null when there was nothing to do.
  */
 export async function migrateLegacyPluginData(
     adapter: DataAdapter,
-    configDir: string,
     pluginDir: string,
 ): Promise<LegacyMigrationResult | null> {
-    const from = legacyPluginDir(configDir);
     const to = normalizePath(pluginDir);
-    if (from === to) return null;
-    if (!(await adapter.exists(from))) return null;
     if (await adapter.exists(`${to}/${LOCAL_INDEX}`)) return null;
-    const hasState =
-        (await adapter.exists(`${from}/data`)) || (await adapter.exists(`${from}/data.json`));
-    if (!hasState) return null;
+    let from: string | null = null;
+    for (const dir of [...LEGACY_PLUGIN_DIRS].reverse()) {
+        const candidate = dir.replace(/\/$/, "");
+        if (candidate === to || !(await adapter.exists(candidate))) continue;
+        if ((await adapter.exists(`${candidate}/data`)) || (await adapter.exists(`${candidate}/data.json`))) {
+            from = candidate;
+            break;
+        }
+    }
+    if (from === null) return null;
 
     let copied = 0;
     const copyDir = async (dir: string, top: boolean): Promise<void> => {
@@ -65,7 +69,7 @@ export async function migrateLegacyPluginData(
         }
     };
     await copyDir(from, true);
-    return { copied };
+    return { copied, fromId: idOf(from) };
 }
 
 async function ensureFolder(adapter: DataAdapter, dir: string): Promise<void> {
@@ -90,13 +94,14 @@ interface PluginRegistry {
 }
 
 /**
- * Whether the old copy of the plugin (old ID) is installed and enabled. Both
- * copies syncing the same vault at once would fight over it.
+ * The ID of an old copy of the plugin (an earlier ID) that is installed and
+ * enabled, or null. Both copies syncing the same vault at once would fight over it.
  */
-export function isLegacyCopyEnabled(app: unknown): boolean {
+export function enabledLegacyCopyId(app: unknown): string | null {
     const registry = (app as { plugins?: PluginRegistry }).plugins;
-    if (!registry) return false;
-    return (
-        !!registry.enabledPlugins?.has(LEGACY_PLUGIN_ID) && !!registry.manifests?.[LEGACY_PLUGIN_ID]
-    );
+    if (!registry) return null;
+    for (const id of LEGACY_PLUGIN_DIRS.map(idOf).reverse()) {
+        if (registry.enabledPlugins?.has(id) && registry.manifests?.[id]) return id;
+    }
+    return null;
 }

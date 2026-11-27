@@ -84,4 +84,26 @@ describe("migrateSettings", () => {
     it("fails loudly when a step is missing", () => {
         expect(() => migrateSettings({ settingsVersion: 0 }, [], 1)).toThrow(/No settings migration/);
     });
+
+    it("moves the record of an installed add-on to the add-on's current ID", () => {
+        const record = { name: "Vault Syncer E2EE Engine", version: "0.19.0", termsHash: "h", agreedAt: "t" };
+        const s: Record<string, unknown> = {
+            settingsVersion: 1,
+            addonAgreements: { "vault-sync-e2ee-engine": record },
+        };
+        expect(migrateSettings(s)).toBe(true);
+        expect(s.addonAgreements).toEqual({ "vault-syncer-e2ee-engine": record });
+    });
+
+    it("keeps a record already saved under the current add-on ID", () => {
+        const s: Record<string, unknown> = {
+            settingsVersion: 1,
+            addonAgreements: {
+                "vault-sync-e2ee-engine": { version: "0.19.0" },
+                "vault-syncer-e2ee-engine": { version: "0.19.2" },
+            },
+        };
+        migrateSettings(s);
+        expect(s.addonAgreements).toEqual({ "vault-syncer-e2ee-engine": { version: "0.19.2" } });
+    });
 });

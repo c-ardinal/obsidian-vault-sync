@@ -12,8 +12,8 @@
 
 <p align="center">
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
-  <a href="https://github.com/c-ardinal/obsidian-vault-sync/releases"><img src="https://img.shields.io/github/v/release/c-ardinal/obsidian-vault-sync?label=Release&logo=github" alt="GitHub Release"></a>
-  <a href="https://github.com/c-ardinal/obsidian-vault-sync/actions/workflows/test.yml"><img src="https://img.shields.io/github/actions/workflow/status/c-ardinal/obsidian-vault-sync/test.yml?branch=main&label=CI&logo=github-actions" alt="CI Status"></a>
+  <a href="https://github.com/c-ardinal/obsidian-vault-syncer/releases"><img src="https://img.shields.io/github/v/release/c-ardinal/obsidian-vault-syncer?label=Release&logo=github" alt="GitHub Release"></a>
+  <a href="https://github.com/c-ardinal/obsidian-vault-syncer/actions/workflows/test.yml"><img src="https://img.shields.io/github/actions/workflow/status/c-ardinal/obsidian-vault-syncer/test.yml?branch=main&label=CI&logo=github-actions" alt="CI Status"></a>
   <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20iOS%20%7C%20Android-lightgrey" alt="Platform: Windows | macOS | Linux | iOS | Android">
 </p>
 
@@ -52,7 +52,7 @@ Obsidian向けの高速・インテリジェントなクラウドストレージ
 - **バックグラウンド転送**:
     - 大容量ファイルはUIをブロックせず、バックグラウンドでアップロード・ダウンロード。閾値と同時接続数を設定可能。
 - **エンドツーエンド暗号化 (E2EE)**:
-    - [E2EE Engine](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine) を別途導入すると、Vault内のデータの暗号化が可能。ファイル内容をアップロード前に暗号化、ダウンロード後に復号するため、クラウド上に平文の内容は残存しない。ファイル名・フォルダ名は暗号化の対象外。
+    - [E2EE Engine](https://github.com/c-ardinal/obsidian-vault-syncer-e2ee-engine) を別途導入すると、Vault内のデータの暗号化が可能。ファイル内容をアップロード前に暗号化、ダウンロード後に復号するため、クラウド上に平文の内容は残存しない。ファイル名・フォルダ名は暗号化の対象外。
 
 |               転送ステータス               |                   選択的同期                    |
 | :----------------------------------------: | :---------------------------------------------: |
@@ -119,24 +119,24 @@ Obsidian向けの高速・インテリジェントなクラウドストレージ
 
 1. Obsidian のコミュニティプラグインから [BRAT](https://github.com/TfTHacker/obsidian42-brat) をインストールする。
 2. BRAT の設定を表示し、**「Add Beta plugin」** をクリックする。
-3. `c-ardinal/obsidian-vault-sync` と入力し、`Latest version`を選択して、**「Add Plugin」** をクリックする。
+3. `c-ardinal/obsidian-vault-syncer` と入力し、`Latest version`を選択して、**「Add Plugin」** をクリックする。
 4. 設定 > コミュニティプラグインから「Vault Syncer」を有効化する。
 
 BRAT が自動的にアップデートを確認し、プラグインを最新状態に維持する。
 
 ### 手動インストール
 
-1. [最新リリース](https://github.com/c-ardinal/obsidian-vault-sync/releases/latest)から `main.js`、`manifest.json`、`styles.css` をダウンロードする。
-2. Vault の `.obsidian/plugins/` ディレクトリに `cardinal-vault-sync` フォルダを作成する。
+1. [最新リリース](https://github.com/c-ardinal/obsidian-vault-syncer/releases/latest)から `main.js`、`manifest.json`、`styles.css` をダウンロードする。
+2. Vault の `.obsidian/plugins/` ディレクトリに `cardinal-vault-syncer` フォルダを作成する。
 3. ダウンロードしたファイルをフォルダに配置する。
 4. 設定 > コミュニティプラグインから「Vault Syncer」を有効化する。
 
-### 旧バージョン（プラグインID `obsidian-vault-sync`）からの更新
+### 旧バージョン（プラグインID `cardinal-vault-sync` または `obsidian-vault-sync`）からの更新
 
-コミュニティディレクトリへの登録に伴い、プラグインIDを `obsidian-vault-sync` から `cardinal-vault-sync` に変更した。このため Obsidian は新規フォルダにインストールする。
+現在のプラグインIDは `cardinal-vault-syncer` である。旧バージョンは `cardinal-vault-sync`（0.19.1 以前）および `obsidian-vault-sync`（初期のバージョン）を使用していた。Obsidian はID単位で別フォルダにインストールするため、旧バージョンからの更新時は新規フォルダへのインストールとなる。
 
 1. コミュニティプラグインの閲覧画面から Vault Syncer をインストールする（BRAT の際は更新する）。
-2. 設定 > コミュニティプラグインで旧バージョン（ID `obsidian-vault-sync`）を無効化し、アプリを再起動する。旧バージョンが有効な期間は新バージョンが同期を停止するため、両者が同一 Vault を同時に同期することはない。
+2. 設定 > コミュニティプラグインで旧バージョン（ID `cardinal-vault-sync` または `obsidian-vault-sync`）を無効化し、アプリを再起動する。旧バージョンが有効な期間は新バージョンが同期を停止するため、両者が同一 Vault を同時に同期することはない。
 3. 新バージョンは初回起動時に、旧フォルダから設定・同期状態・導入済みアドオンを移行する。移行後は旧バージョンのアンインストールが可能。
 
 全デバイスを更新すること。更新完了までは旧バージョンのデバイスも従来同様に動作するが、旧バージョンと新バージョンのデバイス間ではファイル照合に長時間を要する可能性がある。
@@ -323,7 +323,7 @@ Obsidian の開発者ポリシーに準拠した開示:
 - **データの所在**:
     - 同期されたデータは、ユーザ自身のクラウドストレージ領域（指定したルートフォルダ）のみに保存される。
 - **ファイル暗号化**:
-    - デフォルトでは、同期されるデータ（Markdownファイル等）はクラウドストレージへ**平文（暗号化なし）でアップロードされる**。クラウドストレージ自体のセキュリティモデル（HTTPS転送、サーバー側暗号化）で保護されるが、サーバー側でのデータ閲覧は可能。エンドツーエンド暗号化が必要な際は、[Vault Syncer E2EE Engine](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine) を導入すること。詳細は後述のセクションを参照。
+    - デフォルトでは、同期されるデータ（Markdownファイル等）はクラウドストレージへ**平文（暗号化なし）でアップロードされる**。クラウドストレージ自体のセキュリティモデル（HTTPS転送、サーバー側暗号化）で保護されるが、サーバー側でのデータ閲覧は可能。エンドツーエンド暗号化が必要な際は、[Vault Syncer E2EE Engine](https://github.com/c-ardinal/obsidian-vault-syncer-e2ee-engine) を導入すること。詳細は後述のセクションを参照。
 
 ---
 
@@ -367,14 +367,14 @@ E2EE 有効時の動作:
 E2EE Engineは、暗号化を希望するユーザーのみが自身の意思で導入可能なように、独自の利用条件を持つ**アドオン**として別途配布されている。PC・スマートフォンとも、非表示フォルダ `.obsidian` を操作せず、数タップで導入可能:
 
 1. Vault Syncerの設定画面「アドオン」の **アドオンを導入...** をタップする（またはコマンドパレットから `Vault Syncer: アドオン導入画面を表示` を実行）。
-2. **ダウンロードページへ移動** をタップし、最新リリースの `vault-sync-e2ee-engine.zip` をダウンロードする。
+2. **ダウンロードページへ移動** をタップし、最新リリースの `vault-syncer-e2ee-engine.zip` をダウンロードする。
 3. **ファイルを選択** でダウンロードしたzipを選択する。Vault Syncerが内部の全ファイルを承認済みリリースと照合する（SHA-256）。
 4. ダイアログに表示されるアドオンの利用条件を確認して同意し、**導入する** をタップする。再起動不要で有効化される。
 5. 以後、Vault Syncerの設定画面「アドオン」にアドオン固有の設定ページが表示される。アドオンの各操作は、同ページとコマンドパレットの双方から実行可能。
 
-Vault Syncer自体がアドオンをダウンロードすることはない。他デバイスでアドオンを使用中のVaultでは、起動時に導入ダイアログを表示し、導入後は直接パスワード入力に移行する。従来同様 `e2ee-engine.js` を `.obsidian/plugins/cardinal-vault-sync/` へ手動でコピーする方法も使用可能。
+Vault Syncer自体がアドオンをダウンロードすることはない。他デバイスでアドオンを使用中のVaultでは、起動時に導入ダイアログを表示し、導入後は直接パスワード入力に移行する。従来同様 `e2ee-engine.js` を `.obsidian/plugins/cardinal-vault-syncer/` へ手動でコピーする方法も使用可能。
 
-詳細、利用可能なコマンド、ビルド手順、暗号化仕様については **[Vault Syncer E2EE Engine リポジトリ](https://github.com/c-ardinal/obsidian-vault-sync-e2ee-engine)** を参照。
+詳細、利用可能なコマンド、ビルド手順、暗号化仕様については **[Vault Syncer E2EE Engine リポジトリ](https://github.com/c-ardinal/obsidian-vault-syncer-e2ee-engine)** を参照。
 
 ---
 
@@ -388,7 +388,7 @@ Vault Syncer自体がアドオンをダウンロードすることはない。�
 npm run build
 ```
 
-ビルド結果は `dist/cardinal-vault-sync/` ディレクトリ配下に以下の形式で出力される。
+ビルド結果は `dist/cardinal-vault-syncer/` ディレクトリ配下に以下の形式で出力される。
 配布時はこのフォルダの内容をプラグインフォルダへコピーする。
 
 - `main.js`

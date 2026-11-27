@@ -38,7 +38,7 @@ function copyFiles(targets) {
 export default {
     input: "src/main.ts",
     output: {
-        file: "dist/cardinal-vault-sync/main.js",
+        file: "dist/cardinal-vault-syncer/main.js",
         sourcemap: isProd ? false : "inline",
         sourcemapExcludeSources: true,
         format: "cjs",
@@ -54,12 +54,12 @@ export default {
         json(),
         terser(),
         copyFiles([
-            { src: "manifest.json", dest: "dist/cardinal-vault-sync" },
-            { src: "src/styles.css", dest: "dist/cardinal-vault-sync" },
+            { src: "manifest.json", dest: "dist/cardinal-vault-syncer" },
+            { src: "src/styles.css", dest: "dist/cardinal-vault-syncer" },
         ]),
         codecovRollupPlugin({
             enableBundleAnalysis: process.env.CODECOV_TOKEN !== undefined,
-            bundleName: "obsidian-vault-sync",
+            bundleName: "obsidian-vault-syncer",
             uploadToken: process.env.CODECOV_TOKEN,
         }),
     ],

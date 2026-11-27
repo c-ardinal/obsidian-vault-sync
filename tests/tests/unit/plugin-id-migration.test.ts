@@ -1,63 +1,81 @@
 /**
- * @file Plugin ID change (obsidian-vault-sync → cardinal-vault-sync)
+ * @file Plugin ID changes (obsidian-vault-sync → cardinal-vault-sync → cardinal-vault-syncer)
  *
  * @description
- * Community-directory IDs may not contain "obsidian", so the plugin moved to a new
- * folder. Checks that:
+ * Community-directory IDs may not contain "obsidian", and the plugin was later
+ * renamed Vault Syncer: each time it moved to a new folder. Checks that:
  * - setPluginDir follows the manifest's folder and the vault's config folder
- * - the old plugin folder is left alone by the sync loop while devices are mixed
- * - the vault-lock is found at either path (newest wins) and written to both
- * - a device's settings, sync state and add-ons are copied once from the old folder,
- *   without overwriting anything and without copying the old plugin's own files
- * - the old copy is detected only when it is installed and enabled
+ * - the folders of earlier IDs are left alone by the sync loop while devices are mixed
+ * - the vault-lock is found at any of the paths (newest wins) and written to all
+ * - a device's settings, sync state and add-ons are copied once from the folder of
+ *   the most recent earlier ID, without overwriting anything and without copying
+ *   the old plugin's own files
+ * - an old copy is detected only when it is installed and enabled
  */
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, beforeEach } from "vitest";
 import {
     PLUGIN_DIR,
-    LEGACY_PLUGIN_DIR,
+    LEGACY_PLUGIN_DIRS,
     isManagedSeparately,
     setPluginDir,
 } from "../../../src/sync-manager/file-utils";
 import { VaultLockService, vaultLockPath } from "../../../src/services/vault-lock-service";
 import {
-    isLegacyCopyEnabled,
+    enabledLegacyCopyId,
     migrateLegacyPluginData,
 } from "../../../src/services/legacy-plugin-migration";
 import type { CloudAdapter, CloudFile } from "../../../src/types/adapter";
 
 const OLD = ".obsidian/plugins/obsidian-vault-sync";
-const NEW = ".obsidian/plugins/cardinal-vault-sync";
+const MID = ".obsidian/plugins/cardinal-vault-sync";
+const NEW = ".obsidian/plugins/cardinal-vault-syncer";
 const enc = (s: string) => new TextEncoder().encode(s).buffer as ArrayBuffer;
 const dec = (b: ArrayBuffer) => new TextDecoder().decode(b);
 
 afterEach(() => setPluginDir(OLD, ".obsidian")); // back to the test default
 
 describe("setPluginDir", () => {
-    it("uses the manifest folder and marks the old folder as legacy", () => {
+    it("uses the manifest folder and marks the folders of earlier IDs as legacy", () => {
         setPluginDir(NEW, ".obsidian");
         expect(PLUGIN_DIR).toBe(`${NEW}/`);
-        expect(LEGACY_PLUGIN_DIR).toBe(`${OLD}/`);
+        expect(LEGACY_PLUGIN_DIRS).toEqual([`${OLD}/`, `${MID}/`]);
     });
 
     it("follows a custom config folder", () => {
-        setPluginDir(".config/plugins/cardinal-vault-sync", ".config");
-        expect(PLUGIN_DIR).toBe(".config/plugins/cardinal-vault-sync/");
-        expect(LEGACY_PLUGIN_DIR).toBe(".config/plugins/obsidian-vault-sync/");
+        setPluginDir(".config/plugins/cardinal-vault-syncer", ".config");
+        expect(PLUGIN_DIR).toBe(".config/plugins/cardinal-vault-syncer/");
+        expect(LEGACY_PLUGIN_DIRS).toEqual([
+            ".config/plugins/obsidian-vault-sync/",
+            ".config/plugins/cardinal-vault-sync/",
+        ]);
         expect(
-            isManagedSeparately(".config/plugins/cardinal-vault-sync/data/remote/sync-index.json"),
+            isManagedSeparately(".config/plugins/cardinal-vault-syncer/data/remote/sync-index.json"),
         ).toBe(true);
     });
 
-    it("has no legacy folder when still installed under the old ID", () => {
+    it("has no legacy folder when still installed under the first ID", () => {
         setPluginDir(OLD, ".obsidian");
-        expect(LEGACY_PLUGIN_DIR).toBeNull();
+        expect(LEGACY_PLUGIN_DIRS).toEqual([]);
         expect(isManagedSeparately(`${OLD}/main.js`)).toBe(false);
     });
 
-    it("the sync loop leaves the old folder alone, and still syncs the new one as before", () => {
+    it("an install under an earlier ID only counts the IDs before its own", () => {
+        setPluginDir(MID, ".obsidian");
+        expect(LEGACY_PLUGIN_DIRS).toEqual([`${OLD}/`]);
+        expect(isManagedSeparately(`${NEW}/main.js`)).toBe(false);
+    });
+
+    it("a folder with a name of its own counts every earlier ID", () => {
+        setPluginDir(".obsidian/plugins/my-build", ".obsidian");
+        expect(LEGACY_PLUGIN_DIRS).toEqual([`${OLD}/`, `${MID}/`]);
+    });
+
+    it("the sync loop leaves the old folders alone, and still syncs the new one as before", () => {
         setPluginDir(NEW, ".obsidian");
         expect(isManagedSeparately(`${OLD}/data/remote/sync-index.json`)).toBe(true);
         expect(isManagedSeparately(`${OLD}/main.js`)).toBe(true);
+        expect(isManagedSeparately(`${MID}/data/remote/sync-index.json`)).toBe(true);
+        expect(isManagedSeparately(`${MID}/main.js`)).toBe(true);
         expect(isManagedSeparately(`${NEW}/data/remote/sync-index.json`)).toBe(true);
         expect(isManagedSeparately(`${NEW}/data/remote/vault-lock.vault`)).toBe(true);
         expect(isManagedSeparately(`${NEW}/main.js`)).toBe(false);
@@ -98,8 +116,9 @@ function cloud(): CloudAdapter & {
     };
 }
 
-describe("vault-lock across the ID change", () => {
+describe("vault-lock across the ID changes", () => {
     const OLD_LOCK = `${OLD}/data/remote/vault-lock.vault`;
+    const MID_LOCK = `${MID}/data/remote/vault-lock.vault`;
     const NEW_LOCK = `${NEW}/data/remote/vault-lock.vault`;
 
     it("finds a lock written by a device still on the old ID", async () => {
@@ -109,6 +128,14 @@ describe("vault-lock across the ID change", () => {
         const svc = new VaultLockService(c);
         expect(await svc.checkForLockFile()).toBe(true);
         expect(await svc.downloadLockFile()).toBe("old-blob");
+    });
+
+    it("finds a lock written by a device on the ID before this one", async () => {
+        setPluginDir(NEW, ".obsidian");
+        const c = cloud();
+        c.files.set(OLD_LOCK, { id: "old", content: enc("old-blob"), mtime: 1 });
+        c.files.set(MID_LOCK, { id: "mid", content: enc("mid-blob"), mtime: 5 });
+        expect(await new VaultLockService(c).downloadLockFile()).toBe("mid-blob");
     });
 
     it("uses the newer lock when both exist", async () => {
@@ -121,12 +148,13 @@ describe("vault-lock across the ID change", () => {
         expect(await new VaultLockService(c).downloadLockFile()).toBe("new-blob");
     });
 
-    it("writes the lock to both paths, so old devices see it too", async () => {
+    it("writes the lock to every path, so old devices see it too", async () => {
         setPluginDir(NEW, ".obsidian");
         const c = cloud();
         await new VaultLockService(c).uploadLockFile("blob");
         expect(vaultLockPath()).toBe(NEW_LOCK);
         expect(dec(c.files.get(NEW_LOCK)!.content)).toBe("blob");
+        expect(dec(c.files.get(MID_LOCK)!.content)).toBe("blob");
         expect(dec(c.files.get(OLD_LOCK)!.content)).toBe("blob");
     });
 
@@ -170,6 +198,8 @@ function localDisk(initial: Record<string, string>) {
 }
 
 describe("migrateLegacyPluginData", () => {
+    beforeEach(() => setPluginDir(NEW, ".obsidian"));
+
     const oldInstall = {
         [`${OLD}/main.js`]: "old code",
         [`${OLD}/manifest.json`]: "{}",
@@ -187,8 +217,8 @@ describe("migrateLegacyPluginData", () => {
 
     it("copies settings, sync state and add-ons, but not the old plugin's files, logs or cache", async () => {
         const { files, adapter } = localDisk(oldInstall);
-        const result = await migrateLegacyPluginData(adapter, ".obsidian", NEW);
-        expect(result).toEqual({ copied: 5 });
+        const result = await migrateLegacyPluginData(adapter, NEW);
+        expect(result).toEqual({ copied: 5, fromId: "obsidian-vault-sync" });
         expect(dec(files.get(`${NEW}/main.js`)!)).toBe("new code");
         expect(dec(files.get(`${NEW}/e2ee-engine.js`)!)).toBe("engine");
         expect(dec(files.get(`${NEW}/data/local/local-index.json`)!)).toBe("local index");
@@ -202,8 +232,8 @@ describe("migrateLegacyPluginData", () => {
 
     it("runs once: not again when the new folder already has sync state", async () => {
         const { adapter } = localDisk(oldInstall);
-        await migrateLegacyPluginData(adapter, ".obsidian", NEW);
-        expect(await migrateLegacyPluginData(adapter, ".obsidian", NEW)).toBeNull();
+        await migrateLegacyPluginData(adapter, NEW);
+        expect(await migrateLegacyPluginData(adapter, NEW)).toBeNull();
     });
 
     it("never overwrites a file the new folder already has", async () => {
@@ -211,19 +241,43 @@ describe("migrateLegacyPluginData", () => {
             ...oldInstall,
             [`${NEW}/data/flexible/open-data.json`]: "new settings",
         });
-        await migrateLegacyPluginData(adapter, ".obsidian", NEW);
+        await migrateLegacyPluginData(adapter, NEW);
         expect(dec(files.get(`${NEW}/data/flexible/open-data.json`)!)).toBe("new settings");
     });
 
     it("does nothing without an old folder, or when the ID did not change", async () => {
         const fresh = localDisk({ [`${NEW}/main.js`]: "new code" });
-        expect(await migrateLegacyPluginData(fresh.adapter, ".obsidian", NEW)).toBeNull();
+        expect(await migrateLegacyPluginData(fresh.adapter, NEW)).toBeNull();
         const same = localDisk(oldInstall);
-        expect(await migrateLegacyPluginData(same.adapter, ".obsidian", OLD)).toBeNull();
+        setPluginDir(OLD, ".obsidian");
+        expect(await migrateLegacyPluginData(same.adapter, OLD)).toBeNull();
+    });
+
+    it("takes the state of the most recent earlier ID when two old folders hold state", async () => {
+        const { files, adapter } = localDisk({
+            ...oldInstall,
+            [`${MID}/main.js`]: "previous code",
+            [`${MID}/data/local/local-index.json`]: "newer local index",
+            [`${MID}/data/flexible/open-data.json`]: "newer settings",
+        });
+        const result = await migrateLegacyPluginData(adapter, NEW);
+        expect(result).toEqual({ copied: 2, fromId: "cardinal-vault-sync" });
+        expect(dec(files.get(`${NEW}/data/local/local-index.json`)!)).toBe("newer local index");
+        expect(dec(files.get(`${NEW}/data/flexible/open-data.json`)!)).toBe("newer settings");
+        expect(dec(files.get(`${NEW}/main.js`)!)).toBe("new code");
+        // Nothing of the older folder is mixed in
+        expect(files.has(`${NEW}/data/local/.sync-state`)).toBe(false);
+    });
+
+    it("skips an earlier folder without state (the plugin files alone) for an older one with state", async () => {
+        const { adapter } = localDisk({ ...oldInstall, [`${MID}/main.js`]: "previous code" });
+        expect((await migrateLegacyPluginData(adapter, NEW))?.fromId).toBe("obsidian-vault-sync");
     });
 });
 
-describe("isLegacyCopyEnabled", () => {
+describe("enabledLegacyCopyId", () => {
+    beforeEach(() => setPluginDir(NEW, ".obsidian"));
+
     const app = (enabled: string[], installed: string[]) => ({
         plugins: {
             enabledPlugins: new Set(enabled),
@@ -231,13 +285,16 @@ describe("isLegacyCopyEnabled", () => {
         },
     });
 
-    it("is true only when the old copy is installed and enabled", () => {
-        expect(isLegacyCopyEnabled(app(["obsidian-vault-sync"], ["obsidian-vault-sync"]))).toBe(
-            true,
-        );
-        expect(isLegacyCopyEnabled(app([], ["obsidian-vault-sync"]))).toBe(false);
+    it("names an old copy only when it is installed and enabled", () => {
+        expect(enabledLegacyCopyId(app(["obsidian-vault-sync"], ["obsidian-vault-sync"]))).toBe("obsidian-vault-sync");
+        expect(enabledLegacyCopyId(app(["cardinal-vault-sync"], ["cardinal-vault-sync"]))).toBe("cardinal-vault-sync");
+        expect(enabledLegacyCopyId(app([], ["cardinal-vault-sync"]))).toBeNull();
         // listed as enabled (e.g. a synced community-plugins.json) but not installed
-        expect(isLegacyCopyEnabled(app(["obsidian-vault-sync"], []))).toBe(false);
-        expect(isLegacyCopyEnabled({})).toBe(false);
+        expect(enabledLegacyCopyId(app(["cardinal-vault-sync"], []))).toBeNull();
+        expect(enabledLegacyCopyId({})).toBeNull();
+    });
+
+    it("does not count this copy itself", () => {
+        expect(enabledLegacyCopyId(app(["cardinal-vault-syncer"], ["cardinal-vault-syncer"]))).toBeNull();
     });
 });

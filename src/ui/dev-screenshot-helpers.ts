@@ -243,7 +243,7 @@ const DEMO_TRANSFER_HISTORY: TransferRecord[] = [
     {
         id: "tr_h4",
         direction: "pull",
-        path: configPath("plugins/vault-sync/data.json"),
+        path: configPath("plugins/cardinal-vault-syncer/data.json"),
         size: 1200,
         status: "completed",
         startedAt: now - 1000 * 60 * 30,

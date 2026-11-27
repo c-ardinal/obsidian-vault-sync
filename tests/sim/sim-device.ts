@@ -192,6 +192,12 @@ export class SimDevice {
     private inflight = new Set<Promise<void>>();
     private pendingEvents = 0;
 
+    /**
+     * The folder the plugin is installed in. Changed (with a restart) to play an
+     * update that moves the plugin to a new ID.
+     */
+    pluginDir = PLUGIN_DIR;
+
     constructor(private readonly opts: DeviceOptions) {
         this.name = opts.name;
         this.app = new MockApp();
@@ -253,12 +259,12 @@ export class SimDevice {
         this.sm = new SyncManager(
             fencedOps,
             fence(opts.cloudView(this)),
-            SYNC_INDEX_PATH,
+            `${this.pluginDir}/data/remote/sync-index.json`,
             settings,
-            PLUGIN_DIR,
+            this.pluginDir,
             (key: string) => key,
             notifier,
-            new RevisionCache(fencedOps, PLUGIN_DIR),
+            new RevisionCache(fencedOps, this.pluginDir),
             new BackgroundTransferQueue(),
         );
         if (opts.cryptoEngine) this.sm.cryptoEngine = opts.cryptoEngine;

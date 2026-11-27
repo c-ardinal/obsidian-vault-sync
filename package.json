@@ -3,7 +3,7 @@
     "version": "0.19.2",
     "description": "Obsidian Cloud Storage Sync Plugin (Google Drive)",
     "type": "module",
-    "main": "dist/cardinal-vault-sync/main.js",
+    "main": "dist/cardinal-vault-syncer/main.js",
     "scripts": {
         "dev": "rollup -c -w",
         "build": "node update-build-hash.mjs && rollup -c",
