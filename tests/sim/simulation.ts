@@ -593,9 +593,10 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
                 log(a.dev, `SYNC requested${a.scan ? " (scan)" : ""}`);
                 dev.startSync(a.scan ? "startup-sync" : "timer-sync", a.scan);
                 return;
-            case "create":
+            case "create": {
+                const path = await dev.diskPath(a.path);
                 applied = await dev.userCreate(
-                    a.path,
+                    path,
                     a.binary
                         ? binaryContent(a.fid, 0, cfg.seed)
                         : initialContent(a.fid, devNames, !!cfg.windowsLineEndings && dev.fs === "windows"),
@@ -603,10 +604,11 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
                 if (applied) {
                     createdFids.add(a.fid);
                     if (a.binary) expectedBinary[a.fid] = "0";
-                    if (ignoredOn(dev, a.path)) everIgnored.add(a.fid);
+                    if (ignoredOn(dev, path)) everIgnored.add(a.fid);
                 }
-                log(a.dev, `USER create ${a.path} (${a.fid})${applied ? "" : " [skipped]"}`);
+                log(a.dev, `USER create ${path} (${a.fid})${applied ? "" : " [skipped]"}`);
                 break;
+            }
             case "edit": {
                 const list = candidates(dev, (_, c) => fidOf(c) !== null);
                 if (!list.length) {
@@ -725,16 +727,21 @@ export async function runSimulation(cfg: SimConfig, planOverride?: Action[]): Pr
                     break;
                 }
                 const from = list[Math.floor(a.pick * list.length)];
-                const movedOut = !ignoredOn(dev, from) && ignoredOn(dev, a.to);
+                let to = await dev.diskPath(a.to);
+                // An attachment keeps its file type: Obsidian's rename only changes the
+                // name, and bytes under ".md" would be merged as text.
+                if (binaryMarker(dev.read(from) ?? "") && /\.md$/i.test(to) && /\.[^./]+$/.test(from))
+                    to = to.replace(/\.md$/i, from.match(/\.[^./]+$/)![0]);
+                const movedOut = !ignoredOn(dev, from) && ignoredOn(dev, to);
                 const ids = fidsIn(dev.read(from) ?? "");
-                applied = await dev.userRename(from, a.to);
+                applied = await dev.userRename(from, to);
                 if (applied && (movedOut || ignoredOn(dev, from))) ids.forEach((f) => everIgnored.add(f));
                 // Moved out of what this device syncs: deleted for the other devices
                 if (applied && movedOut) ids.forEach((f) => movedOutOfScope.set(f, a.dev));
-                if (applied && [...devices.values()].some((d) => ignoredOn(d, a.to)))
+                if (applied && [...devices.values()].some((d) => ignoredOn(d, to)))
                     ids.forEach((f) => movedPastSomeScope.add(f));
-                if (applied) ids.forEach((f) => (movedTo.get(f) ?? movedTo.set(f, new Set()).get(f)!).add(a.to));
-                log(a.dev, `USER rename ${from} -> ${a.to}${applied ? "" : " [skipped]"}`);
+                if (applied) ids.forEach((f) => (movedTo.get(f) ?? movedTo.set(f, new Set()).get(f)!).add(to));
+                log(a.dev, `USER rename ${from} -> ${to}${applied ? "" : " [skipped]"}`);
                 break;
             }
         }

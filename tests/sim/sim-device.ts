@@ -360,6 +360,24 @@ export class SimDevice {
         }
     }
 
+    /**
+     * `path` with its folders spelled as they already exist on this device. On
+     * Windows/macOS a note made in "Projects" while "projects" exists lands in
+     * "projects": Obsidian never reports the other spelling.
+     */
+    async diskPath(path: string): Promise<string> {
+        if (this.fs === "linux") return path;
+        const key = (p: string) => p.normalize("NFC").toLowerCase();
+        const parts = path.split("/");
+        let cur = "";
+        for (let i = 0; i < parts.length - 1; i++) {
+            const want = cur ? `${cur}/${parts[i]}` : parts[i];
+            const { folders } = await this.vaultAdapter.list(cur);
+            cur = folders.find((f) => key(f) === key(want)) ?? want;
+        }
+        return cur ? `${cur}/${parts[parts.length - 1]}` : path;
+    }
+
     async userCreate(path: string, content: string | ArrayBuffer): Promise<boolean> {
         if (await this.vaultAdapter.exists(path)) return false;
         await this.ensureParent(path);
