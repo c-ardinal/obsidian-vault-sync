@@ -854,8 +854,13 @@ export async function smartPush(ctx: SyncContext, scanVault: boolean): Promise<b
                                 updatedEntry.ancestorHash = moved.hash;
                                 delete (updatedEntry as { plainHash?: string }).plainHash;
                             }
+                            // A merge not uploaded yet keeps its origin: dropped here, the
+                            // upload no longer said which version it was built on, and the
+                            // device whose upload had replaced that version saved it as a
+                            // conflict copy.
+                            const mergedFrom = ctx.localIndex[path]?.mergedFrom;
                             ctx.index[path] = updatedEntry;
-                            ctx.localIndex[path] = { ...updatedEntry };
+                            ctx.localIndex[path] = { ...updatedEntry, ...(mergedFrom ? { mergedFrom } : {}) };
                             recordActivity(ctx, "rename", path, moveInfo.oldPath);
                             moveCount++;
                             ctx.startActivity();
