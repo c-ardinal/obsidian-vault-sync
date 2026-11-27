@@ -394,6 +394,12 @@ When distributing, copy the contents of this folder to your plugins directory.
 While this plugin automates synchronization, it does not completely eliminate the risk of data loss due to network errors or unforeseen conflicts. **The author shall not be held liable for any damages (including data loss or corruption of the Vault) arising from the use of this plugin.** Ensure you have a full backup before installing this plugin and continue to maintain regular backups thereafter.
 See the [Terms of Service](https://obsidian-vault-sync.pages.dev/tos/) for details.
 
+### Simultaneous Editing and Operations on Several Devices
+
+This plugin synchronizes a vault between several devices. It is not a tool for editing the same file on several devices at the same time. Protections for simultaneous edits are in place (automatic merge, conflict copies, repair after a detected overwrite), but **they do not guarantee complete protection: unintended overwrites or lost edits can occur.** Before you start editing on another device, make sure that sync has finished.
+
+Operations on the whole vault (such as the initial setup of an add-on) must be run on one device only; do not start the same operation on another device until it has finished. Cloud storage offers no means of mutual exclusion, so a truly simultaneous run on several devices cannot be ruled out and can leave the vault inconsistent.
+
 ### Multi-User Usage
 
 This plugin's sync/merge functionality is designed for **a single user synchronizing their edits across multiple devices**. **Synchronizing simultaneous edits by multiple users on the same vault** is not a supported use case.
