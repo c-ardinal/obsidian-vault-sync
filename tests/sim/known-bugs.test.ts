@@ -1084,6 +1084,20 @@ const FIXED_REGRESSIONS: Case[] = [
         config: { seed: 1311, ...CHAOS, driveServer: true },
         expect: [],
     },
+    {
+        title: "drive chaos: of two same-named notes the same one moves aside when the other was deleted here",
+        symptom:
+            "Folders 'Projects' and 'projects' each held 'café.md': a Windows/macOS device that had deleted one renamed the other, and both ended as 'café (2).md'",
+        config: { seed: 2360, ...CHAOS, driveServer: true },
+        expect: [],
+    },
+    {
+        title: "drive chaos: a conflict resolved on a note renamed here keeps the unpushed rename",
+        symptom:
+            "The cloud kept the note under its old name while this device and the shared index had the new one",
+        config: { seed: 3291, ...CHAOS, driveServer: true },
+        expect: [],
+    },
 ];
 
 function configOf(c: Case, name: string): SimConfig {
