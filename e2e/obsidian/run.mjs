@@ -1570,6 +1570,24 @@ async function checkAddonPages(main, lang, { mobile = false } = {}) {
     await modalOpen(page, ".vault-syncer-addon-install");
     await page.setInputFiles(".vault-syncer-addon-install input[type=file]", process.env.ADDON_ZIP);
     await page.waitForSelector(".vault-syncer-addon-terms", { timeout: 10000 });
+    // The terms can be read in every language of the package, whatever the UI language
+    const termsText = () => page.evaluate(() => document.querySelector(".vault-syncer-addon-terms")?.textContent ?? "");
+    // (on a phone Obsidian keeps a hidden copy of the dropdown to measure its width)
+    const termsSelect = page.locator(".vault-syncer-addon-terms-language select:not(.is-measuring)");
+    const termsLangs = await termsSelect.locator("option").evaluateAll((os) => os.map((o) => o.value));
+    check(lang, `${tag}: add-on terms offer every language of the package`, termsLangs.length >= 2, termsLangs.join(","));
+    const shown = {};
+    for (const code of termsLangs) {
+        await termsSelect.selectOption(code);
+        await sleep(200);
+        shown[code] = await termsText();
+    }
+    check(
+        lang,
+        `${tag}: choosing a language shows the terms in that language`,
+        termsLangs.length >= 2 && new Set(Object.values(shown)).size === termsLangs.length &&
+            Object.values(shown).every((x) => x.length > 100),
+    );
     await page.locator(".vault-syncer-addon-install .checkbox-container").last().click();
     await page.locator(".vault-syncer-addon-install button.mod-cta").last().click();
     // The install dialog closes and the settings move on to the add-on's own page

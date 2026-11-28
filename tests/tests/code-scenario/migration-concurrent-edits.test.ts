@@ -16,6 +16,9 @@
  * - 変換中に他端末が削除したファイル: 移行端末が未編集なら変換後の Vault とローカルから削除（復活させない）
  * - 読込後（フォルダ交換直前）に他端末が旧フォルダへ送信した編集: 旧フォルダは猶予時間まで保持し、
  *   その後の同期前処理で取込後に削除（未編集なら採用、移行端末も編集済みなら競合コピー）
+ * - 遅延送信の版が変換後の Vault へ到達後に削除済み（削除記録と一致）の場合は取込まない（復活させない）。
+ *   削除記録を読取不能の間は旧フォルダを保持
+ * - 旧フォルダの保持中と削除完了を通知。端末記録が自端末のみの場合は交換直後に即時削除
  */
 
 import { describe, it, expect, vi, afterEach } from "vitest";
@@ -26,6 +29,8 @@ import type { CloudAdapter, CloudFile } from "../../../src/types/adapter";
 import { md5 } from "../../../src/utils/md5";
 import { hashContent } from "../../../src/sync-manager/file-utils";
 import { createMockEngine } from "../../helpers/mock-crypto-engine";
+import { DEVICE_DIR } from "../../../src/sync-manager/device-registry";
+import { noteDeletionMark } from "../../../src/sync-manager/sync-helpers";
 
 const enc = (s: string) => new TextEncoder().encode(s).buffer as ArrayBuffer;
 const dec = (b: ArrayBuffer) => new TextDecoder().decode(b);
@@ -183,6 +188,19 @@ async function setup(files: Record<string, string>) {
             createFolder: vi.fn(async () => {}),
             list: vi.fn(async () => ({ files: [], folders: [] })),
         },
+        // The converted vault's shared index (its deletion marks): none unless a test sets one
+        adapter: {
+            name: "FakeDrive",
+            getFileMetadata: vi.fn(async (path: string) => {
+                if (path.startsWith(".obsidian/")) return null;
+                const i = drive.filesOf(VAULT).find((x) => x.path === path);
+                return i ? drive.meta(i) : null;
+            }),
+            getFileMetadataById: vi.fn(async (id: string) => {
+                const i = drive.items.get(id);
+                return i && i.root === drive.rootId(VAULT) ? drive.meta(i) : null;
+            }),
+        },
         index: structuredClone(index),
         localIndex: structuredClone(index),
         dirtyPaths: new Map<string, number>(),
@@ -284,7 +302,7 @@ describe("Vault conversion while another device keeps syncing", () => {
         const t = await setup({ "a.md": "v1", "b.md": "b1" });
         await t.run();
         const fileUploads = t.drive.uploads.filter((u) => /:(a|b)\.md$/.test(u));
-        expect(fileUploads).toEqual([`${VAULT}-Temp-Encrypted:a.md`, `${VAULT}-Temp-Encrypted:b.md`]);
+        expect(fileUploads).toEqual([`${VAULT}-Temp-Encrypted-device-A:a.md`, `${VAULT}-Temp-Encrypted-device-A:b.md`]);
     });
 
     it("does not bring back a note another device deleted during the conversion", async () => {
@@ -331,6 +349,44 @@ describe("Pushes into the old folder after the catch-up read it", () => {
         expect(t.localText("a.md")).toBe("v1");
     });
 
+    /** The record a device leaves on the cloud at each sync */
+    const deviceRecord = (t: Awaited<ReturnType<typeof setup>>, id: string) =>
+        t.drive.write(VAULT, `.obsidian/plugins/x/${DEVICE_DIR}/${id}.json`, JSON.stringify({ id, name: id, lastSyncAt: 1 }));
+    const notices = (t: Awaited<ReturnType<typeof setup>>) =>
+        (t.ctx.notify as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0] as string);
+
+    it("says that the old folder is kept while another device syncs the vault", async () => {
+        vi.useFakeTimers({ toFake: ["Date"] });
+        const t = await setup({ "a.md": "v1" });
+        deviceRecord(t, "device-A");
+        deviceRecord(t, "device-B");
+        await t.run();
+        expect(t.drive.backupName()).toBeDefined();
+        expect(notices(t)).toContain("noticeBackupKept");
+        // ... and when it is gone
+        vi.setSystemTime(Date.now() + 2 * HOUR);
+        await t.svc.finishBackupCleanup();
+        expect(t.drive.backupName()).toBeUndefined();
+        expect(notices(t)).toContain("noticeBackupDeleted");
+    });
+
+    it("keeps the old folder when the device records tell nothing", async () => {
+        const t = await setup({ "a.md": "v1" });
+        await t.run();
+        expect(t.drive.backupName()).toBeDefined();
+        expect(notices(t)).toContain("noticeBackupKept");
+    });
+
+    it("deletes the old folder at once when no other device syncs the vault", async () => {
+        const t = await setup({ "a.md": "v1" });
+        deviceRecord(t, "device-A");
+        await t.run();
+        expect(t.drive.backupName()).toBeUndefined();
+        expect(notices(t)).not.toContain("noticeBackupKept");
+        expect(t.local.has(".obsidian/plugins/x/data/local/migration-backup.json")).toBe(false);
+        expect((await t.converted())["a.md"]).toBe("v1");
+    });
+
     it("takes a late edit from the old folder, then deletes it", async () => {
         const t = await lateEdit({ "a.md": "v1", "b.md": "b1" }, (t) => t.drive.write(VAULT, "a.md", "late edit from B", t.idOf("a.md")));
         vi.setSystemTime(Date.now() + 2 * HOUR);
@@ -364,6 +420,76 @@ describe("Pushes into the old folder after the catch-up read it", () => {
         expect(t.ctx.dirtyPaths.has("c.md")).toBe(true);
         expect(t.localText("b.md")).toBeUndefined();
         expect(t.ctx.dirtyPaths.has("b.md")).toBe(true);
+    });
+
+    it("does not take a late edit that reached the vault meanwhile and was deleted there", async () => {
+        const t = await lateEdit({ "a.md": "v1" }, (t) => t.drive.write(VAULT, "a.md", "late edit from B", t.idOf("a.md")));
+        // B carried its note over, a device deleted it there, and this device pulled the deletion
+        t.local.delete("a.md");
+        noteDeletionMark(t.ctx, "id-in-converted-vault", "cloud-hash", {
+            path: "a.md",
+            plain: await hashContent(enc("late edit from B")),
+        });
+        vi.setSystemTime(Date.now() + 2 * HOUR);
+        await t.svc.finishBackupCleanup();
+        expect(t.localText("a.md")).toBeUndefined();
+        expect(t.ctx.dirtyPaths.has("a.md")).toBe(false);
+        expect(t.drive.backupName()).toBeUndefined();
+    });
+
+    it("still takes a late edit when an older version of the note was deleted in the vault", async () => {
+        const t = await lateEdit({ "a.md": "v1" }, (t) => t.drive.write(VAULT, "a.md", "late edit from B", t.idOf("a.md")));
+        t.local.delete("a.md");
+        noteDeletionMark(t.ctx, "id-in-converted-vault", "cloud-hash", { path: "a.md", plain: await hashContent(enc("v1")) });
+        vi.setSystemTime(Date.now() + 2 * HOUR);
+        await t.svc.finishBackupCleanup();
+        // The edit was made on a version nobody deleted: kept (next to the deleted note's name)
+        expect([...t.local.values()].map(dec)).toContain("late edit from B");
+    });
+
+    it("keeps the old folder while the vault's deletion marks cannot be read", async () => {
+        const t = await lateEdit({ "a.md": "v1" }, (t) => t.drive.write(VAULT, "a.md", "late edit from B", t.idOf("a.md")));
+        (t.ctx.adapter.getFileMetadata as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("offline"));
+        vi.setSystemTime(Date.now() + 2 * HOUR);
+        await t.svc.finishBackupCleanup();
+        expect(t.localText("a.md")).toBe("v1");
+        expect(t.drive.backupName()).toBeDefined();
+        await t.svc.finishBackupCleanup();
+        expect(t.localText("a.md")).toBe("late edit from B");
+        expect(t.drive.backupName()).toBeUndefined();
+    });
+
+    it("does not carry a late deletion out on a note that took the converted note's place", async () => {
+        const t = await lateEdit({ "a.md": "v1", "b.md": "b1" }, (t) => t.drive.remove(VAULT, "b.md"));
+        // Since the swap the note was deleted in the vault and made anew with the same content
+        const converted = t.drive.filesOf(VAULT).find((i) => i.path === "b.md")!;
+        t.drive.items.delete(converted.id);
+        t.drive.write(VAULT, "b.md", "anything: another cloud file");
+        vi.setSystemTime(Date.now() + 2 * HOUR);
+        await t.svc.finishBackupCleanup();
+        expect(t.localText("b.md")).toBe("b1");
+        expect(t.drive.backupName()).toBeUndefined();
+    });
+
+    it("completes a late rename only when the note is in the vault under its new name", async () => {
+        const rename = (t: Awaited<ReturnType<typeof setup>>) => {
+            t.drive.items.get(t.idOf("b.md"))!.path = "moved.md";
+        };
+        // Its device has not brought the new name over: the note stays under the old one
+        const t = await lateEdit({ "a.md": "v1", "b.md": "b1" }, rename);
+        vi.setSystemTime(Date.now() + 2 * HOUR);
+        await t.svc.finishBackupCleanup();
+        expect(t.localText("b.md")).toBe("b1");
+        expect(t.localText("moved.md")).toBeUndefined();
+        expect(t.drive.backupName()).toBeUndefined();
+
+        // Its device has: the old name goes
+        const u = await lateEdit({ "a.md": "v1", "b.md": "b1" }, rename);
+        u.drive.write(VAULT, "moved.md", "b1 (stored converted)");
+        vi.setSystemTime(Date.now() + 2 * HOUR);
+        await u.svc.finishBackupCleanup();
+        expect(u.localText("b.md")).toBeUndefined();
+        expect(u.ctx.dirtyPaths.has("b.md")).toBe(true);
     });
 
     it("finishes after a restart (the record is on disk)", async () => {

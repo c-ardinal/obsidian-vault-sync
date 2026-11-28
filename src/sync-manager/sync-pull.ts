@@ -17,6 +17,7 @@ import {
     matchesDeviceScope,
     noteVacatedFolder,
     removeVacatedFolders,
+    hashContent,
 } from "./file-utils";
 import {
     loadCommunication,
@@ -37,9 +38,11 @@ import { TransferPriority } from "./transfer-types";
 import { formatSize } from "../utils/format";
 import { basename, dirname } from "../utils/path";
 import { announceIncoming, findPathCollision, freeCollisionPath, moveIndexEntry, pathKey } from "./path-collision";
+import { resentCandidate } from "./vault-folder";
 import { INTEGRITY_MIN_INDEX_SIZE_BYTES, INTEGRITY_MIN_LOCAL_FILE_COUNT } from "./constants";
 import {
     computeLocalHash,
+    deletedVersionOnCloud,
     downloadRemoteIndex,
     downloadRemoteIndexData,
     getThresholdBytes,
@@ -392,6 +395,21 @@ function buildInlineDownloadTasks(
     return tasks;
 }
 
+async function deletedInThisVersion(ctx: SyncContext, path: string, content: ArrayBuffer): Promise<boolean> {
+    // Only a version this device sent into the old folder of a conversion can
+    // have reached the vault without its doing
+    const sentLate = resentCandidate(ctx, path);
+    if (sentLate === undefined) return false;
+    try {
+        const plain = await hashContent(content);
+        if (plain !== sentLate) return false;
+        // The marks come with the shared index, which this pull may not have read yet
+        return await deletedVersionOnCloud(ctx, path, plain);
+    } catch {
+        return false; // unknown: the edit is kept, as before
+    }
+}
+
 /**
  * Apply a deletion made on another device. If the local file changed since our
  * last sync (an edit made here, or a brand-new note created at the same path),
@@ -431,7 +449,13 @@ async function applyRemoteDeletion(ctx: SyncContext, path: string, decision: Pla
     if (file && base && (await ctx.vault.exists(path))) {
         const content = await ctx.vault.readBinary(path);
         const { localHash, compareHash } = await computeLocalHash(ctx, content, base);
-        if (!compareHash || localHash !== compareHash.toLowerCase()) {
+        const changedHere = !compareHash || localHash !== compareHash.toLowerCase();
+        // Changed here since the last sync, but into the very version the other
+        // device deleted (its deletion mark names it): this content reached the
+        // vault another way meanwhile (the old folder of a conversion, cleaned up
+        // after this device's late push), and was deleted there knowingly.
+        const deletedAsHeld = changedHere && (await deletedInThisVersion(ctx, path, content));
+        if (changedHere && !deletedAsHeld) {
             noteKeptCopy(ctx, path, base.fileId, base.hash);
             delete ctx.index[path];
             delete ctx.localIndex[path];

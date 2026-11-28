@@ -498,13 +498,53 @@ describe("DrivePathResolver", () => {
             expect(id).toBe("app-1");
         });
 
-        it("should throw if appRootId is null after init", async () => {
-            // Force a scenario where init completes but appRootId is null
-            resolver.appRootId = null;
-            (resolver as any).initPromise = Promise.resolve("vault-root");
-            resolver.vaultRootId = "vault-root";
+        it("does not look for the vault folder, and never creates one", async () => {
+            http.fetchWithAuth.mockResolvedValueOnce(jsonResponse({ files: [{ id: "app-1" }] }));
 
-            await expect(resolver.getAppRootId()).rejects.toThrow("App root not found");
+            expect(await resolver.getAppRootId()).toBe("app-1");
+            expect(http.fetchWithAuth).toHaveBeenCalledTimes(1);
+            expect(resolver.vaultRootId).toBeNull();
+        });
+    });
+
+    describe("beforeVaultRootCreate", () => {
+        const missingVault = () =>
+            http.fetchWithAuth
+                .mockResolvedValueOnce(jsonResponse({ files: [{ id: "app-root" }] }))
+                .mockResolvedValueOnce(jsonResponse({ files: [] }))
+                .mockResolvedValueOnce(jsonResponse({ files: [] }));
+
+        it("is asked with the folders next to the vault before one is created", async () => {
+            missingVault()
+                .mockResolvedValueOnce(jsonResponse({ files: [{ id: "f1", name: "Other", modifiedTime: "2025-01-01T00:00:00Z" }] }))
+                .mockResolvedValueOnce(jsonResponse({ id: "new-vault" }));
+            const asked = vi.fn(async () => {});
+            resolver.beforeVaultRootCreate = asked;
+
+            expect(await resolver.ensureRootFolders()).toBe("new-vault");
+            expect(asked).toHaveBeenCalledWith([{ id: "f1", name: "Other", modifiedTime: Date.parse("2025-01-01T00:00:00Z") }]);
+        });
+
+        it("creates nothing when it throws, and asks again at the next lookup", async () => {
+            missingVault().mockResolvedValueOnce(jsonResponse({ files: [] }));
+            resolver.beforeVaultRootCreate = async () => {
+                throw new Error("not now");
+            };
+
+            await expect(resolver.ensureRootFolders()).rejects.toThrow("not now");
+            expect(resolver.vaultRootId).toBeNull();
+            expect(http.fetchWithAuth.mock.calls.some((c: any[]) => c[1]?.method === "POST")).toBe(false);
+        });
+
+        it("is not asked when the vault folder exists", async () => {
+            http.fetchWithAuth
+                .mockResolvedValueOnce(jsonResponse({ files: [{ id: "app-root" }] }))
+                .mockResolvedValueOnce(jsonResponse({ files: [{ id: "vault-1", name: "TestVault", modifiedTime: "2025-01-01T00:00:00Z" }] }));
+            const asked = vi.fn(async () => {});
+            resolver.beforeVaultRootCreate = asked;
+
+            await resolver.ensureRootFolders();
+            expect(asked).not.toHaveBeenCalled();
         });
     });
 

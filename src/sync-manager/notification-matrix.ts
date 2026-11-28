@@ -317,8 +317,16 @@ const ALWAYS_SHOW = new Set([
     "noticeAddonUpdateRequired",
     "noticeEngineVerifyFailed",
     "noticeVaultLocked",
+    "noticeE2EEAutoEnabled",
     // A full account stops every upload
     "noticeStorageAlmostFull",
+    // The old folder of a converted vault stays on the cloud for a while: say so,
+    // and say when it is gone
+    "noticeBackupKept",
+    "noticeBackupDeleted",
+    // The answer to what the user just did in an add-on dialog: a failure is an error
+    "e2eeUnlockFailed",
+    "noticeMigrationFailed",
 ]);
 
 /**

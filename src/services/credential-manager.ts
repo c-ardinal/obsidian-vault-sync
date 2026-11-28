@@ -8,6 +8,12 @@ interface CredentialManagerDeps {
     getSyncManager: () => SyncManager;
     getVaultName: () => string;
     getCloudRootFolder: () => string;
+    /**
+     * The sign-in state changed while the plugin runs (signed in through the
+     * callback, or the session was revoked). Screens showing the state are
+     * redrawn here; after a sign-in it also prepares the vault for its first sync.
+     */
+    onAuthChanged?: (signedIn: boolean) => void | Promise<void>;
 }
 
 /**
@@ -31,6 +37,7 @@ export class CredentialManager {
             console.debug("Vault Syncer: Auth failed (token expired/revoked). Clearing credentials.");
             await getSecureStorage().clearCredentials();
             adapter.setTokens(null, null);
+            await this.authChanged(false);
         };
 
         adapter.onTokenRefresh = async () => {
@@ -75,6 +82,7 @@ export class CredentialManager {
                 );
                 await syncManager.notify("noticeAuthSuccess");
                 window.localStorage.removeItem("vault-syncer-state");
+                await this.authChanged(true);
                 syncManager.requestSmartSync("manual-sync").catch(() => {});
             } catch (e) {
                 await syncManager.notify(
@@ -97,6 +105,7 @@ export class CredentialManager {
                 await syncManager.notify("noticeAuthSuccess");
                 window.localStorage.removeItem("vault-syncer-verifier");
                 window.localStorage.removeItem("vault-syncer-state");
+                await this.authChanged(true);
                 syncManager.requestSmartSync("manual-sync").catch(() => {});
             } catch (e) {
                 await syncManager.notify(
@@ -107,6 +116,15 @@ export class CredentialManager {
             }
         } else if (params.error) {
             await syncManager.notify("noticeAuthFailed", params.error);
+        }
+    }
+
+    /** A failing listener must not turn a finished sign-in into a failure. */
+    private async authChanged(signedIn: boolean): Promise<void> {
+        try {
+            await this.deps.onAuthChanged?.(signedIn);
+        } catch (e) {
+            console.error("Vault Syncer: auth change listener failed", e);
         }
     }
 

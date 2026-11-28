@@ -428,6 +428,7 @@ export const en: Record<string, string> = {
     addonChooseFile: "Choose file",
     addonVerifying: "Verifying...",
     addonStepTerms: "3. Terms of use",
+    addonTermsLanguage: "Language of the terms",
     addonAgreeTerms: "I have read and agree to these terms of use",
     addonInstallButton: "Install",
     addonInstalling: "Installing...",
@@ -440,6 +441,8 @@ export const en: Record<string, string> = {
     addonErrorWrite: "The add-on could not be saved. Check storage space and try again.",
     noticeAddonRequired: "⚠️ Vault Syncer: This vault uses an add-on that is not installed on this device. Install it from Settings → Add-ons. Sync paused.",
     noticeVaultConverting: "⚠️ Vault Syncer: Another device is setting up an add-on for this vault. Sync is paused until it finishes.",
+    noticeBackupKept: "ℹ️ Vault Syncer: Other devices sync this vault, so the old folder from before the conversion stays on the cloud for about an hour to take in their late changes. It is deleted automatically at a sync after that.",
+    noticeBackupDeleted: "✅ Vault Syncer: The old folder from before the conversion was deleted from the cloud.",
 
     // Transfer Status
     labelTransferStatus: "Transfer status (Vault Syncer)",

@@ -55,7 +55,9 @@ function createMockBaseAdapter(vaultName = "TestVault") {
 function createMockLockService() {
     return {
         checkForLockFile: vi.fn(async () => false),
-        createMigrationLock: vi.fn(),
+        createMigrationLock: vi.fn(async (deviceId: string) => ({ id: "lock-id", deviceId, timestamp: Date.now() })),
+        listMigrationLocks: vi.fn(async () => []),
+        removeMigrationLockById: vi.fn(),
         removeMigrationLock: vi.fn(),
         getMigrationLock: vi.fn(async () => null),
         uploadLockFileToAdapter: vi.fn(),
@@ -188,7 +190,7 @@ describe("MigrationService", () => {
             expect(svc.isMigrating).toBe(true);
             expect(tempAdapter).toBeDefined();
             expect(baseAdapter.cloneWithNewVaultName).toHaveBeenCalledWith(
-                "TestVault-Temp-Encrypted",
+                "TestVault-Temp-Encrypted-test-device",
             );
             expect(ctx.cryptoEngine!.initializeNewVault).toHaveBeenCalledWith(
                 "password",
@@ -202,6 +204,8 @@ describe("MigrationService", () => {
             const baseAdapter = createMockBaseAdapter();
             const lockService = createMockLockService();
 
+            // The lock an earlier run of this device left on the cloud
+            lockService.listMigrationLocks.mockResolvedValue([{ id: "lock-id", deviceId: "test-device", timestamp: Date.now() }]);
             const svc = new MigrationService(baseAdapter, lockService, ctx);
             (svc as any).isMigrating = true;
 
@@ -210,7 +214,7 @@ describe("MigrationService", () => {
             expect(baseAdapter.deleteFile).toHaveBeenCalledWith(
                 "temp-folder-id",
             );
-            expect(lockService.removeMigrationLock).toHaveBeenCalled();
+            expect(lockService.removeMigrationLockById).toHaveBeenCalledWith("lock-id");
             expect(ctx.syncState).toBe("IDLE");
             expect(svc.isMigrating).toBe(false);
             expect(svc.currentProgress).toBeNull();
@@ -220,6 +224,7 @@ describe("MigrationService", () => {
             const ctx = createMockCtx();
             const lockService = createMockLockService();
             lockService.getFolderId.mockResolvedValue(null);
+            lockService.listMigrationLocks.mockResolvedValue([{ id: "lock-id", deviceId: "test-device", timestamp: Date.now() }]);
 
             const svc = new MigrationService(
                 createMockBaseAdapter(),
@@ -228,7 +233,7 @@ describe("MigrationService", () => {
             );
 
             await expect(svc.cancelMigration()).resolves.not.toThrow();
-            expect(lockService.removeMigrationLock).toHaveBeenCalled();
+            expect(lockService.removeMigrationLockById).toHaveBeenCalledWith("lock-id");
         });
     });
 
@@ -363,7 +368,7 @@ describe("MigrationService", () => {
             const ctx = createMockCtx();
             const baseAdapter = createMockBaseAdapter();
             const lockService = createMockLockService();
-            const tempAdapter = createMockBaseAdapter("TestVault-Temp-Encrypted");
+            const tempAdapter = createMockBaseAdapter("TestVault-Temp-Encrypted-test-device");
             tempAdapter.getBaseAdapter = vi.fn(() => tempAdapter);
 
             const svc = new MigrationService(baseAdapter, lockService, ctx);
@@ -382,8 +387,9 @@ describe("MigrationService", () => {
             );
             // Lock file uploaded to temp before swap
             expect(lockService.uploadLockFileToAdapter).toHaveBeenCalled();
-            // Migration lock removed
-            expect(lockService.removeMigrationLock).toHaveBeenCalled();
+            // The migration lock stays in the old folder (the backup now): devices
+            // that still hold that folder stop at it
+            expect(lockService.removeMigrationLockById).not.toHaveBeenCalled();
             // State reset
             expect(ctx.syncState).toBe("IDLE");
             expect(svc.isMigrating).toBe(false);
@@ -417,7 +423,7 @@ describe("MigrationService", () => {
             await svc.startMigration("password");
 
             // Use a simple mock tempAdapter instead of EncryptedAdapter
-            const tempAdapter = createMockBaseAdapter("TestVault-Temp-Encrypted");
+            const tempAdapter = createMockBaseAdapter("TestVault-Temp-Encrypted-test-device");
             tempAdapter.getBaseAdapter = vi.fn(() => tempAdapter);
 
             const progress: any[] = [];
@@ -426,7 +432,9 @@ describe("MigrationService", () => {
             // Files should be uploaded
             expect(tempAdapter.uploadFile).toHaveBeenCalledTimes(2);
 
-            // localIndex should be updated
+            // The device's own index is untouched until the folders are swapped
+            expect(ctx.localIndex["notes/a.md"]).toBeUndefined();
+            await svc.finalizeMigration(tempAdapter);
             expect(ctx.localIndex["notes/a.md"]).toBeDefined();
             expect(ctx.localIndex["notes/a.md"].hash).toBe("hash-notes/a.md");
             expect(ctx.localIndex["notes/a.md"].plainHash).toBeDefined();

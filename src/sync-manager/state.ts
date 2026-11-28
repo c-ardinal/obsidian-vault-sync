@@ -1,4 +1,12 @@
 import { appliedScopeOf, restoreAppliedScope } from "./sync-scope";
+import {
+    knownVaultRootOf,
+    ownDeletionsSnapshot,
+    resentSnapshot,
+    restoreKnownVaultRoot,
+    restoreOwnDeletions,
+    restoreResent,
+} from "./vault-folder";
 import { overwriteRepairsSnapshot, restoreOverwriteRepairs } from "./overwrite-recovery";
 import { plainHashVersion, restorePlainHashVersion } from "./plain-hash-migration";
 import { contentFingerprint } from "./content-fingerprint";
@@ -562,6 +570,9 @@ export async function loadLocalIndex(ctx: StateCtx): Promise<void> {
                 journalSeq?: unknown;
                 plainHashVersion?: unknown;
                 syncScope?: unknown;
+                vaultRootId?: unknown;
+                ownDeletions?: unknown;
+                resentAfterFollow?: unknown;
             };
             ctx.localIndex = parsed.index || {};
             ctx.deviceId = parsed.deviceId || "";
@@ -578,6 +589,9 @@ export async function loadLocalIndex(ctx: StateCtx): Promise<void> {
             restoreUnsyncedRenames(ctx, parsed.unsyncedRenames);
             restorePlainHashVersion(ctx, parsed.plainHashVersion, false);
             restoreAppliedScope(ctx, parsed.syncScope);
+            restoreKnownVaultRoot(ctx, parsed.vaultRootId);
+            restoreOwnDeletions(ctx, parsed.ownDeletions);
+            restoreResent(ctx, parsed.resentAfterFollow);
             // The background queue does not survive a restart. Its owed pulls are in
             // pendingPulls (retried by the next sync) and unpushed files are found by
             // the startup scan, so the markers only kept the device "busy" forever.
@@ -800,6 +814,9 @@ export async function saveLocalIndex(ctx: StateCtx, immediate = false): Promise<
             journalSeq: j.seq,
             plainHashVersion: plainHashVersion(ctx),
             syncScope: appliedScopeOf(ctx),
+            vaultRootId: knownVaultRootOf(ctx),
+            ownDeletions: ownDeletionsSnapshot(ctx),
+            resentAfterFollow: resentSnapshot(ctx),
         });
         await ctx.vault.write(ctx.localIndexPath, data);
         rememberWritten(ctx);

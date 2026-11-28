@@ -1,4 +1,4 @@
-import { CloudAdapter } from "../types/adapter";
+import { CloudAdapter, VaultFolderSwapError } from "../types/adapter";
 import { TFile } from "obsidian";
 import { CtxFlag, describeCtxState } from "./context-state";
 import { isQuietCycle } from "./change-peek";
@@ -112,6 +112,7 @@ import {
     executeFullScan as _executeFullScan,
 } from "./sync-orchestration";
 import { syncErrorNotice } from "./sync-coordinator";
+import { isVaultFolderRestart } from "./vault-folder";
 import { forgetReincludedFiles as _forgetReincludedFiles } from "./sync-pull";
 import { noteFullCleanupRequest } from "./sync-push";
 import { BackgroundTransferQueue } from "./background-transfer";
@@ -219,6 +220,12 @@ export class SyncManager {
     private onActivityEnd: () => void = () => {};
     public onSettingsUpdated: () => Promise<void> = async () => {};
     public onSaveSettings: () => Promise<void> = async () => {};
+    /**
+     * A sync found that the vault now needs the add-on (another device converted
+     * it): the plugin unlocks it with the saved password, or asks the user right
+     * away (install the add-on / enter the password).
+     */
+    public onVaultAccessRequired: () => Promise<void> = async () => {};
     private isSpinning = false;
     /** Set on macOS / iOS, whose file systems treat NFC and NFD names as one file */
     unicodeInsensitiveFs = false;
@@ -302,6 +309,14 @@ export class SyncManager {
             new TrashRemoteDeletion(() => this.settings.remoteTrashRetentionDays ?? -1),
         );
         this.vaultLockService = new VaultLockService(this.baseAdapter, this.remoteDeletion);
+        const lockCopyPath = () => `${this.pluginDir}/data/local/vault-lock-copy.vault`;
+        this.vaultLockService.copy = {
+            load: async () => ((await this.vault.exists(lockCopyPath())) ? await this.vault.read(lockCopyPath()) : null),
+            save: async (blob) => {
+                await this.ensureLocalFolder(lockCopyPath());
+                await this.vault.write(lockCopyPath(), blob);
+            },
+        };
         this.migrationService = new MigrationService(
             this.baseAdapter,
             this.vaultLockService,
@@ -632,8 +647,10 @@ export class SyncManager {
      * vault-lock then appears). A lock older than a day is a leftover of an
      * abandoned conversion (the converting device overrides it after that too).
      */
-    private async otherDeviceConvertingVault(trigger: SyncTrigger): Promise<boolean> {
-        const lock = await this.vaultLockService.getMigrationLock();
+    private async otherDeviceConvertingVault(
+        trigger: SyncTrigger,
+        lock: { deviceId: string; timestamp: number } | null,
+    ): Promise<boolean> {
         if (!lock || lock.deviceId === this.deviceId) return false;
         if (!(lock.timestamp > Date.now() - MIGRATION_LOCK_STALE_MS)) return false;
         const isUserAction = trigger === "manual-sync" || trigger === "full-scan";
@@ -644,6 +661,21 @@ export class SyncManager {
             this.vaultConvertingNotified = true;
         }
         return true;
+    }
+
+    /**
+     * The vault folder is missing by name while a converted folder waits next to
+     * its place: another device is between the two renames of the folder swap.
+     * Nothing is created or uploaded now; the next sync finds the new folder.
+     */
+    private async waitForFolderSwap(trigger: SyncTrigger): Promise<void> {
+        const isUserAction = trigger === "manual-sync" || trigger === "full-scan";
+        await this.log("Sync skipped: the vault folder is being replaced by a conversion on another device.", "warn");
+        if (isUserAction || !this.vaultConvertingNotified) {
+            this.currentTrigger = trigger;
+            await this.notify("noticeVaultConverting");
+            this.vaultConvertingNotified = true;
+        }
     }
 
     private async lockCheckCanWait(trigger: SyncTrigger): Promise<boolean> {
@@ -658,26 +690,68 @@ export class SyncManager {
     async requestSmartSync(
         trigger: SyncTrigger = "manual-sync",
         scanVault: boolean = false,
+        /** Internal: how often this request started over after the vault folder was replaced */
+        restarts = 0,
     ): Promise<void> {
         if (this.syncState === "MIGRATING") {
             await this.log(`Sync request (${trigger}) skipped: Migration in progress.`, "warn");
             return;
         }
+        try {
+            await this.migrationService.recoverInterruptedSwap();
+        } catch (e) {
+            if (e instanceof VaultFolderSwapError) return this.waitForFolderSwap(trigger);
+            await this.log(`[Migration] Could not check for an interrupted folder swap (retried at the next sync): ${String(e)}`, "warn");
+            return;
+        }
+        // A restarted request must read the lock of the new folder
+        if (restarts > 0) vaultLockClear.delete(this);
         // Auto-detect remote E2EE before first sync attempt
         if (!this.settings.e2eeEnabled && !(await this.lockCheckCanWait(trigger))) {
             try {
-                const hasRemoteLock = await this.vaultLockService.checkForLockFile();
+                let hasRemoteLock = await this.vaultLockService.checkForLockFile();
+                // (one read of the migration lock serves both checks: no extra request)
+                const migrationLock = hasRemoteLock ? null : await this.vaultLockService.getMigrationLock();
+                if (migrationLock?.deviceId === this.deviceId && !this.migrationService.isMigrating) {
+                    // This device began a conversion and the app stopped during it.
+                    // Nothing of the vault was replaced: what the run left goes, or
+                    // every other device would wait for it until the lock is stale.
+                    await this.log("[Migration] Removing what an interrupted conversion on this device left.", "warn");
+                    await this.migrationService.cancelMigration();
+                } else if (migrationLock) {
+                    // A conversion ends by swapping the vault folder for a new one of
+                    // the same name. The cloud folder is held by id, so this device
+                    // would stay in the old folder and never see the vault-lock:
+                    // look the folder up again.
+                    this.baseAdapter.reset();
+                    hasRemoteLock = await this.vaultLockService.checkForLockFile();
+                    if (hasRemoteLock) await this.log("The vault folder was replaced by a converted one.", "system");
+                }
                 if (!hasRemoteLock) vaultLockClear.add(this);
-                if (!hasRemoteLock && (await this.otherDeviceConvertingVault(trigger))) return;
+                if (!hasRemoteLock && (await this.otherDeviceConvertingVault(trigger, migrationLock))) return;
                 if (hasRemoteLock) {
                     await this.log("Remote E2EE detected. Enabling E2EE locally.", "system");
                     this.settings.e2eeEnabled = true;
                     await this.onSaveSettings();
+                    this.currentTrigger = trigger;
                     await this.notify(
                         this.cryptoEngine ? "noticeE2EEAutoEnabled" : "noticeAddonRequired",
                     );
+                    // Sync stops here, and the user is asked at once: no waiting
+                    // for the next start of the app
+                    try {
+                        await this.onVaultAccessRequired();
+                    } catch (e) {
+                        await this.log(`Vault access prompt failed: ${String(e)}`, "warn");
+                    }
+                    if (this.e2eeLocked) {
+                        await this.log("Sync stopped: this vault was converted on another device.", "warn");
+                        this.vaultLockedNotified = true;
+                        return;
+                    }
                 }
             } catch (e) {
+                if (e instanceof VaultFolderSwapError) return this.waitForFolderSwap(trigger);
                 if (this.baseAdapter.isAuthenticated()) {
                     await this.log(
                         `[E2EE Check] Remote E2EE state could not be verified: ${String(e)}. Aborting sync to prevent data corruption.`,
@@ -715,7 +789,16 @@ export class SyncManager {
         this.currentTrigger = trigger;
         // After a conversion: the old folder is checked and deleted once its grace time is over
         await this.migrationService.finishBackupCleanup();
-        return _requestSmartSync(this as unknown as SyncContext, scanVault);
+        try {
+            return await _requestSmartSync(this as unknown as SyncContext, scanVault);
+        } catch (e) {
+            if (e instanceof VaultFolderSwapError) return this.waitForFolderSwap(trigger);
+            if (!isVaultFolderRestart(e) || restarts >= 2) throw e;
+            // Another device replaced the vault folder (a conversion): start over
+            // from the checks above, which now read the new folder
+            await this.baseAdapter.getVaultRootId?.();
+            return this.requestSmartSync(trigger, scanVault, restarts + 1);
+        }
     }
 
     private async executeSmartSync(scanVault: boolean): Promise<void> {

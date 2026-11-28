@@ -88,6 +88,12 @@ jobs:
             - name: Harness self-tests, known-bug scenarios and OS name differences
               run: npx vitest run --config vitest.sim.config.ts tests/sim/harness.test.ts tests/sim/known-bugs.test.ts tests/sim/os-names.test.ts
 
+            # A vault converted for an add-on while other devices run, restart, push
+            # late, convert at the same time or are closed halfway (real SyncManager,
+            # MigrationService and Drive adapter on a stand-in server). Blocking.
+            - name: Vault conversion with several devices
+              run: npx vitest run --config vitest.sim.config.ts tests/sim/addon-conversion.test.ts
+
             # Randomized multi-device runs. Non-blocking until the known bugs are fixed:
             # results are shown in the job summary and uploaded as an artifact.
             # Set the repository variable SIM_STRICT=true to make failures block the PR.

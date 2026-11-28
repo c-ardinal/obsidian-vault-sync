@@ -78,6 +78,11 @@ export class EncryptedAdapter implements CloudAdapter {
         return this.baseAdapter.getFileMetadataById(fileId, knownPath);
     }
 
+    async getContentHashById(fileId: string): Promise<string | null> {
+        if (!this.baseAdapter.getContentHashById) throw new Error("getContentHashById is not supported");
+        return this.baseAdapter.getContentHashById(fileId);
+    }
+
     async downloadFile(fileId: string): Promise<ArrayBuffer> {
         // No caching by fileId: another device can replace the content at any time,
         // and a cached copy was served as the NEW version (the sync recorded the new
@@ -143,8 +148,9 @@ export class EncryptedAdapter implements CloudAdapter {
         fileId: string,
         newName: string,
         newParentPath: string | null,
+        origin?: "vault" | "outside",
     ): Promise<CloudFile> {
-        return this.baseAdapter.moveFile(fileId, newName, newParentPath);
+        return this.baseAdapter.moveFile(fileId, newName, newParentPath, origin);
     }
 
     /** Stored bytes are copied as they are, so the copy stays readable with the same key */
@@ -230,6 +236,11 @@ export class EncryptedAdapter implements CloudAdapter {
 
     async getAppRootId(): Promise<string> {
         return this.baseAdapter.getAppRootId();
+    }
+
+    get getVaultRootId(): CloudAdapter["getVaultRootId"] {
+        const base = this.baseAdapter;
+        return base.getVaultRootId ? () => base.getVaultRootId!() : undefined;
     }
 
     cloneWithNewVaultName(newVaultName: string): CloudAdapter {

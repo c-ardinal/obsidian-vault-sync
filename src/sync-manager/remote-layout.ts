@@ -21,6 +21,8 @@ export const REMOTE_FILES = {
     rawIndex: `${REMOTE_DATA_DIR}/sync-index_raw.json`,
     communication: `${REMOTE_DATA_DIR}/communication.json`,
     vaultLock: `${REMOTE_DATA_DIR}/vault-lock.vault`,
+    /** What a converted vault held when it replaced the old folder (vault-folder.ts) */
+    conversionBase: `${REMOTE_DATA_DIR}/conversion-base.json`,
 } as const;
 
 /**
@@ -57,6 +59,10 @@ export interface DeletionMark {
     hash?: string;
     /** Unix time (ms) of the deletion */
     at: number;
+    /** Vault path the file had */
+    path?: string;
+    /** Content hash (hashContent) of that version, as the vault holds it locally */
+    plain?: string;
 }
 
 export type DeletionMarks = Record<string, DeletionMark>;

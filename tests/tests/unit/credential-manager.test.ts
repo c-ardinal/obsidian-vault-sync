@@ -220,6 +220,50 @@ describe("CredentialManager", () => {
         });
     });
 
+    describe("onAuthChanged (the screens follow the sign-in state without a restart)", () => {
+        function withListener() {
+            const mocks = createMockDeps();
+            const events: Array<boolean | string> = [];
+            mocks.syncManager.requestSmartSync.mockImplementation(async () => void events.push("sync"));
+            const onAuthChanged = vi.fn(async (signedIn: boolean) => void events.push(signedIn));
+            const m = new CredentialManager({ ...mocks.deps, onAuthChanged } as any);
+            return { ...mocks, m, events, onAuthChanged };
+        }
+
+        it("tells it after signing in (tokens passed back), before the first sync", async () => {
+            const t = withListener();
+            await t.m.handleAuthCallback({ access_token: "a", refresh_token: "r" });
+            expect(t.events).toEqual([true, "sync"]);
+        });
+
+        it("tells it after signing in (code exchange)", async () => {
+            const t = withListener();
+            await t.m.handleAuthCallback({ code: "auth-code-123" });
+            expect(t.events).toEqual([true, "sync"]);
+        });
+
+        it("does not tell it when signing in failed", async () => {
+            const t = withListener();
+            t.adapter.verifyState.mockReturnValue(false);
+            await t.m.handleAuthCallback({ state: "bad-state" });
+            expect(t.onAuthChanged).not.toHaveBeenCalled();
+        });
+
+        it("tells it when the sign-in is lost", async () => {
+            const t = withListener();
+            t.m.setupAdapterCallbacks();
+            await t.adapter.onAuthFailure();
+            expect(t.events).toEqual([false]);
+        });
+
+        it("signs in even when the listener fails", async () => {
+            const t = withListener();
+            t.onAuthChanged.mockRejectedValueOnce(new Error("view gone"));
+            await t.m.handleAuthCallback({ access_token: "a", refresh_token: "r" });
+            expect(t.syncManager.requestSmartSync).toHaveBeenCalledWith("manual-sync");
+        });
+    });
+
     describe("saveCredentials", () => {
         it("should update adapter and persist to secure storage", async () => {
             await manager.saveCredentials("cid", "csecret", "at", "rt", 999999);

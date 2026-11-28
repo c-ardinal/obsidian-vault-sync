@@ -95,6 +95,12 @@ export interface CloudAdapter {
      * @param knownPath Optional known path to populate the result (avoids expensive path resolution)
      */
     getFileMetadataById(fileId: string, knownPath?: string): Promise<CloudFile | null>;
+    /**
+     * Content hash of the cloud file with this id wherever it is now, also
+     * outside the vault folder (a folder that was the vault before a conversion).
+     * null when the file is gone. Optional: only clouds that address files by id.
+     */
+    getContentHashById?(fileId: string): Promise<string | null>;
     downloadFile(fileId: string): Promise<ArrayBuffer>;
     uploadFile(
         path: string,
@@ -164,7 +170,18 @@ export interface CloudAdapter {
      *                       - "folder/sub": move to specific subfolder
      * @returns Updated CloudFile metadata
      */
-    moveFile(fileId: string, newName: string, newParentPath: string | null): Promise<CloudFile>;
+    /**
+     * @param origin "vault" (default): the file must lie in the vault folder now,
+     *   otherwise the call fails. A file id outlives its folder's time as the vault
+     *   (a converted vault is a new folder), and such a file must never be moved in.
+     *   "outside": the file is brought in on purpose (restore from the trash folder).
+     */
+    moveFile(
+        fileId: string,
+        newName: string,
+        newParentPath: string | null,
+        origin?: "vault" | "outside",
+    ): Promise<CloudFile>;
     /**
      * Copy a file on the cloud side (nothing is downloaded) into a folder of this
      * adapter's tree; missing folders are created. The source may be in another
@@ -200,9 +217,24 @@ export interface CloudAdapter {
     reset(): void;
 
     /**
+     * Cloud id of the vault's own folder, on clouds that address folders by id.
+     * It changes when the folder is replaced by another one of the same name
+     * (a vault conversion on another device): file ids known so far then
+     * belong to the old folder.
+     */
+    getVaultRootId?(): Promise<string>;
+
+    /**
      * Get the ID of the shared application root folder (e.g. 'ObsidianVaultSyncer')
      */
     getAppRootId(): Promise<string>;
+
+    /**
+     * Asked right before the adapter creates a vault folder because none of its
+     * name exists, with the folders lying next to it (name, cloud id, time of
+     * the last change). Throwing prevents the creation.
+     */
+    beforeVaultRootCreate?: ((siblings: { id: string; name: string; modifiedTime: number }[]) => Promise<void>) | null;
 
     /**
      * Clone this adapter with a new vault name.
@@ -259,4 +291,16 @@ export interface StorageQuota {
     usage: number;
     /** Of that, files in the cloud's own trash */
     usageInTrash?: number;
+}
+
+/**
+ * The vault folder is missing by name while a conversion's folders lie next to
+ * it: another device is swapping the folders right now (or stopped in between).
+ * No new vault folder may be created meanwhile; sync waits.
+ */
+export class VaultFolderSwapError extends Error {
+    constructor() {
+        super("The vault folder is being replaced by a conversion on another device.");
+        this.name = "VaultFolderSwapError";
+    }
 }

@@ -858,6 +858,11 @@ describe("Notification Visibility Matrix", () => {
             "noticeAddonUpdateRequired",
             "noticeEngineVerifyFailed",
             "noticeVaultLocked",
+            "noticeE2EEAutoEnabled",
+            "noticeBackupKept",
+            "noticeBackupDeleted",
+            "e2eeUnlockFailed",
+            "noticeMigrationFailed",
         ];
 
         it("suppresses non-critical notifications regardless of trigger", async () => {
